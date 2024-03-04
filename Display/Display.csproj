@@ -2,11 +2,15 @@
 
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
-        <RootNamespace>AVCoders.Core</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <AssemblyName>AVCoders.Core</AssemblyName>
+        <AssemblyName>AVCoders.Display</AssemblyName>
+        <RootNamespace>AVCoders.Display</RootNamespace>
         <LangVersion>11</LangVersion>
     </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Core\Core.csproj" />
+    </ItemGroup>
 
 </Project>

@@ -1,0 +1,313 @@
+using System.Reflection;
+using AVCoders.Core;
+using Moq;
+
+namespace AVCoders.Display.Tests;
+
+public class SonySimpleIPControlTest
+{
+    private readonly SonySimpleIpControl _sonyTv;
+    private readonly Mock<TcpClient> _mockClient;
+    private Mock<VolumeLevelHandler> _volumeLevelHandler = new();
+    private Mock<MuteStateHandler> _muteStateHandler = new ();
+    Mock<PowerStateHandler> _powerStateHandler = new ();
+
+    public SonySimpleIPControlTest()
+    {
+        _mockClient = new Mock<TcpClient>("foo", (ushort)1);
+        _sonyTv = new SonySimpleIpControl(_mockClient.Object);
+        _sonyTv.VolumeLevelHandlers += _volumeLevelHandler.Object;
+        _sonyTv.MuteStateHandlers += _muteStateHandler.Object;
+        _sonyTv.PowerStateHandlers += _powerStateHandler.Object;
+    }
+
+    [Fact]
+    public void Constructor_SetsPortTo20060()
+    {
+        _mockClient.Verify(x => x.SetPort(20060), Times.Once);
+    }
+
+    [Fact]
+    public void SendCommand_DoesNotManipulateInput()
+    {
+        String input = "Foo";
+
+        var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        method?.Invoke(_sonyTv, new[] { input });
+        _mockClient.Verify(x => x.Send(input), Times.Once);
+    }
+
+    [Fact]
+    public void SendCommand_ReportsCommunicationIsOkay()
+    {
+        String input = "Foo";
+
+        var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        method?.Invoke(_sonyTv, new[] { input });
+        Assert.Equal(CommunicationState.Okay, _sonyTv.GetCurrentCommunicationState());
+    }
+
+    [Fact]
+    public void SendCommand_ReportsCommunicationHasFailed()
+    {
+        String input = "Foo";
+
+        _mockClient.Setup(client => client.Send(It.IsAny<String>())).Throws(new IOException("Oh No!"));
+        var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        method?.Invoke(_sonyTv, new[] { input });
+        Assert.Equal(CommunicationState.Error, _sonyTv.GetCurrentCommunicationState());
+    }
+
+    [Fact]
+    public void PowerOn_SendsThePowerOnCommand()
+    {
+        String expectedPowerOnCommand = "*SCPOWR0000000000000001\n";
+        _sonyTv.PowerOn();
+
+        _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
+    }
+
+    [Fact]
+    public void PowerOn_UpdatesInternalPowerState()
+    {
+        _sonyTv.PowerOn();
+
+        Assert.Equal(PowerState.On, _sonyTv.GetCurrentPowerState());
+    }
+
+    [Fact]
+    public void PowerOff_SendsThePowerOffCommand()
+    {
+        String expectedPowerOffCommand = "*SCPOWR0000000000000000\n";
+        _sonyTv.PowerOff();
+
+        _mockClient.Verify(x => x.Send(expectedPowerOffCommand), Times.Once);
+    }
+
+    [Fact]
+    public void PowerOff_UpdatesInternalPowerState()
+    {
+        _sonyTv.PowerOff();
+
+        Assert.Equal(PowerState.Off, _sonyTv.GetCurrentPowerState());
+    }
+
+    [Theory]
+    [InlineData("*SNPOWR0000000000000001\n", PowerState.On)]
+    [InlineData("*SNPOWR0000000000000000\n", PowerState.Off)]
+    public void HandleResponse_SetsThePowerState(string response, PowerState expectedPowerState)
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke(response);
+
+        Assert.Equal(expectedPowerState, _sonyTv.GetCurrentPowerState());
+    }
+
+    [Theory]
+    [InlineData("*SNPOWR0000000000000001\n", PowerState.On)]
+    [InlineData("*SNPOWR0000000000000000\n", PowerState.Off)]
+    public void HandleResponse_CallsThePowerDelegate(string response, PowerState expectedPowerState)
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke(response);
+        
+        _powerStateHandler.Verify(x => x.Invoke(expectedPowerState));
+    }
+
+    [Fact]
+    public void HandleResponse_SetsTheVolume()
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke("*SNVOLU0000000000000010\n");
+
+        Assert.Equal(10, _sonyTv.GetCurrentVolume());
+    }
+
+    [Fact]
+    public void HandleResponse_InvokesTheVolumeDelegate()
+    {
+        Mock<VolumeLevelHandler> volumeLevelHandler = new Mock<VolumeLevelHandler>();
+        _sonyTv.VolumeLevelHandlers += volumeLevelHandler.Object;
+        _mockClient.Object.ResponseHandlers?.Invoke("*SNVOLU0000000000000010\n");
+
+        volumeLevelHandler.Verify(x => x.Invoke(10));
+    }
+
+    [Theory]
+    [InlineData("*SNAMUT0000000000000000\n", MuteState.Off)]
+    [InlineData("*SNAMUT0000000000000001\n", MuteState.On)]
+    public void HandleResponse_SetsTheAudioMuteState(string input, MuteState expectedMuteState)
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke(input);
+        
+        Assert.Equal(expectedMuteState, _sonyTv.GetAudioMute());
+    }
+
+    [Theory]
+    [InlineData("*SNAMUT0000000000000000\n", MuteState.Off)]
+    [InlineData("*SNAMUT0000000000000001\n", MuteState.On)]
+    public void HandleResponse_InvokesTheDelegate(string input, MuteState expectedMuteState)
+    {
+        Mock<MuteStateHandler> muteStateHandler = new Mock<MuteStateHandler>();
+        _sonyTv.MuteStateHandlers += muteStateHandler.Object;
+        _mockClient.Object.ResponseHandlers?.Invoke(input);
+        
+        muteStateHandler.Verify(x => x.Invoke(expectedMuteState));
+    }
+
+    [Theory]
+    [InlineData("*SNINPT0000000100000001\n", Input.Hdmi1)]
+    [InlineData("*SNINPT0000000100000002\n", Input.Hdmi2)]
+    [InlineData("*SNINPT0000000100000003\n", Input.Hdmi3)]
+    [InlineData("*SNINPT0000000100000004\n", Input.Hdmi4)]
+    [InlineData("*SNINPT0000000000000000\n", Input.DvbtTuner)]
+    public void HandleResponse_SetsTheInput(string response, Input expectedInput)
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke(response);
+
+        Assert.Equal(expectedInput, _sonyTv.GetCurrentInput());
+    }
+
+    [Theory]
+    [InlineData("*SNINPT0000000100000001\n", Input.Hdmi1)]
+    [InlineData("*SNINPT0000000100000002\n", Input.Hdmi2)]
+    [InlineData("*SNINPT0000000100000003\n", Input.Hdmi3)]
+    [InlineData("*SNINPT0000000100000004\n", Input.Hdmi4)]
+    [InlineData("*SNINPT0000000000000000\n", Input.DvbtTuner)]
+    public void HandleResponse_InvokesTheInputDelegate(string response, Input expectedInput)
+    {
+        Mock<InputHandler> inputHandler = new Mock<InputHandler>();
+        _sonyTv.InputHandlers += inputHandler.Object;
+        _mockClient.Object.ResponseHandlers?.Invoke(response);
+
+        inputHandler.Verify(x => x.Invoke(expectedInput));
+    }
+
+    [Fact]
+    public void HandleResponse_HandlesAMultiResponseString()
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke(
+            "*SNINPT0000000000000000\n*SNPOWR0000000000000001\n*SNVOLU0000000000000010\n*SAVOLU0000000000000000\n");
+
+        Assert.Equal(10, _sonyTv.GetCurrentVolume());
+        Assert.Equal(PowerState.On, _sonyTv.GetCurrentPowerState());
+        Assert.Equal(Input.DvbtTuner, _sonyTv.GetCurrentInput());
+    }
+
+    [Fact]
+    public void HandleResponse_HandlesWhiteSpaceInAMultiResponseString()
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke(
+            "*SNINPT0000000000000000\n\t \t*SNPOWR0000000000000001\n                        *SNVOLU0000000000000010\n");
+
+        Assert.Equal(10, _sonyTv.GetCurrentVolume());
+        Assert.Equal(PowerState.On, _sonyTv.GetCurrentPowerState());
+        Assert.Equal(Input.DvbtTuner, _sonyTv.GetCurrentInput());
+    }
+
+    [Theory]
+    [InlineData(Input.Hdmi1, "*SCINPT0000000100000001\n")]
+    [InlineData(Input.Hdmi2, "*SCINPT0000000100000002\n")]
+    [InlineData(Input.Hdmi3, "*SCINPT0000000100000003\n")]
+    [InlineData(Input.Hdmi4, "*SCINPT0000000100000004\n")]
+    public void SetInput_SetsTheInput(Input input, string expectedInputCommand)
+    {
+        _sonyTv.SetInput(input);
+
+        _mockClient.Verify(x => x.Send(expectedInputCommand), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(0, "*SCVOLU0000000000000000\n")]
+    [InlineData(100, "*SCVOLU0000000000000100\n")]
+    public void SetVolume_SetsTheVolume(int volume, string expectedVolumeCommand)
+    {
+        _sonyTv.SetVolume(volume);
+
+        _mockClient.Verify(x => x.Send(expectedVolumeCommand), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(100)]
+    public void SetVolume_CallsTheDelegate(int volume)
+    {
+        _sonyTv.SetVolume(volume);
+        
+        _volumeLevelHandler.Verify(x => x.Invoke(volume));
+    }
+
+    [Fact]
+    public void SetVolume_UpdatesInternalState()
+    {
+        _sonyTv.SetVolume(15);
+
+        Assert.Equal(15, _sonyTv.GetCurrentVolume());
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void SetVolume_IgnoresInvalidValues(int volume)
+    {
+        _sonyTv.SetVolume(volume);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(MuteState.On, "*SCAMUT0000000000000001\n")]
+    [InlineData(MuteState.Off, "*SCAMUT0000000000000000\n")]
+    public void setAudioMute_SendsTheCommand(MuteState state, string expectedMuteCommand)
+    {
+        _sonyTv.SetAudioMute(state);
+
+        _mockClient.Verify(x => x.Send(expectedMuteCommand), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(MuteState.On)]
+    [InlineData(MuteState.Off)]
+    public void setAudioMute_CallsTheDeleagte(MuteState state)
+    {
+        _sonyTv.SetAudioMute(state);
+
+        _muteStateHandler.Verify(x => x.Invoke(state));
+    }
+
+    [Fact]
+    public void setAudioMute_UpdatesInternalState()
+    {
+        _sonyTv.SetAudioMute(MuteState.On);
+
+        Assert.Equal(MuteState.On, _sonyTv.GetAudioMute());
+    }
+
+
+    [Theory]
+    [InlineData(MuteState.On, "*SCPMUT0000000000000001\n")]
+    [InlineData(MuteState.Off, "*SCPMUT0000000000000000\n")]
+    public void setPictureMute_SendsTheCommand(MuteState state, string expectedMuteCommand)
+    {
+        _sonyTv.SetVideoMute(state);
+
+        _mockClient.Verify(x => x.Send(expectedMuteCommand), Times.Once);
+    }
+
+    [Fact]
+    public void setPictureMute_UpdatesInternalState()
+    {
+        _sonyTv.SetVideoMute(MuteState.On);
+
+        Assert.Equal(MuteState.On, _sonyTv.GetVideoMute());
+    }
+
+    [Fact]
+    public void SendIrCode_SendsTheCommand()
+    {
+        String expectedCommand = "*SCIRCC0000000000000032\n";
+
+        _sonyTv.SendIrCode(32);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+}
