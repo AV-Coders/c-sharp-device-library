@@ -10,6 +10,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CommunicationClients", "Com
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreTest", "CoreTest\CoreTest.csproj", "{F2ED903F-7220-4EEA-B735-5A7692CD4189}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Dsp", "Dsp\Dsp.csproj", "{A8CBB897-65DE-4A97-B865-6D8EB19333B0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DspTest", "DspTest\DspTest.csproj", "{3ED480DD-38FA-4FFA-A1D8-A43AEBAAF08A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -36,5 +40,13 @@ Global
 		{F2ED903F-7220-4EEA-B735-5A7692CD4189}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F2ED903F-7220-4EEA-B735-5A7692CD4189}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F2ED903F-7220-4EEA-B735-5A7692CD4189}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A8CBB897-65DE-4A97-B865-6D8EB19333B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A8CBB897-65DE-4A97-B865-6D8EB19333B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A8CBB897-65DE-4A97-B865-6D8EB19333B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A8CBB897-65DE-4A97-B865-6D8EB19333B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3ED480DD-38FA-4FFA-A1D8-A43AEBAAF08A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3ED480DD-38FA-4FFA-A1D8-A43AEBAAF08A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3ED480DD-38FA-4FFA-A1D8-A43AEBAAF08A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3ED480DD-38FA-4FFA-A1D8-A43AEBAAF08A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
