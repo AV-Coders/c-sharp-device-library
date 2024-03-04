@@ -10,10 +10,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CommunicationClients", "Com
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CoreTest", "CoreTest\CoreTest.csproj", "{F2ED903F-7220-4EEA-B735-5A7692CD4189}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Dsp", "Dsp\Dsp.csproj", "{47C76F25-6D9E-4EB9-80FD-5C2BD308AC3F}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DspTest", "DspTest\DspTest.csproj", "{5536237D-F161-491E-8F77-EDEB89711E21}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -40,13 +36,5 @@ Global
 		{F2ED903F-7220-4EEA-B735-5A7692CD4189}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F2ED903F-7220-4EEA-B735-5A7692CD4189}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F2ED903F-7220-4EEA-B735-5A7692CD4189}.Release|Any CPU.Build.0 = Release|Any CPU
-		{47C76F25-6D9E-4EB9-80FD-5C2BD308AC3F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{47C76F25-6D9E-4EB9-80FD-5C2BD308AC3F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{47C76F25-6D9E-4EB9-80FD-5C2BD308AC3F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{47C76F25-6D9E-4EB9-80FD-5C2BD308AC3F}.Release|Any CPU.Build.0 = Release|Any CPU
-		{5536237D-F161-491E-8F77-EDEB89711E21}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{5536237D-F161-491E-8F77-EDEB89711E21}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{5536237D-F161-491E-8F77-EDEB89711E21}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{5536237D-F161-491E-8F77-EDEB89711E21}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
