@@ -47,9 +47,9 @@ public class BiampInt : StringValue
 
 public class BiampTtp : Dsp
 {
-    public static ushort DefaultPort = 22;
-    public static string DefaultUser = "default";
-    public static string DefaultPassword = String.Empty;
+    public static readonly ushort DefaultPort = 22;
+    public static readonly string DefaultUser = "default";
+    public static readonly string DefaultPassword = String.Empty;
     private readonly Dictionary<string, BiampGain> _gains = new();
     private readonly Dictionary<string, BiampMute> _mutes = new();
     private readonly Dictionary<string, BiampInt> _strings = new();
