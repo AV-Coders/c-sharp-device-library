@@ -79,7 +79,7 @@ public class BiampTtp : Dsp
         
         
         string subscriptionResponsePattern = "\":\"(.+)\" \"value\":(.+)";
-        _subscriptionResponseParser = new Regex(subscriptionResponsePattern);
+        _subscriptionResponseParser = new Regex(subscriptionResponsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(200));
 
         HandleConnectionState(tcpClient.GetConnectionState());
     }
