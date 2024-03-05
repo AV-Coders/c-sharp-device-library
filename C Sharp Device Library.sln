@@ -22,6 +22,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MatrixTest", "MatrixTest\Ma
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Matrix", "Matrix\Matrix.csproj", "{868BEAB5-9BBA-4202-802A-FBDF1C46582F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MediaPlayer", "MediaPlayer\MediaPlayer.csproj", "{0542B4AB-35CD-49F8-A559-8D7816691A33}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MediaPlayerTest", "MediaPlayerTest\MediaPlayerTest.csproj", "{9D394D90-C3C7-4259-8A5E-94679077AB5B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -72,5 +76,13 @@ Global
 		{868BEAB5-9BBA-4202-802A-FBDF1C46582F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{868BEAB5-9BBA-4202-802A-FBDF1C46582F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{868BEAB5-9BBA-4202-802A-FBDF1C46582F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0542B4AB-35CD-49F8-A559-8D7816691A33}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0542B4AB-35CD-49F8-A559-8D7816691A33}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0542B4AB-35CD-49F8-A559-8D7816691A33}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0542B4AB-35CD-49F8-A559-8D7816691A33}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9D394D90-C3C7-4259-8A5E-94679077AB5B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9D394D90-C3C7-4259-8A5E-94679077AB5B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9D394D90-C3C7-4259-8A5E-94679077AB5B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9D394D90-C3C7-4259-8A5E-94679077AB5B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
