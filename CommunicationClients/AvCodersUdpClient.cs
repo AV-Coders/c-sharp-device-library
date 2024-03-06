@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Net;
+using System.Text;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
 
@@ -7,58 +8,78 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersUdpClient : Core_UdpClient
 {
     private UdpClient _client;
+    private IPEndPoint? _ipEndPoint;
     private readonly Queue<Byte[]> _sendQueue = new();
 
     public AvCodersUdpClient(string host, ushort port = 0) : 
         base(host, port)
     {
         _client = new UdpClient(Host, Port);
+        
+        if (IPAddress.TryParse(Host, out var remoteIpAddress))
+            _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
+        
+        // This works around a race condition coming from base being called first.
+        ReceiveThreadWorker.Restart();
     }
 
     public override void Receive()
     {
-        throw new NotImplementedException();
+        if (_ipEndPoint == null)
+        {
+            ReceiveThreadWorker.Stop();
+            return;
+        }
+
+        if (_client.Available <= 0)
+        {
+            Thread.Sleep(1100);
+            return;
+        }
+        try
+        {
+            ResponseHandlers?.Invoke(ConvertByteArrayToString(_client.Receive(ref _ipEndPoint)));
+        }
+        catch (Exception e)
+        {
+            Log($"Receive - Error: {e.Message}");
+        }
     }
 
-    public override void ProcessSendQueue()
-    {
-        throw new NotImplementedException();
-    }
+    public override void ProcessSendQueue() =>SendQueueWorker.Stop();
 
-    public override void CheckConnectionState()
-    {
-        throw new NotImplementedException();
-    }
+    public override void CheckConnectionState() => ConnectionStateWorker.Stop();
 
     public override void SetPort(ushort port)
     {
         Port = port;
-        _client.Close();
-        _client.Dispose();
-        _client = new UdpClient(Host, Port);
+        if (IPAddress.TryParse(Host, out var remoteIpAddress))
+            _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
+        Reconnect();
     }
 
     public override void SetHost(string host)
     {
         Host = host;
-        _client.Close();
-        _client.Dispose();
-        _client = new UdpClient(Host, Port);
+        if (IPAddress.TryParse(Host, out var remoteIpAddress))
+            _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
+        Reconnect();
     }
 
     public override void Connect()
     {
         _sendQueue.Clear();
-        ConnectionStateWorker.Restart();
+        _client = new UdpClient(Host, Port);
+        ReceiveThreadWorker.Restart();
     }
 
     public override void Reconnect()
     {
         Log($"Reconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
-        _client.Close();
+        _client = new UdpClient(Host, Port);
+        ReceiveThreadWorker.Restart();
         UpdateConnectionState(ConnectionState.Disconnected);
-        // The worker will handle reconnection
     }
 
     public override void Disconnect()
@@ -74,24 +95,15 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         try
         {
-            Log("UDP Client send is sending bytes.\nHost: {Host}\nPort: {Port}\nBytes: {ConvertByteArrayToString(bytes)}");
             _client.Send(bytes, bytes.Length);
-            Log("UDP Client send Try block complete");
         }
         catch (Exception e)
         {
-            Log($"Error in UDP Socket Implementation. Error: {e.Message}");
+            Log($"Send - Error: {e.Message}");
         }
     }
 
-    public override void Send(String message)
-    {
-        Log($"\nUDP Client send is sending a string.\nMessage: {message}\n");
-
-        byte[] bytes = ConvertStringToByteArray(message);
-
-        Send(bytes);
-    }
+    public override void Send(String message) => Send(ConvertStringToByteArray(message));
 
     private static byte[] ConvertStringToByteArray(string input)
     {
@@ -119,10 +131,5 @@ public class AvCodersUdpClient : Core_UdpClient
             sb.Length--;
 
         return sb.ToString();
-    }
-
-    private void Log(String message, EventLevel level = EventLevel.Informational)
-    {
-        LogHandlers?.Invoke(message, level);
     }
 }
