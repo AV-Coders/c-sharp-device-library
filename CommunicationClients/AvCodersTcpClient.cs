@@ -25,8 +25,8 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         if (!_client.Connected)
         {
-            Log("Client disconnected, waiting 5 seconds");
-            Thread.Sleep(5000);
+            Log("Receive - Client disconnected, waiting 10 seconds");
+            Thread.Sleep(10000);
         }
         else
         {
