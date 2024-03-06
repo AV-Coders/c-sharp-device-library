@@ -48,7 +48,7 @@ public class AvCodersUdpSocket : IpComms
 
     public override void SetHost(string host)
     {
-        Log("The host will always be this device", EventLevel.Error);
+        Log("The host will always be this device");
     }
 
     public override void Connect()
@@ -99,15 +99,5 @@ public class AvCodersUdpSocket : IpComms
         }
 
         return byteArray;
-    }
-
-    private new void Log(string message, EventLevel level)
-    {
-        LogHandlers?.Invoke($"{DateTime.Now} - UDP Client for {Host}:{Port} - {message}", level);
-    }
-
-    private new void Error(string message)
-    {
-        LogHandlers?.Invoke($"{DateTime.Now} - UDP Client for {Host}:{Port} - {message}", EventLevel.Error);
     }
 }

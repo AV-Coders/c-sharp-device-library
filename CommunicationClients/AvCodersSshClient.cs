@@ -70,50 +70,50 @@ public class AvCodersSshClient : IpComms
             }
             catch (SshOperationTimeoutException e)
             {
-                Error($"{Host} - The operation timed out\r\n{e.Message}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - The operation timed out\r\n{e.Message}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (SshAuthenticationException e)
             {
-                Error($"{Host} - Authentication Error\r\n{e.Message}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - Authentication Error\r\n{e.Message}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (SshConnectionException e)
             {
-                Error($"{Host} - The connection could not be established\r\n{e.Message}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - The connection could not be established\r\n{e.Message}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (ObjectDisposedException e)
             {
-                Error($"{Host} - Object disposed exception\r\n{e}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - Object disposed exception\r\n{e}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (InvalidOperationException e)
             {
-                Error($"{Host} - InvalidOperationException - {e.Message}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - InvalidOperationException - {e.Message}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Connected);
             }
             catch (SocketException e)
             {
-                Error($"{Host} - Socket exception\r\n{e}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - Socket exception\r\n{e}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (ProxyException e)
             {
-                Error($"{Host} - Proxy exception\r\n{e}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - Proxy exception\r\n{e}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
-                Error($"{Host} - Unexpected exception\r\n{e}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Log($"{Host} - Unexpected exception\r\n{e}", EventLevel.Error);
+                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             Thread.Sleep(32000);
@@ -169,8 +169,8 @@ public class AvCodersSshClient : IpComms
 
     private void ClientOnErrorOccurred(object? sender, ExceptionEventArgs e)
     {
-        Error($"An error has occurred with the stream: \r\n{e.Exception.Message}");
-        Error(e.Exception.StackTrace ?? "No stack trace available");
+        Log($"An error has occurred with the stream: \r\n{e.Exception.Message}", EventLevel.Error);
+        Log(e.Exception.StackTrace ?? "No stack trace available", EventLevel.Error);
     }
 
     public override void Send(string message)
@@ -222,15 +222,5 @@ public class AvCodersSshClient : IpComms
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client.Disconnect();
         UpdateConnectionState(ConnectionState.Disconnected);
-    }
-
-    private new void Log(string message)
-    {
-        LogHandlers?.Invoke($"{DateTime.Now} - SSH Client for {Host}:{Port} - {message}");
-    }
-
-    private new void Error(string message)
-    {
-        LogHandlers?.Invoke($"{DateTime.Now} - SSH Client for {Host}:{Port} - {message}", EventLevel.Error);
     }
 }

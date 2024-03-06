@@ -43,22 +43,22 @@ public class AvCodersTcpClient : Core_TcpClient
             }
             catch (IOException e)
             {
-                Error($"Receive - IOException:\n{e}");
-                Error(e.StackTrace ?? "No Stack Trace available");
+                Log($"Receive - IOException:\n{e}", EventLevel.Error);
+                Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (ObjectDisposedException e)
             {
-                Error($"Receive  - ObjectDisposedException\n{e}");
-                Error(e.StackTrace ?? "No Stack Trace available");
+                Log($"Receive  - ObjectDisposedException\n{e}", EventLevel.Error);
+                Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
-                Error($"Receive  - Exception:\n{e}");
-                Error(e.StackTrace ?? "No Stack Trace available");
+                Log($"Receive  - Exception:\n{e}", EventLevel.Error);
+                Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
@@ -85,14 +85,14 @@ public class AvCodersTcpClient : Core_TcpClient
             }
             catch (SocketException e)
             {
-                Error($"Check Connection State  - Socket Exception:{e.Message}");
+                Log($"Check Connection State  - Socket Exception:{e.Message}", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
-                Error($"Check Connection State  - New Exception:{e.Message}");
-                Error(e.GetType().ToString());
-                Error(e.StackTrace ?? "No Stack Trace available");
+                Log($"Check Connection State  - New Exception:{e.Message}", EventLevel.Error);
+                Log(e.GetType().ToString(), EventLevel.Error);
+                Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
         }
@@ -164,15 +164,5 @@ public class AvCodersTcpClient : Core_TcpClient
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client = new TcpClient();
         UpdateConnectionState(ConnectionState.Disconnected);
-    }
-
-    private new void Log(string message)
-    {
-        LogHandlers?.Invoke($"{DateTime.Now} - TCP Client for {Host}:{Port} - {message}");
-    }
-
-    private new void Error(string message)
-    {
-        LogHandlers?.Invoke($"{DateTime.Now} - TCP Client for {Host}:{Port} - {message}", EventLevel.Error);
     }
 }
