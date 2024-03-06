@@ -3,11 +3,13 @@
 public class ThreadWorker
 {
     private readonly Action _action;
+    private readonly TimeSpan _sleepTime;
     private Guid _runInstance = Guid.Empty;
     
-    public ThreadWorker(Action action)
+    public ThreadWorker(Action action, TimeSpan sleepTime)
     {
         _action = action;
+        _sleepTime = sleepTime;
     }
 
     public void Restart()
@@ -19,6 +21,7 @@ public class ThreadWorker
             while (_runInstance == thisRun)
             {
                 _action.Invoke();
+                Thread.Sleep(_sleepTime);
             }
         }).Start();
     }

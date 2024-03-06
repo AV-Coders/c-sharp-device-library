@@ -16,10 +16,8 @@ public abstract class Dsp : IDevice
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
     
-    protected void Log(string message)
-    {
-        LogHandlers?.Invoke($"Display - {message}");
-    }
+    protected void Log(string message) => LogHandlers?.Invoke(message);
+    protected void Error(string message) => LogHandlers?.Invoke(message, EventLevel.Error);
 
     protected void UpdateCommunicationState(CommunicationState state)
     {

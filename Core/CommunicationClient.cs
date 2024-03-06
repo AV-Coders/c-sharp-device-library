@@ -40,9 +40,9 @@ public abstract class IpComms : CommunicationClient
         Host = host;
         Port = port;
         
-        ReceiveThreadWorker = new ThreadWorker(Receive);
-        SendQueueWorker = new ThreadWorker(ProcessSendQueue);
-        ConnectionStateWorker = new ThreadWorker(CheckConnectionState);
+        ReceiveThreadWorker = new ThreadWorker(Receive, TimeSpan.Zero);
+        SendQueueWorker = new ThreadWorker(ProcessSendQueue, TimeSpan.Zero);
+        ConnectionStateWorker = new ThreadWorker(CheckConnectionState, TimeSpan.Zero);
     }
 
     ~IpComms()

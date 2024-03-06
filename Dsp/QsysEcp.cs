@@ -38,16 +38,17 @@ public class QsysEcp : Dsp
 
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
     private readonly TcpClient _tcpClient;
-    private Thread _pollThread;
-    private readonly int _pollTime;
+    private readonly ThreadWorker _pollWorker;
 
     public QsysEcp(TcpClient tcpClient, int pollTime = 50000)
     {
         _tcpClient = tcpClient;
-        _pollTime = pollTime;
         _tcpClient.SetPort(DefaultPort);
         _tcpClient.ResponseHandlers += HandleResponse;
         _tcpClient.ConnectionStateHandlers += HandleConnectionState;
+        
+        _pollWorker = new ThreadWorker(PollDspThreadFunction, TimeSpan.FromMilliseconds(pollTime));
+        _pollWorker.Restart();
 
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -65,7 +66,6 @@ public class QsysEcp : Dsp
         {
             if (line.StartsWith("cv"))
             {
-                // new Thread(_ => ProcessValueChange(line)).Start();
                 ProcessValueChange(line);
                 UpdateCommunicationState(CommunicationState.Okay);
             }
@@ -74,7 +74,7 @@ public class QsysEcp : Dsp
             else if (response.Contains("bad_id"))
             {
                 UpdateCommunicationState(CommunicationState.Error);
-                LogHandlers?.Invoke($"Invalid named control found: {response}", EventLevel.Error);
+                Error($"Invalid named control found: {response}");
             }
         }
         
@@ -125,10 +125,6 @@ public class QsysEcp : Dsp
     {
         if (connectionState == ConnectionState.Connected)
         {
-            _pollThread = new Thread(_ => { PollDspThreadFunction(); });
-            _pollThread.Start();
-
-
             new Thread(_ =>
             {
                 _tcpClient.Send($"cgc {ChangeGroupGains}\n");
@@ -173,11 +169,8 @@ public class QsysEcp : Dsp
 
     private void PollDspThreadFunction()
     {
-        while (_tcpClient.GetConnectionState() == ConnectionState.Connected)
-        {
+        if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
             _tcpClient.Send("sg\n");
-            Thread.Sleep(_pollTime);
-        }
     }
 
     public void GetAllControlStates()

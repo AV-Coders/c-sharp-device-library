@@ -10,7 +10,7 @@ public class PjLink : Display
     private readonly Dictionary<Input, int> _inputDictionary;
     private readonly Dictionary<PowerState, int> _powerStateDictionary;
     private readonly int _pollTime;
-    private Thread _pollThread;
+    private ThreadWorker _pollWorker;
     private PollTask _pollTask;
 
     public PjLink(TcpClient tcpClient, string password = "JBMIAProjectorLink", int pollTime = 20000)
@@ -37,7 +37,8 @@ public class PjLink : Display
             { PowerState.Warming, 3 }
         };
         
-        _pollThread = new Thread(_ => { PollProjectorThreadFunction(); });
+        _pollWorker = new ThreadWorker(PollProjectorThreadFunction, TimeSpan.FromMilliseconds(pollTime));
+        _pollWorker.Restart();
         
         TcpClient = tcpClient;
         TcpClient.SetPort(DefaultPort);
@@ -51,35 +52,28 @@ public class PjLink : Display
     {
         if (connectionState == ConnectionState.Connected)
         {
+            _pollWorker.Restart();
             _pollTask = PollTask.Power;
-            if (!_pollThread.IsAlive)
-            {
-                _pollThread = new Thread(_ => { PollProjectorThreadFunction(); });
-                _pollThread.Start();
-            }
+        }
+        else
+        {
+            _pollWorker.Stop();
         }
     }
 
     private void PollProjectorThreadFunction()
     {
-        while (TcpClient.GetConnectionState() == ConnectionState.Connected)
+        if (TcpClient.GetConnectionState() != ConnectionState.Connected)
+            return;
+        PollProjector(_pollTask);
+        
+        _pollTask = _pollTask switch
         {
-            PollProjector(_pollTask);
-            switch (_pollTask)
-            {
-                case PollTask.Power:
-                    _pollTask = PollTask.Input;
-                    break;
-                case PollTask.Input:
-                    _pollTask = PollTask.AudioMute;
-                    break;
-                case PollTask.AudioMute:
-                    _pollTask = PollTask.Power;
-                    break;
-            }
-
-            Thread.Sleep(_pollTime);
-        }
+            PollTask.Power => PollTask.Input,
+            PollTask.Input => PollTask.AudioMute,
+            PollTask.AudioMute => PollTask.Power,
+            _ => _pollTask
+        };
     }
 
     private void PollProjector(PollTask pollTask)

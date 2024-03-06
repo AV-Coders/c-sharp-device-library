@@ -56,9 +56,8 @@ public class BiampTtp : Dsp
     
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
     private readonly IpComms _tcpClient;
-    private Thread _pollThread;
-    private readonly int _pollTime;
     private readonly Regex _subscriptionResponseParser;
+    private readonly ThreadWorker _pollWorker;
 
     private readonly List<Query> _deviceQueries = new();
     private readonly List<string> _deviceSubscriptions = new();
@@ -67,9 +66,10 @@ public class BiampTtp : Dsp
     public BiampTtp(IpComms tcpClient, int pollTime = 50000)
     {
         _tcpClient = tcpClient;
-        _pollTime = pollTime;
         _tcpClient.ResponseHandlers += HandleResponse;
         _tcpClient.ConnectionStateHandlers += HandleConnectionState;
+        _pollWorker = new ThreadWorker(PollDspThreadFunction, TimeSpan.FromMilliseconds(pollTime));
+        _pollWorker.Restart();
         
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -90,8 +90,6 @@ public class BiampTtp : Dsp
         {
             LogHandlers?.Invoke($"Re-establising subscriptions, subscription count: {_deviceSubscriptions.Count}");
             _deviceSubscriptions.ForEach(subscriptionCommand => _tcpClient.Send(subscriptionCommand));
-            _pollThread = new Thread(_ => { PollDspThreadFunction(); });
-            _pollThread.Start();
         }
         else
         {
@@ -101,13 +99,12 @@ public class BiampTtp : Dsp
 
     private void PollDspThreadFunction()
     {
-        while (_tcpClient.GetConnectionState() == ConnectionState.Connected)
+        if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
         {
             if(_deviceQueries.Count > 0)
                 _tcpClient.Send(_deviceQueries[0].DspCommand);
             else
                 _tcpClient.Send("DEVICE get version\n");
-            Thread.Sleep(_pollTime);
         }
     }
 
