@@ -9,14 +9,12 @@ public class PjLink : Display
     private readonly string _password;
     private readonly Dictionary<Input, int> _inputDictionary;
     private readonly Dictionary<PowerState, int> _powerStateDictionary;
-    private readonly int _pollTime;
-    private ThreadWorker _pollWorker;
+    private readonly ThreadWorker _pollWorker;
     private PollTask _pollTask;
 
     public PjLink(TcpClient tcpClient, string password = "JBMIAProjectorLink", int pollTime = 20000)
     {
         _password = password;
-        _pollTime = pollTime;
         _pollTask = PollTask.Power;
         DesiredAudioMute = MuteState.Off;
         DesiredVideoMute = MuteState.Off;
