@@ -58,7 +58,11 @@ public abstract class IpComms : CommunicationClient
 
     public abstract void CheckConnectionState();
 
+    public string GetHost() => Host;
+
     public abstract void SetPort(ushort port);
+
+    public ushort GetPort() => Port;
     public abstract void SetHost(string host);
 
     public abstract void Connect();
