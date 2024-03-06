@@ -8,31 +8,27 @@ public class AvCodersSshClient : IpComms
 {
     private readonly string _username;
     private readonly string _password;
+    private readonly Queue<string> _sendQueue = new();
 
     private SshClient _client;
-    private ConnectionInfo _connectionInfo;
-
-    private readonly ConnectionType _connectionType;
-    private Thread? _responseThread;
-    private Dictionary<TerminalModes, uint> _modes;
+    
+    private readonly Dictionary<TerminalModes, uint> _modes;
     private ShellStream? _stream;
 
-    public AvCodersSshClient(string host, ushort port, string username, string password, ConnectionType connectionType)
+    public AvCodersSshClient(string host, ushort port, string username, string password)
         : base(host, port)
     {
+        UpdateConnectionState(ConnectionState.Unknown);
         _username = username;
         _password = password;
-        _connectionType = connectionType;
-        ConnectionState = ConnectionState.Unknown;
-
-        _connectionInfo = CreateConnectionInfo();
+        
+        _client = new SshClient(CreateConnectionInfo());
+        
         _modes = new Dictionary<TerminalModes, uint> { {TerminalModes.ECHO, 0} };
-        new Thread(_ =>
-        {
-            CreateNewActiveClient();
-            CreateConnectionMonitoringThread();
-            CreateResponseThread();
-        }).Start();
+        
+        ConnectionStateWorker.Restart();
+        ReceiveThreadWorker.Restart();
+        SendQueueWorker.Restart();
     }
 
     private ConnectionInfo CreateConnectionInfo()
@@ -43,154 +39,124 @@ public class AvCodersSshClient : IpComms
         return new ConnectionInfo(Host, Port, _username, authenticationMethod);
     }
 
-    private void CreateConnectionMonitoringThread()
+    public override void Receive()
     {
-        new Thread(() =>
+        if (_client.IsConnected && _stream is { CanRead: true })
         {
-            while (_client == null)
+            while (_stream.Length > 0)
             {
-                Thread.Sleep(1000);
+                ResponseHandlers?.Invoke(_stream.ReadLine() ?? string.Empty);
             }
-            
-            while (_connectionType == ConnectionType.Persistent)
+            Thread.Sleep(50);
+        }
+        else
+        {
+            Log("Client not connected or stream not ready, not reading");
+            Thread.Sleep(5000);
+        }
+    }
+
+    public override void CheckConnectionState()
+    {
+        if (!_client.IsConnected)
+        {
+            UpdateConnectionState(ConnectionState.Disconnected);
+            _stream?.Dispose();
+            Log("Reconnecting to device");
+            try
             {
-                if (!_client.IsConnected)
-                {
-                    UpdateConnectionState(ConnectionState.Disconnected);
-                    _stream?.Dispose();
-                    LogHandlers?.Invoke("Reconnecting to device");
-                    ConnectToClient();
-                    Thread.Sleep(32000);
-                }
-                else
-                {
-                    if (_stream == null)
-                        CreateStream();
-
-                    try
-                    {
-                        bool? test = _stream?.CanRead;
-                    }
-                    catch (ObjectDisposedException e)
-                    {
-                        CreateStream();
-                    }
-
-                    Thread.Sleep(5000);
-                }
+                _client.Connect();
+                CreateStream();
             }
-        }).Start();
+            catch (SshOperationTimeoutException e)
+            {
+                Error($"{Host} - The operation timed out\r\n{e.Message}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            catch (SshAuthenticationException e)
+            {
+                Error($"{Host} - Authentication Error\r\n{e.Message}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            catch (SshConnectionException e)
+            {
+                Error($"{Host} - The connection could not be established\r\n{e.Message}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            catch (ObjectDisposedException e)
+            {
+                Error($"{Host} - Object disposed exception\r\n{e}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            catch (InvalidOperationException e)
+            {
+                Error($"{Host} - InvalidOperationException - {e.Message}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Connected);
+            }
+            catch (SocketException e)
+            {
+                Error($"{Host} - Socket exception\r\n{e}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            catch (ProxyException e)
+            {
+                Error($"{Host} - Proxy exception\r\n{e}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            catch (Exception e)
+            {
+                Error($"{Host} - Unexpected exception\r\n{e}");
+                Error(e.StackTrace ?? "No stack trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            Thread.Sleep(32000);
+        }
+        else
+        {
+            if (_stream == null)
+                CreateStream();
+
+            try
+            {
+                bool? test = _stream?.CanRead;
+            }
+            catch (ObjectDisposedException)
+            {
+                CreateStream();
+            }
+
+            Thread.Sleep(5000);
+        }
+    }
+
+    public override void ProcessSendQueue()
+    {
+        if (!_client.IsConnected || _stream is { CanWrite: true })
+            Thread.Sleep(1000);
+        else
+        {
+            while (_sendQueue.Count > 0)
+            {
+                _stream!.Write(_sendQueue.Dequeue());
+            }
+            Thread.Sleep(20);
+        }
     }
 
     private void CreateStream()
     {
-        LogHandlers?.Invoke("Recreating stream");
+        Log("Recreating stream");
         _stream = _client.CreateShellStream("response", 1000, 1000, 1500, 1000, 8191, _modes);
-        _stream.ReadTimeout = 5000;
         _stream!.ErrorOccurred += ClientOnErrorOccurred;
-        Thread.Sleep(300);
+        Thread.Sleep(1000);
         UpdateConnectionState(ConnectionState.Connected);
-    }
-
-    private void CreateResponseThread()
-    {
-        if (_connectionType == ConnectionType.Persistent)
-        {
-            LogHandlers?.Invoke("Creating response thread");
-            _responseThread = new Thread(() =>
-            {
-                LogHandlers?.Invoke("Starting response thread");
-
-                while (_connectionType == ConnectionType.Persistent)
-                {
-                    if (_client.IsConnected && _stream != null)
-                    {
-                        if (_stream.CanRead)
-                        {
-                            while (_stream.Length > 0)
-                            {
-                                ResponseHandlers?.Invoke(_stream.ReadLine());
-                            }
-                            Thread.Sleep(150);
-                        }
-                        else
-                        {
-                            LogHandlers?.Invoke("Stream cannot read");
-                        }
-                    }
-                    else
-                    {
-                        LogHandlers?.Invoke("Client not connected, not reading");
-                        Thread.Sleep(700);
-                    }
-                }
-            });
-            _responseThread.Start();
-        }
-    }
-
-    private void CreateNewActiveClient()
-    {
-        try
-        {
-            Dispose();
-            _client = new SshClient(_connectionInfo);
-            _client.ErrorOccurred += ClientOnErrorOccurred;
-            ConnectToClient();
-        }
-        catch (Exception e)
-        {
-            LogHandlers?.Invoke($"{Host} - Uncaught exception\n{e}", EventLevel.Error);
-            Console.WriteLine(e);
-        }
-    }
-
-    private void ConnectToClient()
-    {
-        try
-        {
-            _client.Connect();
-            CreateStream();
-        }
-        catch (SshOperationTimeoutException e)
-        {
-            LogHandlers?.Invoke($"{Host} - The operation timed out\n{e.Message}", EventLevel.Error);
-            UpdateConnectionState(ConnectionState.Disconnected);
-        }
-        catch (SshAuthenticationException e)
-        {
-            LogHandlers?.Invoke($"{Host} - Authentication Error\n{e.Message}", EventLevel.Error);
-            UpdateConnectionState(ConnectionState.Disconnected);
-        }
-        catch (SshConnectionException e)
-        {
-            LogHandlers?.Invoke($"{Host} - The connection could not be established\n{e.Message}", EventLevel.Error);
-            UpdateConnectionState(ConnectionState.Disconnected);
-        }
-        catch (ObjectDisposedException e)
-        {
-            LogHandlers?.Invoke($"{Host} - Object disposed exception\n{e}", EventLevel.Error);
-            UpdateConnectionState(ConnectionState.Disconnected);
-        }
-        catch (InvalidOperationException)
-        {
-            LogHandlers?.Invoke($"{Host} - Is already connected", EventLevel.Error);
-            UpdateConnectionState(ConnectionState.Connected);
-        }
-        catch (SocketException e)
-        {
-            LogHandlers?.Invoke($"{Host} - Socket exception\n{e}", EventLevel.Error);
-            UpdateConnectionState(ConnectionState.Disconnected);
-        }
-        catch (ProxyException e)
-        {
-            LogHandlers?.Invoke($"{Host} - Proxy exception\n{e}", EventLevel.Error);
-            UpdateConnectionState(ConnectionState.Disconnected);
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-        }
     }
 
     private void AuthenticationMethodOnAuthenticationPrompt(object? sender, AuthenticationPromptEventArgs e)
@@ -201,87 +167,70 @@ public class AvCodersSshClient : IpComms
         }
     }
 
-    private void ClientOnErrorOccurred(object sender, ExceptionEventArgs e)
+    private void ClientOnErrorOccurred(object? sender, ExceptionEventArgs e)
     {
-        LogHandlers?.Invoke($"An error has occurred with the stream: \r\n{e.Exception}", EventLevel.Error);
-    }
-
-    private void UpdateConnectionState(ConnectionState connectionState)
-    {
-        if (ConnectionState != connectionState)
-        {
-            ConnectionState = connectionState;
-            ConnectionStateHandlers?.Invoke(connectionState);
-        }
+        Error($"An error has occurred with the stream: \r\n{e.Exception.Message}");
+        Error(e.Exception.StackTrace ?? "No stack trace available");
     }
 
     public override void Send(string message)
     {
-        switch (_connectionType)
-        {
-            case ConnectionType.Persistent:
-            {
-                if (_client.IsConnected && _stream is { CanWrite: true })
-                    _stream.WriteLine(message);
-                else
-                    LogHandlers?.Invoke($"Unable to send {message}, stream is either null or can't write",
-                        EventLevel.Critical);
-
-                break;
-            }
-            case ConnectionType.ShortLived:
-            {
-                if (!_client.IsConnected)
-                    ConnectToClient();
-                SshCommand response = _client.RunCommand(message);
-                ResponseHandlers?.Invoke(response.Result);
-                break;
-            }
-        }
+        if (_client.IsConnected)
+            _stream!.Write(message);
+        else
+            _sendQueue.Enqueue(message);
     }
 
     public override void Send(byte[] bytes)
     {
-        switch (_connectionType)
-        {
-            case ConnectionType.Persistent:
-            {
-                if (_stream is { CanWrite: true })
-                    _stream.WriteLine(bytes.ToString());
-                else
-                    LogHandlers?.Invoke($"Unable to send {bytes}, stream is either null or can't write",
-                        EventLevel.Critical);
-
-                break;
-            }
-            case ConnectionType.ShortLived:
-            {
-                if (!_client.IsConnected)
-                    ConnectToClient();
-                SshCommand response = _client.RunCommand(bytes.ToString());
-                ResponseHandlers?.Invoke(response.Result);
-                break;
-            }
-        }
+        if (bytes.ToString() != null)
+            Send(bytes.ToString());
     }
 
     public override void SetPort(ushort port)
     {
         Port = port;
-        _connectionInfo = CreateConnectionInfo();
-        CreateNewActiveClient();
+        Disconnect();
+        _client = new SshClient(CreateConnectionInfo());
+        Connect();
     }
 
     public override void SetHost(string host)
     {
         Host = host;
-        _connectionInfo = CreateConnectionInfo();
-        CreateNewActiveClient();
+        Disconnect();
+        _client = new SshClient(CreateConnectionInfo());
+        Connect();
     }
 
-    public void Dispose()
+    public override void Connect() => ConnectionStateWorker.Restart();
+
+    public override void Reconnect()
     {
-        _client?.Dispose();
+        Log($"Reconnecting");
+        UpdateConnectionState(ConnectionState.Disconnecting);
         _stream?.Dispose();
+        _client.Disconnect();
+        UpdateConnectionState(ConnectionState.Disconnected);
+        // The worker will handle reconnection
+    }
+
+    public override void Disconnect()
+    {
+        Log($"Disconnecting");
+        ConnectionStateWorker.Stop();
+        UpdateConnectionState(ConnectionState.Disconnecting);
+        _client.Disconnect();
+        UpdateConnectionState(ConnectionState.Disconnected);
+    }
+
+    private new void Log(string message)
+    {
+        LogHandlers?.Invoke($"{DateTime.Now} - SSH Client for {Host}:{Port} - {message}");
+    }
+
+    private new void Error(string message)
+    {
+        LogHandlers?.Invoke($"{DateTime.Now} - SSH Client for {Host}:{Port} - {message}", EventLevel.Error);
     }
 }

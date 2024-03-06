@@ -1,14 +1,33 @@
 ﻿using System.Text;
+using Core_UdpClient = AVCoders.Core.UdpClient;
+using UdpClient = System.Net.Sockets.UdpClient;
 
 namespace AVCoders.CommunicationClients;
 
-public class AvCodersUdpClient : UdpClient
+public class AvCodersUdpClient : Core_UdpClient
 {
-    private System.Net.Sockets.UdpClient _client;
+    private UdpClient _client;
+    private readonly Queue<Byte[]> _sendQueue = new();
 
-    public AvCodersUdpClient(string host, ushort port = 0) : base(host, port)
+    public AvCodersUdpClient(string host, ushort port = 0) : 
+        base(host, port)
     {
-        _client = new System.Net.Sockets.UdpClient(Host, Port);
+        _client = new UdpClient(Host, Port);
+    }
+
+    public override void Receive()
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void ProcessSendQueue()
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void CheckConnectionState()
+    {
+        throw new NotImplementedException();
     }
 
     public override void SetPort(ushort port)
@@ -16,7 +35,7 @@ public class AvCodersUdpClient : UdpClient
         Port = port;
         _client.Close();
         _client.Dispose();
-        _client = new System.Net.Sockets.UdpClient(Host, Port);
+        _client = new UdpClient(Host, Port);
     }
 
     public override void SetHost(string host)
@@ -24,7 +43,31 @@ public class AvCodersUdpClient : UdpClient
         Host = host;
         _client.Close();
         _client.Dispose();
-        _client = new System.Net.Sockets.UdpClient(Host, Port);
+        _client = new UdpClient(Host, Port);
+    }
+
+    public override void Connect()
+    {
+        _sendQueue.Clear();
+        ConnectionStateWorker.Restart();
+    }
+
+    public override void Reconnect()
+    {
+        Log($"Reconnecting");
+        UpdateConnectionState(ConnectionState.Disconnecting);
+        _client.Close();
+        UpdateConnectionState(ConnectionState.Disconnected);
+        // The worker will handle reconnection
+    }
+
+    public override void Disconnect()
+    {
+        Log($"Disconnecting");
+        ConnectionStateWorker.Stop();
+        UpdateConnectionState(ConnectionState.Disconnecting);
+        _client.Close();
+        UpdateConnectionState(ConnectionState.Disconnected);
     }
 
     public override void Send(byte[] bytes)

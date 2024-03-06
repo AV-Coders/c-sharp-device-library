@@ -6,23 +6,36 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersUdpSocket : IpComms
 {
     private System.Net.Sockets.UdpClient _client;
-    private Thread _receiveThread;
 
     public AvCodersUdpSocket(string host, ushort port) : base(host, port)
     {
         _client = new System.Net.Sockets.UdpClient(Port);
-        _receiveThread = new Thread(() =>
+        
+        ConnectionStateWorker.Restart();
+        ReceiveThreadWorker.Restart();
+        SendQueueWorker.Restart();
+    }
+
+    public override void Receive()
+    {
+        while (true)
         {
-            while (true)
-            {
-                var foo = new IPEndPoint(IPAddress.Any, 21076);
-                Thread.Sleep(100);
-                if (_client.Available > 0)
-                    ResponseHandlers?.Invoke(Encoding.ASCII.GetString(_client.Receive(ref foo)));
-                Thread.Sleep(1000);
-            }
-        });
-        _receiveThread.Start();
+            var foo = new IPEndPoint(IPAddress.Any, 21076);
+            Thread.Sleep(100);
+            if (_client.Available > 0)
+                ResponseHandlers?.Invoke(Encoding.ASCII.GetString(_client.Receive(ref foo)));
+            Thread.Sleep(1000);
+        }
+    }
+
+    public override void ProcessSendQueue()
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void CheckConnectionState()
+    {
+        throw new NotImplementedException();
     }
 
     public override void SetPort(ushort port)
@@ -31,12 +44,26 @@ public class AvCodersUdpSocket : IpComms
         _client.Close();
         _client.Dispose();
         _client = new System.Net.Sockets.UdpClient(Port);
-        _receiveThread.Start();
     }
 
     public override void SetHost(string host)
     {
         Log("The host will always be this device", EventLevel.Error);
+    }
+
+    public override void Connect()
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void Reconnect()
+    {
+        throw new NotImplementedException();
+    }
+
+    public override void Disconnect()
+    {
+        throw new NotImplementedException();
     }
 
     public override void Send(byte[] bytes)
@@ -74,8 +101,13 @@ public class AvCodersUdpSocket : IpComms
         return byteArray;
     }
 
-    private void Log(String message, EventLevel level = EventLevel.Informational)
+    private new void Log(string message, EventLevel level)
     {
-        LogHandlers?.Invoke(message, level);
+        LogHandlers?.Invoke($"{DateTime.Now} - UDP Client for {Host}:{Port} - {message}", level);
+    }
+
+    private new void Error(string message)
+    {
+        LogHandlers?.Invoke($"{DateTime.Now} - UDP Client for {Host}:{Port} - {message}", EventLevel.Error);
     }
 }

@@ -1,26 +1,34 @@
 ﻿using System.Net.Sockets;
 using System.Text;
 using Core_TcpClient = AVCoders.Core.TcpClient;
+using TcpClient = System.Net.Sockets.TcpClient;
 
 namespace AVCoders.CommunicationClients;
 
 public class AvCodersTcpClient : Core_TcpClient
 {
-    private System.Net.Sockets.TcpClient _client;
-    private readonly ConnectionType _connectionType;
-    private List<Byte[]> _sendQueue = new();
-    private Thread? _receiveThread;
+    private TcpClient _client;
+    private readonly Queue<Byte[]> _sendQueue = new();
 
-    public AvCodersTcpClient(string host, ushort port = 23, ConnectionType connectionType = ConnectionType.Persistent) :
+    public AvCodersTcpClient(string host, ushort port = 23) :
         base(host, port)
     {
-        _connectionType = connectionType;
-        new Thread(_=> ConnectToClient()).Start();
+        UpdateConnectionState(ConnectionState.Unknown);
+        _client = new TcpClient();
+        
+        ConnectionStateWorker.Restart();
+        ReceiveThreadWorker.Restart();
+        SendQueueWorker.Restart();
     }
 
-    private void Receive()
+    public override void Receive()
     {
-        while (_client.Connected)
+        if (!_client.Connected)
+        {
+            Log("Client disconnected, waiting 5 seconds");
+            Thread.Sleep(5000);
+        }
+        else
         {
             try
             {
@@ -36,71 +44,73 @@ public class AvCodersTcpClient : Core_TcpClient
             catch (IOException e)
             {
                 Error($"Receive - IOException:\n{e}");
+                Error(e.StackTrace ?? "No Stack Trace available");
+                Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (ObjectDisposedException e)
             {
                 Error($"Receive  - ObjectDisposedException\n{e}");
+                Error(e.StackTrace ?? "No Stack Trace available");
+                Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
                 Error($"Receive  - Exception:\n{e}");
+                Error(e.StackTrace ?? "No Stack Trace available");
+                Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             Thread.Sleep(TimeSpan.FromMilliseconds(30));
         }
-
-        Log("Receive - Ending - Client disconnected");
     }
 
-    private void ConnectToClient()
+    public override void CheckConnectionState()
     {
-        UpdateConnectionState(ConnectionState.Connecting);
-        Log("Connecting to client");
-        try
-        {
-            Log("ConnectToClient - Creating object");
-            _client = new System.Net.Sockets.TcpClient(Host, Port);
+        if (_client.Connected)
             UpdateConnectionState(ConnectionState.Connected);
-            ProcessSendQueue();
-
-            _receiveThread = new Thread(Receive);
-            _receiveThread.Start();
-        }
-        catch (SocketException e)
-        {
-            Error($"ConnectToClient - Socket exception - {e.Message}");
-            UpdateConnectionState(ConnectionState.Error);
-        }
-        catch (ObjectDisposedException e)
-        {
-            Error($"ConnectToClient - Object disposed exception - {e.Message}");
-        }
-    }
-
-    private void ProcessSendQueue()
-    {
-        foreach (byte[] message in _sendQueue.ToList())
-        {
-            _client.GetStream().Write(message);
-            _sendQueue.Remove(message);
-        }
-    }
-
-    private void RecreateClient()
-    {
-        Log($"Recreating client");
-        UpdateConnectionState(ConnectionState.Disconnecting);
-        _client.Close();
-        if (_connectionType == ConnectionType.Persistent)
-        {
-            UpdateConnectionState(ConnectionState.Disconnected);
-            new Thread(ConnectToClient).Start();
-        }
         else
         {
-            UpdateConnectionState(ConnectionState.Idle);
+            UpdateConnectionState(ConnectionState.Connecting);
+            try
+            {
+                var connectResult = _client.BeginConnect(Host, Port, null, null);
+                var success = connectResult.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1));
+
+                if (!success)
+                    UpdateConnectionState(ConnectionState.Disconnected);
+
+                _client.EndConnect(connectResult);
+            }
+            catch (SocketException e)
+            {
+                Error($"Check Connection State  - Socket Exception:{e.Message}");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+            catch (Exception e)
+            {
+                Error($"Check Connection State  - New Exception:{e.Message}");
+                Error(e.GetType().ToString());
+                Error(e.StackTrace ?? "No Stack Trace available");
+                UpdateConnectionState(ConnectionState.Disconnected);
+            }
+        }
+            
+        Thread.Sleep(5000);
+    }
+
+    public override void ProcessSendQueue()
+    {
+        if (!_client.Connected)
+            Thread.Sleep(1000);
+        else
+        {
+            while (_sendQueue.Count > 0)
+            {
+                _client.GetStream().Write(_sendQueue.Dequeue());
+            }
+            Thread.Sleep(1000);
         }
     }
 
@@ -112,76 +122,57 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Send(byte[] bytes)
     {
-        try
-        {
-            if (ConnectionState == ConnectionState.Connecting)
-            {
-                _sendQueue.Add(bytes);
-            }
-            else
-            {
-                if (!_client.Connected)
-                {
-                    ConnectToClient();
-                }
-
-                SendAsync(bytes);
-            }
-        }
-        catch (InvalidOperationException e)
-        {
-            Error($"Send - InvalidOperationException - {e.Message}");
-        }
-        catch (IOException e)
-        {
-            Error($"Send - IOException - {e.Message}");
-        }
-        catch (Exception e)
-        {
-            Error($"Send - Unhandled exception - {e.Message}");
-        }
-    }
-
-    private async Task SendAsync(byte[] data)
-    {
-        await _client.GetStream().WriteAsync(data);
+        if (_client.Connected)
+            _client.GetStream().Write(bytes);
+        else
+            _sendQueue.Enqueue(bytes);
     }
 
     public override void SetPort(ushort port)
     {
         Log($"Setting port to {port}");
         Port = port;
-        new Thread(() =>
-        {
-            while (_client == null)
-            {
-                Thread.Sleep(1000);
-            }
-            RecreateClient();
-        }).Start();
-        
+        Reconnect();
     }
 
     public override void SetHost(string host)
     {
         Log($"Setting host to {host}");
         Host = host;
-        RecreateClient();
+        Reconnect();
     }
 
-    private void Log(string message)
+    public override void Connect()
     {
-        LogHandlers?.Invoke($"TCP Client for {Host}:{Port} - {message}");
+        _sendQueue.Clear();
+        ConnectionStateWorker.Restart();
     }
 
-    private void Error(string message)
+    public override void Reconnect()
     {
-        LogHandlers?.Invoke($"TCP Client for {Host}:{Port} - {message}", EventLevel.Error);
+        Log($"Reconnecting");
+        UpdateConnectionState(ConnectionState.Disconnecting);
+        _client = new TcpClient();
+        UpdateConnectionState(ConnectionState.Disconnected);
+        // The worker will handle reconnection
     }
 
-    private void UpdateConnectionState(ConnectionState connectionState)
+    public override void Disconnect()
     {
-        ConnectionState = connectionState;
-        ConnectionStateHandlers?.Invoke(connectionState);
+        Log($"Disconnecting");
+        ConnectionStateWorker.Stop();
+        UpdateConnectionState(ConnectionState.Disconnecting);
+        _client = new TcpClient();
+        UpdateConnectionState(ConnectionState.Disconnected);
+    }
+
+    private new void Log(string message)
+    {
+        LogHandlers?.Invoke($"{DateTime.Now} - TCP Client for {Host}:{Port} - {message}");
+    }
+
+    private new void Error(string message)
+    {
+        LogHandlers?.Invoke($"{DateTime.Now} - TCP Client for {Host}:{Port} - {message}", EventLevel.Error);
     }
 }
