@@ -183,8 +183,9 @@ public class AvCodersSshClient : IpComms
 
     public override void Send(byte[] bytes)
     {
-        if (bytes.ToString() != null)
-            Send(bytes.ToString());
+        var message = bytes.ToString();
+        if (message != null)
+            Send(message);
     }
 
     public override void SetPort(ushort port)
