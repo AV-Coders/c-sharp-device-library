@@ -8,7 +8,7 @@ public class AvCodersSshClient : IpComms
 {
     private readonly string _username;
     private readonly string _password;
-    private readonly Queue<string> _sendQueue = new();
+    private readonly Queue<QueuedPayload<string>> _sendQueue = new();
 
     private SshClient _client;
     
@@ -144,9 +144,11 @@ public class AvCodersSshClient : IpComms
         {
             while (_sendQueue.Count > 0)
             {
-                _stream!.Write(_sendQueue.Dequeue());
+                var item = _sendQueue.Dequeue();
+                if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
+                    _stream!.Write(item.Payload);
             }
-            Thread.Sleep(20);
+            Thread.Sleep(1100);
         }
     }
 
@@ -178,7 +180,7 @@ public class AvCodersSshClient : IpComms
         if (_client.IsConnected)
             _stream!.Write(message);
         else
-            _sendQueue.Enqueue(message);
+            _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
     }
 
     public override void Send(byte[] bytes)

@@ -30,10 +30,11 @@ public abstract class IpComms : CommunicationClient
 {
     protected string Host;
     protected ushort Port;
+    protected int QueueTimeout = 5;
     
-    protected ThreadWorker ReceiveThreadWorker;
-    protected ThreadWorker ConnectionStateWorker;
-    protected ThreadWorker SendQueueWorker;
+    protected readonly ThreadWorker ReceiveThreadWorker;
+    protected readonly ThreadWorker ConnectionStateWorker;
+    protected readonly ThreadWorker SendQueueWorker;
 
     protected IpComms(string host, ushort port)
     {
@@ -58,12 +59,15 @@ public abstract class IpComms : CommunicationClient
 
     public abstract void CheckConnectionState();
 
-    public string GetHost() => Host;
+    public void SetQueueTimeout(int seconds) => QueueTimeout = seconds;
 
-    public abstract void SetPort(ushort port);
+    public string GetHost() => Host;
+    
+    public abstract void SetHost(string host);
 
     public ushort GetPort() => Port;
-    public abstract void SetHost(string host);
+
+    public abstract void SetPort(ushort port);
 
     public abstract void Connect();
 

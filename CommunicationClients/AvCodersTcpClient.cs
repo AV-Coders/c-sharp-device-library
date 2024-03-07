@@ -8,7 +8,7 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersTcpClient : Core_TcpClient
 {
     private TcpClient _client;
-    private readonly Queue<Byte[]> _sendQueue = new();
+    private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
 
     public AvCodersTcpClient(string host, ushort port = 23) :
         base(host, port)
@@ -108,24 +108,22 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             while (_sendQueue.Count > 0)
             {
-                _client.GetStream().Write(_sendQueue.Dequeue());
+                var item = _sendQueue.Dequeue();
+                if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
+                    _client.GetStream().Write(item.Payload);
             }
-            Thread.Sleep(1000);
+            Thread.Sleep(1100);
         }
     }
 
-    public override void Send(string message)
-    {
-        byte[] bytes = Bytes.FromString(message);
-        Send(bytes);
-    }
+    public override void Send(string message) => Send(Bytes.FromString(message));
 
     public override void Send(byte[] bytes)
     {
         if (_client.Connected)
             _client.GetStream().Write(bytes);
         else
-            _sendQueue.Enqueue(bytes);
+            _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
     }
 
     public override void SetPort(ushort port)
