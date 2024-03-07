@@ -18,25 +18,16 @@ public class AvCodersUdpSocket : IpComms
 
     public override void Receive()
     {
-        while (true)
-        {
-            var foo = new IPEndPoint(IPAddress.Any, 21076);
-            Thread.Sleep(100);
-            if (_client.Available > 0)
-                ResponseHandlers?.Invoke(Encoding.ASCII.GetString(_client.Receive(ref foo)));
-            Thread.Sleep(1000);
-        }
+        var foo = new IPEndPoint(IPAddress.Any, 21076);
+        Thread.Sleep(100);
+        if (_client.Available > 0)
+            ResponseHandlers?.Invoke(Encoding.ASCII.GetString(_client.Receive(ref foo)));
+        Thread.Sleep(1000);
     }
 
-    public override void ProcessSendQueue()
-    {
-        throw new NotImplementedException();
-    }
+    public override void ProcessSendQueue() => SendQueueWorker.Stop();
 
-    public override void CheckConnectionState()
-    {
-        throw new NotImplementedException();
-    }
+    public override void CheckConnectionState() => ConnectionStateWorker.Stop();
 
     public override void SetPort(ushort port)
     {
