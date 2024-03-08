@@ -87,4 +87,13 @@ public abstract class BiampTtpTest
         _dsp.SetLevel(GainName, percentage);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Theory]
+    [InlineData(1001, "DEVICE recallPreset 1001\n")]
+    [InlineData(1500, "DEVICE recallPreset 1500\n")]
+    public void RecallPreset_RecallsThePreset(int presetNumber, string expectedCommand)
+    {
+        _dsp.RecallPreset(presetNumber);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
 }

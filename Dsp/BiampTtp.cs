@@ -240,7 +240,7 @@ public class BiampTtp : Dsp
         // DEVICE recallPreset 1001
         // Value must be between 1001 and 9999.
         if(presetNumber > 1000 && presetNumber < 10000)
-            _tcpClient.Send($"DEVICE recallPreset {presetNumber}");
+            _tcpClient.Send($"DEVICE recallPreset {presetNumber}\n");
     }
 
     public void SetLevel(string controlName, int controlIndex, int percentage)
