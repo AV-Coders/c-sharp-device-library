@@ -121,7 +121,17 @@ public class AvCodersTcpClient : Core_TcpClient
     public override void Send(byte[] bytes)
     {
         if (_client.Connected)
-            _client.GetStream().Write(bytes);
+        {
+            try
+            {
+                _client.GetStream().Write(bytes);
+            }
+            catch (IOException e)
+            {
+                Log($"IOException while sending, Queueing message: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}", EventLevel.Error);
+                _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
+            }
+        }
         else
             _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
     }
