@@ -55,7 +55,7 @@ public class BiampTtp : Dsp
     private readonly Dictionary<string, BiampInt> _strings = new();
     
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
-    private readonly IpComms _tcpClient;
+    private readonly CommunicationClient _tcpClient;
     private readonly Regex _subscriptionResponseParser;
     private readonly ThreadWorker _pollWorker;
 
@@ -63,7 +63,7 @@ public class BiampTtp : Dsp
     private readonly List<string> _deviceSubscriptions = new();
     
 
-    public BiampTtp(IpComms tcpClient, int pollTime = 50000)
+    public BiampTtp(CommunicationClient tcpClient, int pollTime = 50000)
     {
         _tcpClient = tcpClient;
         _tcpClient.ResponseHandlers += HandleResponse;
