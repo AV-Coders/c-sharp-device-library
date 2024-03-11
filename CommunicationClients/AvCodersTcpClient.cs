@@ -21,7 +21,7 @@ public class AvCodersTcpClient : Core_TcpClient
         SendQueueWorker.Restart();
     }
 
-    public override void Receive()
+    protected override void Receive()
     {
         if (!_client.Connected)
         {
@@ -66,7 +66,7 @@ public class AvCodersTcpClient : Core_TcpClient
         }
     }
 
-    public override void CheckConnectionState()
+    protected override void CheckConnectionState()
     {
         if (_client.Connected)
             UpdateConnectionState(ConnectionState.Connected);
@@ -100,7 +100,7 @@ public class AvCodersTcpClient : Core_TcpClient
         Thread.Sleep(5000);
     }
 
-    public override void ProcessSendQueue()
+    protected override void ProcessSendQueue()
     {
         if (!_client.Connected)
             Thread.Sleep(1000);

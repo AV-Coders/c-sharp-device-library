@@ -1,4 +1,6 @@
-﻿namespace AVCoders.Core;
+﻿using System.Text;
+
+namespace AVCoders.Core;
 
 public abstract class CommunicationClient
 {
@@ -53,11 +55,11 @@ public abstract class IpComms : CommunicationClient
         SendQueueWorker.Stop();
     }
 
-    public abstract void Receive();
+    protected abstract void Receive();
 
-    public abstract void ProcessSendQueue();
+    protected abstract void ProcessSendQueue();
 
-    public abstract void CheckConnectionState();
+    protected abstract void CheckConnectionState();
 
     public void SetQueueTimeout(int seconds) => QueueTimeout = seconds;
 
@@ -74,6 +76,34 @@ public abstract class IpComms : CommunicationClient
     public abstract void Reconnect();
 
     public abstract void Disconnect();
+
+    protected static byte[] ConvertStringToByteArray(string input)
+    {
+        byte[] byteArray = new byte[input.Length];
+
+        for (int i = 0; i < input.Length; i++)
+        {
+            byteArray[i] = (byte)input[i];
+        }
+
+        return byteArray;
+    }
+
+    protected static string ConvertByteArrayToString(byte[] byteArray)
+    {
+        StringBuilder sb = new StringBuilder(byteArray.Length * 2);
+
+        foreach (byte b in byteArray)
+        {
+            sb.AppendFormat("\\x{0:X2} ", b);
+        }
+
+        // Remove the last space character if needed
+        if (sb.Length > 0)
+            sb.Length--;
+
+        return sb.ToString();
+    }
 }
 
 public abstract class TcpClient : IpComms

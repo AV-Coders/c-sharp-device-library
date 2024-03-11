@@ -39,7 +39,7 @@ public class AvCodersSshClient : IpComms
         return new ConnectionInfo(Host, Port, _username, authenticationMethod);
     }
 
-    public override void Receive()
+    protected override void Receive()
     {
         if (_client.IsConnected && _stream is { CanRead: true })
         {
@@ -56,7 +56,7 @@ public class AvCodersSshClient : IpComms
         }
     }
 
-    public override void CheckConnectionState()
+    protected override void CheckConnectionState()
     {
         if (!_client.IsConnected)
         {
@@ -136,7 +136,7 @@ public class AvCodersSshClient : IpComms
         }
     }
 
-    public override void ProcessSendQueue()
+    protected override void ProcessSendQueue()
     {
         if (!_client.IsConnected || _stream is { CanWrite: true })
             Thread.Sleep(1000);
