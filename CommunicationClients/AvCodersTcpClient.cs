@@ -170,6 +170,7 @@ public class AvCodersTcpClient : Core_TcpClient
         Log($"Disconnecting");
         ConnectionStateWorker.Stop();
         UpdateConnectionState(ConnectionState.Disconnecting);
+        _client.Close();
         _client = new TcpClient();
         UpdateConnectionState(ConnectionState.Disconnected);
     }
