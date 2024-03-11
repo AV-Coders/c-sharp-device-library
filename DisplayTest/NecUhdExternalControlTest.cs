@@ -17,12 +17,6 @@ public class NecUhdExternalControlTest
         _mockClient = new Mock<TcpClient>("foo", (ushort)1);
         _display = new NecUhdExternalControl(_mockClient.Object, (byte)'A');
     }
-
-    [Fact]
-    public void Constructor_SetsPortTo7142()
-    {
-        _mockClient.Verify(x => x.SetPort(7142), Times.Once);
-    }
     
     [Fact]
     public void PowerOff_SendsThePowerOffCommand()

@@ -16,12 +16,6 @@ public class SamsungMDCTest
     }
 
     [Fact]
-    public void Constructor_SetsPortTo1515()
-    {
-        _mockClient.Verify(x => x.SetPort(1515), Times.Once);
-    }
-
-    [Fact]
     public void SendByteArray_DoesNotManipulateInput()
     {
         byte[] input = { 0x41, 0x0A };

@@ -7,7 +7,7 @@ public class SamsungMdc : Display
 {
     public static readonly ushort DefaultPort = 1515;
     private readonly byte _displayId;
-    public readonly TcpClient TcpClient;
+    public readonly CommunicationClient CommunicationClient;
     private readonly Dictionary<Input, byte> _inputDictionary;
     private readonly Dictionary<MuteState, byte> _muteDictionary;
 
@@ -19,13 +19,12 @@ public class SamsungMdc : Display
     private const byte DataLength1 = 0x01;
 
 
-    public SamsungMdc(byte displayId, TcpClient tcpClient)
+    public SamsungMdc(byte displayId, TcpClient communicationClient)
     {
         _displayId = displayId;
 
-        TcpClient = tcpClient;
-        TcpClient.SetPort(DefaultPort);
-        TcpClient.ResponseHandlers += HandleResponse;
+        CommunicationClient = communicationClient;
+        CommunicationClient.ResponseHandlers += HandleResponse;
 
         UpdateCommunicationState(CommunicationState.NotAttempted);
 
@@ -49,7 +48,7 @@ public class SamsungMdc : Display
     {
         try
         {
-            TcpClient.Send(bytes);
+            CommunicationClient.Send(bytes);
             UpdateCommunicationState(CommunicationState.Okay);
         }
         catch (Exception e)

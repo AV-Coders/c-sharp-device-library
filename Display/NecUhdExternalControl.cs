@@ -18,11 +18,10 @@ public class NecUhdExternalControl : Display
     private const byte Delimiter = 0x0d;
     private readonly Dictionary<Input, byte[]> _inputDictionary;
 
-    public NecUhdExternalControl(TcpClient tcpClient, byte displayId = 0x2A)
+    public NecUhdExternalControl(CommunicationClient tcpClient, byte displayId = 0x2A)
     {
         CommunicationClient = tcpClient;
         _displayId = displayId;
-        tcpClient.SetPort(DefaultPort);
         ConfigureCommClient();
         _inputDictionary = new Dictionary<Input, byte[]>
         {
