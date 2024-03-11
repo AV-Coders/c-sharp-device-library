@@ -19,7 +19,7 @@ public class SamsungMdc : Display
     private const byte DataLength1 = 0x01;
 
 
-    public SamsungMdc(byte displayId, TcpClient communicationClient)
+    public SamsungMdc(CommunicationClient communicationClient, byte displayId)
     {
         _displayId = displayId;
 
