@@ -6,20 +6,41 @@ namespace AVCoders.CommunicationClients;
 
 public class AvCodersUdpClient : Core_UdpClient
 {
-    private UdpClient _client;
+    private UdpClient? _client;
     private IPEndPoint? _ipEndPoint;
-    private readonly Queue<Byte[]> _sendQueue = new();
+    private readonly Queue<QueuedPayload<Byte[]>> _sendQueue = new();
 
     public AvCodersUdpClient(string ipAddress, ushort port = 0) : 
         base(ipAddress, port)
     {
-        _client = new UdpClient(Host, Port);
+        _client = CreateClient();
         
         if (IPAddress.TryParse(Host, out var remoteIpAddress))
             _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
         
         // This works around a race condition coming from base being called first.
         ReceiveThreadWorker.Restart();
+    }
+
+    private UdpClient? CreateClient()
+    {
+        try
+        {
+            UpdateConnectionState(ConnectionState.Connecting);
+            var client = new UdpClient(Host, Port);
+            if (IPAddress.TryParse(Host, out var remoteIpAddress))
+                _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
+            ReceiveThreadWorker.Restart();
+            ConnectionStateWorker.Restart();
+            UpdateConnectionState(ConnectionState.Connected);
+            return client;
+        }
+        catch( Exception e)
+        {
+           Log($"Exception while connecting: {e.Message}\r\n{e.StackTrace}", EventLevel.Error);
+        }
+        UpdateConnectionState(ConnectionState.Disconnected);
+        return null;
     }
 
     protected override void Receive()
@@ -30,7 +51,7 @@ public class AvCodersUdpClient : Core_UdpClient
             return;
         }
 
-        if (_client.Available <= 0)
+        if (_client is not { Available: > 0 })
         {
             Thread.Sleep(1100);
             return;
@@ -45,23 +66,42 @@ public class AvCodersUdpClient : Core_UdpClient
         }
     }
 
-    protected override void ProcessSendQueue() => SendQueueWorker.Stop();
+    protected override void ProcessSendQueue()
+    {
+        if (_client == null)
+        {
+            Log("Messages in send queue will not be sent while client is not connected");
+            Thread.Sleep(500);
+        }
+        else
+        {
+            while (_sendQueue.Count > 0)
+            {
+                var item = _sendQueue.Dequeue();
+                if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
+                    _client.Send(item.Payload);
+            }
+            Thread.Sleep(1100);
+        }
+    }
 
-    protected override void CheckConnectionState() => ConnectionStateWorker.Stop();
+    protected override void CheckConnectionState()
+    {
+        if (ConnectionState != ConnectionState.Connected || ConnectionState != ConnectionState.Connecting)
+        {
+            CreateClient();
+        }
+    }
 
     public override void SetPort(ushort port)
     {
         Port = port;
-        if (IPAddress.TryParse(Host, out var remoteIpAddress))
-            _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
         Reconnect();
     }
 
     public override void SetHost(string host)
     {
         Host = host;
-        if (IPAddress.TryParse(Host, out var remoteIpAddress))
-            _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
         Reconnect();
     }
 
@@ -69,18 +109,14 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         _sendQueue.Clear();
         Reconnect();
-        ConnectionStateWorker.Restart();
     }
 
     public override void Reconnect()
     {
         Log($"Reconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
-        _client.Close();
-        _client = new UdpClient(Host, Port);
-        if (IPAddress.TryParse(Host, out var remoteIpAddress))
-            _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
-        ReceiveThreadWorker.Restart();
+        _client?.Close();
+        CreateClient();
         UpdateConnectionState(ConnectionState.Disconnected);
     }
 
@@ -88,11 +124,10 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         Log($"Disconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
+        _client = null;
         _ipEndPoint = null;
         ReceiveThreadWorker.Stop();
         ConnectionStateWorker.Stop();
-        _client.Close();
-        _client = new UdpClient();
         UpdateConnectionState(ConnectionState.Disconnected);
     }
 
@@ -100,6 +135,11 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         try
         {
+            if (_client == null)
+            {
+                _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
+                return;
+            }
             _client.Send(bytes, bytes.Length);
         }
         catch (Exception e)
