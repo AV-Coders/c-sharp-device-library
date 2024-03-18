@@ -82,4 +82,6 @@ public class ScreenTechnicsConnect : Motor
         CurrentMoveAction = RelayAction.None;
         Log("Screen technics will Stop");
     }
+
+    private new void Log(string message) => LogHandlers?.Invoke($"{DateTime.Now} - {Name} - ScreenTechnicsConnect - {message}");
 }
