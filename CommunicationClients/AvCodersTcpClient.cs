@@ -160,6 +160,7 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         Log($"Reconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
+        _client.Close();
         _client = new TcpClient();
         UpdateConnectionState(ConnectionState.Disconnected);
         // The worker will handle reconnection
