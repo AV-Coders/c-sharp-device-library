@@ -5,15 +5,17 @@ namespace AVCoders.MediaPlayer;
 public class ExterityTci : MediaPlayer
 {
     private readonly CommunicationClient _communicationClient;
-    private readonly Dictionary<MuteState, string> _muteDictionary = new Dictionary<MuteState, string>
+    private readonly string _password;
+    private readonly Dictionary<MuteState, string> _muteDictionary = new()
     {
         { MuteState.On, "on"},
         { MuteState.Off, "off"}
     };
     
-    public ExterityTci(CommunicationClient communicationClient)
+    public ExterityTci(CommunicationClient communicationClient, string password)
     {
         _communicationClient = communicationClient;
+        _password = password;
         _communicationClient.ResponseHandlers += HandleResponse;
         _communicationClient.ConnectionStateHandlers += HandleConnectionState;
         PowerState = PowerState.Unknown;
@@ -44,6 +46,14 @@ public class ExterityTci : MediaPlayer
 
     private void HandleResponse(string response)
     {
+        if (response.Contains("login as:"))
+        {
+            _communicationClient.Send("ctrl\n");
+        }
+        else if (response.Contains("'s password:"))
+        {
+            _communicationClient.Send($"{_password}\n");
+        }
     }
 
     private void HandleConnectionState(ConnectionState connectionState)

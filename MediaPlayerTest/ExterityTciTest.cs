@@ -6,12 +6,39 @@ public class ExterityTciTest
 {
     private readonly ExterityTci _interface;
     private readonly Mock<CommunicationClient> _mockClient;
+    private readonly string _password = "Password1";
 
     public ExterityTciTest()
     {
         _mockClient = new Mock<CommunicationClient>();
-        _interface = new ExterityTci(_mockClient.Object);
+        
+        _interface = new ExterityTci(_mockClient.Object, _password);
     }
+
+    [Fact]
+    public void Module_EntersThePassword()
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke("ctrl@10.1.1.1's password:");
+        
+        _mockClient.Verify(x => x.Send("Password1\n"));
+    }
+
+    [Fact]
+    public void Module_IgnoresTheHostPartOfThePasswordPrompt()
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke("ctrl@192.168.0.1's password:");
+        
+        _mockClient.Verify(x => x.Send("Password1\n"));
+    }
+
+    [Fact]
+    public void Module_EntersTheUsername()
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke("login as:");
+        
+        _mockClient.Verify(x => x.Send("ctrl\n"));
+    }
+
     
     [Fact]
     public void PowerOn_SetsTheModeToAV()
