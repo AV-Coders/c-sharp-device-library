@@ -61,12 +61,14 @@ public class SamsungMdc : Display
             // Poll power
             _currentPoll = PowerControlCommand;
             CommunicationClient.Send(_pollPowerCommand);
+            LogHandlers?.Invoke("Polling Power");
         }
         else
         {
             // Poll Input
             _currentPoll = InputControlCommand;
             CommunicationClient.Send(_pollInputCommand);
+            LogHandlers?.Invoke("Polling Input");
         }
     }
 
