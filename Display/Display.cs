@@ -31,6 +31,7 @@ public abstract class Display : IDevice
     protected Display()
     {
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(23));
+        PollWorker.Restart();
     }
 
     protected abstract void Poll();
