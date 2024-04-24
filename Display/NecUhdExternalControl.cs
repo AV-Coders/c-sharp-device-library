@@ -32,6 +32,11 @@ public class NecUhdExternalControl : Display
         };
     }
 
+    protected override void Poll()
+    {
+        PollWorker.Stop();
+    }
+
     private void ConfigureCommClient()
     {
         CommunicationClient.ResponseHandlers += HandleResponse;

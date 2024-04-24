@@ -5,6 +5,7 @@ namespace AVCoders.Core;
 public abstract class CommunicationClient
 {
     public ResponseHandler? ResponseHandlers;
+    public ResponseByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
     public LogHandler? LogHandlers;
     protected ConnectionState ConnectionState = ConnectionState.Unknown;

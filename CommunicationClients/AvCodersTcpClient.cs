@@ -39,6 +39,7 @@ public class AvCodersTcpClient : Core_TcpClient
                 {
                     string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
                     ResponseHandlers?.Invoke(response);
+                    ResponseByteHandlers?.Invoke(buffer);
                 }
             }
             catch (IOException e)

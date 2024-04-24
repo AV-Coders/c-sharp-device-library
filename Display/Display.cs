@@ -22,9 +22,18 @@ public abstract class Display : IDevice
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState VideoMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
+
+    protected readonly ThreadWorker PollWorker;
     public PowerState GetCurrentPowerState() => PowerState;
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
+
+    protected Display()
+    {
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(23));
+    }
+
+    protected abstract void Poll();
     
     protected void Log(string message)
     {

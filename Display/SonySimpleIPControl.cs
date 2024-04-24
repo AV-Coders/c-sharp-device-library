@@ -33,6 +33,11 @@ public class SonySimpleIpControl : Display
         UpdateCommunicationState(CommunicationState.NotAttempted);
     }
 
+    protected override void Poll()
+    {
+        PollWorker.Stop();
+    }
+
     private void SendCommand(String command)
     {
         try

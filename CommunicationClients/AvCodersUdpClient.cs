@@ -58,7 +58,9 @@ public class AvCodersUdpClient : Core_UdpClient
         }
         try
         {
-            ResponseHandlers?.Invoke(ConvertByteArrayToString(_client.Receive(ref _ipEndPoint)));
+            var received = _client.Receive(ref _ipEndPoint);
+            ResponseHandlers?.Invoke(ConvertByteArrayToString(received));
+            ResponseByteHandlers?.Invoke(received);
         }
         catch (Exception e)
         {
@@ -116,8 +118,8 @@ public class AvCodersUdpClient : Core_UdpClient
         Log($"Reconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client?.Close();
-        CreateClient();
         UpdateConnectionState(ConnectionState.Disconnected);
+        CreateClient();
     }
 
     public override void Disconnect()

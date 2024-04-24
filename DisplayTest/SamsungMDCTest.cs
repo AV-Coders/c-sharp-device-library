@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using System.Text;
 using AVCoders.Core;
 using Moq;
 
@@ -8,11 +9,12 @@ public class SamsungMDCTest
 {
     private SamsungMdc _samsungMdc;
     private readonly Mock<TcpClient> _mockClient;
+    private readonly byte _displayId = 0x00;
 
     public SamsungMDCTest()
     {
         _mockClient = new Mock<TcpClient>("foo", (ushort)1);
-        _samsungMdc = new SamsungMdc(_mockClient.Object, 0x00);
+        _samsungMdc = new SamsungMdc(_mockClient.Object, _displayId);
     }
 
     [Fact]
@@ -68,14 +70,6 @@ public class SamsungMDCTest
     }
 
     [Fact]
-    public void PowerOn_UpdatesInternalPowerState()
-    {
-        _samsungMdc.PowerOn();
-
-        Assert.Equal(PowerState.On, _samsungMdc.GetCurrentPowerState());
-    }
-
-    [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
         byte[] expectedPowerOnCommand = { 0xAA, 0x11, 0x00, 0x01, 0x00, 0x12 };
@@ -92,14 +86,6 @@ public class SamsungMDCTest
 
         samsungMdcForDisplay2.PowerOff();
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
-    }
-
-    [Fact]
-    public void PowerOff_UpdatesInternalPowerState()
-    {
-        _samsungMdc.PowerOff();
-
-        Assert.Equal(PowerState.Off, _samsungMdc.GetCurrentPowerState());
     }
 
     [Fact]
@@ -194,5 +180,28 @@ public class SamsungMDCTest
         _samsungMdc.SetAudioMute(state);
 
         _mockClient.Verify(x => x.Send(command), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x01, 0xFF }, PowerState.On)]
+    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x00, 0xFF }, PowerState.Off)]
+    public void HandleResponse_UpdatesThePowerState(byte[] response, PowerState expectedState)
+    {
+        _samsungMdc.HandleResponse(response);
+        
+        Assert.Equal(expectedState, _samsungMdc.GetCurrentPowerState());
+    }
+
+    [Fact]
+    public void HandleResponse_ForcesThePowerState()
+    {
+        _samsungMdc.PowerOn();
+        
+        var response = new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x00, 0xFF };
+        _samsungMdc.HandleResponse(response);
+        
+        byte[] expectedPowerOnCommand = { 0xAA, 0x11, 0x00, 0x01, 0x01, 0x13 };
+        
+        _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Exactly(2));
     }
 }

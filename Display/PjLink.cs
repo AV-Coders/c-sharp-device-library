@@ -46,6 +46,11 @@ public class PjLink : Display
         HandleConnectionState(TcpClient.GetConnectionState());
     }
 
+    protected override void Poll()
+    {
+        PollWorker.Stop();
+    }
+
     private void HandleConnectionState(ConnectionState connectionState)
     {
         if (connectionState == ConnectionState.Connected)

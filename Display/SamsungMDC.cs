@@ -18,13 +18,17 @@ public class SamsungMdc : Display
     private const byte InputControlCommand = 0x14;
     private const byte DataLength1 = 0x01;
 
+    private byte _currentPoll = InputControlCommand;
+    private readonly byte[] _pollPowerCommand;
+    private readonly byte[] _pollInputCommand;
+
 
     public SamsungMdc(CommunicationClient communicationClient, byte displayId)
     {
         _displayId = displayId;
 
         CommunicationClient = communicationClient;
-        CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ResponseByteHandlers += HandleResponse;
 
         UpdateCommunicationState(CommunicationState.NotAttempted);
 
@@ -42,6 +46,28 @@ public class SamsungMdc : Display
             { MuteState.On, 0x01 },
             { MuteState.Off, 0x00 }
         };
+
+        byte[] pollPowerCommandWithoutChecksum = { 0xAA, PowerControlCommand, _displayId, 0x00 };
+        _pollPowerCommand = new byte[]{ 0xAA, 0x11, _displayId, 0x00, GenerateChecksum(pollPowerCommandWithoutChecksum) };
+        
+        byte[] pollInputCommandWithoutChecksum =  { 0xAA, InputControlCommand, _displayId, 0x00 };
+        _pollInputCommand = new byte[] { 0xAA, InputControlCommand, _displayId, 0x00,  GenerateChecksum(pollInputCommandWithoutChecksum)};
+    }
+
+    protected override void Poll()
+    {
+        if (_currentPoll == InputControlCommand)
+        {
+            // Poll power
+            _currentPoll = PowerControlCommand;
+            CommunicationClient.Send(_pollPowerCommand);
+        }
+        else
+        {
+            // Poll Input
+            _currentPoll = InputControlCommand;
+            CommunicationClient.Send(_pollInputCommand);
+        }
     }
 
     private void SendByteArray(byte[] bytes)
@@ -69,13 +95,13 @@ public class SamsungMdc : Display
     public override void PowerOn()
     {
         PowerCommand(0x01);
-        PowerState = PowerState.On;
+        DesiredPowerState = PowerState.On;
     }
 
     public override void PowerOff()
     {
         PowerCommand(0x00);
-        PowerState = PowerState.Off;
+        DesiredPowerState = PowerState.Off;
     }
     
     private byte GenerateChecksum(byte[] input)
@@ -89,9 +115,37 @@ public class SamsungMdc : Display
         return sum;
     }
 
-    public void HandleResponse(string input)
+    public void HandleResponse(byte[] response)
     {
-        //TODO: Implement this
+        if (response[0] != 0xAA)
+            return;
+        
+        if(response[4] == (byte)'A')
+            UpdateCommunicationState(CommunicationState.Okay);
+        else
+        {
+            UpdateCommunicationState(CommunicationState.Error);
+            return;
+        }
+        
+        switch ((byte) response[5])
+        {
+            case PowerControlCommand:
+                PowerState = (byte)response[6] switch
+                {
+                    0x00 => PowerState.Off,
+                    0x01 => PowerState.On,
+                    _ => PowerState
+                };
+                if (PowerState != DesiredPowerState)
+                {
+                    if(DesiredPowerState == PowerState.On)
+                        PowerOn();
+                    else
+                        PowerOff();
+                }
+                break;
+        }
     }
 
     private void sendCommandWithOneDataLength(byte command, byte data)
