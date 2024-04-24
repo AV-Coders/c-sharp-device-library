@@ -17,10 +17,11 @@ public class SamsungMdc : Display
     private const byte MuteControlCommand = 0x13;
     private const byte InputControlCommand = 0x14;
     private const byte DataLength1 = 0x01;
-
-    private byte _currentPoll = InputControlCommand;
+    
     private readonly byte[] _pollPowerCommand;
     private readonly byte[] _pollInputCommand;
+    private readonly byte[] _pollVolumeCommand;
+    private readonly byte[] _pollMuteCommand;
 
 
     public SamsungMdc(CommunicationClient communicationClient, byte displayId)
@@ -52,24 +53,31 @@ public class SamsungMdc : Display
         
         byte[] pollInputCommandWithoutChecksum =  { 0xAA, InputControlCommand, _displayId, 0x00 };
         _pollInputCommand = new byte[] { 0xAA, InputControlCommand, _displayId, 0x00,  GenerateChecksum(pollInputCommandWithoutChecksum)};
+
+        byte[] pollVolumeCommandWithoutChecksum = { 0xAA, VolumeControlCommand, _displayId, 0x00 };
+        _pollVolumeCommand = new byte[]{ 0xAA, 0x11, _displayId, 0x00, GenerateChecksum(pollVolumeCommandWithoutChecksum) };
+        
+        byte[] pollMuteCommandWithoutChecksum =  { 0xAA, MuteControlCommand, _displayId, 0x00 };
+        _pollMuteCommand = new byte[] { 0xAA, MuteControlCommand, _displayId, 0x00,  GenerateChecksum(pollMuteCommandWithoutChecksum)};
     }
 
     protected override void Poll()
     {
-        if (_currentPoll == InputControlCommand)
+        if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
-            // Poll power
-            _currentPoll = PowerControlCommand;
-            CommunicationClient.Send(_pollPowerCommand);
-            LogHandlers?.Invoke("Polling Power");
+            LogHandlers?.Invoke("Not polling, comm client is not connected");
+            return;
         }
-        else
-        {
-            // Poll Input
-            _currentPoll = InputControlCommand;
-            CommunicationClient.Send(_pollInputCommand);
-            LogHandlers?.Invoke("Polling Input");
-        }
+        
+        LogHandlers?.Invoke("Polling Power, Input, Volume and Mute");
+        
+        CommunicationClient.Send(_pollPowerCommand);
+        Thread.Sleep(1000);
+        CommunicationClient.Send(_pollInputCommand);
+        Thread.Sleep(1000);
+        CommunicationClient.Send(_pollVolumeCommand);
+        Thread.Sleep(1000);
+        CommunicationClient.Send(_pollMuteCommand);
     }
 
     private void SendByteArray(byte[] bytes)
