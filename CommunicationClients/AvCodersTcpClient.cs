@@ -39,7 +39,7 @@ public class AvCodersTcpClient : Core_TcpClient
                 {
                     string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
                     ResponseHandlers?.Invoke(response);
-                    ResponseByteHandlers?.Invoke(buffer);
+                    ResponseByteHandlers?.Invoke(buffer.Take(bytesRead).ToArray());
                 }
             }
             catch (IOException e)
@@ -80,7 +80,10 @@ public class AvCodersTcpClient : Core_TcpClient
                 var success = connectResult.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1));
 
                 if (!success)
+                {
+                    LogHandlers?.Invoke("1 second connection wait failed, marking as disconnected");
                     UpdateConnectionState(ConnectionState.Disconnected);
+                }
 
                 _client.EndConnect(connectResult);
             }
