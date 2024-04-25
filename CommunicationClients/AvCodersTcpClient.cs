@@ -70,7 +70,10 @@ public class AvCodersTcpClient : Core_TcpClient
     protected override void CheckConnectionState()
     {
         if (_client.Connected)
+        {
             UpdateConnectionState(ConnectionState.Connected);
+            Thread.Sleep(17000);
+        }
         else
         {
             UpdateConnectionState(ConnectionState.Connecting);
@@ -99,9 +102,9 @@ public class AvCodersTcpClient : Core_TcpClient
                 Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
+            Thread.Sleep(5000);
         }
             
-        Thread.Sleep(5000);
     }
 
     protected override void ProcessSendQueue()
