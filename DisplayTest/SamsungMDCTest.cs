@@ -204,4 +204,41 @@ public class SamsungMDCTest
         
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Exactly(2));
     }
+
+    [Fact]
+    public void HandleResponse_DoesntForceAnUnknownPowerState()
+    {
+        _samsungMdc.HandleResponse(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x00, 0xFF });
+        _samsungMdc.HandleResponse(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x01, 0xFF });
+        _samsungMdc.HandleResponse(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x02, 0xFF });
+        
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x12, 0x00, 0xFF }, 0)]
+    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x12, 0x01, 0xFF }, 1)]
+    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x12, 0x0D, 0xFF }, 13)]
+    public void HandleResponse_UpdatesTheVolumeLevel(byte[] response, int expectedState)
+    {
+        Mock<VolumeLevelHandler> mockHandler = new Mock<VolumeLevelHandler>();
+
+        _samsungMdc.VolumeLevelHandlers += mockHandler.Object;
+        _samsungMdc.HandleResponse(response);
+        
+        mockHandler.Verify(x => x.Invoke(expectedState));
+    }
+    
+    [Theory]
+    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x13, 0x00, 0xFF }, MuteState.Off)]
+    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x13, 0x01, 0xFF }, MuteState.On)]
+    public void HandleResponse_UpdatesTheMuteState(byte[] response, MuteState expectedState)
+    {
+        Mock<MuteStateHandler> mockHandler = new Mock<MuteStateHandler>();
+
+        _samsungMdc.MuteStateHandlers += mockHandler.Object;
+        _samsungMdc.HandleResponse(response);
+        
+        mockHandler.Verify(x => x.Invoke(expectedState));
+    }
 }

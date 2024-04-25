@@ -55,7 +55,7 @@ public class SamsungMdc : Display
         _pollInputCommand = new byte[] { 0xAA, InputControlCommand, _displayId, 0x00,  GenerateChecksum(pollInputCommandWithoutChecksum)};
 
         byte[] pollVolumeCommandWithoutChecksum = { 0xAA, VolumeControlCommand, _displayId, 0x00 };
-        _pollVolumeCommand = new byte[]{ 0xAA, 0x11, _displayId, 0x00, GenerateChecksum(pollVolumeCommandWithoutChecksum) };
+        _pollVolumeCommand = new byte[]{ 0xAA, VolumeControlCommand, _displayId, 0x00, GenerateChecksum(pollVolumeCommandWithoutChecksum) };
         
         byte[] pollMuteCommandWithoutChecksum =  { 0xAA, MuteControlCommand, _displayId, 0x00 };
         _pollMuteCommand = new byte[] { 0xAA, MuteControlCommand, _displayId, 0x00,  GenerateChecksum(pollMuteCommandWithoutChecksum)};
@@ -65,19 +65,22 @@ public class SamsungMdc : Display
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
-            LogHandlers?.Invoke("Not polling, comm client is not connected");
+            LogHandlers?.Invoke("Not polling");
             return;
         }
         
-        LogHandlers?.Invoke("Polling Power, Input, Volume and Mute");
+        LogHandlers?.Invoke("Polling Power");
         
         CommunicationClient.Send(_pollPowerCommand);
-        Thread.Sleep(1000);
-        CommunicationClient.Send(_pollInputCommand);
-        Thread.Sleep(1000);
-        CommunicationClient.Send(_pollVolumeCommand);
-        Thread.Sleep(1000);
-        CommunicationClient.Send(_pollMuteCommand);
+        if (PowerState == PowerState.On)
+        {
+            Thread.Sleep(1000);
+            CommunicationClient.Send(_pollInputCommand);
+            Thread.Sleep(1000);
+            CommunicationClient.Send(_pollVolumeCommand);
+            Thread.Sleep(1000);
+            CommunicationClient.Send(_pollMuteCommand);
+        }
     }
 
     private void SendByteArray(byte[] bytes)
@@ -104,12 +107,14 @@ public class SamsungMdc : Display
 
     public override void PowerOn()
     {
+        LogHandlers?.Invoke("Turning On");
         PowerCommand(0x01);
         DesiredPowerState = PowerState.On;
     }
 
     public override void PowerOff()
     {
+        LogHandlers?.Invoke("Turning Off");
         PowerCommand(0x00);
         DesiredPowerState = PowerState.Off;
     }
@@ -127,33 +132,67 @@ public class SamsungMdc : Display
 
     public void HandleResponse(byte[] response)
     {
-        if (response[0] != 0xAA)
-            return;
-        
-        if(response[4] == (byte)'A')
-            UpdateCommunicationState(CommunicationState.Okay);
-        else
+        // LogHandlers?.Invoke($"Response received, bytes: {BitConverter.ToString(response)}");
+
+        if (response[0] != 0xAA && response[1] != 0xFF)
         {
+            LogHandlers?.Invoke("The response does not have the correct header");
+            return;
+        }
+
+        if (response[4] == 0x4E)
+        {
+            LogHandlers?.Invoke("NAK Received");
             UpdateCommunicationState(CommunicationState.Error);
             return;
         }
         
-        switch ((byte) response[5])
+        UpdateCommunicationState(CommunicationState.Okay);
+        
+        switch (response[5])
         {
             case PowerControlCommand:
-                PowerState = (byte)response[6] switch
+                PowerState = response[6] switch
                 {
                     0x00 => PowerState.Off,
                     0x01 => PowerState.On,
                     _ => PowerState
                 };
-                if (PowerState != DesiredPowerState)
+                LogHandlers?.Invoke($"The current power state is {PowerState}, Desired is {DesiredPowerState}");
+                if (DesiredPowerState != PowerState.Unknown && PowerState != DesiredPowerState)
                 {
-                    if(DesiredPowerState == PowerState.On)
-                        PowerOn();
-                    else
-                        PowerOff();
+                    LogHandlers?.Invoke("Forcing power");
+                    PowerCommand(DesiredPowerState == PowerState.On ? (byte)0x01 : (byte)0x00);
                 }
+                break;
+            case InputControlCommand:
+                Input = response[6] switch
+                {
+                    0x21 => Input.Hdmi1,
+                    0x23 => Input.Hdmi2,
+                    0x31 => Input.Hdmi3,
+                    0x33 => Input.Hdmi4,
+                    0x60 => Input.DvbtTuner,
+                    _ => Input
+                };
+                LogHandlers?.Invoke($"The current input is {Input}, Desired is {DesiredInput}");
+                if(DesiredInput != Input.Unknown && Input != DesiredInput)
+                    SetInput(DesiredInput);
+                break;
+            case VolumeControlCommand:
+                Volume = response[6];
+                LogHandlers?.Invoke($"The current volume is {Volume}");
+                VolumeLevelHandlers?.Invoke(Volume);
+                break;
+            case MuteControlCommand:
+                AudioMute = response[6] switch
+                {
+                    0x00 => MuteState.Off,
+                    0x01 => MuteState.On,
+                    _ => MuteState.Unknown
+                };
+                LogHandlers?.Invoke($"The current mute state is {AudioMute.ToString()}");
+                MuteStateHandlers?.Invoke(AudioMute);
                 break;
         }
     }
@@ -168,6 +207,7 @@ public class SamsungMdc : Display
 
     public override void SetInput(Input input)
     {
+        LogHandlers?.Invoke($"Setting input to {input.ToString()}");
         if (_inputDictionary.TryGetValue(input, out var inputByte))
         {
             sendCommandWithOneDataLength(InputControlCommand, inputByte);
@@ -188,6 +228,7 @@ public class SamsungMdc : Display
 
     public override void SetAudioMute(MuteState state)
     {
+        LogHandlers?.Invoke($"Setting mute to {state.ToString()}");
         sendCommandWithOneDataLength(MuteControlCommand, _muteDictionary[state]);
         AudioMute = state;
         MuteStateHandlers?.Invoke(AudioMute);
