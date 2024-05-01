@@ -158,12 +158,7 @@ public class SamsungMdc : Display
                     0x01 => PowerState.On,
                     _ => PowerState
                 };
-                LogHandlers?.Invoke($"The current power state is {PowerState}, Desired is {DesiredPowerState}");
-                if (DesiredPowerState != PowerState.Unknown && PowerState != DesiredPowerState)
-                {
-                    LogHandlers?.Invoke("Forcing power");
-                    PowerCommand(DesiredPowerState == PowerState.On ? (byte)0x01 : (byte)0x00);
-                }
+                AlignPowerState();
                 break;
             case InputControlCommand:
                 Input = response[6] switch
@@ -175,9 +170,7 @@ public class SamsungMdc : Display
                     0x60 => Input.DvbtTuner,
                     _ => Input
                 };
-                LogHandlers?.Invoke($"The current input is {Input}, Desired is {DesiredInput}");
-                if(DesiredInput != Input.Unknown && Input != DesiredInput)
-                    SetInput(DesiredInput);
+                AlignInput();
                 break;
             case VolumeControlCommand:
                 Volume = response[6];

@@ -63,13 +63,13 @@ public class SonySimpleIpControl : Display
     public override void PowerOff()
     {
         SendCommand(WrapMessage($"CPOWR{0:D16}"));
-        PowerState = PowerState.Off;
+        DesiredPowerState = PowerState.Off;
     }
 
     public override void PowerOn()
     {
         SendCommand(WrapMessage($"CPOWR{1:D16}"));
-        PowerState = PowerState.On;
+        DesiredPowerState = PowerState.On;
     }
 
     private void HandleResponse(String response)
@@ -84,6 +84,7 @@ public class SonySimpleIpControl : Display
             {
                 PowerState = _powerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
                 PowerStateHandlers?.Invoke(PowerState);
+                AlignPowerState();
             }
             else if (trimmedResponse.StartsWith("*SNVOLU"))
             {
@@ -99,6 +100,7 @@ public class SonySimpleIpControl : Display
             {
                 Input = _inputMap.GetValueOrDefault(trimmedResponse.Remove(0, 7), Input.Unknown);
                 InputHandlers?.Invoke(Input);
+                AlignInput();
             }
         }
     }

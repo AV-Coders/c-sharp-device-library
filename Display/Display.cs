@@ -47,6 +47,29 @@ public abstract class Display : IDevice
         CommunicationStateHandlers?.Invoke(state);
     }
 
+    protected void AlignPowerState()
+    {
+        if (PowerState == DesiredPowerState)
+            return;
+        if (DesiredPowerState == PowerState.Unknown)
+            return;
+        Log("Forcing Power");
+        if (DesiredPowerState == PowerState.Off)
+            PowerOff();
+        else if (DesiredPowerState != PowerState.On)
+            PowerOn();
+    }
+
+    protected void AlignInput()
+    {
+        if (Input == DesiredInput)
+            return;
+        if (DesiredInput == Input.Unknown)
+            return;
+        Log("Forcing Input");
+        SetInput(DesiredInput);
+    }
+
     public Input GetCurrentInput() => Input;
     
     public int GetCurrentVolume() => Volume;

@@ -133,11 +133,7 @@ public class PjLink : Display
         if (responses[0].Contains("POWR"))
         {
             PowerState = _powerStateDictionary.FirstOrDefault(x => x.Value == value).Key;
-            if (PowerState != DesiredPowerState)
-            {
-                Console.WriteLine("Forcing power state");
-                SetPowerState(DesiredPowerState);
-            }
+            AlignPowerState();
         }
         else if (responses[0].Contains("INPT"))
         {
