@@ -7,6 +7,7 @@ public enum Input
     Hdmi2,
     Hdmi3,
     Hdmi4,
+    Sdi,
     DvbtTuner,
     Network6, // Epson 
 }
