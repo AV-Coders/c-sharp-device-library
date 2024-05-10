@@ -158,6 +158,7 @@ public class SamsungMdc : Display
                     0x01 => PowerState.On,
                     _ => PowerState
                 };
+                PowerStateHandlers?.Invoke(PowerState);
                 AlignPowerState();
                 break;
             case InputControlCommand:
@@ -170,6 +171,7 @@ public class SamsungMdc : Display
                     0x60 => Input.DvbtTuner,
                     _ => Input
                 };
+                InputHandlers?.Invoke(Input);
                 AlignInput();
                 break;
             case VolumeControlCommand:
