@@ -63,13 +63,13 @@ public class SonySimpleIpControl : Display
     public override void PowerOff()
     {
         SendCommand(WrapMessage($"CPOWR{0:D16}"));
-        DesiredPowerState = PowerState.Off;
+        base.PowerOff();
     }
 
     public override void PowerOn()
     {
         SendCommand(WrapMessage($"CPOWR{1:D16}"));
-        DesiredPowerState = PowerState.On;
+        base.PowerOn();
     }
 
     private void HandleResponse(String response)
@@ -83,8 +83,7 @@ public class SonySimpleIpControl : Display
             if (trimmedResponse.StartsWith("*SNPOWR"))
             {
                 PowerState = _powerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
-                PowerStateHandlers?.Invoke(PowerState);
-                AlignPowerState();
+                ProcessPowerResponse();
             }
             else if (trimmedResponse.StartsWith("*SNVOLU"))
             {
@@ -99,8 +98,7 @@ public class SonySimpleIpControl : Display
             else if (trimmedResponse.StartsWith("*SNINPT"))
             {
                 Input = _inputMap.GetValueOrDefault(trimmedResponse.Remove(0, 7), Input.Unknown);
-                InputHandlers?.Invoke(Input);
-                AlignInput();
+                ProcessInputResponse();
             }
         }
     }

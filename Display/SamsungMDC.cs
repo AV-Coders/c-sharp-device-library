@@ -107,16 +107,14 @@ public class SamsungMdc : Display
 
     public override void PowerOn()
     {
-        LogHandlers?.Invoke("Turning On");
         PowerCommand(0x01);
-        DesiredPowerState = PowerState.On;
+        base.PowerOn();
     }
 
     public override void PowerOff()
     {
-        LogHandlers?.Invoke("Turning Off");
         PowerCommand(0x00);
-        DesiredPowerState = PowerState.Off;
+        base.PowerOff();
     }
     
     private byte GenerateChecksum(byte[] input)
@@ -158,8 +156,7 @@ public class SamsungMdc : Display
                     0x01 => PowerState.On,
                     _ => PowerState
                 };
-                PowerStateHandlers?.Invoke(PowerState);
-                AlignPowerState();
+                ProcessPowerResponse();
                 break;
             case InputControlCommand:
                 Input = response[6] switch
@@ -171,8 +168,7 @@ public class SamsungMdc : Display
                     0x60 => Input.DvbtTuner,
                     _ => Input
                 };
-                InputHandlers?.Invoke(Input);
-                AlignInput();
+                ProcessInputResponse();
                 break;
             case VolumeControlCommand:
                 Volume = response[6];

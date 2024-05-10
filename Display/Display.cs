@@ -47,7 +47,13 @@ public abstract class Display : IDevice
         CommunicationStateHandlers?.Invoke(state);
     }
 
-    protected void AlignPowerState()
+    protected void ProcessPowerResponse()
+    {
+        PowerStateHandlers?.Invoke(PowerState);
+        AlignPowerState();
+    }
+    
+    private void AlignPowerState()
     {
         if (PowerState == DesiredPowerState)
             return;
@@ -59,8 +65,14 @@ public abstract class Display : IDevice
         else if (DesiredPowerState != PowerState.On)
             PowerOn();
     }
+    
+    protected void ProcessInputResponse()
+    {
+        InputHandlers?.Invoke(Input);
+        AlignInput();
+    }
 
-    protected void AlignInput()
+    private void AlignInput()
     {
         if (Input == DesiredInput)
             return;
@@ -77,9 +89,21 @@ public abstract class Display : IDevice
     public MuteState GetAudioMute() => AudioMute;
     public MuteState GetVideoMute() => VideoMute;
 
-    public abstract void PowerOn();
+    public virtual void PowerOn()
+    {
+        LogHandlers?.Invoke("Turning On");
+        PowerState = PowerState.On;
+        DesiredPowerState = PowerState.On;
+        PowerStateHandlers?.Invoke(DesiredPowerState);
+    }
 
-    public abstract void PowerOff();
+    public virtual void PowerOff()
+    {
+        LogHandlers?.Invoke("Turning Off");
+        PowerState = PowerState.Off;
+        DesiredPowerState = PowerState.Off;
+        PowerStateHandlers?.Invoke(DesiredPowerState);
+    }
 
     public abstract void SetInput(Input input);
 

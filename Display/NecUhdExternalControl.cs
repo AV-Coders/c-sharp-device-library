@@ -46,6 +46,7 @@ public class NecUhdExternalControl : Display
     private void HandleResponse(string response)
     {
         //Todo: Handle the response
+        // Don't forget to use the methods in the base class to force states
     }
 
     private List<byte> GetCommandHeaderWithoutSoh(byte commandType)
@@ -90,7 +91,7 @@ public class NecUhdExternalControl : Display
         AddPayloadToCommand(fullCommand, payload);
         AddChecksumToCommand(fullCommand);
         WrapAndSendCommand(fullCommand);
-        PowerState = PowerState.On;
+        base.PowerOn();
     }
 
     public override void PowerOff()
@@ -101,7 +102,7 @@ public class NecUhdExternalControl : Display
         AddPayloadToCommand(fullCommand, payload);
         AddChecksumToCommand(fullCommand);
         WrapAndSendCommand(fullCommand);
-        PowerState = PowerState.Off;
+        base.PowerOff();
     }
 
     public override void SetInput(Input input)

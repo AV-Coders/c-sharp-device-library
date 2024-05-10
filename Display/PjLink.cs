@@ -133,16 +133,12 @@ public class PjLink : Display
         if (responses[0].Contains("POWR"))
         {
             PowerState = _powerStateDictionary.FirstOrDefault(x => x.Value == value).Key;
-            AlignPowerState();
+            ProcessPowerResponse();
         }
         else if (responses[0].Contains("INPT"))
         {
             Input = _inputDictionary.FirstOrDefault(x => x.Value == value).Key;
-            if (Input != DesiredInput)
-            {
-                Console.WriteLine("Forcing input");
-                SetInput(DesiredInput);
-            }
+            ProcessInputResponse();
         }
         else if (responses[0].Contains("AVMT"))
         {
@@ -197,11 +193,13 @@ public class PjLink : Display
     public override void PowerOn()
     {
         SetPowerState(PowerState.On);
+        base.PowerOn();
     }
 
     public override void PowerOff()
     {
         SetPowerState(PowerState.Off);
+        base.PowerOff();
     }
 
     public override void SetInput(Input input)
