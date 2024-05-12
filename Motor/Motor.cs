@@ -37,6 +37,8 @@ public abstract class Motor : IDevice
 
     public abstract void Lower();
 
+    public abstract void Stop();
+
     public void PowerOn() => _powerOnAction.Invoke();
 
     public void PowerOff() => _powerOffAction.Invoke();

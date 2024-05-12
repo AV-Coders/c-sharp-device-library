@@ -76,7 +76,7 @@ public class ScreenTechnicsConnect : Motor
         Log("Screen technics will Lower");
     }
 
-    public void Stop()
+    public override void Stop()
     {
         Send($"36 {_moduleId}\r");
         CurrentMoveAction = RelayAction.None;
