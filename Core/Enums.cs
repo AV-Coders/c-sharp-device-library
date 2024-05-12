@@ -54,9 +54,15 @@ public enum PollTask
 
 public enum SerialBaud
 {
+    Rate110,
+    Rate300,
+    Rate1200,
+    Rate2400,
+    Rate4800,
     Rate9600,
     Rate19200,
     Rate38400,
+    Rate57600,
     Rate115200
 }
 
