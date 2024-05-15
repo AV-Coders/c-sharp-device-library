@@ -88,10 +88,12 @@ public class VitecHttp : MediaPlayer
                 SimulateRemoteKeypress($"{c}");
                 Thread.Sleep(50);
             }
-        }
-        // Thread.Sleep(200);
-        // SimulateRemoteKeypress("enter");
-            
+        }   
+    }
+
+    public void ToggleSubtitles()
+    {
+        SimulateRemoteKeypress("subtitle");
     }
 
     public void SendIRCode(RemoteButton button)
