@@ -12,5 +12,10 @@ public enum RemoteButton
     Button7,
     Button8,
     Button9,
-    Button0
+    Button0,
+    Up,
+    Down,
+    Left,
+    Right,
+    Subtitle
 }

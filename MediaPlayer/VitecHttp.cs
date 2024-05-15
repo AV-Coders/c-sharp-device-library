@@ -91,11 +91,6 @@ public class VitecHttp : MediaPlayer
         }   
     }
 
-    public void ToggleSubtitles()
-    {
-        SimulateRemoteKeypress("subtitle");
-    }
-
     public void SendIRCode(RemoteButton button)
     {
         string command = button switch
@@ -111,6 +106,11 @@ public class VitecHttp : MediaPlayer
             RemoteButton.Button8 => "8",
             RemoteButton.Button9 => "9",
             RemoteButton.Button0 => "0",
+            RemoteButton.Up => "up",
+            RemoteButton.Down => "down",
+            RemoteButton.Left => "left",
+            RemoteButton.Right => "right",
+            RemoteButton.Subtitle => "subtitle",
             _ => String.Empty
         };
         if(command != String.Empty)
