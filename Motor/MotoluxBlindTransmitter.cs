@@ -37,13 +37,17 @@ public class MotoluxBlindTransmitter : Motor
         char highByte = '\u0000';
         char lowByte = '\u0000';
 
-        if (value <= 8)
+        switch (value)
         {
-            lowByte = (char)(1 << value - 1);
-        }
-        else
-        {
-            highByte = (char)(1 << (value - 9));
+            case <= '\u0008':
+                lowByte = (char)(1 << value - 1);
+                break;
+            case '\u0009':
+                highByte = '\u0001';
+                break;
+            default:
+                highByte = (char)(1 << (value - '\u000f'));
+                break;
         }
 
         return (lowByte, highByte);

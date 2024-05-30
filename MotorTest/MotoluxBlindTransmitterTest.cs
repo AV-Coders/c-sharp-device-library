@@ -11,7 +11,7 @@ public class MotoluxBlindTransmitterTest
     public MotoluxBlindTransmitterTest()
     {
         _mockClient = new Mock<SerialClient>();
-        _device = new MotoluxBlindTransmitter("Blind", '\u0002', '\u0008', RelayAction.Lower, 30, _mockClient.Object);
+        _device = new MotoluxBlindTransmitter("Blind", '\u0002', '\u0010', RelayAction.Lower, 30, _mockClient.Object);
     }
 
     [Fact]
@@ -19,7 +19,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Lower();
 
-        char[] expectedPayload = { '\u009a', '\u0002', '\u0080', '\u0000', '\u000a', '\u00EE', '\u0066' };
+        char[] expectedPayload = { '\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00EE', '\u00E4' };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -29,7 +29,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Raise();
 
-        char[] expectedPayload = { '\u009a', '\u0002', '\u0080', '\u0000', '\u000a', '\u00DD', '\u0055' };
+        char[] expectedPayload = { '\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00DD', '\u00d7' };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -38,20 +38,20 @@ public class MotoluxBlindTransmitterTest
     public void Stop_SendsTheCommand()
     {
         _device.Stop();
-        char[] expectedPayload = { '\u009a', '\u0002', '\u0080', '\u0000', '\u000a', '\u00CC', '\u0044' };
+        char[] expectedPayload = { '\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00CC', '\u00c6' };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
 
     [Theory]
-    [InlineData(0, 0x00, 0x00)]
-    [InlineData(1, 0x01, 0x00)]
-    [InlineData(2, 0x02, 0x00)]
-    [InlineData(8, 0x80, 0x00)]
-    [InlineData(9, 0x00, 0x01)]
-    [InlineData(10, 0x00, 0x02)]
-    [InlineData(12, 0x00, 0x08)]
-    [InlineData(16, 0x00, 0x80)]
+    [InlineData('\u0000', 0x00, 0x00)]
+    [InlineData('\u0001', 0x01, 0x00)]
+    [InlineData('\u0002', 0x02, 0x00)]
+    [InlineData('\u0008', 0x80, 0x00)]
+    [InlineData('\u0009', 0x00, 0x01)]
+    [InlineData('\u0010', 0x00, 0x02)]
+    [InlineData('\u0012', 0x00, 0x08)]
+    [InlineData('\u0016', 0x00, 0x80)]
     public void GetIdBytes_ReturnsTheCorrectValue(char input, char expectedLow, char expectedHigh)
     {
         (char actualLow, char actualHigh) = _device.GetIdBytes(input);
