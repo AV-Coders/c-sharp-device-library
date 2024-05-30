@@ -11,7 +11,7 @@ public class MotoluxBlindTransmitterTest
     public MotoluxBlindTransmitterTest()
     {
         _mockClient = new Mock<SerialClient>();
-        _device = new MotoluxBlindTransmitter("Blind", 0x00, 0x01, RelayAction.Lower, 30, _mockClient.Object);
+        _device = new MotoluxBlindTransmitter("Blind", 0x02, 0x01, RelayAction.Lower, 30, _mockClient.Object);
     }
 
     [Fact]
@@ -19,7 +19,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Lower();
 
-        byte[] expectedPayload = { 0x9a, 0x00, 0x01, 0x00, 0x0a, 0xEE, 0xE5 };
+        byte[] expectedPayload = { 0x9a, 0x02, 0x01, 0x00, 0x0a, 0xEE, 0xE7 };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -29,7 +29,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Raise();
 
-        byte[] expectedPayload = { 0x9a, 0x00, 0x01, 0x00, 0x0a, 0xDD, 0xD6 };
+        byte[] expectedPayload = { 0x9a, 0x02, 0x01, 0x00, 0x0a, 0xDD, 0xD4 };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -38,8 +38,7 @@ public class MotoluxBlindTransmitterTest
     public void Stop_SendsTheCommand()
     {
         _device.Stop();
-
-        byte[] expectedPayload = { 0x9a, 0x00, 0x01, 0x00, 0x0a, 0xCC, 0xC7 };
+        byte[] expectedPayload = { 0x9a, 0x02, 0x01, 0x00, 0x0a, 0xCC, 0xC5 };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }

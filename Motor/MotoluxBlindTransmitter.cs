@@ -51,7 +51,7 @@ public class MotoluxBlindTransmitter : Motor
 
     private byte CalculateChecksum(List<byte> command)
     {
-        byte checksum = command[0];
+        byte checksum = 0;
         command.ForEach(x => checksum ^= x);
         return checksum;
     }
