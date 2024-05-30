@@ -6,52 +6,52 @@ public class MotoluxBlindTransmitter : Motor
 {
     private readonly SerialClient _client;
 
-    private readonly byte _commandHeader = 0x9a;
-    private readonly byte _controlCommand = 0x0a;
-    private readonly byte _up = 0xDD;
-    private readonly byte _down = 0xEE;
-    private readonly byte _stop = 0xCC;
+    private readonly char _commandHeader = '\u009a';
+    private readonly char _controlCommand = '\u000a';
+    private readonly char _up = '\u00DD';
+    private readonly char _down = '\u00EE';
+    private readonly char _stop = '\u00CC';
 
-    private readonly byte[] _lowerCommand;
-    private readonly byte[] _raiseCommand;
-    private readonly byte[] _stopCommand;
+    private readonly char[] _lowerCommand;
+    private readonly char[] _raiseCommand;
+    private readonly char[] _stopCommand;
 
-    public MotoluxBlindTransmitter(string name, byte deviceId, byte blindId, RelayAction powerOnAction, int moveSeconds, SerialClient client)
+    public MotoluxBlindTransmitter(string name, char deviceId, char blindId, RelayAction powerOnAction, int moveSeconds, SerialClient client)
         : base(name, powerOnAction, moveSeconds)
     {
         _client = client;
-        (byte blindIdLow, byte blindIdHigh) = GetIdBytes(blindId);
+        (char blindIdLow, char blindIdHigh) = GetIdBytes(blindId);
 
-        byte lowerCommandChecksum = CalculateChecksum(new List<byte> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _down });
+        char lowerCommandChecksum = CalculateChecksum(new List<char> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _down });
         _lowerCommand = new[] { _commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _down, lowerCommandChecksum };
         
-        byte raiseCommandChecksum = CalculateChecksum(new List<byte> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _up });
+        char raiseCommandChecksum = CalculateChecksum(new List<char> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _up });
         _raiseCommand = new[] { _commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _up, raiseCommandChecksum };
         
-        byte stopCommandChecksum = CalculateChecksum(new List<byte> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _stop });
+        char stopCommandChecksum = CalculateChecksum(new List<char> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _stop });
         _stopCommand = new[] { _commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _stop, stopCommandChecksum };
     }
     
-    public (byte, byte) GetIdBytes(byte value)
+    public (char, char) GetIdBytes(char value)
     {
-        byte highByte = 0;
-        byte lowByte = 0;
+        char highByte = '\u0000';
+        char lowByte = '\u0000';
 
         if (value < 8)
         {
-            lowByte = (byte)(1 << value - 1);
+            lowByte = (char)(1 << value - 1);
         }
         else
         {
-            highByte = (byte)(1 << (value - 9));
+            highByte = (char)(1 << (value - 9));
         }
 
         return (lowByte, highByte);
     }
 
-    private byte CalculateChecksum(List<byte> command)
+    private char CalculateChecksum(List<char> command)
     {
-        byte checksum = 0;
+        char checksum = '\u0000';
         command.ForEach(x => checksum ^= x);
         return checksum;
     }

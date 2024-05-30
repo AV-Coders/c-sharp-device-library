@@ -27,6 +27,8 @@ public abstract class CommunicationClient
 public abstract class SerialClient : CommunicationClient
 {
     public abstract void ConfigurePort(SerialSpec serialSpec);
+
+    public abstract void Send(char[] chars);
 }
 
 public abstract class IpComms : CommunicationClient

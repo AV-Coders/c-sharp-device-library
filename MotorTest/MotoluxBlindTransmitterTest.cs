@@ -11,7 +11,7 @@ public class MotoluxBlindTransmitterTest
     public MotoluxBlindTransmitterTest()
     {
         _mockClient = new Mock<SerialClient>();
-        _device = new MotoluxBlindTransmitter("Blind", 0x02, 0x01, RelayAction.Lower, 30, _mockClient.Object);
+        _device = new MotoluxBlindTransmitter("Blind", '\u0002', '\u0001', RelayAction.Lower, 30, _mockClient.Object);
     }
 
     [Fact]
@@ -19,7 +19,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Lower();
 
-        byte[] expectedPayload = { 0x9a, 0x02, 0x01, 0x00, 0x0a, 0xEE, 0xE7 };
+        char[] expectedPayload = { '\u009a', '\u0002', '\u0001', '\u0000', '\u000a', '\u00EE', '\u00E7' };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -29,7 +29,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Raise();
 
-        byte[] expectedPayload = { 0x9a, 0x02, 0x01, 0x00, 0x0a, 0xDD, 0xD4 };
+        char[] expectedPayload = { '\u009a', '\u0002', '\u0001', '\u0000', '\u000a', '\u00DD', '\u00D4' };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -38,7 +38,7 @@ public class MotoluxBlindTransmitterTest
     public void Stop_SendsTheCommand()
     {
         _device.Stop();
-        byte[] expectedPayload = { 0x9a, 0x02, 0x01, 0x00, 0x0a, 0xCC, 0xC5 };
+        char[] expectedPayload = { '\u009a', '\u0002', '\u0001', '\u0000', '\u000a', '\u00CC', '\u00C5' };
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -50,9 +50,9 @@ public class MotoluxBlindTransmitterTest
     [InlineData(10, 0x00, 0x02)]
     [InlineData(12, 0x00, 0x08)]
     [InlineData(16, 0x00, 0x80)]
-    public void GetIdBytes_ReturnsTheCorrectValue(byte input, byte expectedLow, byte expectedHigh)
+    public void GetIdBytes_ReturnsTheCorrectValue(char input, char expectedLow, char expectedHigh)
     {
-        (byte actualLow, byte actualHigh) = _device.GetIdBytes(input);
+        (char actualLow, char actualHigh) = _device.GetIdBytes(input);
         
         Assert.Equal(expectedLow, actualLow);
         Assert.Equal(expectedHigh, actualHigh);
