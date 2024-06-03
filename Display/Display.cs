@@ -11,6 +11,7 @@ public abstract class Display : IDevice
     protected PowerState PowerState = PowerState.Unknown;
     protected PowerState DesiredPowerState = PowerState.Unknown;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
+    protected List<Input> SupportedInputs;
     public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
@@ -28,8 +29,9 @@ public abstract class Display : IDevice
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
 
-    protected Display()
+    protected Display(List<Input> supportedInputs)
     {
+        SupportedInputs = supportedInputs;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(23));
         PollWorker.Restart();
     }
@@ -38,7 +40,12 @@ public abstract class Display : IDevice
     
     protected void Log(string message)
     {
-        LogHandlers?.Invoke($"Display - {message}");
+        LogHandlers?.Invoke($"{GetType()} - {message}");
+    }
+
+    protected void Error(string message)
+    {
+        LogHandlers?.Invoke($"{GetType()} - {message}", EventLevel.Error);
     }
 
     protected void UpdateCommunicationState(CommunicationState state)
@@ -50,11 +57,6 @@ public abstract class Display : IDevice
     protected void ProcessPowerResponse()
     {
         PowerStateHandlers?.Invoke(PowerState);
-        AlignPowerState();
-    }
-    
-    private void AlignPowerState()
-    {
         if (PowerState == DesiredPowerState)
             return;
         if (DesiredPowerState == PowerState.Unknown)
@@ -62,18 +64,13 @@ public abstract class Display : IDevice
         Log("Forcing Power");
         if (DesiredPowerState == PowerState.Off)
             PowerOff();
-        else if (DesiredPowerState != PowerState.On)
+        else if (DesiredPowerState == PowerState.On) 
             PowerOn();
     }
     
     protected void ProcessInputResponse()
     {
         InputHandlers?.Invoke(Input);
-        AlignInput();
-    }
-
-    private void AlignInput()
-    {
         if (Input == DesiredInput)
             return;
         if (DesiredInput == Input.Unknown)
@@ -89,27 +86,78 @@ public abstract class Display : IDevice
     public MuteState GetAudioMute() => AudioMute;
     public MuteState GetVideoMute() => VideoMute;
 
-    public virtual void PowerOn()
+    public void PowerOn()
     {
-        LogHandlers?.Invoke("Turning On");
+        DoPowerOn();
+        Log("Turning On");
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
         PowerStateHandlers?.Invoke(DesiredPowerState);
     }
 
-    public virtual void PowerOff()
+    protected abstract void DoPowerOn();
+
+    public void PowerOff()
     {
-        LogHandlers?.Invoke("Turning Off");
+        DoPowerOff();
+        Log("Turning Off");
         PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
         PowerStateHandlers?.Invoke(DesiredPowerState);
     }
 
-    public abstract void SetInput(Input input);
+    protected abstract void DoPowerOff();
 
-    public abstract void SetVolume(int volume);
+    public void SetInput(Input input)
+    {
+        if (!SupportedInputs.Contains(input))
+        {
+            Error($"Requested Input {input} is not available");
+            return;
+        }
+        DoSetInput(input);
+        Log($"Setting input to {input.ToString()}");
+        DesiredInput = input;
+        Input = input;
+        InputHandlers?.Invoke(Input);
+    }
 
-    public abstract void SetAudioMute(MuteState state);
+    protected abstract void DoSetInput(Input input);
 
-    public abstract void ToggleAudioMute();
+    public void SetVolume(int volume)
+    {
+        if (volume is > 100 or < 0)
+        {
+            Error($"Volume needs to be a value between 0 and 100, it's {volume}");
+            return;
+        }
+        DoSetVolume(volume);
+        Volume = volume;
+        VolumeLevelHandlers?.Invoke(Volume);
+    }
+
+    protected abstract void DoSetVolume(int percentage);
+
+    public void SetAudioMute(MuteState state)
+    {
+        DesiredAudioMute = state;
+        DoSetAudioMute(state);
+        AudioMute = state;
+        MuteStateHandlers?.Invoke(AudioMute);
+    }
+
+    protected abstract void DoSetAudioMute(MuteState state);
+
+    public void ToggleAudioMute()
+    {
+        switch (AudioMute)
+        {
+            case MuteState.On:
+                SetAudioMute(MuteState.Off);
+                break;
+            default:
+                SetAudioMute(MuteState.On);
+                break;
+        }
+    }
 }

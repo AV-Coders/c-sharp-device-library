@@ -8,35 +8,30 @@ public class SonySimpleIpControl : Display
 {
     public static readonly ushort DefaultPort = 20060;
     public readonly TcpClient TcpClient;
-    private readonly Dictionary<string, Input> _inputMap;
-    private readonly Dictionary<string, PowerState> _powerStateMap;
+    private static readonly Dictionary<Input, string> InputDictionary = new ()
+    {
+        { Input.Hdmi1, "0000000100000001" },
+        { Input.Hdmi2, "0000000100000002" },
+        { Input.Hdmi3, "0000000100000003" },
+        { Input.Hdmi4, "0000000100000004" },
+        { Input.DvbtTuner, "0000000000000000" }
+    };
+    private static readonly Dictionary<string, PowerState> PowerStateMap = new()
+    {
+        { "*SNPOWR0000000000000001", PowerState.On },
+        { "*SNPOWR0000000000000000", PowerState.Off }
+    };
 
-    public SonySimpleIpControl(TcpClient tcpClient)
+    public SonySimpleIpControl(TcpClient tcpClient)  : base(InputDictionary.Keys.ToList())
     {
         TcpClient = tcpClient;
         TcpClient.SetPort(DefaultPort);
         TcpClient.ResponseHandlers += HandleResponse;
-        _inputMap = new Dictionary<string, Input>
-        {
-            { "0000000100000001", Input.Hdmi1 },
-            { "0000000100000002", Input.Hdmi2 },
-            { "0000000100000003", Input.Hdmi3 },
-            { "0000000100000004", Input.Hdmi4 },
-            { "0000000000000000", Input.DvbtTuner }
-        };
-        _powerStateMap = new Dictionary<string, PowerState>
-        {
-            { "*SNPOWR0000000000000001", PowerState.On },
-            { "*SNPOWR0000000000000000", PowerState.Off }
-        };
 
         UpdateCommunicationState(CommunicationState.NotAttempted);
     }
 
-    protected override void Poll()
-    {
-        PollWorker.Stop();
-    }
+    protected override void Poll() => PollWorker.Stop();
 
     private void SendCommand(String command)
     {
@@ -60,17 +55,9 @@ public class SonySimpleIpControl : Display
         return builder.ToString();
     }
 
-    public override void PowerOff()
-    {
-        SendCommand(WrapMessage($"CPOWR{0:D16}"));
-        base.PowerOff();
-    }
+    protected override void DoPowerOff() => SendCommand(WrapMessage($"CPOWR{0:D16}"));
 
-    public override void PowerOn()
-    {
-        SendCommand(WrapMessage($"CPOWR{1:D16}"));
-        base.PowerOn();
-    }
+    protected override void DoPowerOn() => SendCommand(WrapMessage($"CPOWR{1:D16}"));
 
     private void HandleResponse(String response)
     {
@@ -82,7 +69,7 @@ public class SonySimpleIpControl : Display
             Log(trimmedResponse);
             if (trimmedResponse.StartsWith("*SNPOWR"))
             {
-                PowerState = _powerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
+                PowerState = PowerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
                 ProcessPowerResponse();
             }
             else if (trimmedResponse.StartsWith("*SNVOLU"))
@@ -97,49 +84,18 @@ public class SonySimpleIpControl : Display
             }
             else if (trimmedResponse.StartsWith("*SNINPT"))
             {
-                Input = _inputMap.GetValueOrDefault(trimmedResponse.Remove(0, 7), Input.Unknown);
+                string value = trimmedResponse.Remove(0, 7);
+                Input = InputDictionary.Keys.FirstOrDefault(key => InputDictionary[key] == value, Input.Unknown);
                 ProcessInputResponse();
             }
         }
     }
 
-    public override void SetInput(Input input)
-    {
-        string inputCommand = _inputMap.FirstOrDefault(x => x.Value == input).Key;
-        SendCommand(WrapMessage($"CINPT{inputCommand}"));
-        Input = input;
-        InputHandlers?.Invoke(Input);
-    }
+    protected override void DoSetInput(Input input) => SendCommand(WrapMessage($"CINPT{InputDictionary[input]}"));
 
-    public override void SetVolume(int volume)
-    {
-        if (volume >= 0 && volume <= 100)
-        {
-            SendCommand(WrapMessage($"CVOLU{volume:D16}"));
-            Volume = volume;
-            VolumeLevelHandlers?.Invoke(Volume);
-        }
-    }
+    protected override void DoSetVolume(int volume) => SendCommand(WrapMessage($"CVOLU{volume:D16}"));
 
-    public override void SetAudioMute(MuteState state)
-    {
-        SendCommand(WrapMessage($"CAMUT{(state == MuteState.On ? 1 : 0):D16}"));
-        AudioMute = state;
-        MuteStateHandlers?.Invoke(AudioMute);
-    }
-
-    public override void ToggleAudioMute()
-    {
-        switch (AudioMute)
-        {
-            case MuteState.On:
-                SetAudioMute(MuteState.Off);
-                break;
-            default:
-                SetAudioMute(MuteState.On);
-                break;
-        }
-    }
+    protected override void DoSetAudioMute(MuteState state) => SendCommand(WrapMessage($"CAMUT{(state == MuteState.On ? 1 : 0):D16}"));
 
     public void SetVideoMute(MuteState desiredState)
     {
@@ -147,8 +103,5 @@ public class SonySimpleIpControl : Display
         VideoMute = desiredState;
     }
 
-    public void SendIrCode(int irCode)
-    {
-        SendCommand(WrapMessage($"CIRCC{irCode:D16}"));
-    }
+    public void SendIrCode(int irCode) => SendCommand(WrapMessage($"CIRCC{irCode:D16}"));
 }

@@ -38,6 +38,7 @@ public enum EventLevel
 {
     Verbose,
     Informational,
+    Warning,
     Error,
     Critical
     

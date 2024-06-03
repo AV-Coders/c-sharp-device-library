@@ -11,7 +11,7 @@ public class PjLinkTest
     public PjLinkTest()
     {
         _mockClient = new Mock<TcpClient>("foo", (ushort)1);
-        _display = new PjLink(_mockClient.Object, pollTime:100);
+        _display = new PjLink(_mockClient.Object);
     }
 
     [Fact]

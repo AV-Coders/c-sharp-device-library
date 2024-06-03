@@ -16,20 +16,19 @@ public class NecUhdExternalControl : Display
     private const byte Stx = 0x02;
     private const byte Etx = 0x03;
     private const byte Delimiter = 0x0d;
-    private readonly Dictionary<Input, byte[]> _inputDictionary;
+    private static readonly Dictionary<Input, byte[]> InputDictionary = new()
+    {
+        { Input.Hdmi1, new byte[] { 0x31, 0x31 } },
+        { Input.Hdmi2, new byte[] { 0x31, 0x32 } },
+        { Input.Hdmi3, new byte[] { 0x38, 0x32 } },
+        { Input.Hdmi4, new byte[] { 0x38, 0x33 } }
+    };
 
-    public NecUhdExternalControl(CommunicationClient tcpClient, byte displayId = 0x2A)
+    public NecUhdExternalControl(CommunicationClient tcpClient, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList())
     {
         CommunicationClient = tcpClient;
         _displayId = displayId;
         ConfigureCommClient();
-        _inputDictionary = new Dictionary<Input, byte[]>
-        {
-            { Input.Hdmi1, new byte[] { 0x31, 0x31 } },
-            { Input.Hdmi2, new byte[] { 0x31, 0x32 } },
-            { Input.Hdmi3, new byte[] { 0x38, 0x32 } },
-            { Input.Hdmi4, new byte[] { 0x38, 0x33 } }
-        };
     }
 
     protected override void Poll()
@@ -83,7 +82,7 @@ public class NecUhdExternalControl : Display
         command.Add(Bytes.XorAList(command));
     }
 
-    public override void PowerOn()
+    protected override void DoPowerOn()
     {
         byte[] payload = { Stx, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x31, Etx };
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeCommand);
@@ -91,10 +90,9 @@ public class NecUhdExternalControl : Display
         AddPayloadToCommand(fullCommand, payload);
         AddChecksumToCommand(fullCommand);
         WrapAndSendCommand(fullCommand);
-        base.PowerOn();
     }
 
-    public override void PowerOff()
+    protected override void DoPowerOff()
     {
         byte[] payload = { Stx, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x34, Etx };
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeCommand);
@@ -102,35 +100,30 @@ public class NecUhdExternalControl : Display
         AddPayloadToCommand(fullCommand, payload);
         AddChecksumToCommand(fullCommand);
         WrapAndSendCommand(fullCommand);
-        base.PowerOff();
     }
 
-    public override void SetInput(Input input)
+    protected override void DoSetInput(Input input)
     {
-        byte[] payload = { Stx, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, _inputDictionary[input][0], _inputDictionary[input][1], Etx };
+        byte[] payload = { Stx, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, InputDictionary[input][0], InputDictionary[input][1], Etx };
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
         AddChecksumToCommand(fullCommand);
         WrapAndSendCommand(fullCommand);
-        Input = input;
-        InputHandlers?.Invoke(Input);
     }
 
-    public override void SetVolume(int volume)
+    protected override void DoSetVolume(int percentage)
     {
-        byte[] volumeBytes = Bytes.AsciiRepresentationOfHexEquivalentOf(volume, 2);
+        byte[] volumeBytes = Bytes.AsciiRepresentationOfHexEquivalentOf(percentage, 2);
         byte[] payload = { Stx, 0x30, 0x30, 0x36, 0x32, 0x30, 0x30, volumeBytes[0], volumeBytes[1], Etx };
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
         AddChecksumToCommand(fullCommand);
         WrapAndSendCommand(fullCommand);
-        Volume = volume;
-        VolumeLevelHandlers?.Invoke(Volume);
     }
 
-    public override void SetAudioMute(MuteState state)
+    protected override void DoSetAudioMute(MuteState state)
     {
         byte[] payload = { Stx, 0x30, 0x30, 0x38, 0x44, 0x30, 0x30, 0x30, (byte)(state == MuteState.On? 0x31:0x32), Etx };
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
@@ -138,20 +131,5 @@ public class NecUhdExternalControl : Display
         AddPayloadToCommand(fullCommand, payload);
         AddChecksumToCommand(fullCommand);
         WrapAndSendCommand(fullCommand);
-        AudioMute = state;
-        MuteStateHandlers?.Invoke(AudioMute);
-    }
-
-    public override void ToggleAudioMute()
-    {
-        switch (AudioMute)
-        {
-            case MuteState.On:
-                SetAudioMute(MuteState.Off);
-                break;
-            default:
-                SetAudioMute(MuteState.On);
-                break;
-        }
     }
 }

@@ -193,19 +193,6 @@ public class SamsungMDCTest
     }
 
     [Fact]
-    public void HandleResponse_ForcesThePowerState()
-    {
-        _samsungMdc.PowerOn();
-        
-        var response = new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x00, 0xFF };
-        _samsungMdc.HandleResponse(response);
-        
-        byte[] expectedPowerOnCommand = { 0xAA, 0x11, 0x00, 0x01, 0x01, 0x13 };
-        
-        _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Exactly(2));
-    }
-
-    [Fact]
     public void HandleResponse_DoesntForceAnUnknownPowerState()
     {
         _samsungMdc.HandleResponse(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x11, 0x00, 0xFF });

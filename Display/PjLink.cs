@@ -5,69 +5,49 @@ namespace AVCoders.Display;
 public class PjLink : Display
 {
     public static readonly ushort DefaultPort = 4352;
+    public const string DefaultPassword = "JBMIAProjectorLink";
     public readonly TcpClient TcpClient;
     private readonly string _password;
-    private readonly Dictionary<Input, int> _inputDictionary;
-    private readonly Dictionary<PowerState, int> _powerStateDictionary;
-    private readonly ThreadWorker _pollWorker;
+    private static readonly Dictionary<Input, int> InputDictionary = new ()
+    {
+        { Input.Hdmi1, 31 },
+        { Input.Hdmi2, 32 },
+        { Input.Hdmi3, 33 },
+        { Input.Hdmi4, 34 },
+        { Input.Network6, 56 }
+    };
+    
+    private static readonly Dictionary<PowerState, int> PowerStateDictionary = new ()
+    {
+        { PowerState.Off, 0 },
+        { PowerState.On, 1 },
+        { PowerState.Cooling, 2 },
+        { PowerState.Warming, 3 }
+    };
+    
     private PollTask _pollTask;
 
-    public PjLink(TcpClient tcpClient, string password = "JBMIAProjectorLink", int pollTime = 20000)
+    public PjLink(TcpClient tcpClient, string password = DefaultPassword) : base(InputDictionary.Keys.ToList())
     {
         _password = password;
         _pollTask = PollTask.Power;
         DesiredAudioMute = MuteState.Off;
         DesiredVideoMute = MuteState.Off;
-        _inputDictionary = new Dictionary<Input, int>
-        {
-            { Input.Hdmi1, 31 },
-            { Input.Hdmi2, 32 },
-            { Input.Hdmi3, 33 },
-            { Input.Hdmi4, 34 },
-            { Input.Network6, 56 }
-        };
-
-        _powerStateDictionary = new Dictionary<PowerState, int>
-        {
-            { PowerState.Off, 0 },
-            { PowerState.On, 1 },
-            { PowerState.Cooling, 2 },
-            { PowerState.Warming, 3 }
-        };
-        
-        _pollWorker = new ThreadWorker(PollProjectorThreadFunction, TimeSpan.FromMilliseconds(pollTime));
-        _pollWorker.Restart();
         
         TcpClient = tcpClient;
         TcpClient.SetPort(DefaultPort);
         TcpClient.ResponseHandlers += HandleResponse;
-        TcpClient.ConnectionStateHandlers += HandleConnectionState;
-        
-        HandleConnectionState(TcpClient.GetConnectionState());
     }
 
     protected override void Poll()
     {
-        PollWorker.Stop();
-    }
-
-    private void HandleConnectionState(ConnectionState connectionState)
-    {
-        if (connectionState == ConnectionState.Connected)
-        {
-            _pollWorker.Restart();
-            _pollTask = PollTask.Power;
-        }
-        else
-        {
-            _pollWorker.Stop();
-        }
-    }
-
-    private void PollProjectorThreadFunction()
-    {
         if (TcpClient.GetConnectionState() != ConnectionState.Connected)
+        {
+            Log("Not polling");
             return;
+        }
+        
+        Log("Polling");
         PollProjector(_pollTask);
         
         _pollTask = _pollTask switch
@@ -132,12 +112,12 @@ public class PjLink : Display
 
         if (responses[0].Contains("POWR"))
         {
-            PowerState = _powerStateDictionary.FirstOrDefault(x => x.Value == value).Key;
+            PowerState = PowerStateDictionary.FirstOrDefault(x => x.Value == value).Key;
             ProcessPowerResponse();
         }
         else if (responses[0].Contains("INPT"))
         {
-            Input = _inputDictionary.FirstOrDefault(x => x.Value == value).Key;
+            Input = InputDictionary.FirstOrDefault(x => x.Value == value).Key;
             ProcessInputResponse();
         }
         else if (responses[0].Contains("AVMT"))
@@ -168,62 +148,29 @@ public class PjLink : Display
         CommunicationState = CommunicationState.Okay;
     }
 
-    private void Send(string command)
-    {
-        TcpClient.Send($"%1{command}\r");
-    }
-
-    private void Log(string message, EventLevel level = EventLevel.Verbose)
-    {
-        LogHandlers?.Invoke($"PjLink - {message}", level);
-    }
+    private void Send(string command) => TcpClient.Send($"%1{command}\r");
 
     private void SetPowerState(PowerState desiredPowerState)
     {
-        if (!_powerStateDictionary.ContainsKey(desiredPowerState))
+        if (!PowerStateDictionary.TryGetValue(desiredPowerState, out var value))
         {
-            Log($"Desired PowerState {desiredPowerState} is not appropriate", EventLevel.Error);
+            Error($"Desired PowerState {desiredPowerState} is not appropriate");
             return;
         }
 
-        Send($"POWR {_powerStateDictionary[desiredPowerState]}");
+        Send($"POWR {value}");
         DesiredPowerState = desiredPowerState;
     }
 
-    public override void PowerOn()
-    {
-        SetPowerState(PowerState.On);
-        base.PowerOn();
-    }
+    protected override void DoPowerOn() => SetPowerState(PowerState.On);
 
-    public override void PowerOff()
-    {
-        SetPowerState(PowerState.Off);
-        base.PowerOff();
-    }
+    protected override void DoPowerOff() => SetPowerState(PowerState.Off);
 
-    public override void SetInput(Input input)
-    {
-        if (!_inputDictionary.ContainsKey(input))
-        {
-            Log($"Desired Input {input} is not appropriate", EventLevel.Error);
-            return;
-        }
+    protected override void DoSetInput(Input input) => Send($"INPT {InputDictionary[input]}");
 
-        Send($"INPT {_inputDictionary[input]}");
-        DesiredInput = input;
-    }
+    protected override void DoSetVolume(int volume) => Error("Volume control is not supported");
 
-    public override void SetVolume(int volume)
-    {
-        Log("Volume control is not supported", EventLevel.Error);
-    }
-
-    public override void SetAudioMute(MuteState state)
-    {
-        DesiredAudioMute = state;
-        SendMuteState();
-    }
+    protected override void DoSetAudioMute(MuteState state) => SendMuteState();
 
     public void SetPictureMute(MuteState state)
     {
@@ -251,18 +198,5 @@ public class PjLink : Display
             commandToSend = DesiredVideoMute == MuteState.On ? MuteCommandToSend.VideoOnly : MuteCommandToSend.None;
         }
         Send($"AVMT {(int)commandToSend}");
-    }
-    
-    public override void ToggleAudioMute()
-    {
-        switch (AudioMute)
-        {
-            case MuteState.On:
-                SetAudioMute(MuteState.Off);
-                break;
-            default:
-                SetAudioMute(MuteState.On);
-                break;
-        }
     }
 }

@@ -6,7 +6,7 @@ public delegate void CommunicationStateHandler(CommunicationState communicationS
 
 public delegate void ConnectionStateHandler(ConnectionState connectionState);
 
-public delegate void LogHandler(string response, EventLevel level = EventLevel.Verbose);
+public delegate void LogHandler(string message, EventLevel level = EventLevel.Verbose);
 
 public delegate void VolumeLevelHandler(int volumeLevel);
 
