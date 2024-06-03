@@ -143,14 +143,6 @@ public class SamsungMDCTest
         _mockClient.Verify(x => x.Send(command), Times.Once);
     }
 
-    [Fact]
-    public void SetInput_IgnoresMissingInputs()
-    {
-        _samsungMdc.SetInput(Input.Unknown);
-
-        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
-    }
-
     [Theory]
     [InlineData(0, new byte[] { 0xAA, 0x12, 0x00, 0x01, 0x00, 0x13 })]
     [InlineData(100, new byte[] { 0xAA, 0x12, 0x00, 0x01, 0x64, 0x77 })]

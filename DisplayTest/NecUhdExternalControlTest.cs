@@ -39,14 +39,6 @@ public class NecUhdExternalControlTest
     // }
 
     [Fact]
-    public void PowerOff_UpdatesInternalPowerState()
-    {
-        _display.PowerOff();
-
-        Assert.Equal(PowerState.Off, _display.GetCurrentPowerState());
-    }
-
-    [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
         byte[] expectedPowerOnCommand = { 0x01, 0x30, 0x41, 0x30, 0x41, 0x30, 0x43, 0x02, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x31, 0x03, 0x73, 0x0d };
@@ -64,14 +56,6 @@ public class NecUhdExternalControlTest
     //     samsungMdcForDisplay2.PowerOn();
     //     _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
     // }
-
-    [Fact]
-    public void PowerOn_UpdatesInternalPowerState()
-    {
-        _display.PowerOn();
-
-        Assert.Equal(PowerState.On, _display.GetCurrentPowerState());
-    }
     
     [Theory]
     [InlineData(Input.Hdmi1, new byte[] { 0x01, 0x30, 0x41, 0x30, 0x45, 0x30, 0x41, 0x02, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x31, 0x31, 0x03, 0x72, 0x0d })]

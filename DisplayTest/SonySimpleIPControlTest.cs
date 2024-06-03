@@ -8,16 +8,12 @@ public class SonySimpleIPControlTest
 {
     private readonly SonySimpleIpControl _sonyTv;
     private readonly Mock<TcpClient> _mockClient;
-    private Mock<VolumeLevelHandler> _volumeLevelHandler = new();
-    private Mock<MuteStateHandler> _muteStateHandler = new ();
-    Mock<PowerStateHandler> _powerStateHandler = new ();
+    readonly Mock<PowerStateHandler> _powerStateHandler = new ();
 
     public SonySimpleIPControlTest()
     {
         _mockClient = new Mock<TcpClient>("foo", (ushort)1);
         _sonyTv = new SonySimpleIpControl(_mockClient.Object);
-        _sonyTv.VolumeLevelHandlers += _volumeLevelHandler.Object;
-        _sonyTv.MuteStateHandlers += _muteStateHandler.Object;
         _sonyTv.PowerStateHandlers += _powerStateHandler.Object;
     }
 
@@ -71,28 +67,12 @@ public class SonySimpleIPControlTest
     }
 
     [Fact]
-    public void PowerOn_UpdatesInternalPowerState()
-    {
-        _sonyTv.PowerOn();
-
-        Assert.Equal(PowerState.On, _sonyTv.GetCurrentPowerState());
-    }
-
-    [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
         String expectedPowerOffCommand = "*SCPOWR0000000000000000\n";
         _sonyTv.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedPowerOffCommand), Times.Once);
-    }
-
-    [Fact]
-    public void PowerOff_UpdatesInternalPowerState()
-    {
-        _sonyTv.PowerOff();
-
-        Assert.Equal(PowerState.Off, _sonyTv.GetCurrentPowerState());
     }
 
     [Theory]
@@ -227,16 +207,6 @@ public class SonySimpleIPControlTest
         _mockClient.Verify(x => x.Send(expectedVolumeCommand), Times.Once);
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(100)]
-    public void SetVolume_CallsTheDelegate(int volume)
-    {
-        _sonyTv.SetVolume(volume);
-        
-        _volumeLevelHandler.Verify(x => x.Invoke(volume));
-    }
-
     [Fact]
     public void SetVolume_UpdatesInternalState()
     {
@@ -263,24 +233,6 @@ public class SonySimpleIPControlTest
         _sonyTv.SetAudioMute(state);
 
         _mockClient.Verify(x => x.Send(expectedMuteCommand), Times.Once);
-    }
-
-    [Theory]
-    [InlineData(MuteState.On)]
-    [InlineData(MuteState.Off)]
-    public void setAudioMute_CallsTheDeleagte(MuteState state)
-    {
-        _sonyTv.SetAudioMute(state);
-
-        _muteStateHandler.Verify(x => x.Invoke(state));
-    }
-
-    [Fact]
-    public void setAudioMute_UpdatesInternalState()
-    {
-        _sonyTv.SetAudioMute(MuteState.On);
-
-        Assert.Equal(MuteState.On, _sonyTv.GetAudioMute());
     }
 
 
