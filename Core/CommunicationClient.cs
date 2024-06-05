@@ -31,6 +31,29 @@ public abstract class SerialClient : CommunicationClient
     public abstract void Send(char[] chars);
 }
 
+public abstract class RestComms : CommunicationClient
+{
+    protected string Host;
+    protected ushort Port;
+
+    protected RestComms(string host, ushort port)
+    {
+        Host = host;
+        Port = port;
+    }
+
+    public abstract void AddDefaultHeader(string key, string value);
+
+    public abstract void RemoveDefaultHeader(string key);
+
+    public abstract Task Post(string payload);
+    public abstract Task Put(string payload);
+
+    // ~RestComms()
+    // {
+    // }
+}
+
 public abstract class IpComms : CommunicationClient
 {
     protected string Host;
