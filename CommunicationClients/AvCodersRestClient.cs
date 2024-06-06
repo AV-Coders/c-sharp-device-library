@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -16,8 +15,8 @@ public class AvCodersRestClient : RestComms
         _uri = new Uri($"{protocol}://{host}:{port}", UriKind.Absolute);
     }
 
-    public override void Send(string message) => Post(message);
-    public override void Send(byte[] bytes) => Post(bytes.ToString() ?? string.Empty);
+    public override void Send(string message) => _ = Post(message, "application/json");
+    public override void Send(byte[] bytes) => _ = Post(bytes.ToString() ?? string.Empty, "application/json");
     public override void AddDefaultHeader(string key, string value) => _headers.Add(key, value);
 
     public override void RemoveDefaultHeader(string key)
@@ -26,29 +25,41 @@ public class AvCodersRestClient : RestComms
             _headers.Remove(key);
     }
 
-    public override async Task Post(string payload)
+    private HttpClient CreateHttpClient()
     {
         using HttpClientHandler handler = new();
         handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
         
         // Use HttpClient - HttpWebRequest seems to break after three requests.
-        using HttpClient httpClient = new HttpClient(handler);
+        HttpClient httpClient = new HttpClient(handler);
         foreach (var (key, value) in _headers)
         {
             httpClient.DefaultRequestHeaders.Add(key, value);
         }
+
+        return httpClient;
+    }
+
+    private async Task HandleResponse(HttpResponseMessage response)
+    {
+        HttpResponseHandlers?.Invoke(response);
+        Log($"Response status code: {response.StatusCode.ToString()}");
+        if (response.IsSuccessStatusCode)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync();
+            Log(responseBody);
+            ResponseHandlers?.Invoke(responseBody);
+        }
+    }
+
+    public override async Task Post(string payload, string contentType)
+    {
         try
         {
-            httpClient.DefaultRequestHeaders.Add("X-API-Version", "7");
-            Log($"Sending request {payload} to {_uri}");
-            HttpResponseMessage response = await httpClient.PostAsync(_uri, new StringContent(payload, Encoding.Default, "application/json"));
-            Log($"Response status code: {response.StatusCode.ToString()}");
-            if (response.IsSuccessStatusCode)
-            {
-                var responseBody = await response.Content.ReadAsStringAsync();
-                Log(responseBody);
-                ResponseHandlers?.Invoke(responseBody);
-            }
+            using HttpClient httpClient = CreateHttpClient();
+            Log($"Actioning Post of {payload} to {_uri}");
+            HttpResponseMessage response = await httpClient.PostAsync(_uri, new StringContent(payload, Encoding.Default, contentType));
+            await HandleResponse(response);
         }
         catch (Exception e)
         {
@@ -61,28 +72,14 @@ public class AvCodersRestClient : RestComms
         }
     }
     
-    public override async Task Put(string content)
+    public override async Task Put(string content, string contentType)
     {
-        using HttpClientHandler handler = new();
-        handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
-        
-        // Use HttpClient - HttpWebRequest seems to break after three requests.
-        using HttpClient httpClient = new HttpClient(handler);
-        foreach (var (key, value) in _headers)
-        {
-            httpClient.DefaultRequestHeaders.Add(key, value);
-        }
         try
         {
-            httpClient.DefaultRequestHeaders.Add("X-API-Version", "7");
-            Log($"Sending request: {_uri}");
-            HttpResponseMessage response = await httpClient.PutAsync(_uri, new StringContent(content, Encoding.Default, "application/json"));
-            Log($"Response status code: {response.StatusCode.ToString()}");
-            if (response.IsSuccessStatusCode)
-            {
-                var responseBody = await response.Content.ReadAsStringAsync();
-                Log(responseBody);
-            }
+            using HttpClient httpClient = CreateHttpClient();
+            Log($"Actioning Put to {_uri}");
+            HttpResponseMessage response = await httpClient.PutAsync(_uri, new StringContent(content, Encoding.Default, contentType));
+            await HandleResponse(response);
         }
         catch (Exception e)
         {

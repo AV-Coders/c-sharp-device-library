@@ -15,3 +15,5 @@ public delegate void MuteStateHandler(MuteState state);
 public delegate void ResponseHandler(string response);
 
 public delegate void ResponseByteHandler(byte[] response);
+
+public delegate void HttpResponseHandler(HttpResponseMessage response);

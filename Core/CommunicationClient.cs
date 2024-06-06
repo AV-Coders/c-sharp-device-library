@@ -35,6 +35,7 @@ public abstract class RestComms : CommunicationClient
 {
     protected string Host;
     protected ushort Port;
+    public HttpResponseHandler? HttpResponseHandlers;
 
     protected RestComms(string host, ushort port)
     {
@@ -46,8 +47,8 @@ public abstract class RestComms : CommunicationClient
 
     public abstract void RemoveDefaultHeader(string key);
 
-    public abstract Task Post(string payload);
-    public abstract Task Put(string payload);
+    public abstract Task Post(string payload, string contentType);
+    public abstract Task Put(string payload, string contentType);
 
     // ~RestComms()
     // {
