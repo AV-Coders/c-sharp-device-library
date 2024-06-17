@@ -72,6 +72,27 @@ public class AvCodersRestClient : RestComms
         }
     }
     
+    public async Task Post(Uri endpoint, string payload, string contentType)
+    {
+        try
+        {
+            using HttpClient httpClient = CreateHttpClient();
+            Uri uri = new Uri(_uri, endpoint);
+            Log($"Actioning Post of {payload} to {uri}");
+            HttpResponseMessage response = await httpClient.PostAsync(uri, new StringContent(payload, Encoding.Default, contentType));
+            await HandleResponse(response);
+        }
+        catch (Exception e)
+        {
+            Log(e.Message);
+            Log(e.StackTrace);
+            if (e.InnerException == null)
+                return;
+            Log(e.InnerException.Message);
+            Log(e.InnerException.StackTrace);
+        }
+    }
+    
     public override async Task Put(string content, string contentType)
     {
         try
@@ -79,6 +100,27 @@ public class AvCodersRestClient : RestComms
             using HttpClient httpClient = CreateHttpClient();
             Log($"Actioning Put to {_uri}");
             HttpResponseMessage response = await httpClient.PutAsync(_uri, new StringContent(content, Encoding.Default, contentType));
+            await HandleResponse(response);
+        }
+        catch (Exception e)
+        {
+            Log(e.Message);
+            Log(e.StackTrace);
+            if (e.InnerException == null)
+                return;
+            Log(e.InnerException.Message);
+            Log(e.InnerException.StackTrace);
+        }
+    }
+    
+    public async Task Put(Uri endpoint, string content, string contentType)
+    {
+        try
+        {
+            using HttpClient httpClient = CreateHttpClient();
+            Uri uri = new Uri(_uri, endpoint);
+            Log($"Actioning Put to {uri}");
+            HttpResponseMessage response = await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, contentType));
             await HandleResponse(response);
         }
         catch (Exception e)
