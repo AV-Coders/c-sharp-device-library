@@ -24,22 +24,7 @@ public class AvCodersRestClient : RestComms
         if (_headers.ContainsKey(key))
             _headers.Remove(key);
     }
-
-    private HttpClient CreateHttpClient()
-    {
-        using HttpClientHandler handler = new();
-        handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
-        
-        // Use HttpClient - HttpWebRequest seems to break after three requests.
-        HttpClient httpClient = new HttpClient(handler);
-        foreach (var (key, value) in _headers)
-        {
-            httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
-        }
-
-        return httpClient;
-    }
-
+    
     private async Task HandleResponse(HttpResponseMessage response)
     {
         HttpResponseHandlers?.Invoke(response);
@@ -52,32 +37,23 @@ public class AvCodersRestClient : RestComms
         }
     }
 
-    public override async Task Post(string payload, string contentType)
-    {
-        try
-        {
-            using HttpClient httpClient = CreateHttpClient();
-            Log($"Actioning Post of {payload} to {_uri}");
-            HttpResponseMessage response = await httpClient.PostAsync(_uri, new StringContent(payload, Encoding.Default, contentType));
-            await HandleResponse(response);
-        }
-        catch (Exception e)
-        {
-            Log(e.Message);
-            Log(e.StackTrace);
-            if (e.InnerException == null)
-                return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace);
-        }
-    }
+    public override async Task Post(string payload, string contentType) => await Post(null, payload, contentType);
     
-    public async Task Post(Uri endpoint, string payload, string contentType)
+    public async Task Post(Uri? endpoint, string payload, string contentType)
     {
         try
         {
-            using HttpClient httpClient = CreateHttpClient();
-            Uri uri = new Uri(_uri, endpoint);
+            using HttpClientHandler handler = new();
+            handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
+        
+            // Use HttpClient - HttpWebRequest seems to break after three requests.
+            HttpClient httpClient = new HttpClient(handler);
+            foreach (var (key, value) in _headers)
+            {
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
+            }
+            
+            Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             Log($"Actioning Post of {payload} to {uri}");
             HttpResponseMessage response = await httpClient.PostAsync(uri, new StringContent(payload, Encoding.Default, contentType));
             await HandleResponse(response);
@@ -92,33 +68,23 @@ public class AvCodersRestClient : RestComms
             Log(e.InnerException.StackTrace);
         }
     }
+
+    public override async Task Put(string content, string contentType) => await Put(null, content, contentType);
     
-    public override async Task Put(string content, string contentType)
+    public async Task Put(Uri? endpoint, string content, string contentType)
     {
         try
         {
-            using HttpClient httpClient = CreateHttpClient();
-            Log($"Actioning Put to {_uri}");
-            HttpResponseMessage response = await httpClient.PutAsync(_uri, new StringContent(content, Encoding.Default, contentType));
-            await HandleResponse(response);
-        }
-        catch (Exception e)
-        {
-            Log(e.Message);
-            Log(e.StackTrace);
-            if (e.InnerException == null)
-                return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace);
-        }
-    }
-    
-    public async Task Put(Uri endpoint, string content, string contentType)
-    {
-        try
-        {
-            using HttpClient httpClient = CreateHttpClient();
-            Uri uri = new Uri(_uri, endpoint);
+            using HttpClientHandler handler = new();
+            handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
+        
+            // Use HttpClient - HttpWebRequest seems to break after three requests.
+            HttpClient httpClient = new HttpClient(handler);
+            foreach (var (key, value) in _headers)
+            {
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
+            }
+            Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             Log($"Actioning Put to {uri}");
             HttpResponseMessage response = await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, contentType));
             await HandleResponse(response);
