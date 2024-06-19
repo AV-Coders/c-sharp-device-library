@@ -34,7 +34,7 @@ public class AvCodersRestClient : RestComms
         HttpClient httpClient = new HttpClient(handler);
         foreach (var (key, value) in _headers)
         {
-            httpClient.DefaultRequestHeaders.Add(key, value);
+            httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
         }
 
         return httpClient;
