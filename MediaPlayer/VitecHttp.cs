@@ -7,7 +7,7 @@ using System.Text;
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 namespace AVCoders.MediaPlayer;
 
-public class VitecHttp : MediaPlayer
+public class VitecHttp : MediaPlayer, ISetTopBox
 {
     private readonly Uri _remoteKeyUri;
     private readonly Uri _deviceStateUri;

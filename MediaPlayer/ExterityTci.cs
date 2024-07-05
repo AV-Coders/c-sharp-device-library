@@ -2,7 +2,7 @@
 
 namespace AVCoders.MediaPlayer;
 
-public class ExterityTci : MediaPlayer
+public class ExterityTci : MediaPlayer, ISetTopBox
 {
     private readonly CommunicationClient _communicationClient;
     private readonly string _password;
@@ -68,6 +68,11 @@ public class ExterityTci : MediaPlayer
     public void ChannelDown()
     {
         SimulateRemoteKeypress("chdown");
+    }
+
+    public void SendIRCode(RemoteButton button)
+    {
+        SimulateRemoteKeypress(button.ToString());
     }
 
     public void VolumeUp()

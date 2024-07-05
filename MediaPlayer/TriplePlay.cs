@@ -3,7 +3,7 @@
 
 namespace AVCoders.MediaPlayer;
 
-public class TriplePlay : MediaPlayer
+public class TriplePlay : MediaPlayer, ISetTopBox
 {
     private readonly int _deviceId;
     private readonly string _host;
@@ -52,6 +52,10 @@ public class TriplePlay : MediaPlayer
     {
         Get(GenerateCommandString("ChannelDown"));
     }
+
+    public void SendIRCode(RemoteButton button) => Log("This is not supported");
+
+    public void SetChannel(int channel) => GoToChannelNumber((uint) channel);
 
     public void GoToServiceId(uint serviceId)
     {
