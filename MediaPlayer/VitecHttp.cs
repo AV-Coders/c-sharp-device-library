@@ -111,6 +111,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
             RemoteButton.Left => "left",
             RemoteButton.Right => "right",
             RemoteButton.Subtitle => "subtitle",
+            RemoteButton.Back => "cancel",
             _ => String.Empty
         };
         if(command != String.Empty)

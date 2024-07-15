@@ -17,5 +17,6 @@ public enum RemoteButton
     Down,
     Left,
     Right,
-    Subtitle
+    Subtitle,
+    Back
 }
