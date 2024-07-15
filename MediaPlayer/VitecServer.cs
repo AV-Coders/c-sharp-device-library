@@ -8,12 +8,14 @@ namespace AVCoders.MediaPlayer;
 
 public class VitecServer
 {
+    private readonly Dictionary<int, string> _channelMap;
     public LogHandler? LogHandlers;
 
     private readonly Uri _channelUri;
 
-    public VitecServer(string host)
+    public VitecServer(string host, Dictionary<int, string> channelMap)
     {
+        _channelMap = channelMap;
         _channelUri = new Uri($"http://{host}/api/public/control/devices/commands/channel", UriKind.Absolute);
     }
 
@@ -46,6 +48,11 @@ public class VitecServer
     public void SetChannel(string channelUri, string deviceMac)
     {
         Post(_channelUri,$"{{\n  \"devices\": [\n    \"{deviceMac}\"\n  ],\n  \"uri\": \"{channelUri}\",\n  \"isFullScreen\": 0,\n  \"params\": {{}}\n}}");
+    }
+
+    public void SetChannel(int channelNumber, string deviceMac)
+    {
+        Post(_channelUri,$"{{\n  \"devices\": [\n    \"{deviceMac}\"\n  ],\n  \"uri\": \"{_channelMap[channelNumber]}\",\n  \"isFullScreen\": 0,\n  \"params\": {{}}\n}}");
     }
    
     protected void Log(string message)
