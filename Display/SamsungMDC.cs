@@ -199,7 +199,5 @@ public class SamsungMdc : Display
     {
         Log($"Setting mute to {state.ToString()}");
         sendCommandWithOneDataLength(MuteControlCommand, _muteDictionary[state]);
-        AudioMute = state;
-        MuteStateHandlers?.Invoke(AudioMute);
     }
 }
