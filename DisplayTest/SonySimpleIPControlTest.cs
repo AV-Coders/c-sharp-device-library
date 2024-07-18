@@ -262,4 +262,31 @@ public class SonySimpleIPControlTest
         _sonyTv.SendIrCode(32);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Fact]
+    public void SetChannel_SendsTheCommand()
+    {
+        string expectedCommand = "*SCCHNN0000000000000002\n";
+        
+        _sonyTv.SetChannel(2);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+    
+    [Fact]
+    public void ChannelUp_SendsTheCommand()
+    {
+        string expectedCommand = "*SCIRCC0000000000000033\n";
+        
+        _sonyTv.ChannelUp();
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+    
+    [Fact]
+    public void ChannelDown_SendsTheCommand()
+    {
+        string expectedCommand = "*SCIRCC0000000000000034\n";
+        
+        _sonyTv.ChannelDown();
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
 }

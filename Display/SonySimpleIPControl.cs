@@ -1,10 +1,11 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using AVCoders.Core;
+using AVCoders.MediaPlayer;
 
 namespace AVCoders.Display;
 
-public class SonySimpleIpControl : Display
+public class SonySimpleIpControl : Display, ISetTopBox
 {
     public static readonly ushort DefaultPort = 20060;
     public readonly TcpClient TcpClient;
@@ -20,6 +21,26 @@ public class SonySimpleIpControl : Display
     {
         { "*SNPOWR0000000000000001", PowerState.On },
         { "*SNPOWR0000000000000000", PowerState.Off }
+    };
+
+    private static readonly Dictionary<RemoteButton, int> RemoteButtonMap = new()
+    {
+        { RemoteButton.Button0, 27},
+        { RemoteButton.Button1, 18},
+        { RemoteButton.Button2, 19},
+        { RemoteButton.Button3, 20},
+        { RemoteButton.Button4, 21},
+        { RemoteButton.Button5, 22},
+        { RemoteButton.Button6, 23},
+        { RemoteButton.Button7, 24},
+        { RemoteButton.Button8, 25},
+        { RemoteButton.Button9, 26},
+        { RemoteButton.Enter, 13},
+        { RemoteButton.Up, 9},
+        { RemoteButton.Down, 10},
+        { RemoteButton.Left, 11},
+        { RemoteButton.Right, 12},
+        { RemoteButton.Subtitle, 35}
     };
 
     public SonySimpleIpControl(TcpClient tcpClient)  : base(InputDictionary.Keys.ToList())
@@ -104,4 +125,11 @@ public class SonySimpleIpControl : Display
     }
 
     public void SendIrCode(int irCode) => SendCommand(WrapMessage($"CIRCC{irCode:D16}"));
+    public void ChannelUp() => SendIrCode(33);
+
+    public void ChannelDown() => SendIrCode(34);
+
+    public void SendIRCode(RemoteButton button) => SendIrCode(RemoteButtonMap[button]);
+
+    public void SetChannel(int channel) => SendCommand(WrapMessage($"CCHNN{channel:D16}"));
 }
