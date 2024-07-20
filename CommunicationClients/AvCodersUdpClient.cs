@@ -26,6 +26,7 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         try
         {
+            Log("Creating client");
             UpdateConnectionState(ConnectionState.Connecting);
             var client = new UdpClient(Host, Port);
             if (IPAddress.TryParse(Host, out var remoteIpAddress))
@@ -89,10 +90,14 @@ public class AvCodersUdpClient : Core_UdpClient
 
     protected override void CheckConnectionState()
     {
-        if (ConnectionState != ConnectionState.Connected || ConnectionState != ConnectionState.Connecting)
+        Log($"CheckConnectionState - Connection state is {ConnectionState}");
+        if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
         {
+            Log($"Will recreate client");
             CreateClient();
         }
+        
+        Thread.Sleep(TimeSpan.FromSeconds(10));
     }
 
     public override void SetPort(ushort port)
@@ -139,6 +144,7 @@ public class AvCodersUdpClient : Core_UdpClient
         {
             if (_client == null)
             {
+                Log("Queueing Message");
                 _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
                 return;
             }
