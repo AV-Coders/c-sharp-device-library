@@ -79,6 +79,8 @@ public abstract class Display : IDevice
         SetInput(DesiredInput);
     }
 
+    public List<Input> GetSupportedInputs() => SupportedInputs;
+
     public Input GetCurrentInput() => Input;
     
     public int GetCurrentVolume() => Volume;
