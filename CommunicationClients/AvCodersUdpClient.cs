@@ -97,7 +97,7 @@ public class AvCodersUdpClient : Core_UdpClient
             CreateClient();
         }
         
-        Thread.Sleep(TimeSpan.FromSeconds(10));
+        Thread.Sleep(TimeSpan.FromSeconds(30));
     }
 
     public override void SetPort(ushort port)

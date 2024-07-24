@@ -13,6 +13,7 @@ public record NovastarH5BasePayload(
 
 public class NovaStarH5 : Display
 {
+    public const ushort DefaultPort = 6000;
     private readonly UdpClient _client;
     private readonly int _deviceId;
     private readonly List<int> _screens;
