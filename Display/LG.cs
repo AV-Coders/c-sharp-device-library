@@ -51,7 +51,7 @@ public class LG : Display, ISetTopBox
         { RemoteButton.Subtitle, "39"}
     };
 
-    public LG(CommunicationClient comms, int setId) : base(new List<Input>
+    public LG(CommunicationClient comms, int setId = 1) : base(new List<Input>
     {
         Input.Hdmi1, Input.Hdmi2, Input.Hdmi3, Input.Hdmi4, Input.DvbtTuner
     })
