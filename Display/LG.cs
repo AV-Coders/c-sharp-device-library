@@ -7,7 +7,7 @@ public class LG : Display, ISetTopBox
 {
     // Source:
     // https://www.lg.com/ca_en/support/product-support/troubleshoot/help-library/cs-CT52001643-20153058982994/
-    public static readonly ushort DefaultPort = 1717;
+    public static readonly ushort DefaultPort = 9761;
     private CommunicationClient _comms;
     private readonly int _setId;
     private readonly string _pollArgument = "FF";
