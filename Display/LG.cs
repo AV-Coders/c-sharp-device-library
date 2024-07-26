@@ -1,5 +1,7 @@
-﻿using AVCoders.Core;
+﻿using System.Net;
+using AVCoders.Core;
 using AVCoders.MediaPlayer;
+using UdpClient = System.Net.Sockets.UdpClient;
 
 namespace AVCoders.Display;
 
@@ -9,6 +11,8 @@ public class LG : Display, ISetTopBox
     // https://www.lg.com/ca_en/support/product-support/troubleshoot/help-library/cs-CT52001643-20153058982994/
     public static readonly ushort DefaultPort = 9761;
     private CommunicationClient _comms;
+    private UdpClient? _wolClient;
+    private readonly byte[]? _wolPacket;
     private readonly int _setId;
     private readonly string _pollArgument = "FF";
     private readonly string _powerHeader = "ka";
@@ -51,12 +55,17 @@ public class LG : Display, ISetTopBox
         { RemoteButton.Subtitle, "39"}
     };
 
-    public LG(CommunicationClient comms, int setId = 1) : base(new List<Input>
+    public LG(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
     {
         Input.Hdmi1, Input.Hdmi2, Input.Hdmi3, Input.Hdmi4, Input.DvbtTuner
     })
     {
         _comms = comms;
+        if (mac != null)
+        {
+            _wolClient = new UdpClient(IPAddress.Broadcast.ToString(), 0);
+            _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
+        }
         _setId = setId;
         
         UpdateCommunicationState(CommunicationState.NotAttempted);
@@ -78,7 +87,57 @@ public class LG : Display, ISetTopBox
         }
     }
 
-    protected override void DoPowerOn() => SendCommand(_powerHeader, "01");
+    private void SendWol()
+    {
+        if (_wolClient == null || _wolPacket == null)
+            return;
+        
+        for(int i = 0 ; i < 3 ; i++)
+        {
+            _wolClient.Send(_wolPacket);
+            Thread.Sleep(300);
+        }
+    }
+    
+        
+    private byte[] BuildMagicPacket(byte[] macAddress)
+    {
+        if (macAddress.Length != 6) throw new ArgumentException();
+
+        List<byte> magic = new List<byte>();
+        for (int i = 0; i < 6; i++)
+        {
+            magic.Add(0xff);
+        }
+
+        for (int i = 0; i < 16; i++)
+        {
+            for (int j = 0; j < 6; j++)
+            {
+                magic.Add(macAddress[j]);
+            }
+        }
+        return magic.ToArray();
+    }
+
+    private static byte[] ParseMacAddress(string text, char[]? separator = null)
+    {
+        if (separator == null) separator = new char[] { ':', '-' };
+        string[] tokens = text.Split(separator);
+
+        byte[] bytes = new byte[6];
+        for (int i = 0; i < 6; i++)
+        {
+            bytes[i] = Convert.ToByte(tokens[i], 16);
+        }
+        return bytes;
+    }
+
+    protected override void DoPowerOn()
+    {
+        SendCommand(_powerHeader, "01");
+        SendWol();
+    }
 
     protected override void DoPowerOff() => SendCommand(_powerHeader, "00");
 

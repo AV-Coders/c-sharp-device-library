@@ -11,7 +11,7 @@ public class LgTest
     public LgTest()
     {
         _client = new Mock<TcpClient>("foo", (ushort)1);
-        _display = new LG(_client.Object, 0);
+        _display = new LG(_client.Object, "00-00-00-00-00-00",0);
     }
     
     [Fact]
