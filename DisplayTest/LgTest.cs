@@ -7,11 +7,13 @@ public class LgTest
 {
     private readonly LG _display;
     private readonly Mock<TcpClient> _client;
+    private readonly Mock<IWakeOnLan> _wol;
 
     public LgTest()
     {
         _client = new Mock<TcpClient>("foo", (ushort)1);
-        _display = new LG(_client.Object, "00-00-00-00-00-00",0);
+        _wol = new Mock<IWakeOnLan>();
+        _display = new LG(_client.Object, _wol.Object, "00-00-00-00-00-00",0);
     }
     
     [Fact]
@@ -21,6 +23,14 @@ public class LgTest
         _display.PowerOn();
 
         _client.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
+    }
+    
+    [Fact]
+    public void PowerOn_UsesWakeOnLanWhenAvailable()
+    {
+        _display.PowerOn();
+
+        _wol.Verify(x => x.Wake("00-00-00-00-00-00"), Times.Once);
     }
 
     [Fact]

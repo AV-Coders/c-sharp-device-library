@@ -10,8 +10,9 @@ public class LG : Display, ISetTopBox
     // Source:
     // https://www.lg.com/ca_en/support/product-support/troubleshoot/help-library/cs-CT52001643-20153058982994/
     public static readonly ushort DefaultPort = 9761;
-    private CommunicationClient _comms;
-    private readonly byte[]? _wolPacket;
+    private readonly CommunicationClient _comms;
+    private readonly IWakeOnLan? _wakeOnLan;
+    private readonly string? _mac;
     private readonly int _setId;
     private readonly string _pollArgument = "FF";
     private readonly string _powerHeader = "ka";
@@ -54,16 +55,14 @@ public class LG : Display, ISetTopBox
         { RemoteButton.Subtitle, "39"}
     };
 
-    public LG(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
+    public LG(CommunicationClient comms, IWakeOnLan?  wakeOnLan, string? mac, int setId = 1) : base(new List<Input>
     {
         Input.Hdmi1, Input.Hdmi2, Input.Hdmi3, Input.Hdmi4, Input.DvbtTuner
     })
     {
         _comms = comms;
-        if (mac != null)
-        {
-            _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
-        }
+        _wakeOnLan = wakeOnLan;
+        _mac = mac;
         _setId = setId;
         
         UpdateCommunicationState(CommunicationState.NotAttempted);
@@ -87,14 +86,9 @@ public class LG : Display, ISetTopBox
 
     private void SendWol()
     {
-        if (_wolPacket == null)
+        if (_wakeOnLan == null || _mac == null)
             return;
-        using var wolClient = new UdpClient(IPAddress.Broadcast.ToString(), 7);
-        for(int i = 0 ; i < 3 ; i++)
-        {
-            wolClient.Send(_wolPacket);
-            Thread.Sleep(300);
-        }
+        _wakeOnLan.Wake(_mac);
     }
     
         

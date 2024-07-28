@@ -147,3 +147,8 @@ public abstract class UdpClient : IpComms
     {
     }
 }
+
+public interface IWakeOnLan
+{
+    public void Wake(string mac);
+} 
