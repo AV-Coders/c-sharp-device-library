@@ -3,15 +3,15 @@ using Moq;
 
 namespace AVCoders.Display.Tests;
 
-public class LgTest
+public class LgCommercialTest
 {
-    private readonly LG _display;
+    private readonly LGCommercial _display;
     private readonly Mock<TcpClient> _client;
 
-    public LgTest()
+    public LgCommercialTest()
     {
         _client = new Mock<TcpClient>("foo", (ushort)1);
-        _display = new LG(_client.Object, "00-00-00-00-00-00",0);
+        _display = new LGCommercial(_client.Object, "00-00-00-00-00-00",0);
     }
     
     [Fact]

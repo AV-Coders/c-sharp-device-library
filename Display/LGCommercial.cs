@@ -5,7 +5,7 @@ using UdpClient = System.Net.Sockets.UdpClient;
 
 namespace AVCoders.Display;
 
-public class LG : Display, ISetTopBox
+public class LGCommercial : Display, ISetTopBox
 {
     // Source:
     // https://www.lg.com/ca_en/support/product-support/troubleshoot/help-library/cs-CT52001643-20153058982994/
@@ -54,7 +54,7 @@ public class LG : Display, ISetTopBox
         { RemoteButton.Subtitle, "39"}
     };
 
-    public LG(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
+    public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
     {
         Input.Hdmi1, Input.Hdmi2, Input.Hdmi3, Input.Hdmi4, Input.DvbtTuner
     })
