@@ -11,7 +11,6 @@ public class LG : Display, ISetTopBox
     // https://www.lg.com/ca_en/support/product-support/troubleshoot/help-library/cs-CT52001643-20153058982994/
     public static readonly ushort DefaultPort = 9761;
     private CommunicationClient _comms;
-    private UdpClient? _wolClient;
     private readonly byte[]? _wolPacket;
     private readonly int _setId;
     private readonly string _pollArgument = "FF";
@@ -63,7 +62,6 @@ public class LG : Display, ISetTopBox
         _comms = comms;
         if (mac != null)
         {
-            _wolClient = new UdpClient(IPAddress.Broadcast.ToString(), 0);
             _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
         }
         _setId = setId;
@@ -89,12 +87,12 @@ public class LG : Display, ISetTopBox
 
     private void SendWol()
     {
-        if (_wolClient == null || _wolPacket == null)
+        if (_wolPacket == null)
             return;
-        
+        using var wolClient = new UdpClient(IPAddress.Broadcast.ToString(), 7);
         for(int i = 0 ; i < 3 ; i++)
         {
-            _wolClient.Send(_wolPacket);
+            wolClient.Send(_wolPacket);
             Thread.Sleep(300);
         }
     }
