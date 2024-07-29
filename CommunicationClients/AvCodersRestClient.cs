@@ -71,7 +71,7 @@ public class AvCodersRestClient : RestComms
     }
 
     public override async Task Put(string content, string contentType) => await Put(null, content, contentType);
-    
+
     public async Task Put(Uri? endpoint, string content, string contentType)
     {
         try
@@ -99,6 +99,38 @@ public class AvCodersRestClient : RestComms
             Log(e.InnerException.Message);
             Log(e.InnerException.StackTrace);
         }
+    }
+
+    public override async Task Get() => await Get(null);
+
+    public override async Task Get(Uri? endpoint)
+    {
+        try
+        {
+            using HttpClientHandler handler = new();
+            handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
+            
+            // Use HttpClient - HttpWebRequest seems to break after three requests.
+            HttpClient httpClient = new HttpClient(handler);
+            foreach (var (key, value) in _headers)
+            {
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
+            }
+            Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
+            Log($"Actioning Put to {uri}");
+            HttpResponseMessage response = await httpClient.GetAsync(uri);
+            await HandleResponse(response);
+        }
+        catch (Exception e)
+        {
+            Log(e.Message);
+            Log(e.StackTrace);
+            if (e.InnerException == null)
+                return;
+            Log(e.InnerException.Message);
+            Log(e.InnerException.StackTrace);
+        }
+
     }
     
     private bool ValidateCertificate(HttpRequestMessage arg1, X509Certificate2? arg2, X509Chain? arg3, SslPolicyErrors arg4) => true;

@@ -50,6 +50,10 @@ public abstract class RestComms : CommunicationClient
     public abstract Task Post(string payload, string contentType);
     public abstract Task Put(string payload, string contentType);
 
+    public abstract Task Get();
+
+    public abstract Task Get(Uri? endpoint);
+
     // ~RestComms()
     // {
     // }
