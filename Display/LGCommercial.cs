@@ -72,11 +72,10 @@ public class LGCommercial : Display, ISetTopBox
 
     private void HandleResponse(string response)
     {
-        Log($"Handling response {response}");
         if (!response.Contains($" {_setId:d2} OK"))
             return;
         var data = response.Split("OK");
-        Log($"The response is valid, header {data[0]}, value {data[1]}");
+        
         if (data[0].Contains($"a {_setId:d2} "))
         {
             PowerState = data[1] switch
@@ -85,7 +84,6 @@ public class LGCommercial : Display, ISetTopBox
                 "00x" => PowerState.Off,
                 _ => PowerState
             };
-            Log($"The current Power state is {PowerState.ToString()}");
             ProcessPowerResponse();
         }
         else if (data[0].Contains($"b {_setId:d2} "))
@@ -99,7 +97,6 @@ public class LGCommercial : Display, ISetTopBox
                 "00x" => Input.DvbtTuner,
                 _ => Input
             };
-            Log($"The current Input is {Input.ToString()}");
             ProcessInputResponse();
         }
         else if (data[0].Contains($"f {_setId:d2} "))
@@ -125,7 +122,6 @@ public class LGCommercial : Display, ISetTopBox
 
     protected override void Poll()
     {
-        Log("Poll function");
         PowerState = _comms.GetConnectionState() switch
         {
             ConnectionState.Connected => PowerState.On,
@@ -134,15 +130,15 @@ public class LGCommercial : Display, ISetTopBox
         if (PowerState != DesiredPowerState)
         {
             ProcessPowerResponse();
-            Log("Aligning power state based on comms client connection");
         }
 
         if (PowerState != PowerState.On)
         {
-            Log("Power is off, end poll");
+            Log("Not Polling");
             return;
         }
         
+        Log("Polling");
         SendCommand(_powerHeader, _pollArgument);
         Thread.Sleep(1000);
         SendCommand(_inputHeader, _pollArgument);
