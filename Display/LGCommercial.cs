@@ -71,16 +71,26 @@ public class LGCommercial : Display, ISetTopBox
 
     protected override void Poll()
     {
-        SendCommand(_powerHeader, _pollArgument);
-        if (PowerState == PowerState.On)
+        PowerState = _comms.GetConnectionState() switch
         {
-            Thread.Sleep(1000);
-            SendCommand(_inputHeader, _pollArgument);
-            Thread.Sleep(1000);
-            SendCommand(_volumeHeader, _pollArgument);
-            Thread.Sleep(1000);
-            SendCommand(_muteHeader,  _pollArgument);
+            ConnectionState.Connected => PowerState.On,
+            _ => PowerState.Off
+        };
+        if (PowerState != DesiredPowerState)
+        {
+            ProcessPowerResponse();
+            return;
         }
+
+        if (PowerState != PowerState.On) 
+            return;
+        
+        Thread.Sleep(1000);
+        SendCommand(_inputHeader, _pollArgument);
+        Thread.Sleep(1000);
+        SendCommand(_volumeHeader, _pollArgument);
+        Thread.Sleep(1000);
+        SendCommand(_muteHeader,  _pollArgument);
     }
 
     private void SendWol()
@@ -91,6 +101,7 @@ public class LGCommercial : Display, ISetTopBox
         for (int i = 0; i < 3; i++)
         {
             client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 7));
+            Thread.Sleep(75);
             client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 9));
             Thread.Sleep(300);
         }
