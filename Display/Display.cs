@@ -29,10 +29,10 @@ public abstract class Display : IDevice
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
 
-    protected Display(List<Input> supportedInputs)
+    protected Display(List<Input> supportedInputs, int pollTime = 23)
     {
         SupportedInputs = supportedInputs;
-        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(23));
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         PollWorker.Restart();
     }
 

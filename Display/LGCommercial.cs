@@ -57,9 +57,11 @@ public class LGCommercial : Display, ISetTopBox
     public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
     {
         Input.Hdmi1, Input.Hdmi2, Input.Hdmi3, Input.Hdmi4, Input.DvbtTuner
-    })
+    },
+        12)
     {
         _comms = comms;
+        _comms.ResponseHandlers += HandleResponse;
         _setId = setId;
         if (mac != null)
             _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
@@ -67,10 +69,62 @@ public class LGCommercial : Display, ISetTopBox
         UpdateCommunicationState(CommunicationState.NotAttempted);
     }
 
+    private void HandleResponse(string response)
+    {
+        Log($"Handling response {response}");
+        if (!response.Contains($" {_setId:d2} OK"))
+            return;
+        var data = response.Split("OK");
+        Log($"The response is valid, header {data[0]}, value {data[1]}");
+        if (data[0].Contains($"a {_setId:d2} "))
+        {
+            PowerState = data[1] switch
+            {
+                "01x" => PowerState.On,
+                "00x" => PowerState.Off,
+                _ => PowerState
+            };
+            Log($"The current Power state is {PowerState.ToString()}");
+            ProcessPowerResponse();
+        }
+        else if (data[0].Contains($"b {_setId:d2} "))
+        {
+            Input = data[1] switch
+            {
+                "90x" => Input.Hdmi1,
+                "91x" => Input.Hdmi2,
+                "92x" => Input.Hdmi3,
+                "93x" => Input.Hdmi4,
+                "00x" => Input.DvbtTuner,
+                _ => Input
+            };
+            Log($"The current Input is {Input.ToString()}");
+            ProcessInputResponse();
+        }
+        else if (data[0].Contains($"f {_setId:d2} "))
+        {
+            Volume = byte.Parse(data[1].Remove(0, 2));
+            Log($"The current volume is {Volume}");
+            VolumeLevelHandlers?.Invoke(Volume);
+        }
+        else if (data[0].Contains($"e {_setId:d2} "))
+        {
+            AudioMute = data[1] switch
+            {
+                "01x" => MuteState.Off,
+                "00x" => MuteState.On,
+                _ => AudioMute
+            };
+            Log($"The current mute state is {AudioMute.ToString()}");
+            MuteStateHandlers?.Invoke(AudioMute);
+        }
+    }
+
     private void SendCommand(string header, string value) => _comms.Send($"{header} {_setId:d2} {value}\r");
 
     protected override void Poll()
     {
+        Log("Poll function");
         PowerState = _comms.GetConnectionState() switch
         {
             ConnectionState.Connected => PowerState.On,
@@ -79,18 +133,25 @@ public class LGCommercial : Display, ISetTopBox
         if (PowerState != DesiredPowerState)
         {
             ProcessPowerResponse();
-            return;
+            Log("Aligning power state based on comms client connection");
         }
 
-        if (PowerState != PowerState.On) 
+        if (PowerState != PowerState.On)
+        {
+            Log("Power is off, end poll");
             return;
+        }
         
+        SendCommand(_powerHeader, _pollArgument);
         Thread.Sleep(1000);
         SendCommand(_inputHeader, _pollArgument);
-        Thread.Sleep(1000);
-        SendCommand(_volumeHeader, _pollArgument);
+        Log("Polling input");
+        // Thread.Sleep(1000);
+        // SendCommand(_volumeHeader, _pollArgument);
+        // Log("Polling volume");
         Thread.Sleep(1000);
         SendCommand(_muteHeader,  _pollArgument);
+        Log("Polling mute");
     }
 
     private void SendWol()
