@@ -77,4 +77,64 @@ public class LgCommercialTest
         
         _client.Verify(x => x.Send(expectedCommand), Times.Once);
     }
+
+    [Theory]
+    [InlineData("a 00 OK01x", PowerState.On)]
+    [InlineData("a 00 OK00x", PowerState.Off)]
+    public void HandleResponse_UpdatesThePowerState(string response, PowerState expectedState)
+    {
+
+        Mock<PowerStateHandler> handler = new Mock<PowerStateHandler>();
+        _display.PowerStateHandlers += handler.Object;
+        
+        _client.Object.ResponseHandlers!.Invoke(response);
+        
+        handler.Verify(x => x.Invoke(expectedState));
+    }
+
+    [Theory]
+    [InlineData("b 00 OK90x", Input.Hdmi1)]
+    [InlineData("b 00 OK91x", Input.Hdmi2)]
+    [InlineData("b 00 OK92x", Input.Hdmi3)]
+    [InlineData("b 00 OK93x", Input.Hdmi4)]
+    [InlineData("b 00 OK00x", Input.DvbtTuner)]
+    public void HandleResponse_UpdatesTheInput(string response, Input expectedInput)
+    {
+
+        Mock<InputHandler> handler = new Mock<InputHandler>();
+        _display.InputHandlers += handler.Object;
+        
+        _client.Object.ResponseHandlers!.Invoke(response);
+        
+        handler.Verify(x => x.Invoke(expectedInput));
+    }
+
+    [Theory]
+    [InlineData("e 00 OK01x", MuteState.Off)]
+    [InlineData("e 00 OK00x", MuteState.On)]
+    public void HandleResponse_UpdatesTheMuteState(string response, MuteState expectedState)
+    {
+
+        Mock<MuteStateHandler> handler = new Mock<MuteStateHandler>();
+        _display.MuteStateHandlers += handler.Object;
+        
+        _client.Object.ResponseHandlers!.Invoke(response);
+        
+        handler.Verify(x => x.Invoke(expectedState));
+    }
+
+    [Theory]
+    [InlineData("f 00 OK00x", 0)]
+    [InlineData("f 00 OK09x", 9)]
+    [InlineData("f 00 OK64x", 100)]
+    public void HandleResponse_UpdatesTheVolumeLevel(string response, int expectedVolume)
+    {
+
+        Mock<VolumeLevelHandler> handler = new Mock<VolumeLevelHandler>();
+        _display.VolumeLevelHandlers += handler.Object;
+        
+        _client.Object.ResponseHandlers!.Invoke(response);
+        
+        handler.Verify(x => x.Invoke(expectedVolume));
+    }
 }

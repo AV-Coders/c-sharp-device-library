@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Globalization;
+using System.Net;
 using AVCoders.Core;
 using AVCoders.MediaPlayer;
 using UdpClient = System.Net.Sockets.UdpClient;
@@ -103,7 +104,7 @@ public class LGCommercial : Display, ISetTopBox
         }
         else if (data[0].Contains($"f {_setId:d2} "))
         {
-            Volume = byte.Parse(data[1].Remove(0, 2));
+            int.TryParse(data[1].Substring(0, 2), NumberStyles.HexNumber, null, out Volume);
             Log($"The current volume is {Volume}");
             VolumeLevelHandlers?.Invoke(Volume);
         }
@@ -146,9 +147,9 @@ public class LGCommercial : Display, ISetTopBox
         Thread.Sleep(1000);
         SendCommand(_inputHeader, _pollArgument);
         Log("Polling input");
-        // Thread.Sleep(1000);
-        // SendCommand(_volumeHeader, _pollArgument);
-        // Log("Polling volume");
+        Thread.Sleep(1000);
+        SendCommand(_volumeHeader, _pollArgument);
+        Log("Polling volume");
         Thread.Sleep(1000);
         SendCommand(_muteHeader,  _pollArgument);
         Log("Polling mute");
