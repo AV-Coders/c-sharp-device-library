@@ -63,11 +63,19 @@ public class LGCommercial : Display, ISetTopBox
     {
         _comms = comms;
         _comms.ResponseHandlers += HandleResponse;
+        _comms.ConnectionStateHandlers += HandleConnectionState;
         _setId = setId;
         if (mac != null)
             _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
         
         UpdateCommunicationState(CommunicationState.NotAttempted);
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        if (connectionState != ConnectionState.Connected) 
+            return;
+        Poll();
     }
 
     private void HandleResponse(string response)
