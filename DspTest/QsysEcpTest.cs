@@ -27,6 +27,39 @@ public class QsysEcpTest
     }
 
     [Fact]
+    public void ControlNames_CanHaveSpaces()
+    {
+        var gainName = "Gain With Space";
+        var muteName = "Mute with Space";
+        var stringName = "String with Space";
+        _dsp.AddControl(_volumeLevelHandler.Object, gainName);
+        _dsp.AddControl(_muteStateHandler.Object, muteName);
+        _dsp.AddControl(_stringValueHandler.Object, stringName);
+        
+        _dsp.SetLevel(gainName, 50);
+        _mockClient.Verify(x => x.Send($"csp \"{gainName}\" 0.5\n"));
+        
+        _dsp.SetAudioMute(muteName, MuteState.On);
+        _mockClient.Verify(x => x.Send($"css \"{muteName}\" muted\n"));
+        
+        _dsp.SetValue(stringName, "hello");
+        _mockClient.Verify(x => x.Send($"css \"{stringName}\" hello\n"));
+        
+        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{gainName}\" \"-6.40dB\" -6.4 0.989744");
+        _volumeLevelHandler.Verify(x => x.Invoke(98));
+        Assert.Equal(98, _dsp.GetLevel(gainName));
+        
+        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{muteName}\" \"unmuted\" 1 1");
+        _muteStateHandler.Verify(x => x.Invoke(MuteState.Off));
+        Assert.Equal(MuteState.Off, _dsp.GetAudioMute(muteName));
+        
+        
+        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"This is a string\" 5 0.571429");
+
+        Assert.Equal("This is a string", _dsp.GetValue(StringName));
+    }
+
+    [Fact]
     public void Constructor_SetsPortTo1702()
     {
         _mockClient.Verify(x => x.SetPort(1702), Times.Once);
@@ -37,7 +70,7 @@ public class QsysEcpTest
     {
         _dsp.SetLevel(GainName, 34);
 
-        _mockClient.Verify(x => x.Send($"csp {GainName} 0.34\n"));
+        _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.34\n"));
     }
 
     [Fact]
@@ -47,7 +80,7 @@ public class QsysEcpTest
         
         _dsp.LevelUp(GainName);
         
-        _mockClient.Verify(x => x.Send($"csp {GainName} 0.92\n"));
+        _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.92\n"));
     }
 
     [Fact]
@@ -57,7 +90,7 @@ public class QsysEcpTest
         
         _dsp.LevelUp(GainName, 2);
         
-        _mockClient.Verify(x => x.Send($"csp {GainName} 0.93\n"));
+        _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.93\n"));
     }
 
     [Fact]
@@ -67,7 +100,7 @@ public class QsysEcpTest
         
         _dsp.LevelDown(GainName);
         
-        _mockClient.Verify(x => x.Send($"csp {GainName} 0.9\n"));
+        _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.9\n"));
     }
 
     [Fact]
@@ -77,7 +110,7 @@ public class QsysEcpTest
         
         _dsp.LevelDown(GainName, 3);
         
-        _mockClient.Verify(x => x.Send($"csp {GainName} 0.88\n"));
+        _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.88\n"));
     }
 
     [Fact]
@@ -97,7 +130,7 @@ public class QsysEcpTest
     public void SetAudioMute_SendsTheCommand()
     {
         _dsp.SetAudioMute(MuteName, MuteState.On);
-        _mockClient.Verify(x => x.Send($"css {MuteName} muted\n"));
+        _mockClient.Verify(x => x.Send($"css \"{MuteName}\" muted\n"));
     }
 
     [Fact]
@@ -121,14 +154,14 @@ public class QsysEcpTest
 
         _dsp.ToggleAudioMute(MuteName);
 
-        _mockClient.Verify(x => x.Send($"css {MuteName} muted\n"));
+        _mockClient.Verify(x => x.Send($"css \"{MuteName}\" muted\n"));
     }
 
     [Fact]
     public void SetValue_SendsTheCommand()
     {
         _dsp.SetValue(StringName, "hello");
-        _mockClient.Verify(x => x.Send($"css {StringName} hello\n"));
+        _mockClient.Verify(x => x.Send($"css \"{StringName}\" hello\n"));
     }
 
     [Fact]
@@ -199,6 +232,12 @@ public class QsysEcpTest
         _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"5\" 5 0.571429");
 
         _stringValueHandler.Verify(x => x.Invoke("5"));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnInvalidResponse_DoesNothing()
+    {
+        _mockClient.Object.ResponseHandlers.Invoke("cv \"gai ");
     }
 
     [Fact]

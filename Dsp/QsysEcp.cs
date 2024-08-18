@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.Text.RegularExpressions;
+using AVCoders.Core;
 
 namespace AVCoders.Dsp;
 
@@ -28,8 +29,8 @@ public class QsysEcp : Dsp
     public static readonly ushort DefaultPort = 1702;
     private Dictionary<string, QscGain> _gains = new Dictionary<string, QscGain>();
     private Dictionary<string, QscMute> _mutes = new Dictionary<string, QscMute>();
-
     private Dictionary<string, QscInt> _strings = new Dictionary<string, QscInt>();
+    private readonly Regex _responseParser;
 
     // There is a limit of 4 change groups.
     private const int ChangeGroupGains = 1;
@@ -49,6 +50,9 @@ public class QsysEcp : Dsp
         
         _pollWorker = new ThreadWorker(PollDspThreadFunction, TimeSpan.FromMilliseconds(pollTime));
         _pollWorker.Restart();
+
+        string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]+)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
+        _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
 
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -87,31 +91,30 @@ public class QsysEcp : Dsp
 
         try
         {
-            var responses = response.Split(' ');
-            if (responses.Length < 2)
-                return;
+            var matches = _responseParser.Matches(response);
+            // if (matches.Count < 1)
+            //     return;
 
-            var controlName = responses[1].Trim('"');
+            var controlName = matches[0].Groups[1].Value;
             if (_gains.ContainsKey(controlName))
             {
-                // Eg:cv "Zone1BGMGain" "-6.40dB" -6.4 0.989744
-                _gains[controlName].SetVolumeFromPercentage(double.Parse(responses[4]) * 100);
+                // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
+                _gains[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
                 _gains[controlName].Report();
             }
 
             if (_mutes.ContainsKey(controlName))
             {
-                // Eg:cv "Zone1BGMMute" "unmuted" 1 1
-                // Eg:cv "Zone1BGMMute" "muted" 1 1
-                _mutes[controlName].MuteState = responses[2].Contains("unmuted") ? MuteState.Off : MuteState.On;
+                // Eg:cv "Zone 1 BGM Mute" "unmuted" 1 1
+                // Eg:cv "Zone 1 BGM Mute" "muted" 1 1
+                _mutes[controlName].MuteState = matches[0].Groups[2].Value.Contains("unmuted") ? MuteState.Off : MuteState.On;
                 _mutes[controlName].Report();
             }
 
             if (_strings.ContainsKey(controlName))
             {
-                // Eg:cv "Zone1BGMSelect" "5" 5 0.571429
-                var x = response.Split('"');
-                _strings[controlName].Value = x[3].Trim('"');
+                // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
+                _strings[controlName].Value = matches[0].Groups[2].Value;
                 _strings[controlName].Report();
             }
         }
@@ -247,7 +250,7 @@ public class QsysEcp : Dsp
 
     public override void SetLevel(string gainName, int percentage)
     {
-        _tcpClient.Send($"csp {gainName} {Math.Round((double)percentage / 100, 2)}\n");
+        _tcpClient.Send($"csp \"{gainName}\" {Math.Round((double)percentage / 100, 2)}\n");
     }
 
     public override void LevelUp(string controlName, int amount = 1)
@@ -269,7 +272,7 @@ public class QsysEcp : Dsp
 
     public override void SetAudioMute(string muteName, MuteState state)
     {
-        _tcpClient.Send($"css {muteName} {_muteStateDictionary[state]}\n");
+        _tcpClient.Send($"css \"{muteName}\" {_muteStateDictionary[state]}\n");
     }
 
     public override void ToggleAudioMute(string muteName)
@@ -295,7 +298,7 @@ public class QsysEcp : Dsp
 
     public override void SetValue(string stringName, string value)
     {
-        _tcpClient.Send($"css {stringName} {value}\n");
+        _tcpClient.Send($"css \"{stringName}\" {value}\n");
     }
 
     public override string GetValue(string intName)
@@ -307,6 +310,6 @@ public class QsysEcp : Dsp
 
     public void RecallPreset(string controlName)
     {
-            _tcpClient.Send($"csv {controlName} 1 \n");
+            _tcpClient.Send($"csv \"{controlName}\" 1 \n");
     }
 }
