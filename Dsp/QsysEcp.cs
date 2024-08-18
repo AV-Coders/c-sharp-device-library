@@ -92,8 +92,6 @@ public class QsysEcp : Dsp
         try
         {
             var matches = _responseParser.Matches(response);
-            // if (matches.Count < 1)
-            //     return;
 
             var controlName = matches[0].Groups[1].Value;
             if (_gains.ContainsKey(controlName))
@@ -106,7 +104,7 @@ public class QsysEcp : Dsp
             if (_mutes.ContainsKey(controlName))
             {
                 // Eg:cv "Zone 1 BGM Mute" "unmuted" 1 1
-                // Eg:cv "Zone 1 BGM Mute" "muted" 1 1
+                // Eg:cv "Zone1BGMMute" "muted" 1 1
                 _mutes[controlName].MuteState = matches[0].Groups[2].Value.Contains("unmuted") ? MuteState.Off : MuteState.On;
                 _mutes[controlName].Report();
             }
@@ -164,10 +162,7 @@ public class QsysEcp : Dsp
 
     private void AddControlsToChangeGroup(int groupId, List<String> controlNames)
     {
-        foreach (string controlName in controlNames)
-        {
-            _tcpClient.Send($"cga {groupId} {controlName}\n");
-        }
+        controlNames.ForEach(controlName => _tcpClient.Send($"cga {groupId} \"{controlName}\"\n"));
     }
 
     private void PollDspThreadFunction()
@@ -202,7 +197,7 @@ public class QsysEcp : Dsp
 
     private void GetControl(string controlName)
     {
-        _tcpClient.Send($"cg {controlName}\n");
+        _tcpClient.Send($"cg \"{controlName}\"\n");
     }
 
     public override void AddControl(VolumeLevelHandler volumeLevelHandler, string levelName)
