@@ -1,10 +1,12 @@
 ﻿using System.Net.Sockets;
 using Renci.SshNet;
 using Renci.SshNet.Common;
+using SshClient = Renci.SshNet.SshClient;
+using SshClientBase = AVCoders.Core.SshClient;
 
 namespace AVCoders.CommunicationClients;
 
-public class AvCodersSshClient : IpComms
+public class AvCodersSshClient : SshClientBase
 {
     private readonly string _username;
     private readonly string _password;

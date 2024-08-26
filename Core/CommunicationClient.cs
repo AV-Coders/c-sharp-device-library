@@ -137,6 +137,13 @@ public abstract class IpComms : CommunicationClient
     }
 }
 
+public abstract class SshClient : IpComms
+{
+    protected SshClient(string host, ushort port) : base(host, port)
+    {
+    }
+}
+
 public abstract class TcpClient : IpComms
 {
     protected TcpClient(string host, ushort port) : base(host, port)
