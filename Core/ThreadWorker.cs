@@ -5,6 +5,7 @@ public class ThreadWorker
     private readonly Action _action;
     private readonly TimeSpan _sleepTime;
     private CancellationTokenSource _cancellationTokenSource;
+    private Task? _task;
 
     public ThreadWorker(Action action, TimeSpan sleepTime)
     {
@@ -18,19 +19,31 @@ public class ThreadWorker
         Stop();
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
-        new Thread(_ =>
+        _task = Task.Run(async () =>
         {
-            while (!token.IsCancellationRequested)
+            try
             {
-                _action.Invoke();
-                Thread.Sleep(_sleepTime);
+                while (!token.IsCancellationRequested)
+                {
+                    _action.Invoke();
+                    await Task.Delay(_sleepTime, token);
+                }
             }
-        }).Start();
+            catch (OperationCanceledException)
+            {
+                // Task was cancelled
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }
+        }, token);
     }
 
     public void Stop()
     {
         _cancellationTokenSource.Cancel();
+        _task?.Wait();
         _cancellationTokenSource.Dispose();
     }
 
