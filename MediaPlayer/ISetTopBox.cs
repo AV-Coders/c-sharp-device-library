@@ -6,4 +6,5 @@ public interface ISetTopBox
     public void ChannelDown();
     public void SendIRCode(RemoteButton button);
     public void SetChannel(int channel);
+    public void ToggleSubtitles();
 }

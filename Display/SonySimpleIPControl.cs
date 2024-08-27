@@ -132,4 +132,5 @@ public class SonySimpleIpControl : Display, ISetTopBox
     public void SendIRCode(RemoteButton button) => SendIrCode(RemoteButtonMap[button]);
 
     public void SetChannel(int channel) => SendCommand(WrapMessage($"CCHNN{channel:D16}"));
+    public void ToggleSubtitles() => SendIRCode(RemoteButton.Subtitle);
 }

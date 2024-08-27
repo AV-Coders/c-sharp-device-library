@@ -99,4 +99,9 @@ public class ExterityTci : MediaPlayer, ISetTopBox
         }
         SimulateRemoteKeypress("enter");
     }
+
+    public void ToggleSubtitles()
+    {
+        SimulateRemoteKeypress("subtitle");
+    }
 }

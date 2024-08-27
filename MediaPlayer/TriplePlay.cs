@@ -56,6 +56,10 @@ public class TriplePlay : MediaPlayer, ISetTopBox
     public void SendIRCode(RemoteButton button) => Log("This is not supported");
 
     public void SetChannel(int channel) => GoToChannelNumber((uint) channel);
+    public void ToggleSubtitles()
+    {
+        
+    }
 
     public void GoToServiceId(uint serviceId)
     {

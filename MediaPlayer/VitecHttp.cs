@@ -12,6 +12,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     private readonly Uri _remoteKeyUri;
     private readonly Uri _deviceStateUri;
     private readonly string _authInfo;
+    private int _subtitleOption = 0;
 
     public VitecHttp(string host, string password)
     {
@@ -89,6 +90,25 @@ public class VitecHttp : MediaPlayer, ISetTopBox
                 Thread.Sleep(50);
             }
         }   
+    }
+
+    public void ToggleSubtitles()
+    {
+        int i = 0;
+        SendIRCode(RemoteButton.Subtitle);
+        Thread.Sleep(25);
+        while (i < _subtitleOption)
+        {
+            SendIRCode(RemoteButton.Down);
+            Thread.Sleep(25);
+            i++;
+        }
+        Thread.Sleep(700);
+        SendIRCode(RemoteButton.Enter);
+        
+        _subtitleOption++;
+        if (_subtitleOption > 3)
+            _subtitleOption = 0;
     }
 
     public void SendIRCode(RemoteButton button)
