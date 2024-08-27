@@ -52,7 +52,8 @@ public class LGCommercial : Display, ISetTopBox
         { RemoteButton.Down, "41"},
         { RemoteButton.Left, "07"},
         { RemoteButton.Right, "06"},
-        { RemoteButton.Subtitle, "39"}
+        { RemoteButton.Subtitle, "39"},
+        { RemoteButton.Back, "5B"}
     };
 
     public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
@@ -232,8 +233,8 @@ public class LGCommercial : Display, ISetTopBox
     {
         SendIRCode(RemoteButton.Subtitle);
         Thread.Sleep(100);
-        SendIRCode(RemoteButton.Down);
+        SendIRCode(RemoteButton.Subtitle);
         Thread.Sleep(100);
-        SendIRCode(RemoteButton.Enter);
+        SendIRCode(RemoteButton.Back);
     }
 }
