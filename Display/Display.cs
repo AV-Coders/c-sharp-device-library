@@ -33,7 +33,16 @@ public abstract class Display : IDevice
     {
         SupportedInputs = supportedInputs;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
-        PollWorker.Restart();
+        new Thread(_ =>
+        {
+            Thread.Sleep(1000);
+            PollWorker.Restart();
+        }).Start();
+    }
+
+    ~Display()
+    {
+        PollWorker.Stop();
     }
 
     protected abstract void Poll();
