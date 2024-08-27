@@ -228,5 +228,12 @@ public class LGCommercial : Display, ISetTopBox
     public void SendIRCode(RemoteButton button) => SendCommand(_irccHeader, RemoteButtonMap[button]);
 
     public void SetChannel(int channel) => SendCommand(_channelHeader, $"00 {channel:X2} 10");
-    public void ToggleSubtitles() => SendIRCode(RemoteButton.Subtitle);
+    public void ToggleSubtitles()
+    {
+        SendIRCode(RemoteButton.Subtitle);
+        Thread.Sleep(100);
+        SendIRCode(RemoteButton.Down);
+        Thread.Sleep(100);
+        SendIRCode(RemoteButton.Enter);
+    }
 }
