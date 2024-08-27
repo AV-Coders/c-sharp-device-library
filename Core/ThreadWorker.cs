@@ -4,21 +4,23 @@ public class ThreadWorker
 {
     private readonly Action _action;
     private readonly TimeSpan _sleepTime;
-    private Guid _runInstance = Guid.Empty;
-    
+    private CancellationTokenSource _cancellationTokenSource;
+
     public ThreadWorker(Action action, TimeSpan sleepTime)
     {
         _action = action;
         _sleepTime = sleepTime;
+        _cancellationTokenSource = new CancellationTokenSource();
     }
 
     public void Restart()
     {
-        var thisRun = Guid.NewGuid();
-        _runInstance = thisRun;
+        Stop();
+        _cancellationTokenSource = new CancellationTokenSource();
+        var token = _cancellationTokenSource.Token;
         new Thread(_ =>
         {
-            while (_runInstance == thisRun)
+            while (!token.IsCancellationRequested)
             {
                 _action.Invoke();
                 Thread.Sleep(_sleepTime);
@@ -28,7 +30,8 @@ public class ThreadWorker
 
     public void Stop()
     {
-        _runInstance = Guid.Empty;
+        _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
     }
 
     ~ThreadWorker()
