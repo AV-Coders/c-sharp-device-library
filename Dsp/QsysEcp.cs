@@ -39,17 +39,13 @@ public class QsysEcp : Dsp
 
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
     private readonly TcpClient _tcpClient;
-    private readonly ThreadWorker _pollWorker;
 
-    public QsysEcp(TcpClient tcpClient, int pollTime = 50000)
+    public QsysEcp(TcpClient tcpClient, int pollTime = 50000) : base(pollTime)
     {
         _tcpClient = tcpClient;
         _tcpClient.SetPort(DefaultPort);
         _tcpClient.ResponseHandlers += HandleResponse;
         _tcpClient.ConnectionStateHandlers += HandleConnectionState;
-        
-        _pollWorker = new ThreadWorker(PollDspThreadFunction, TimeSpan.FromMilliseconds(pollTime));
-        _pollWorker.Restart();
 
         string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]+)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
@@ -165,7 +161,7 @@ public class QsysEcp : Dsp
         controlNames.ForEach(controlName => _tcpClient.Send($"cga {groupId} \"{controlName}\"\n"));
     }
 
-    private void PollDspThreadFunction()
+    protected override void Poll()
     {
         if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
             _tcpClient.Send("sg\n");

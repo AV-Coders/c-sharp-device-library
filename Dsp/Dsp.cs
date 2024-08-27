@@ -10,7 +10,20 @@ public abstract class Dsp : IDevice
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
     public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
+    
+    protected readonly ThreadWorker PollWorker;
 
+    protected Dsp(int pollTime)
+    {
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
+        new Thread(_ =>
+        {
+            Thread.Sleep(1000);
+            PollWorker.Restart();
+        }).Start();
+    }
+
+    protected abstract void Poll();
     
     public PowerState GetCurrentPowerState() => PowerState;
 

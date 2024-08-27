@@ -57,26 +57,22 @@ public class BiampTtp : Dsp
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
     private readonly CommunicationClient _tcpClient;
     private readonly Regex _subscriptionResponseParser;
-    private readonly ThreadWorker _pollWorker;
 
     private readonly List<Query> _deviceQueries = new();
     private readonly List<string> _deviceSubscriptions = new();
     
 
-    public BiampTtp(CommunicationClient tcpClient, int pollTime = 50000)
+    public BiampTtp(CommunicationClient tcpClient, int pollTime = 50000) : base(pollTime)
     {
         _tcpClient = tcpClient;
         _tcpClient.ResponseHandlers += HandleResponse;
         _tcpClient.ConnectionStateHandlers += HandleConnectionState;
-        _pollWorker = new ThreadWorker(PollDspThreadFunction, TimeSpan.FromMilliseconds(pollTime));
-        _pollWorker.Restart();
         
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
             { MuteState.On, "true" },
             { MuteState.Off, "false" }
         };
-        
         
         string subscriptionResponsePattern = "\":\"(.+)\" \"value\":(.+)";
         _subscriptionResponseParser = new Regex(subscriptionResponsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(200));
@@ -97,7 +93,7 @@ public class BiampTtp : Dsp
         }
     }
 
-    private void PollDspThreadFunction()
+    protected override void Poll()
     {
         if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
         {
