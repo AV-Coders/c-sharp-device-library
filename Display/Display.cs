@@ -40,11 +40,6 @@ public abstract class Display : IDevice
         }).Start();
     }
 
-    ~Display()
-    {
-        PollWorker.Stop();
-    }
-
     protected abstract void Poll();
     
     protected void Log(string message)
