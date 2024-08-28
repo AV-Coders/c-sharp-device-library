@@ -9,9 +9,9 @@ public static class Bytes
         return Encoding.ASCII.GetBytes(input);
     }
     
-    public static byte[] AsciiRepresentationOfHexEquivalentOf(int value, int padding = 0)
+    public static byte[] AsciiRepresentationOfHexEquivalentOf(int value, int padding = 0, bool capitalise = true)
     {
-        return Encoding.ASCII.GetBytes(value.ToString($"X{padding}"));
+        return Encoding.ASCII.GetBytes(capitalise ? value.ToString($"X{padding}") : value.ToString($"x{padding}"));
     }
 
     public static byte XorAnArray(byte[] bytes)

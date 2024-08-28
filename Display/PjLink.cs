@@ -1,4 +1,6 @@
-﻿using AVCoders.Core;
+﻿using System.Security.Cryptography;
+using System.Text;
+using AVCoders.Core;
 
 namespace AVCoders.Display;
 
@@ -80,30 +82,44 @@ public class PjLink : Display
     {
         if (response.Contains("OK"))
         {
-            CommunicationState = CommunicationState.Okay;
+            UpdateCommunicationState(CommunicationState.Okay);
             return;
         }
 
         if (response.Contains("ERR3")) // It's just not the right time for this command
         {
-            CommunicationState = CommunicationState.Okay;
+            UpdateCommunicationState(CommunicationState.Okay);
+            return;
+        }
+
+        if (response.Contains("ERRA"))
+        {
+            UpdateCommunicationState(CommunicationState.Error);
+            Log("Password not accepted");
             return;
         }
 
         if (response.Contains("ERR")) // ERR2 and ERR4
         {
-            CommunicationState = CommunicationState.Error;
+            UpdateCommunicationState(CommunicationState.Error);
             return;
         }
 
         if (response.Contains("PJLINK"))
         {
-            CommunicationState = CommunicationState.Okay;
-            if (response.Contains('1'))
-            {
-                TcpClient.Send($"{_password}\r");
-            }
+            UpdateCommunicationState(CommunicationState.Okay);
+            if (!response.Contains('1')) 
+                return;
+            
+            string[] loginParams = response.Split(' ');
+            byte[] answer = GetMd5Hash(loginParams[2] + _password);
+            byte[] poll = { 0x25, 0x31, 0x50, 0x4f, 0x57, 0x52, 0x20, 0x3f, 0x0d };
+            byte[] combined = new byte[answer.Length + poll.Length];
+            
+            Buffer.BlockCopy(answer, 0, combined, 0, answer.Length);
+            Buffer.BlockCopy(poll, 0, combined, answer.Length, poll.Length);
 
+            TcpClient.Send(combined);
             return;
         }
 
@@ -146,6 +162,21 @@ public class PjLink : Display
         }
 
         CommunicationState = CommunicationState.Okay;
+    }
+    
+    public byte[] GetMd5Hash(string input) 
+    {
+        List<byte> resultBytes = new List<byte>();
+        byte[] hash = MD5.HashData(Encoding.ASCII.GetBytes(input));
+        
+        foreach (byte b in hash)
+        {
+            foreach (byte b1 in Bytes.AsciiRepresentationOfHexEquivalentOf(b, 0, false))
+            {
+                resultBytes.Add(b1);
+            }
+        }
+        return resultBytes.ToArray();
     }
 
     private void Send(string command) => TcpClient.Send($"%1{command}\r");
