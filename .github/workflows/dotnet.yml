@@ -15,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Get current date
+      id: date
+      run: echo "::set-output name=date::$(date +'%Y.%m')"
+      
     - uses: actions/checkout@v3
     
     - name: Setup .NET
@@ -28,35 +32,35 @@ jobs:
     - name: Build
       run: dotnet build --no-restore
     
-#    - name: Test
-#      run: dotnet test --no-build --verbosity normal
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
     
     - name: Setup Github Packages
       run: dotnet nuget add source --username ant-car --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/AV-Coders/index.json"
 
     - name: Create Core Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Core/Core.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Core/Core.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Camera Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Camera/Camera.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Camera/Camera.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Communication Clients Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/CommunicationClients/CommunicationClients.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/CommunicationClients/CommunicationClients.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Display Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Display/Display.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Display/Display.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Dsp Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Dsp/Dsp.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Dsp/Dsp.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Matrix Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Matrix/Matrix.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Matrix/Matrix.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Media Player Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/MediaPlayer/MediaPlayer.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/MediaPlayer/MediaPlayer.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Motor Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Motor/Motor.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=2024.8.${{ github.run_number }} --configuration PackRelease
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Motor/Motor.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Publish to GitHub Packages 
       run: dotnet nuget push /home/runner/work/c-sharp-device-library/package/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }}  --source "github"
