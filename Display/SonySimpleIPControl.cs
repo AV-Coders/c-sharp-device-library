@@ -92,22 +92,26 @@ public class SonySimpleIpControl : Display, ISetTopBox
             {
                 PowerState = PowerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
                 ProcessPowerResponse();
+                UpdateCommunicationState(CommunicationState.Okay);
             }
             else if (trimmedResponse.StartsWith("*SNVOLU"))
             {
                 Volume = Int32.Parse(trimmedResponse.Remove(0, 7));
                 VolumeLevelHandlers?.Invoke(Volume);
+                UpdateCommunicationState(CommunicationState.Okay);
             }
             else if (trimmedResponse.StartsWith("*SNAMUT"))
             {
                 AudioMute = trimmedResponse.EndsWith('1') ? MuteState.On : MuteState.Off;
                 MuteStateHandlers?.Invoke(AudioMute);
+                UpdateCommunicationState(CommunicationState.Okay);
             }
             else if (trimmedResponse.StartsWith("*SNINPT"))
             {
                 string value = trimmedResponse.Remove(0, 7);
                 Input = InputDictionary.Keys.FirstOrDefault(key => InputDictionary[key] == value, Input.Unknown);
                 ProcessInputResponse();
+                UpdateCommunicationState(CommunicationState.Okay);
             }
         }
     }

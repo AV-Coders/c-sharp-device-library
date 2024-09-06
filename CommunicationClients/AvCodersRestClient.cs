@@ -58,9 +58,11 @@ public class AvCodersRestClient : RestComms
             Log($"Actioning Post of {payload} to {uri}");
             HttpResponseMessage response = await httpClient.PostAsync(uri, new StringContent(payload, Encoding.Default, contentType));
             await HandleResponse(response);
+            UpdateConnectionState(ConnectionState.Connected);
         }
         catch (Exception e)
         {
+            UpdateConnectionState(ConnectionState.Error);
             Log(e.Message);
             Log(e.StackTrace);
             if (e.InnerException == null)
@@ -89,9 +91,11 @@ public class AvCodersRestClient : RestComms
             Log($"Actioning Put to {uri}");
             HttpResponseMessage response = await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, contentType));
             await HandleResponse(response);
+            UpdateConnectionState(ConnectionState.Connected);
         }
         catch (Exception e)
         {
+            UpdateConnectionState(ConnectionState.Error);
             Log(e.Message);
             Log(e.StackTrace);
             if (e.InnerException == null)
@@ -120,9 +124,11 @@ public class AvCodersRestClient : RestComms
             Log($"Actioning Put to {uri}");
             HttpResponseMessage response = await httpClient.GetAsync(uri);
             await HandleResponse(response);
+            UpdateConnectionState(ConnectionState.Connected);
         }
         catch (Exception e)
         {
+            UpdateConnectionState(ConnectionState.Error);
             Log(e.Message);
             Log(e.StackTrace);
             if (e.InnerException == null)
