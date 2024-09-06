@@ -18,7 +18,7 @@ public class ThreadWorkerTest
     {
         _threadWorker.Restart();
         
-        Thread.Sleep(100);
+        Thread.Sleep(10);
         
         _actionMock.Verify(action => action(), Times.Once);
     }
@@ -40,13 +40,13 @@ public class ThreadWorkerTest
         Thread.Sleep(10);
         _threadWorker.Restart();
         
-        Thread.Sleep(100);
+        Thread.Sleep(10);
         
         _actionMock.Verify(action => action(), Times.Exactly(2));
     }
 
     [Fact]
-    public void ThreadWorker_CanBeStoppedManyTimes()
+    public void ThreadWorker_CanBeStoppedAndRestartedManyTimes()
     {
         _threadWorker.Restart();
         Thread.Sleep(10);
@@ -55,5 +55,16 @@ public class ThreadWorkerTest
         _threadWorker.Stop();
         Thread.Sleep(10);
         _threadWorker.Restart();
+        Thread.Sleep(10);
+        _threadWorker.Restart();
+        Thread.Sleep(10);
+        _threadWorker.Stop();
+        Thread.Sleep(10);
+        _threadWorker.Stop();
+        Thread.Sleep(10);
+        _threadWorker.Restart();
+        Thread.Sleep(250);
+        
+        _actionMock.Verify(action => action(), Times.Exactly(5));
     }
 }
