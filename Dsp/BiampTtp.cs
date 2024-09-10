@@ -127,15 +127,10 @@ public class BiampTtp : Dsp
             return;
         var match = _subscriptionResponseParser.Match(line);
         if (_gains.ContainsKey(match.Groups[1].Value))
-        {
             _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[2].Value));
-        }
 
         if (_mutes.ContainsKey(match.Groups[1].Value))
-        {
             _mutes[match.Groups[1].Value].MuteState =  match.Groups[2].Value.Contains("true") ? MuteState.On : MuteState.Off;
-            _mutes[match.Groups[1].Value].Report();
-        }
     }
 
     private void AllocateValueToBlock(string value)

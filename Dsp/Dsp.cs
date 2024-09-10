@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.ComponentModel;
+using AVCoders.Core;
 
 namespace AVCoders.Dsp;
 
@@ -10,7 +11,7 @@ public abstract class Dsp : IDevice
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
     public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
-    
+
     protected readonly ThreadWorker PollWorker;
 
     protected Dsp(int pollTime)
@@ -24,11 +25,11 @@ public abstract class Dsp : IDevice
     }
 
     protected abstract void Poll();
-    
+
     public PowerState GetCurrentPowerState() => PowerState;
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
-    
+
     protected void Log(string message) => LogHandlers?.Invoke(message);
     protected void Error(string message) => LogHandlers?.Invoke(message, EventLevel.Error);
 
@@ -59,97 +60,136 @@ public abstract class Dsp : IDevice
     public abstract String GetValue(string controlName);
 }
 
-public abstract class AudioBlock { }
+public abstract class AudioBlock
+{
+}
 
-public abstract class Fader : AudioBlock
+public class Fader : AudioBlock
+{
+    private int _volume = 0; // A percentage, 0 to 100
+    public double MinGain = -100;
+    public double MaxGain = 0;
+    public double Step = 0;
+
+    public int Volume
     {
-        public double MinGain = -100;
-        public double MaxGain = 0;
-        public double Step = 0;
-        public int Volume = 0; // A percentage, 0 to 100
-        public VolumeLevelHandler? VolumeLevelHandlers;
-        private readonly bool _convertLogarithmicToLinear;
-
-        protected Fader(VolumeLevelHandler volumeLevelHandler, bool convertLogarithmicToLinear)
+        get => _volume;
+        set
         {
-            VolumeLevelHandlers += volumeLevelHandler;
-            _convertLogarithmicToLinear = convertLogarithmicToLinear;
-            CalculateStep();
-        }
-
-        public double PercentageToDb(int percentage)
-        {
-            if (percentage >=  100)
-                return MaxGain;
-            if (percentage <= 0)
-                return MinGain;
-
-            return MinGain + (Step * percentage);
-        }
-
-        public void SetVolumeFromDb(double db)
-        {
-            Volume = (int) (((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain));
+            if (_volume == value)
+                return;
+            _volume = value;
             Report();
         }
+    }
 
-        public void SetVolumeFromPercentage(double precentage)
+    public VolumeLevelHandler? VolumeLevelHandlers;
+    private readonly bool _convertLogarithmicToLinear;
+
+    public Fader(VolumeLevelHandler volumeLevelHandler, bool convertLogarithmicToLinear)
+    {
+        VolumeLevelHandlers += volumeLevelHandler;
+        _convertLogarithmicToLinear = convertLogarithmicToLinear;
+        CalculateStep();
+    }
+
+    public double PercentageToDb(int percentage)
+    {
+        if (percentage >= 100)
+            return MaxGain;
+        if (percentage <= 0)
+            return MinGain;
+
+        return MinGain + (Step * percentage);
+    }
+
+    public void SetVolumeFromDb(double db)
+    {
+        Volume = (int)(((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain));
+        Report();
+    }
+
+    public void SetVolumeFromPercentage(double precentage)
+    {
+        Volume = (int)precentage;
+        Report();
+    }
+
+    public double CalculateRange(double min, double max)
+    {
+        return max - min;
+    }
+
+    private void CalculateStep()
+    {
+        Step = _convertLogarithmicToLinear
+            ? (Math.Log(CalculateRange(MinGain, MaxGain))) / (100 - 1)
+            : CalculateRange(MinGain, MaxGain) / 100;
+    }
+
+    public void SetMinGain(double gain)
+    {
+        MinGain = gain;
+        CalculateStep();
+    }
+
+    public void SetMaxGain(double gain)
+    {
+        MaxGain = gain;
+        CalculateStep();
+    }
+
+    public void Report() => VolumeLevelHandlers?.Invoke(Volume);
+}
+
+public class Mute : AudioBlock
+{
+    private MuteState _muteState = MuteState.Unknown;
+
+    public MuteState MuteState
+    {
+        get => _muteState;
+        set
         {
-            Volume = (int)precentage;
+            if (_muteState == value)
+                return;
+            _muteState = value;
             Report();
         }
-
-        public double CalculateRange(double min, double max)
-        {
-            return max-min;
-        }
-
-        private void CalculateStep()
-        {
-            Step = _convertLogarithmicToLinear?
-                (Math.Log(CalculateRange(MinGain, MaxGain)))/(100 - 1)
-                    : CalculateRange(MinGain, MaxGain) / 100;
-        }
-
-        public void SetMinGain(double gain)
-        {
-            MinGain = gain;
-            CalculateStep();
-        }
-
-        public void SetMaxGain(double gain)
-        {
-            MaxGain = gain;
-            CalculateStep();
-        }
-        public void Report() => VolumeLevelHandlers?.Invoke(Volume);
     }
 
-    public abstract class Mute : AudioBlock
+    public MuteStateHandler? MuteStateHandlers;
+
+    public Mute(MuteStateHandler muteStateHandler)
     {
-        public MuteState MuteState { get; set; } = MuteState.Unknown;
-        public MuteStateHandler? MuteStateHandlers;
-
-        public Mute(MuteStateHandler muteStateHandler)
-        {
-            MuteStateHandlers += muteStateHandler;
-        }
-
-        public void Report() => MuteStateHandlers?.Invoke(MuteState);
-
+        MuteStateHandlers += muteStateHandler;
     }
 
-    public abstract class StringValue : AudioBlock
+    public void Report() => MuteStateHandlers?.Invoke(MuteState);
+}
+
+public class StringValue : AudioBlock
+{
+    private string _value = String.Empty;
+
+    public string Value
     {
-        public string Value { get; set; } = "";
-        public StringValueHandler? StringValueHandlers;
-
-        public StringValue(StringValueHandler stringValueHandler)
+        get => _value;
+        set
         {
-            StringValueHandlers += stringValueHandler;
-            Value = "";
+            if (_value == value)
+                return;
+            _value = value;
+            Report();
         }
-
-        public void Report() => StringValueHandlers?.Invoke(Value);
-
     }
+
+    public StringValueHandler? StringValueHandlers;
+
+    public StringValue(StringValueHandler stringValueHandler)
+    {
+        StringValueHandlers += stringValueHandler;
+    }
+
+    public void Report() => StringValueHandlers?.Invoke(Value);
+}

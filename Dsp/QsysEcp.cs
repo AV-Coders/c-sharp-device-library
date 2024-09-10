@@ -90,26 +90,14 @@ public class QsysEcp : Dsp
             var matches = _responseParser.Matches(response);
 
             var controlName = matches[0].Groups[1].Value;
-            if (_gains.ContainsKey(controlName))
-            {
-                // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
+            if (_gains.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
                 _gains[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
-            }
 
-            if (_mutes.ContainsKey(controlName))
-            {
-                // Eg:cv "Zone 1 BGM Mute" "unmuted" 1 1
-                // Eg:cv "Zone1BGMMute" "muted" 1 1
+            if (_mutes.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Mute" "unmuted" 1 1
                 _mutes[controlName].MuteState = matches[0].Groups[2].Value.Contains("unmuted") ? MuteState.Off : MuteState.On;
-                _mutes[controlName].Report();
-            }
 
-            if (_strings.ContainsKey(controlName))
-            {
-                // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
+            if (_strings.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
                 _strings[controlName].Value = matches[0].Groups[2].Value;
-                _strings[controlName].Report();
-            }
         }
         catch (Exception e)
         {
