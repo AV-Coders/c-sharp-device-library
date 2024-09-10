@@ -90,11 +90,13 @@ public abstract class Fader : AudioBlock
         public void SetVolumeFromDb(double db)
         {
             Volume = (int) (((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain));
+            Report();
         }
 
         public void SetVolumeFromPercentage(double precentage)
         {
             Volume = (int)precentage;
+            Report();
         }
 
         public double CalculateRange(double min, double max)

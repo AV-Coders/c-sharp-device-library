@@ -3,27 +3,14 @@ using Xunit.Abstractions;
 
 namespace AVCoders.Dsp.Tests;
 
-public abstract class BiampTtpTest
+public class BiampTtpTest
 {
-    private abstract class StubbedClient : IpComms
-    {
-        protected StubbedClient(string host, ushort port) : base(host, port){}
-
-        public override void Send(string message){}
-
-        public override void Send(byte[] bytes){}
-
-        public override void SetPort(ushort port){}
-
-        public override void SetHost(string host){}
-        public new ConnectionState GetConnectionState() => ConnectionState.Connected;
-    }
     private readonly ITestOutputHelper _testOutputHelper;
     private BiampTtp _dsp;
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();
-    private readonly Mock<StubbedClient> _mockClient = new("foo", (ushort)1);
+    private readonly Mock<TcpClient> _mockClient = new("foo", (ushort)1);
     private const string GainName = "Gain";
     private const string MuteName = "Mute";
     private const string StringName = "String";

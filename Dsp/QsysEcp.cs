@@ -94,7 +94,6 @@ public class QsysEcp : Dsp
             {
                 // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
                 _gains[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
-                _gains[controlName].Report();
             }
 
             if (_mutes.ContainsKey(controlName))

@@ -129,7 +129,6 @@ public class BiampTtp : Dsp
         if (_gains.ContainsKey(match.Groups[1].Value))
         {
             _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[2].Value));
-            _gains[match.Groups[1].Value].Report();
         }
 
         if (_mutes.ContainsKey(match.Groups[1].Value))
@@ -152,7 +151,6 @@ public class BiampTtp : Dsp
             {
                 case BiampQuery.Level:
                     _gains[currentPolledBlock].SetVolumeFromDb(Double.Parse(value));
-                    _gains[currentPolledBlock].Report();
                     break;
                 case BiampQuery.MaxGain:
                     _gains[currentPolledBlock].SetMaxGain(Double.Parse(value));

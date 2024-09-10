@@ -48,6 +48,14 @@ public class FaderTest
         Assert.Equal(expectedPercentage, _linearFader.Volume);
     }
 
+    [Fact]
+    public void SetVolumeFromDB_Reports()
+    {
+        _linearFader.SetVolumeFromDb(0);
+        
+        _volumeLevelHandler.Verify(x => x.Invoke(100));
+    }
+
     [Theory]
     [InlineData(0, -100.0)]
     [InlineData(100, 0)]
@@ -70,5 +78,13 @@ public class FaderTest
         double actual = _linearFader.PercentageToDb(percentage);
         
         Assert.Equal(expectedDb, actual);
+    }
+
+    [Fact]
+    public void SetVolumeFromPercentage_Reports()
+    {
+        _linearFader.SetVolumeFromPercentage(100);
+        
+        _volumeLevelHandler.Verify(x => x.Invoke(100));
     }
 }
