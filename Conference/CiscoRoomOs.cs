@@ -106,24 +106,17 @@ public class CiscoRoomOs : Conference
 
     public void HangUp(int callId = 0) => SendCallCommand(callId == 0 ? "Disconnect" : $"Disconnect CallId: {callId}");
 
-    public override void PowerOn() => SendCommand("xCommand Standby Deactivate");
+    protected override void DoPowerOn() => SendCommand("xCommand Standby Deactivate");
 
-    protected override void Poll()
-    {
-      SendHeartbeat();
-    }
-
-    public override void PowerOff() => SendCommand("xCommand Standby Activate");
+    protected override void Poll() => SendHeartbeat();
+    
+    protected override void DoPowerOff() => SendCommand("xCommand Standby Activate");
 
     public void SelfView(bool on) => SendCommand(on ? "xCommand Video SelfView Set Mode: On" : "xCommand Video SelfView Set Mode: Off");
 
     private void HandleResponse(string response)
     {
-      if(response.Contains("*s"))
-        Log("Status");
-      else if (response.Contains("*r"))
-        Log("Response");
-      else
+      if(!response.Contains("*s") && !response.Contains("*r"))
         return;
       
       var responses = response.Split(' ');
@@ -135,9 +128,7 @@ public class CiscoRoomOs : Conference
         UpdateCommunicationState(response.Contains("status=OK")? CommunicationState.Okay : CommunicationState.Error);
 
         if (CommunicationState == CommunicationState.Error)
-        {
           InitialiseModule();
-        }
       }
       else if (response.Contains("Audio Volume:"))
       {
@@ -146,6 +137,11 @@ public class CiscoRoomOs : Conference
       else if (response.Contains("Audio Microphones Mute:"))
       {
         MicrophoneMute.MuteState = responses[4].Contains("On")? MuteState.On : MuteState.Off;
+      }
+      else if (response.Contains("Standby State:"))
+      {
+        PowerState = responses[3].Contains("Off")? PowerState.On : PowerState.Off;
+        ProcessPowerResponse();
       }
     }
 

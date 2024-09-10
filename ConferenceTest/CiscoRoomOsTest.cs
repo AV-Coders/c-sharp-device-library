@@ -23,6 +23,7 @@ public class CiscoRoomOsTest
     private readonly Mock<StubbedClient> _mockClient = new("foo", (ushort)1);
     private readonly Mock<LogHandler> _logHandlers = new ();
     private readonly Mock<CommunicationStateHandler> _communicationStateHandlers = new ();
+    private readonly Mock<PowerStateHandler> _powerStateHandlers = new ();
     private readonly Mock<VolumeLevelHandler> _outputVolumeLevelHandler = new ();
     private readonly Mock<MuteStateHandler> _outputMuteStateHandler = new ();
     private readonly Mock<MuteStateHandler> _microphoneMuteStateHandler = new ();
@@ -34,6 +35,7 @@ public class CiscoRoomOsTest
         _codec = new CiscoRoomOs(_mockClient.Object, new CiscoRoomOsDeviceInfo("Test", "Xunit", "An Awesome Laptop", "012934"));
         _codec.LogHandlers += _logHandlers.Object;
         _codec.CommunicationStateHandlers += _communicationStateHandlers.Object;
+        _codec.PowerStateHandlers += _powerStateHandlers.Object;
         _codec.OutputVolume.VolumeLevelHandlers += _outputVolumeLevelHandler.Object;
         // _codec.OutputMute.MuteStateHandlers += _outputMuteStateHandler.Object;
         _codec.MicrophoneMute.MuteStateHandlers += _microphoneMuteStateHandler.Object;
@@ -110,6 +112,34 @@ public class CiscoRoomOsTest
         _mockClient.Object.ResponseHandlers.Invoke($"*s Audio Microphones Mute: {response}\n");
         
         _microphoneMuteStateHandler.Verify(x => x.Invoke(expectedState));
+    }
+
+    [Fact]
+    public void PowerOn_SendTheCommand()
+    {
+        _codec.PowerOn();
+        
+        _mockClient.Verify(x => x.Send("xCommand Standby Deactivate\r\n"));
+    }
+
+    [Fact]
+    public void PowerOff_SendTheCommand()
+    {
+        _codec.PowerOff();
+        
+        _mockClient.Verify(x => x.Send("xCommand Standby Activate\r\n"));
+    }
+
+    [Theory]
+    [InlineData("Standby", PowerState.Off)]
+    [InlineData("EnteringStandby", PowerState.Off)]
+    [InlineData("HalfWake", PowerState.Off)]
+    [InlineData("Off", PowerState.On)]
+    public void StandbyStatusResponse_UpdatesPowerState(string response, PowerState expectedState)
+    {
+        _mockClient.Object.ResponseHandlers.Invoke($"*s Standby State: {response}\n");
+        
+        _powerStateHandlers.Verify(x => x.Invoke(expectedState));
     }
     
 }
