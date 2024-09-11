@@ -122,6 +122,14 @@ public class VitecHttp : MediaPlayer, ISetTopBox
             RemoteButton.VolumeDown => "voldown",
             RemoteButton.Mute => "mute",
             RemoteButton.Power => "power",
+            RemoteButton.Play => "play",
+            RemoteButton.Pause => "pause",
+            RemoteButton.Stop => "stop",
+            RemoteButton.Rewind => "skipback",
+            RemoteButton.FastForward => "skipfwd",
+            RemoteButton.Previous => "skipback",
+            RemoteButton.Next => "skipfwd",
+            
             _ => throw new ArgumentOutOfRangeException()
         };
         

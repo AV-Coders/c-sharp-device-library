@@ -24,5 +24,12 @@ public enum RemoteButton
     Mute,
     Power,
     ChannelUp,
-    ChannelDown
+    ChannelDown,
+    Play,
+    Pause,
+    Stop,
+    Rewind,
+    FastForward,
+    Next,
+    Previous
 }

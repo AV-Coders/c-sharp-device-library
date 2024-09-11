@@ -48,6 +48,13 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { RemoteButton.Mute, 32},
         { RemoteButton.ChannelUp, 33},
         { RemoteButton.ChannelDown, 34},
+        { RemoteButton.Play, 78},
+        { RemoteButton.Pause, 84},
+        { RemoteButton.Stop, 81},
+        { RemoteButton.Rewind, 79},
+        { RemoteButton.FastForward, 77},
+        { RemoteButton.Previous, 80},
+        { RemoteButton.Next, 82},
     };
 
     public SonySimpleIpControl(TcpClient tcpClient)  : base(InputDictionary.Keys.ToList())

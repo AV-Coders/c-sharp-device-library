@@ -60,6 +60,13 @@ public class LGCommercial : Display, ISetTopBox
         { RemoteButton.Mute, "09"},
         { RemoteButton.ChannelUp, "00"},
         { RemoteButton.ChannelDown, "01"},
+        { RemoteButton.Play, "B0"},
+        { RemoteButton.Pause, "01"},
+        { RemoteButton.Stop, "B1"},
+        { RemoteButton.Rewind, "8F"},
+        { RemoteButton.FastForward, "8E"},
+        { RemoteButton.Previous, "8F"},
+        { RemoteButton.Next, "8E"},
     };
 
     public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>

@@ -55,6 +55,13 @@ public class CecDisplay : Display, ISetTopBox
         { RemoteButton.Mute, '\x43'},
         { RemoteButton.ChannelUp, '\x30'},
         { RemoteButton.ChannelDown, '\x31'},
+        { RemoteButton.Play, '\x44'},
+        { RemoteButton.Pause, '\x46'},
+        { RemoteButton.Stop, '\x45'},
+        { RemoteButton.Rewind, '\x48'},
+        { RemoteButton.FastForward, '\x49'},
+        { RemoteButton.Previous, '\x4C'},
+        { RemoteButton.Next, '\x4B'},
     };
 
     private static readonly Dictionary<Input, char> InputMap = new Dictionary<Input, char>
