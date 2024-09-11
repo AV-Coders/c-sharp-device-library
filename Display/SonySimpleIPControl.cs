@@ -36,11 +36,15 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { RemoteButton.Button8, 25},
         { RemoteButton.Button9, 26},
         { RemoteButton.Enter, 13},
+        { RemoteButton.Back, 8 },
         { RemoteButton.Up, 9},
         { RemoteButton.Down, 10},
         { RemoteButton.Left, 11},
         { RemoteButton.Right, 12},
-        { RemoteButton.Subtitle, 35}
+        { RemoteButton.Subtitle, 35},
+        { RemoteButton.Power, 98},
+        { RemoteButton.VolumeUp, 30},
+        { RemoteButton.VolumeDown, 31}
     };
 
     public SonySimpleIpControl(TcpClient tcpClient)  : base(InputDictionary.Keys.ToList())

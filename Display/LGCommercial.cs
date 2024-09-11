@@ -53,7 +53,10 @@ public class LGCommercial : Display, ISetTopBox
         { RemoteButton.Left, "07"},
         { RemoteButton.Right, "06"},
         { RemoteButton.Subtitle, "39"},
-        { RemoteButton.Back, "5B"}
+        { RemoteButton.Back, "5B"},
+        { RemoteButton.Power, "08"},
+        { RemoteButton.VolumeUp, "02"},
+        { RemoteButton.VolumeDown, "03"}
     };
 
     public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>

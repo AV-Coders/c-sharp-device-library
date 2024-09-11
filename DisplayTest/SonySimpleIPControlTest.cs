@@ -1,5 +1,6 @@
 using System.Reflection;
 using AVCoders.Core;
+using AVCoders.MediaPlayer;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -9,6 +10,10 @@ public class SonySimpleIPControlTest
     private readonly SonySimpleIpControl _sonyTv;
     private readonly Mock<TcpClient> _mockClient;
     readonly Mock<PowerStateHandler> _powerStateHandler = new ();
+    public static IEnumerable<object[]> RemoteButtonValues()
+    {
+        return Enum.GetValues(typeof(RemoteButton)).Cast<RemoteButton>().Select(rb => new object[] { rb });
+    }
 
     public SonySimpleIPControlTest()
     {
@@ -261,6 +266,13 @@ public class SonySimpleIPControlTest
 
         _sonyTv.SendIrCode(32);
         _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Theory]
+    [MemberData(nameof(RemoteButtonValues))]
+    public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
+    {
+        _sonyTv.SendIRCode(button);
     }
 
     [Fact]

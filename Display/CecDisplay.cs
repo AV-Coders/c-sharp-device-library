@@ -16,6 +16,30 @@ public class CecDisplay : Display, ISetTopBox
     private readonly char _broadcastHeader;
     private readonly char _responseHeader;
 
+    private static readonly Dictionary<RemoteButton, char> RemoteButtonMap = new()
+    {
+        { RemoteButton.Button0, '\x20'},
+        { RemoteButton.Button1, '\x21'},
+        { RemoteButton.Button2, '\x22'},
+        { RemoteButton.Button3, '\x23'},
+        { RemoteButton.Button4, '\x24'},
+        { RemoteButton.Button5, '\x25'},
+        { RemoteButton.Button6, '\x26'},
+        { RemoteButton.Button7, '\x27'},
+        { RemoteButton.Button8, '\x28'},
+        { RemoteButton.Button9, '\x29'},
+        { RemoteButton.Enter, '\x2B'},
+        { RemoteButton.Back, '\x0D' },
+        { RemoteButton.Up, '\x01'},
+        { RemoteButton.Down, '\x02'},
+        { RemoteButton.Left, '\x03'},
+        { RemoteButton.Right, '\x04'},
+        { RemoteButton.Subtitle, '\x51'},
+        { RemoteButton.Power, '\x6B'},
+        { RemoteButton.VolumeUp, '\x41'},
+        { RemoteButton.VolumeDown, '\x42'}
+    };
+
     private static readonly Dictionary<Input, char> InputMap = new Dictionary<Input, char>
     {
         { Input.Hdmi1, '\x10' },
@@ -119,10 +143,7 @@ public class CecDisplay : Display, ISetTopBox
 
     public void ChannelDown() => RemoteControlPassthrough('\x31');
 
-    public void SendIRCode(RemoteButton button)
-    {
-        throw new NotImplementedException();
-    }
+    public void SendIRCode(RemoteButton button) => RemoteControlPassthrough(RemoteButtonMap[button]);
 
     public void SetChannel(int channel)
     {

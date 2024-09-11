@@ -18,5 +18,8 @@ public enum RemoteButton
     Left,
     Right,
     Subtitle,
-    Back
+    Back,
+    VolumeUp,
+    VolumeDown,
+    Power
 }

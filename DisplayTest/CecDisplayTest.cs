@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.MediaPlayer;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -7,6 +8,10 @@ public class CecDisplayTest
 {
     private readonly CecDisplay _display;
     private readonly Mock<SerialClient> _mockClient;
+    public static IEnumerable<object[]> RemoteButtonValues()
+    {
+        return Enum.GetValues(typeof(RemoteButton)).Cast<RemoteButton>().Select(rb => new object[] { rb });
+    }
     
     public CecDisplayTest()
     {
@@ -60,5 +65,12 @@ public class CecDisplayTest
         _display.SetVolume(30);
         
         Assert.Equal(MuteState.Off, _display.GetAudioMute());
+    }
+
+    [Theory]
+    [MemberData(nameof(RemoteButtonValues))]
+    public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
+    {
+        _display.SendIRCode(button);
     }
 }

@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.MediaPlayer;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -7,6 +8,10 @@ public class LgCommercialTest
 {
     private readonly LGCommercial _display;
     private readonly Mock<TcpClient> _client;
+    public static IEnumerable<object[]> RemoteButtonValues()
+    {
+        return Enum.GetValues(typeof(RemoteButton)).Cast<RemoteButton>().Select(rb => new object[] { rb });
+    }
 
     public LgCommercialTest()
     {
@@ -136,5 +141,12 @@ public class LgCommercialTest
         _client.Object.ResponseHandlers!.Invoke(response);
         
         handler.Verify(x => x.Invoke(expectedVolume));
+    }
+
+    [Theory]
+    [MemberData(nameof(RemoteButtonValues))]
+    public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
+    {
+        _display.SendIRCode(button);
     }
 }
