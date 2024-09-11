@@ -73,4 +73,13 @@ public class CecDisplayTest
     {
         _display.SendIRCode(button);
     }
+
+    [Fact]
+    public void SetChannel_SendsTheCommand()
+    {
+        _display.SetChannel(12);
+        
+        _mockClient.Verify(x => x.Send(new []{'\x40', '\x44', '\x21'}));
+        _mockClient.Verify(x => x.Send(new []{'\x40', '\x44', '\x22'}));
+    }
 }

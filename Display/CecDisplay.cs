@@ -16,6 +16,20 @@ public class CecDisplay : Display, ISetTopBox
     private readonly char _broadcastHeader;
     private readonly char _responseHeader;
 
+    private static readonly Dictionary<char, RemoteButton> NumberpadMap = new()
+    {
+        { '0', RemoteButton.Button0},
+        { '1', RemoteButton.Button1},
+        { '2', RemoteButton.Button2},
+        { '3', RemoteButton.Button3},
+        { '4', RemoteButton.Button4},
+        { '5', RemoteButton.Button5},
+        { '6', RemoteButton.Button6},
+        { '7', RemoteButton.Button7},
+        { '8', RemoteButton.Button8},
+        { '9', RemoteButton.Button9},
+    };
+
     private static readonly Dictionary<RemoteButton, char> RemoteButtonMap = new()
     {
         { RemoteButton.Button0, '\x20'},
@@ -147,7 +161,12 @@ public class CecDisplay : Display, ISetTopBox
 
     public void SetChannel(int channel)
     {
-        throw new NotImplementedException();
+        var channelString = channel.ToString();
+        foreach (var c in channelString)
+        {
+            RemoteControlPassthrough(RemoteButtonMap[NumberpadMap[c]]);
+            Thread.Sleep(50);
+        }
     }
 
     public void ToggleSubtitles()
