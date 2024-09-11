@@ -51,7 +51,10 @@ public class CecDisplay : Display, ISetTopBox
         { RemoteButton.Subtitle, '\x51'},
         { RemoteButton.Power, '\x6B'},
         { RemoteButton.VolumeUp, '\x41'},
-        { RemoteButton.VolumeDown, '\x42'}
+        { RemoteButton.VolumeDown, '\x42'},
+        { RemoteButton.Mute, '\x43'},
+        { RemoteButton.ChannelUp, '\x30'},
+        { RemoteButton.ChannelDown, '\x31'},
     };
 
     private static readonly Dictionary<Input, char> InputMap = new Dictionary<Input, char>
@@ -110,7 +113,6 @@ public class CecDisplay : Display, ISetTopBox
 
     protected override void DoPowerOn()
     {
-        Log("Powering on");
         RemoteControlPassthrough('\x6D');
         Thread.Sleep(150);
         // One touch play - Image view on
@@ -119,7 +121,6 @@ public class CecDisplay : Display, ISetTopBox
 
     protected override void DoPowerOff()
     {
-        Log("Powering off");
         RemoteControlPassthrough('\x6C');
         // Broadcast system standby
         // Send(new [] { _broadcastHeader, '\x36' });

@@ -44,7 +44,10 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { RemoteButton.Subtitle, 35},
         { RemoteButton.Power, 98},
         { RemoteButton.VolumeUp, 30},
-        { RemoteButton.VolumeDown, 31}
+        { RemoteButton.VolumeDown, 31},
+        { RemoteButton.Mute, 32},
+        { RemoteButton.ChannelUp, 33},
+        { RemoteButton.ChannelDown, 34},
     };
 
     public SonySimpleIpControl(TcpClient tcpClient)  : base(InputDictionary.Keys.ToList())
@@ -137,7 +140,13 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     public void ChannelDown() => SendIrCode(34);
 
-    public void SendIRCode(RemoteButton button) => SendIrCode(RemoteButtonMap[button]);
+    public void SendIRCode(RemoteButton button)
+    {
+        SendIrCode(RemoteButtonMap[button]);
+
+        if (button == RemoteButton.Power)
+            DesiredPowerState = PowerState.Unknown;
+    }
 
     public void SetChannel(int channel) => SendCommand(WrapMessage($"CCHNN{channel:D16}"));
     public void ToggleSubtitles() => SendIRCode(RemoteButton.Subtitle);

@@ -56,7 +56,10 @@ public class LGCommercial : Display, ISetTopBox
         { RemoteButton.Back, "5B"},
         { RemoteButton.Power, "08"},
         { RemoteButton.VolumeUp, "02"},
-        { RemoteButton.VolumeDown, "03"}
+        { RemoteButton.VolumeDown, "03"},
+        { RemoteButton.Mute, "09"},
+        { RemoteButton.ChannelUp, "00"},
+        { RemoteButton.ChannelDown, "01"},
     };
 
     public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
@@ -229,7 +232,13 @@ public class LGCommercial : Display, ISetTopBox
 
     public void ChannelDown() => SendCommand(_irccHeader, "01");
 
-    public void SendIRCode(RemoteButton button) => SendCommand(_irccHeader, RemoteButtonMap[button]);
+    public void SendIRCode(RemoteButton button)
+    {
+        SendCommand(_irccHeader, RemoteButtonMap[button]);
+
+        if (button == RemoteButton.Power)
+            DesiredPowerState = PowerState.Unknown;
+    }
 
     public void SetChannel(int channel) => SendCommand(_channelHeader, $"00 {channel:X2} 10");
     public void ToggleSubtitles()

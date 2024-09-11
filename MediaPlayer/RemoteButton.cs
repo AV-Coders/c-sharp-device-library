@@ -21,5 +21,8 @@ public enum RemoteButton
     Back,
     VolumeUp,
     VolumeDown,
-    Power
+    Mute,
+    Power,
+    ChannelUp,
+    ChannelDown
 }

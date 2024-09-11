@@ -49,31 +49,15 @@ public class VitecHttp : MediaPlayer, ISetTopBox
         }
     }
 
-    private void SimulateRemoteKeypress(string key)
-    {
-        Put(_remoteKeyUri, $"{{ \"key\": \"rm_{key}\" }}");
-    }
+    private void SimulateRemoteKeypress(string key) => Put(_remoteKeyUri, $"{{ \"key\": \"rm_{key}\" }}");
 
+    public void ChannelUp() => SendIRCode(RemoteButton.ChannelUp);
 
-    public void ChannelUp()
-    {
-        SimulateRemoteKeypress("chup");
-    }
+    public void ChannelDown() => SendIRCode(RemoteButton.ChannelDown);
 
-    public void ChannelDown()
-    {
-        SimulateRemoteKeypress("chdown");
-    }
+    public void VolumeUp() => SendIRCode(RemoteButton.VolumeUp);
 
-    public void VolumeUp()
-    {
-        SimulateRemoteKeypress("volup");
-    }
-
-    public void VolumeDown()
-    {
-        SimulateRemoteKeypress("voldown");
-    }
+    public void VolumeDown() => SendIRCode(RemoteButton.VolumeDown);
 
     public void SetChannel(int channel)
     {
@@ -132,10 +116,16 @@ public class VitecHttp : MediaPlayer, ISetTopBox
             RemoteButton.Right => "right",
             RemoteButton.Subtitle => "subtitle",
             RemoteButton.Back => "cancel",
-            _ => String.Empty
+            RemoteButton.ChannelUp => "chup",
+            RemoteButton.ChannelDown => "chdown",
+            RemoteButton.VolumeUp => "volup",
+            RemoteButton.VolumeDown => "voldown",
+            RemoteButton.Mute => "mute",
+            RemoteButton.Power => "power",
+            _ => throw new ArgumentOutOfRangeException()
         };
-        if(command != String.Empty)
-            SimulateRemoteKeypress(command);
+        
+        SimulateRemoteKeypress(command);
     }
 
     public override void PowerOn()
