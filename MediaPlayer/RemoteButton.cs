@@ -31,5 +31,12 @@ public enum RemoteButton
     Rewind,
     FastForward,
     Next,
-    Previous
+    Previous,
+    Home,
+    Blue,
+    Yellow,
+    Green,
+    Red,
+    Guide,
+    Menu
 }

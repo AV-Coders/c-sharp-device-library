@@ -14,6 +14,10 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     private readonly string _authInfo;
     private int _subtitleOption = 0;
 
+    private static readonly List<RemoteButton> UnsupportedButtons = new()
+    {
+    };
+
     public VitecHttp(string host, string password)
     {
         _remoteKeyUri = new Uri($"https://{host}:8080/irremote/key", UriKind.Absolute);
@@ -97,6 +101,11 @@ public class VitecHttp : MediaPlayer, ISetTopBox
 
     public void SendIRCode(RemoteButton button)
     {
+        if (UnsupportedButtons.Contains(button))
+        {
+            Log($"Unsupported button - {button.ToString()}");
+            return;
+        }
         string command = button switch
         {
             RemoteButton.Enter => "enter",
@@ -129,6 +138,13 @@ public class VitecHttp : MediaPlayer, ISetTopBox
             RemoteButton.FastForward => "skipfwd",
             RemoteButton.Previous => "skipback",
             RemoteButton.Next => "skipfwd",
+            RemoteButton.Red => "red",
+            RemoteButton.Green => "green",
+            RemoteButton.Yellow => "yellow",
+            RemoteButton.Blue => "blue",
+            RemoteButton.Guide => "guide",
+            RemoteButton.Home  => "fn_home",
+            RemoteButton.Menu => "menu",
             
             _ => throw new ArgumentOutOfRangeException()
         };

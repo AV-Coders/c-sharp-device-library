@@ -23,6 +23,11 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { "*SNPOWR0000000000000000", PowerState.Off }
     };
 
+    private static readonly List<RemoteButton> UnsupportedButtons = new()
+    {
+        RemoteButton.Guide
+    };
+
     private static readonly Dictionary<RemoteButton, int> RemoteButtonMap = new()
     {
         { RemoteButton.Button0, 27},
@@ -55,6 +60,13 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { RemoteButton.FastForward, 77},
         { RemoteButton.Previous, 80},
         { RemoteButton.Next, 82},
+        { RemoteButton.Home, 6},
+        { RemoteButton.Blue, 17},
+        { RemoteButton.Yellow, 16},
+        { RemoteButton.Green, 15},
+        { RemoteButton.Red, 14},
+        // { RemoteButton.Guide, },
+        { RemoteButton.Menu, 7},
     };
 
     public SonySimpleIpControl(TcpClient tcpClient)  : base(InputDictionary.Keys.ToList())
@@ -141,15 +153,18 @@ public class SonySimpleIpControl : Display, ISetTopBox
         SendCommand(WrapMessage($"CPMUT{(desiredState == MuteState.On ? 1 : 0):D16}"));
         VideoMute = desiredState;
     }
+    public void ChannelUp() => SendIRCode(RemoteButton.ChannelUp);
 
-    public void SendIrCode(int irCode) => SendCommand(WrapMessage($"CIRCC{irCode:D16}"));
-    public void ChannelUp() => SendIrCode(33);
-
-    public void ChannelDown() => SendIrCode(34);
+    public void ChannelDown() => SendIRCode(RemoteButton.ChannelDown);
 
     public void SendIRCode(RemoteButton button)
     {
-        SendIrCode(RemoteButtonMap[button]);
+        if (UnsupportedButtons.Contains(button))
+        {
+            Log($"Unsupported button - {button.ToString()}");
+            return;
+        }
+        SendCommand(WrapMessage($"CIRCC{RemoteButtonMap[button]:D16}"));
 
         if (button == RemoteButton.Power)
             DesiredPowerState = PowerState.Unknown;

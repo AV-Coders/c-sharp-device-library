@@ -264,7 +264,7 @@ public class SonySimpleIPControlTest
     {
         String expectedCommand = "*SCIRCC0000000000000032\n";
 
-        _sonyTv.SendIrCode(32);
+        _sonyTv.SendIRCode(RemoteButton.Mute);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
 

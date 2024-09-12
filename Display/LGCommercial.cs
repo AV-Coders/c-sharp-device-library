@@ -67,6 +67,13 @@ public class LGCommercial : Display, ISetTopBox
         { RemoteButton.FastForward, "8E"},
         { RemoteButton.Previous, "8F"},
         { RemoteButton.Next, "8E"},
+        { RemoteButton.Home, "42"},
+        { RemoteButton.Blue, "61"},
+        { RemoteButton.Yellow, "63"},
+        { RemoteButton.Green, "71"},
+        { RemoteButton.Red, "73"},
+        { RemoteButton.Guide, "AB"},
+        { RemoteButton.Menu, "43"},
     };
 
     public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
