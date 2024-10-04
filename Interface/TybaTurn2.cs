@@ -41,10 +41,10 @@ public class TybaTurn2
     public IntChangeHandler? LightLevelChangeHandlers;
     public IntChangeHandler? ShadeChangeHandlers;
     public IntChangeHandler? FanSpeedChangeHandlers;
+    public IntChangeHandler? ClimateModeChangeHandlers;
     public TemperatureChangeHandler? TemperatureChangeHandlers;
     private bool _streamConnected = false;
     private readonly Guid _thisInstanceGuid = Guid.NewGuid();
-    private readonly Dictionary<string, IntChangeHandler?> _intChangeHandlerMap = new Dictionary<string, IntChangeHandler?>();
 
 
     public TybaTurn2(string ipAddress)
@@ -56,7 +56,6 @@ public class TybaTurn2
 
         _streamWorker = new ThreadWorker(ConnectToTyba, TimeSpan.FromSeconds(30));
         _streamWorker.Restart();
-
     }
 
     private void ConnectToTyba()
@@ -71,27 +70,25 @@ public class TybaTurn2
         _streamConnected = true;
         try
         {
-            using (HttpClient httpClient = new HttpClient())
+            using HttpClient httpClient = new HttpClient();
+            foreach (var (key, value) in _headers)
             {
-                foreach (var (key, value) in _headers)
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
+            }
+
+            httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/event-stream");
+            httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
+            Uri requestUri = new Uri(_baseUri, "control/events/channels");
+
+            var stream = await httpClient.GetStreamAsync(requestUri);
+            var streamReader = new StreamReader(stream);
+
+            while (!streamReader.EndOfStream)
+            {
+                var line = await streamReader.ReadLineAsync();
+                if (!string.IsNullOrEmpty(line))
                 {
-                    httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
-                }
-
-                httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/event-stream");
-                httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
-                Uri requestUri = new Uri(_baseUri, "control/events/channels");
-
-                var stream = await httpClient.GetStreamAsync(requestUri);
-                var streamReader = new StreamReader(stream);
-
-                while (!streamReader.EndOfStream)
-                {
-                    var line = await streamReader.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(line))
-                    {
-                        ProcessLine(line);
-                    }
+                    ProcessLine(line);
                 }
             }
         }
@@ -112,7 +109,6 @@ public class TybaTurn2
 
     private void ProcessLine(string line)
     {
-        Log(line, EventLevel.Verbose);
         if (line.Contains(": heartbeat"))
         {
             UpdateCommunicationState(CommunicationState.Okay);
@@ -124,74 +120,77 @@ public class TybaTurn2
         if (line.Contains("event: "))
         {
             _currentEvent = line.Remove(0, 7);
-            // Log($"Event received: {_currentEvent}");
+            Log($"Event received: {_currentEvent}");
         }
         else if (line.Contains("data: "))
         {
             if (_currentEvent.StartsWith("media")
                 || _currentEvent.StartsWith("source")
                 || line.Contains(_thisInstanceGuid.ToString())
+                || line.Contains("InternalTemperatureServiceImpl")
                 )
                 return;
+            Log(line, EventLevel.Verbose);
             ProcessEvent(line.Remove(0, 6));
+            _currentEvent = String.Empty;
         }
     }
 
     private void ProcessEvent(string line)
     {
+        if (_currentEvent == String.Empty)
+            return;
+        
         var eventData = _currentEvent.Split('/');
         
         StreamData? streamData = JsonSerializer.Deserialize<StreamData>(line);
         if(streamData == null)
             throw new InvalidDataException("Data is invalid");
-        ValueAndOnChangeData? valueAndOnChangeData = null;
-        TemperatureChangeData? temperatureChangeData = null;
-        try
+        ValueAndOnChangeData? valueAndOnChangeData = Deserialise<ValueAndOnChangeData>(streamData.State);
+        TemperatureChangeData? temperatureChangeData = Deserialise<TemperatureChangeData>(streamData.State);
+        
+        var handlers = new Dictionary<string, Action<int>>
         {
-            valueAndOnChangeData = streamData.State.Deserialize<ValueAndOnChangeData>();
-        }
-        catch (Exception)
+            { "light_scenes", index => LightSceneChangeHandlers?.Invoke(index, valueAndOnChangeData!.Value) },
+            { "light", index => LightLevelChangeHandlers?.Invoke(index, valueAndOnChangeData!.Value) },
+            { "shade", index => ShadeChangeHandlers?.Invoke(index, valueAndOnChangeData!.Value) },
+            { "fan", index => FanSpeedChangeHandlers?.Invoke(index, valueAndOnChangeData!.Value) },
+            { "modes", index => ClimateModeChangeHandlers?.Invoke(index, valueAndOnChangeData!.Value) },
+            { "temperature", index => TemperatureChangeHandlers?.Invoke(index, temperatureChangeData!.Value) }
+        };
+        
+        if (handlers.TryGetValue(eventData[0], out var handler))
         {
-            // ignored
-        }
-        try
-        {
-            temperatureChangeData = streamData.State.Deserialize<TemperatureChangeData>();
-        }
-        catch (Exception)
-        {
-            // ignored
-        }
+            if (valueAndOnChangeData == null && eventData[0] != "temperature")
+            {
+                Log("Data is invalid", EventLevel.Error);
+                return;
+            }
 
-        switch (eventData[0])
-        {
-            case "light_scenes":
-                if(valueAndOnChangeData == null)
-                    throw new InvalidDataException("Data is invalid");
-                LightSceneChangeHandlers?.Invoke(int.Parse(eventData[1]), valueAndOnChangeData.Value);
-                break;
-            case "light":
-                if(valueAndOnChangeData == null)
-                    throw new InvalidDataException("Data is invalid");
-                LightLevelChangeHandlers?.Invoke(int.Parse(eventData[1]), valueAndOnChangeData.Value);
-                break;
-            case "shade":
-                if(valueAndOnChangeData == null)
-                    throw new InvalidDataException("Data is invalid");
-                ShadeChangeHandlers?.Invoke(int.Parse(eventData[1]), valueAndOnChangeData.Value);
-                break;
-            case "temperature":
-                if(temperatureChangeData == null)
-                    throw new InvalidDataException("Data is invalid");
-                TemperatureChangeHandlers?.Invoke(int.Parse(eventData[1]), temperatureChangeData.Value);
-                break;
-            case "fan":
-                if(valueAndOnChangeData == null)
-                    throw new InvalidDataException("Data is invalid");
-                FanSpeedChangeHandlers?.Invoke(int.Parse(eventData[1]), valueAndOnChangeData.Value);
-                break;
+            if (temperatureChangeData == null && eventData[0] == "temperature")
+            {
+                Log("Data is invalid", EventLevel.Error);
+                return;
+            }
+
+            handler(int.Parse(eventData[1]));
         }
-        Log(line);
+        else
+        {
+            Log($"Unhandled event type: {eventData[0]}", EventLevel.Warning);
+        }
+    }
+
+    private static T? Deserialise<T>(JsonElement element)
+    {
+        try
+        {
+            return element.Deserialize<T>();
+        }
+        catch (JsonException ex)
+        {
+            return default;
+        }
     }
 
     public void SetShadeLevel(int shade, int level) => SetLevel("shade", shade, level);
@@ -199,6 +198,12 @@ public class TybaTurn2
     public void SetLightLevel(int light, int level) => SetLevel("light", light, level);
 
     public void SetLightScene(int scene) => SetLevel("light_scenes", 1, scene);
+
+    public void SetClimateMode(int level) => SetLevel("modes", 1, level);
+
+    public void SetClimateFanSpeed(int level) => SetLevel("fan", 1, level);
+    public void SetClimateTargetTemperature(double level) => SetLevel("temperature", 1, level);
+    public void SetClimateCurrentTemperature(double level) => SetLevel("temperature", 2, level);
 
     private async void SetLevel(string type, int index, int value)
     {
@@ -208,20 +213,40 @@ public class TybaTurn2
         string payload = $"{{\"value\": {value}}}";
         
         LogHandlers?.Invoke($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
-        using (HttpClient httpClient = new HttpClient())
+        using HttpClient httpClient = new HttpClient();
+        foreach (var (key, v) in _headers)
         {
-            foreach (var (key, v) in _headers)
-            {
-                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, v);
-            }
+            httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, v);
+        }
 
-            httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
-            httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+        httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
             
 
-            var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
-            LogHandlers?.Invoke($"Response {response.StatusCode}: {response.ReasonPhrase}");
+        var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
+        LogHandlers?.Invoke($"Response {response.StatusCode}: {response.ReasonPhrase}");
+    }
+
+    private async void SetLevel(string type, int index, double value)
+    {
+        if (value > 100)
+            return;
+        Uri channelUri = new Uri(_baseUri, $"control/channels/{type}/1/{index}/state");
+        string payload = $"{{\"value\": {value}}}";
+        
+        LogHandlers?.Invoke($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
+        using HttpClient httpClient = new HttpClient();
+        foreach (var (key, v) in _headers)
+        {
+            httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, v);
         }
+
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+        httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
+            
+
+        var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
+        LogHandlers?.Invoke($"Response {response.StatusCode}: {response.ReasonPhrase}");
     }
 
     private void UpdateCommunicationState(CommunicationState state)
