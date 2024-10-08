@@ -95,7 +95,18 @@ public class TybaTurn2
         catch (SocketException e)
         {
             LogHandlers?.Invoke(e.Message, EventLevel.Error);
-            LogHandlers?.Invoke(e.StackTrace, EventLevel.Error);
+            LogHandlers?.Invoke(e.StackTrace ?? string.Empty, EventLevel.Error);
+            UpdateCommunicationState(CommunicationState.Error);
+        }
+        catch (IOException e)
+        {
+            LogHandlers?.Invoke(e.Message, EventLevel.Error);
+            UpdateCommunicationState(CommunicationState.Error);
+        }
+        catch (HttpRequestException e)
+        {
+            LogHandlers?.Invoke(e.Message, EventLevel.Error);
+            UpdateCommunicationState(CommunicationState.Error);
         }
         catch (Exception e)
         {
@@ -187,7 +198,7 @@ public class TybaTurn2
         {
             return element.Deserialize<T>();
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
             return default;
         }
@@ -211,20 +222,34 @@ public class TybaTurn2
             return;
         Uri channelUri = new Uri(_baseUri, $"control/channels/{type}/{index}/1/state");
         string payload = $"{{\"value\": {value}}}";
-        
-        LogHandlers?.Invoke($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
-        using HttpClient httpClient = new HttpClient();
-        foreach (var (key, v) in _headers)
+        try
         {
-            httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, v);
-        }
+            LogHandlers?.Invoke($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
+            using HttpClient httpClient = new HttpClient();
+            foreach (var (key, v) in _headers)
+            {
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, v);
+            }
 
-        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
-        httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
+            httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
+            httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
             
 
-        var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
-        LogHandlers?.Invoke($"Response {response.StatusCode}: {response.ReasonPhrase}");
+            var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
+            LogHandlers?.Invoke($"Response {response.StatusCode}: {response.ReasonPhrase}");
+        }
+        catch (HttpRequestException e)
+        {
+            LogHandlers?.Invoke(e.Message, EventLevel.Error);
+            UpdateCommunicationState(CommunicationState.Error);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+        
+        
     }
 
     private async void SetLevel(string type, int index, double value)
