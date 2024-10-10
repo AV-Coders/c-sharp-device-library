@@ -5,7 +5,7 @@ namespace AVCoders.Core.Tests;
 public class ThreadWorkerTest
 {
     private readonly ThreadWorker _threadWorker;
-    private readonly Mock<Action> _actionMock;
+    private readonly Mock<Action<CancellationToken>> _actionMock;
 
     public ThreadWorkerTest()
     {
@@ -20,7 +20,7 @@ public class ThreadWorkerTest
         
         Thread.Sleep(10);
         
-        _actionMock.Verify(action => action(), Times.Once);
+        _actionMock.Verify(action => action(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -30,7 +30,7 @@ public class ThreadWorkerTest
         
         Thread.Sleep(300);
         
-        _actionMock.Verify(action => action(), Times.Exactly(2));
+        _actionMock.Verify(action => action(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class ThreadWorkerTest
         
         Thread.Sleep(10);
         
-        _actionMock.Verify(action => action(), Times.Exactly(2));
+        _actionMock.Verify(action => action(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -65,6 +65,6 @@ public class ThreadWorkerTest
         _threadWorker.Restart();
         Thread.Sleep(250);
         
-        _actionMock.Verify(action => action(), Times.Exactly(5));
+        _actionMock.Verify(action => action(It.IsAny<CancellationToken>()), Times.Exactly(5));
     }
 }

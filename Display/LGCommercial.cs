@@ -96,7 +96,7 @@ public class LGCommercial : Display, ISetTopBox
     {
         if (connectionState != ConnectionState.Connected) 
             return;
-        Poll();
+        Poll(new CancellationToken());
     }
 
     private void HandleResponse(string response)
@@ -149,7 +149,7 @@ public class LGCommercial : Display, ISetTopBox
 
     private void SendCommand(string header, string value) => _comms.Send($"{header} {_setId:d2} {value}\r");
 
-    protected override void Poll()
+    protected override void Poll(CancellationToken token)
     {
         PowerState = _comms.GetConnectionState() switch
         {
@@ -169,13 +169,13 @@ public class LGCommercial : Display, ISetTopBox
         
         Log("Polling");
         SendCommand(_powerHeader, _pollArgument);
-        Thread.Sleep(1000);
+        Task.Delay(1000, token);
         SendCommand(_inputHeader, _pollArgument);
         Log("Polling input");
-        Thread.Sleep(1000);
+        Task.Delay(1000, token);
         SendCommand(_volumeHeader, _pollArgument);
         Log("Polling volume");
-        Thread.Sleep(1000);
+        Task.Delay(1000, token);
         SendCommand(_muteHeader,  _pollArgument);
         Log("Polling mute");
     }
@@ -188,9 +188,9 @@ public class LGCommercial : Display, ISetTopBox
         for (int i = 0; i < 3; i++)
         {
             client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 7));
-            Thread.Sleep(75);
+            Task.Delay(75);
             client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 9));
-            Thread.Sleep(300);
+            Task.Delay(300);
         }
     }
     

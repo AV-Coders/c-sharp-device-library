@@ -7,7 +7,7 @@ public class DummyDisplay : Display
 {
     private readonly TcpClient _client;
     public DummyDisplay(TcpClient client, List<Input> supportedInputs) : base(supportedInputs) { _client = client; }
-    protected override void Poll() { PollWorker.Stop(); }
+    protected override void Poll(CancellationToken token) { PollWorker.Stop(); }
 
     protected override void DoPowerOn() => _client.Send("Power On");
     protected override void DoPowerOff() => _client.Send("Power Off");

@@ -108,7 +108,7 @@ public class CiscoRoomOs : Conference
 
     protected override void DoPowerOn() => SendCommand("xCommand Standby Deactivate");
 
-    protected override void Poll() => SendHeartbeat();
+    protected override void Poll(CancellationToken token) => SendHeartbeat();
     
     protected override void DoPowerOff() => SendCommand("xCommand Standby Activate");
 

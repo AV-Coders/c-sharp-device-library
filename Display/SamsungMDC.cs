@@ -64,7 +64,7 @@ public class SamsungMdc : Display
         _pollMuteCommand = new byte[] { 0xAA, MuteControlCommand, _displayId, 0x00,  GenerateChecksum(pollMuteCommandWithoutChecksum)};
     }
 
-    protected override void Poll()
+    protected override void Poll(CancellationToken token)
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
@@ -77,11 +77,11 @@ public class SamsungMdc : Display
         CommunicationClient.Send(_pollPowerCommand);
         if (PowerState == PowerState.On)
         {
-            Thread.Sleep(1000);
+            Task.Delay(1000, token);
             CommunicationClient.Send(_pollInputCommand);
-            Thread.Sleep(1000);
+            Task.Delay(1000, token);
             CommunicationClient.Send(_pollVolumeCommand);
-            Thread.Sleep(1000);
+            Task.Delay(1000, token);
             CommunicationClient.Send(_pollMuteCommand);
         }
     }

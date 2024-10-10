@@ -43,8 +43,8 @@ public abstract class Conference : IDevice
         else if (DesiredPowerState == PowerState.On) 
             PowerOn();
     }
-    
-    protected abstract void Poll();
+
+    protected abstract void Poll(CancellationToken token);
 
     protected void Log(string message) => LogHandlers?.Invoke($"{GetType()} - {message}");
 

@@ -31,10 +31,7 @@ public class NecUhdExternalControl : Display
         ConfigureCommClient();
     }
 
-    protected override void Poll()
-    {
-        PollWorker.Stop();
-    }
+    protected override void Poll(CancellationToken token) => PollWorker.Stop();
 
     private void ConfigureCommClient()
     {

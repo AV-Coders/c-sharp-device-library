@@ -58,7 +58,7 @@ public class TybaTurn2
         _streamWorker.Restart();
     }
 
-    private void ConnectToTyba()
+    private void ConnectToTyba(CancellationToken obj)
     {
         if (!_streamConnected)
             CreateStream();

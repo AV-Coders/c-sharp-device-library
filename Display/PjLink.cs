@@ -41,7 +41,7 @@ public class PjLink : Display
         TcpClient.ResponseHandlers += HandleResponse;
     }
 
-    protected override void Poll()
+    protected override void Poll(CancellationToken token)
     {
         if (TcpClient.GetConnectionState() != ConnectionState.Connected)
         {

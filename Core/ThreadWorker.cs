@@ -2,12 +2,12 @@
 
 public class ThreadWorker
 {
-    private readonly Action _action;
+    private readonly Action<CancellationToken> _action;
     private readonly TimeSpan _sleepTime;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _task;
 
-    public ThreadWorker(Action action, TimeSpan sleepTime)
+    public ThreadWorker(Action<CancellationToken> action, TimeSpan sleepTime)
     {
         _action = action;
         _sleepTime = sleepTime;
@@ -48,7 +48,7 @@ public class ThreadWorker
             {
                 while (!token.IsCancellationRequested)
                 {
-                    _action.Invoke();
+                    _action.Invoke(token);
                     await Task.Delay(_sleepTime, token);
                 }
             }

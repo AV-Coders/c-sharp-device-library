@@ -78,7 +78,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         UpdateCommunicationState(CommunicationState.NotAttempted);
     }
 
-    protected override void Poll() => PollWorker.Stop();
+    protected override void Poll(CancellationToken token) => PollWorker.Stop();
 
     private void SendCommand(String command)
     {

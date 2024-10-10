@@ -65,5 +65,8 @@ jobs:
     - name: Create Interface Nuget Package
       run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Interface/Interface.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
+    - name: Create Lighting Nuget Package
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Lighting/Lighting.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
+
     - name: Publish to GitHub Packages 
       run: dotnet nuget push /home/runner/work/c-sharp-device-library/package/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }}  --source "github"

@@ -52,10 +52,10 @@ public class VitecServer
         _channelUri = new Uri($"http://{host}/api/public/control/devices/commands/channel", UriKind.Absolute);
         _getChannelsUri = new Uri($"http://{host}/api/public/control/channels", UriKind.Absolute);
         _pollChannelsWorker = new ThreadWorker(PollChannels, TimeSpan.FromHours(2));
-        PollChannels();
+        PollChannels(default);
     }
 
-    private void PollChannels()
+    private void PollChannels(CancellationToken token)
     {
         Get(_getChannelsUri);
     }

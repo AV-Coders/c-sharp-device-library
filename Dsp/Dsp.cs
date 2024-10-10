@@ -24,7 +24,7 @@ public abstract class Dsp : IDevice
         }).Start();
     }
 
-    protected abstract void Poll();
+    protected abstract void Poll(CancellationToken obj);
 
     public PowerState GetCurrentPowerState() => PowerState;
 

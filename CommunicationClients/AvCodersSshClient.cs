@@ -41,7 +41,7 @@ public class AvCodersSshClient : SshClientBase
         return new ConnectionInfo(Host, Port, _username, authenticationMethod);
     }
 
-    protected override void Receive()
+    protected override void Receive(CancellationToken token)
     {
         if (_client.IsConnected && _stream is { CanRead: true })
         {
@@ -49,16 +49,16 @@ public class AvCodersSshClient : SshClientBase
             {
                 ResponseHandlers?.Invoke(_stream.ReadLine() ?? string.Empty);
             }
-            Thread.Sleep(50);
+            Task.Delay(50, token);
         }
         else
         {
             Log("Client not connected or stream not ready, not reading");
-            Thread.Sleep(5000);
+            Task.Delay(5000, token);
         }
     }
 
-    protected override void CheckConnectionState()
+    protected override void CheckConnectionState(CancellationToken token)
     {
         if (!_client.IsConnected)
         {
@@ -138,10 +138,10 @@ public class AvCodersSshClient : SshClientBase
         }
     }
 
-    protected override void ProcessSendQueue()
+    protected override void ProcessSendQueue(CancellationToken token)
     {
         if (!_client.IsConnected || _stream is { CanWrite: true })
-            Thread.Sleep(1000);
+            Task.Delay(1000, token);
         else
         {
             while (_sendQueue.Count > 0)
@@ -150,7 +150,7 @@ public class AvCodersSshClient : SshClientBase
                 if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
                     _stream!.Write(item.Payload);
             }
-            Thread.Sleep(1100);
+            Task.Delay(1100, token);
         }
     }
 
