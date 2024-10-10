@@ -63,7 +63,8 @@ public class AvCodersSshClient : SshClientBase
         if (!_client.IsConnected)
         {
             UpdateConnectionState(ConnectionState.Disconnected);
-            _stream?.Dispose();
+            if (_stream != null) 
+                await _stream.DisposeAsync();
             Log("Reconnecting to device");
             try
             {

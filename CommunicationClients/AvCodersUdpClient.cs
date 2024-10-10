@@ -82,7 +82,7 @@ public class AvCodersUdpClient : Core_UdpClient
             {
                 var item = _sendQueue.Dequeue();
                 if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
-                    _client.Send(item.Payload);
+                    await _client.SendAsync(item.Payload, token);
             }
             await Task.Delay(1100, token);
         }

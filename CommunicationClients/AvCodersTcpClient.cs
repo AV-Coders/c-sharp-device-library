@@ -35,11 +35,10 @@ public class AvCodersTcpClient : Core_TcpClient
             {
                 Log("Receive - Reading message");
                 byte[] buffer = new byte[1024];
-                var bytesRead = _client.GetStream().Read(buffer, 0, buffer.Length);
+                var bytesRead = await _client.GetStream().ReadAsync(buffer, token);
 
                 if (bytesRead > 0)
                 {
-                    var taken = buffer.Take(bytesRead);
                     string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
                     ResponseHandlers?.Invoke(response);
                     ResponseByteHandlers?.Invoke(buffer.Take(bytesRead).ToArray());
@@ -116,7 +115,7 @@ public class AvCodersTcpClient : Core_TcpClient
             {
                 var item = _sendQueue.Dequeue();
                 if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
-                    _client.GetStream().Write(item.Payload);
+                    await _client.GetStream().WriteAsync(item.Payload, token);
             }
             await Task.Delay(TimeSpan.FromSeconds(2), token);
         }

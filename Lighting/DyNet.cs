@@ -39,7 +39,7 @@ public class DyNet
         _tcpClient.Send(messageWithChecksum);
     }
 
-    public byte CalculateChecksum(byte[] message)
+    public static byte CalculateChecksum(byte[] message)
     {
         int checksum = 0;
 

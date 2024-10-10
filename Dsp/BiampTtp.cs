@@ -93,7 +93,7 @@ public class BiampTtp : Dsp
         }
     }
 
-    protected override Task Poll(CancellationToken cancellationToken)
+    protected override Task Poll(CancellationToken token)
     {
         if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
         {

@@ -148,7 +148,7 @@ public class QsysEcp : Dsp
         controlNames.ForEach(controlName => _tcpClient.Send($"cga {groupId} \"{controlName}\"\n"));
     }
 
-    protected override Task Poll(CancellationToken cancellationToken)
+    protected override Task Poll(CancellationToken token)
     {
         if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
             _tcpClient.Send("sg\n"); 

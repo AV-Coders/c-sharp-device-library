@@ -92,25 +92,26 @@ public class BoseCspSoIP : Dsp
         });
     }
 
-    protected override async Task Poll(CancellationToken cancellationToken)
+    protected override async Task Poll(CancellationToken token)
     {
-        if (_tcpClient.GetConnectionState() != ConnectionState.Connected) 
+        if (_tcpClient.GetConnectionState() != ConnectionState.Connected)
+            return;
         
         foreach (string key in _gains.Keys)
         {
-            await Task.Delay(30, cancellationToken);
+            await Task.Delay(30, token);
             _tcpClient.Send($"GA\"{key}\">1\r");
             
         }
         foreach (string key in _mutes.Keys)
         {
-            await Task.Delay(30, cancellationToken);
+            await Task.Delay(30, token);
             _tcpClient.Send($"GA\"{key}>2\r");
         }
 
         foreach (string key in _selects.Keys)
         {
-            await Task.Delay(30, cancellationToken);
+            await Task.Delay(30, token);
             _tcpClient.Send($"GA\"{key}>1\r");
         }
     }

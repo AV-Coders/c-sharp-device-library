@@ -24,7 +24,7 @@ public abstract class Dsp : IDevice
         });
     }
 
-    protected abstract Task Poll(CancellationToken obj);
+    protected abstract Task Poll(CancellationToken token);
 
     public PowerState GetCurrentPowerState() => PowerState;
 

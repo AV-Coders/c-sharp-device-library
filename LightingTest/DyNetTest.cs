@@ -18,7 +18,7 @@ public class DyNetTest
     [InlineData(new byte[] { 0x1c, 0x01, 0x20, 0x00, 0x00, 0x00, 0xFF }, 0xc4)]
     public void CalcualteChecksum_ReturnsTheChecksum(byte[] input, byte expected)
     {
-        byte actual = _dyNet.CalculateChecksum(input);
+        byte actual = DyNet.CalculateChecksum(input);
         
         Assert.Equal(expected, actual);
     }

@@ -32,7 +32,6 @@ public class TybaTurn2
 {
     private readonly Uri _baseUri;
     private readonly Dictionary<string, string> _headers;
-    private readonly ThreadWorker _streamWorker;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
     public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
@@ -54,8 +53,8 @@ public class TybaTurn2
         _headers.Add("Sender-Id", _thisInstanceGuid.ToString());
         _headers.Add("Content-Type", "application/json");
 
-        _streamWorker = new ThreadWorker(ConnectToTyba, TimeSpan.FromSeconds(30));
-        _streamWorker.Restart();
+        var streamWorker = new ThreadWorker(ConnectToTyba, TimeSpan.FromSeconds(30));
+        streamWorker.Restart();
     }
 
     private async Task ConnectToTyba(CancellationToken obj)
