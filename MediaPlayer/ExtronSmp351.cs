@@ -69,11 +69,12 @@ public class ExtronSmp351
         _recordState = currentState;
     }
 
-    private void PollRecorderThreadFunction( CancellationToken token)
+    private Task PollRecorderThreadFunction( CancellationToken token)
     {
         if(_communicationClient.GetConnectionState() == ConnectionState.Connected)
         {
             _communicationClient.Send("I");
         }
+        return Task.CompletedTask;
     }
 }

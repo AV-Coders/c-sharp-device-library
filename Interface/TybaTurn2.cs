@@ -58,13 +58,13 @@ public class TybaTurn2
         _streamWorker.Restart();
     }
 
-    private void ConnectToTyba(CancellationToken obj)
+    private async Task ConnectToTyba(CancellationToken obj)
     {
         if (!_streamConnected)
-            CreateStream();
+            await CreateStream();
     }
 
-    private async void CreateStream()
+    private async Task CreateStream()
     {
         Log("Creating stream");
         _streamConnected = true;

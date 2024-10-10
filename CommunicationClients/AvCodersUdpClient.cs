@@ -44,7 +44,7 @@ public class AvCodersUdpClient : Core_UdpClient
         return null;
     }
 
-    protected override void Receive(CancellationToken token)
+    protected override async Task Receive(CancellationToken token)
     {
         if (_ipEndPoint == null)
         {
@@ -54,7 +54,7 @@ public class AvCodersUdpClient : Core_UdpClient
 
         if (_client is not { Available: > 0 })
         {
-            Task.Delay(1100, token);
+            await Task.Delay(1100, token);
             return;
         }
         try
@@ -69,12 +69,12 @@ public class AvCodersUdpClient : Core_UdpClient
         }
     }
 
-    protected override void ProcessSendQueue(CancellationToken token)
+    protected override async Task ProcessSendQueue(CancellationToken token)
     {
         if (_client == null)
         {
             Log("Messages in send queue will not be sent while client is not connected");
-            Task.Delay(500, token);
+            await Task.Delay(500, token);
         }
         else
         {
@@ -84,11 +84,11 @@ public class AvCodersUdpClient : Core_UdpClient
                 if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
                     _client.Send(item.Payload);
             }
-            Task.Delay(1100, token);
+            await Task.Delay(1100, token);
         }
     }
 
-    protected override void CheckConnectionState(CancellationToken token)
+    protected override async Task CheckConnectionState(CancellationToken token)
     {
         Log($"CheckConnectionState - Connection state is {ConnectionState}");
         if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
@@ -97,7 +97,7 @@ public class AvCodersUdpClient : Core_UdpClient
             CreateClient();
         }
         
-        Task.Delay(TimeSpan.FromSeconds(30), token);
+        await Task.Delay(TimeSpan.FromSeconds(30), token);
     }
 
     public override void SetPort(ushort port)

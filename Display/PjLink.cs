@@ -41,12 +41,12 @@ public class PjLink : Display
         TcpClient.ResponseHandlers += HandleResponse;
     }
 
-    protected override void Poll(CancellationToken token)
+    protected override Task Poll(CancellationToken token)
     {
         if (TcpClient.GetConnectionState() != ConnectionState.Connected)
         {
             Log("Not polling");
-            return;
+            return Task.CompletedTask;
         }
         
         Log("Polling");
@@ -58,7 +58,8 @@ public class PjLink : Display
             PollTask.Input => PollTask.AudioMute,
             PollTask.AudioMute => PollTask.Power,
             _ => _pollTask
-        };
+        }; 
+        return Task.CompletedTask;
     }
 
     private void PollProjector(PollTask pollTask)

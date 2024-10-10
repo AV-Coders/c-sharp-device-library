@@ -41,7 +41,7 @@ public class AvCodersSshClient : SshClientBase
         return new ConnectionInfo(Host, Port, _username, authenticationMethod);
     }
 
-    protected override void Receive(CancellationToken token)
+    protected override async Task Receive(CancellationToken token)
     {
         if (_client.IsConnected && _stream is { CanRead: true })
         {
@@ -49,16 +49,16 @@ public class AvCodersSshClient : SshClientBase
             {
                 ResponseHandlers?.Invoke(_stream.ReadLine() ?? string.Empty);
             }
-            Task.Delay(50, token);
+            await Task.Delay(50, token);
         }
         else
         {
             Log("Client not connected or stream not ready, not reading");
-            Task.Delay(5000, token);
+            await Task.Delay(5000, token);
         }
     }
 
-    protected override void CheckConnectionState(CancellationToken token)
+    protected override async Task CheckConnectionState(CancellationToken token)
     {
         if (!_client.IsConnected)
         {
@@ -67,7 +67,7 @@ public class AvCodersSshClient : SshClientBase
             Log("Reconnecting to device");
             try
             {
-                _client.Connect();
+                await _client.ConnectAsync(token);
                 CreateStream();
             }
             catch (SshOperationTimeoutException e)
@@ -118,7 +118,8 @@ public class AvCodersSshClient : SshClientBase
                 Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
-            Thread.Sleep(32000);
+
+            await Task.Delay(TimeSpan.FromSeconds(32), token);
         }
         else
         {
@@ -134,14 +135,14 @@ public class AvCodersSshClient : SshClientBase
                 CreateStream();
             }
 
-            Thread.Sleep(5000);
+            await Task.Delay(TimeSpan.FromSeconds(5), token);
         }
     }
 
-    protected override void ProcessSendQueue(CancellationToken token)
+    protected override async Task ProcessSendQueue(CancellationToken token)
     {
         if (!_client.IsConnected || _stream is { CanWrite: true })
-            Task.Delay(1000, token);
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
         else
         {
             while (_sendQueue.Count > 0)
@@ -150,7 +151,7 @@ public class AvCodersSshClient : SshClientBase
                 if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
                     _stream!.Write(item.Payload);
             }
-            Task.Delay(1100, token);
+            await Task.Delay(1100, token);
         }
     }
 

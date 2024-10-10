@@ -17,14 +17,14 @@ public abstract class Dsp : IDevice
     protected Dsp(int pollTime)
     {
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
-        new Thread(_ =>
+        Task.Run(async () =>
         {
-            Thread.Sleep(1000);
+            await Task.Delay(1000);
             PollWorker.Restart();
-        }).Start();
+        });
     }
 
-    protected abstract void Poll(CancellationToken obj);
+    protected abstract Task Poll(CancellationToken obj);
 
     public PowerState GetCurrentPowerState() => PowerState;
 

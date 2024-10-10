@@ -21,12 +21,12 @@ public class AvCodersTcpClient : Core_TcpClient
         SendQueueWorker.Restart();
     }
 
-    protected override void Receive(CancellationToken token)
+    protected override async Task Receive(CancellationToken token)
     {
         if (!_client.Connected)
         {
             Log("Receive - Client disconnected, waiting 10 seconds");
-            Task.Delay(TimeSpan.FromSeconds(10), token);
+            await Task.Delay(TimeSpan.FromSeconds(10), token);
         }
         else
         {
@@ -63,16 +63,16 @@ public class AvCodersTcpClient : Core_TcpClient
                 Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
-            Task.Delay(TimeSpan.FromMilliseconds(30), token);
+            await Task.Delay(TimeSpan.FromMilliseconds(30), token);
         }
     }
 
-    protected override void CheckConnectionState(CancellationToken token)
+    protected override async Task CheckConnectionState(CancellationToken token)
     {
         if (_client.Connected)
         {
             UpdateConnectionState(ConnectionState.Connected);
-            Task.Delay(TimeSpan.FromSeconds(17), token);
+            await Task.Delay(TimeSpan.FromSeconds(17), token);
         }
         else
         {
@@ -102,15 +102,15 @@ public class AvCodersTcpClient : Core_TcpClient
                 Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
-            Task.Delay(TimeSpan.FromSeconds(5), token);
+            await Task.Delay(TimeSpan.FromSeconds(5), token);
         }
             
     }
 
-    protected override void ProcessSendQueue(CancellationToken token)
+    protected override async Task ProcessSendQueue(CancellationToken token)
     {
         if (!_client.Connected)
-            Task.Delay(TimeSpan.FromSeconds(1), token);
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
         else
         {
             while (_sendQueue.Count > 0)
@@ -119,7 +119,7 @@ public class AvCodersTcpClient : Core_TcpClient
                 if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
                     _client.GetStream().Write(item.Payload);
             }
-            Task.Delay(TimeSpan.FromSeconds(2), token);
+            await Task.Delay(TimeSpan.FromSeconds(2), token);
         }
     }
 

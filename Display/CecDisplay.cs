@@ -111,10 +111,11 @@ public class CecDisplay : Display, ISetTopBox
         }
     }
 
-    protected override void Poll(CancellationToken token)
+    protected override Task Poll(CancellationToken token)
     {
         Log("Polling Power");
         Send(new[] { '\xF0', '\x8F' });
+        return Task.CompletedTask;
     }
 
     private void RemoteControlPassthrough(char command)

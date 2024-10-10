@@ -86,11 +86,11 @@ public abstract class IpComms : CommunicationClient
         SendQueueWorker.Stop();
     }
 
-    protected abstract void Receive(CancellationToken token);
+    protected abstract Task Receive(CancellationToken token);
 
-    protected abstract void ProcessSendQueue(CancellationToken token);
+    protected abstract Task ProcessSendQueue(CancellationToken token);
 
-    protected abstract void CheckConnectionState(CancellationToken token);
+    protected abstract Task CheckConnectionState(CancellationToken token);
 
     public void SetQueueTimeout(int seconds) => QueueTimeout = seconds;
 

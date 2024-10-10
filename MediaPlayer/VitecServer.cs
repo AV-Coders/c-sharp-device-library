@@ -55,9 +55,10 @@ public class VitecServer
         PollChannels(default);
     }
 
-    private void PollChannels(CancellationToken token)
+    private Task PollChannels(CancellationToken token)
     {
         Get(_getChannelsUri);
+        return Task.CompletedTask;
     }
 
     private bool ValidateCertificate(HttpRequestMessage arg1, X509Certificate2? arg2, X509Chain? arg3,

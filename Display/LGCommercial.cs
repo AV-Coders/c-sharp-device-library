@@ -149,7 +149,7 @@ public class LGCommercial : Display, ISetTopBox
 
     private void SendCommand(string header, string value) => _comms.Send($"{header} {_setId:d2} {value}\r");
 
-    protected override void Poll(CancellationToken token)
+    protected override Task Poll(CancellationToken token)
     {
         PowerState = _comms.GetConnectionState() switch
         {
@@ -164,7 +164,7 @@ public class LGCommercial : Display, ISetTopBox
         if (PowerState != PowerState.On)
         {
             Log("Not Polling");
-            return;
+            return Task.CompletedTask;
         }
         
         Log("Polling");
@@ -178,6 +178,8 @@ public class LGCommercial : Display, ISetTopBox
         Task.Delay(1000, token);
         SendCommand(_muteHeader,  _pollArgument);
         Log("Polling mute");
+        
+        return Task.CompletedTask;
     }
 
     private void SendWol()

@@ -51,5 +51,9 @@ public abstract class SvsiBase : InputOutputStatus
         StreamChangeHandlers?.Invoke(streamId);
     }
 
-    private void Poll(CancellationToken token) => TcpClient.Send("\r");
+    private Task Poll(CancellationToken token)
+    {
+        TcpClient.Send("\r");
+        return Task.CompletedTask;
+    }
 }

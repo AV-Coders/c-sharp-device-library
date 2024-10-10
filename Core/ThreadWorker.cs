@@ -2,12 +2,12 @@
 
 public class ThreadWorker
 {
-    private readonly Action<CancellationToken> _action;
+    private readonly Func<CancellationToken, Task> _action;
     private readonly TimeSpan _sleepTime;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _task;
 
-    public ThreadWorker(Action<CancellationToken> action, TimeSpan sleepTime)
+    public ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime)
     {
         _action = action;
         _sleepTime = sleepTime;
@@ -20,10 +20,10 @@ public class ThreadWorker
         Start();
     }
 
-    public void Stop()
+    public Task Stop()
     {
         if (_cancellationTokenSource == null) 
-            return;
+            return Task.CompletedTask;
         
         _cancellationTokenSource.Cancel();
         try
@@ -35,7 +35,8 @@ public class ThreadWorker
             Console.WriteLine(ex);
         }
         _cancellationTokenSource.Dispose();
-        _cancellationTokenSource = null;
+        _cancellationTokenSource = null; 
+        return Task.CompletedTask;
     }
 
     private void Start()
@@ -48,7 +49,7 @@ public class ThreadWorker
             {
                 while (!token.IsCancellationRequested)
                 {
-                    _action.Invoke(token);
+                    await _action.Invoke(token);
                     await Task.Delay(_sleepTime, token);
                 }
             }

@@ -44,7 +44,7 @@ public abstract class Conference : IDevice
             PowerOn();
     }
 
-    protected abstract void Poll(CancellationToken token);
+    protected abstract Task Poll(CancellationToken token);
 
     protected void Log(string message) => LogHandlers?.Invoke($"{GetType()} - {message}");
 

@@ -40,7 +40,7 @@ public abstract class Display : IDevice
         }).Start();
     }
 
-    protected abstract void Poll(CancellationToken token);
+    protected abstract Task Poll(CancellationToken token);
     
     protected void Log(string message)
     {

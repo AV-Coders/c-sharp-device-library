@@ -88,10 +88,11 @@ public class CiscoRoomOs : Conference
       }
     }
 
-    private void SendHeartbeat()
+    private Task SendHeartbeat()
     {
       SendCommand($"xCommand Peripherals HeartBeat ID: {_moduleIdentifier} Timeout: 120");
       Log("Sending Heartbeat");
+      return Task.CompletedTask;
     }
 
     private void SendCallCommand(string commandString) => SendCommand($"xCommand Call {commandString}");
@@ -108,7 +109,7 @@ public class CiscoRoomOs : Conference
 
     protected override void DoPowerOn() => SendCommand("xCommand Standby Deactivate");
 
-    protected override void Poll(CancellationToken token) => SendHeartbeat();
+    protected override Task Poll(CancellationToken token) => SendHeartbeat();
     
     protected override void DoPowerOff() => SendCommand("xCommand Standby Activate");
 

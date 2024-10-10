@@ -5,7 +5,7 @@ namespace AVCoders.Core.Tests;
 public class ThreadWorkerTest
 {
     private readonly ThreadWorker _threadWorker;
-    private readonly Mock<Action<CancellationToken>> _actionMock;
+    private readonly Mock<Func<CancellationToken, Task>> _actionMock;
 
     public ThreadWorkerTest()
     {

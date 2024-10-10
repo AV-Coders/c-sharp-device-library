@@ -64,12 +64,12 @@ public class SamsungMdc : Display
         _pollMuteCommand = new byte[] { 0xAA, MuteControlCommand, _displayId, 0x00,  GenerateChecksum(pollMuteCommandWithoutChecksum)};
     }
 
-    protected override void Poll(CancellationToken token)
+    protected override Task Poll(CancellationToken token)
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
             Log("Not polling");
-            return;
+            return Task.CompletedTask;
         }
         
         Log("Polling Power");
@@ -83,7 +83,8 @@ public class SamsungMdc : Display
             CommunicationClient.Send(_pollVolumeCommand);
             Task.Delay(1000, token);
             CommunicationClient.Send(_pollMuteCommand);
-        }
+        } 
+        return Task.CompletedTask;
     }
 
     private void SendByteArray(byte[] bytes)

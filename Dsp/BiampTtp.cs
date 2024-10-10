@@ -93,7 +93,7 @@ public class BiampTtp : Dsp
         }
     }
 
-    protected override void Poll(CancellationToken cancellationToken)
+    protected override Task Poll(CancellationToken cancellationToken)
     {
         if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
         {
@@ -102,6 +102,8 @@ public class BiampTtp : Dsp
             else
                 _tcpClient.Send("DEVICE get version\n");
         }
+
+        return Task.CompletedTask;
     }
 
     private void HandleResponse(string response)
