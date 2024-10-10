@@ -8,12 +8,14 @@ public abstract class Conference : IDevice
     protected PowerState PowerState = PowerState.Unknown;
     protected PowerState DesiredPowerState = PowerState.Unknown;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
+    protected List<string> _activeCalls;
     public LogHandler? LogHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public Fader OutputVolume;
     public Mute OutputMute;
     public Mute MicrophoneMute;
+    public List<string> GetActiveCalls() => _activeCalls;
 
     public PowerState GetCurrentPowerState() => PowerState;
 

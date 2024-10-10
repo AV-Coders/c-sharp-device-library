@@ -47,6 +47,9 @@ jobs:
     - name: Create Communication Clients Nuget Package
       run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/CommunicationClients/CommunicationClients.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
+    - name: Create Conference Nuget Package
+      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Conference/Conference.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
+
     - name: Create Display Nuget Package
       run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Display/Display.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
