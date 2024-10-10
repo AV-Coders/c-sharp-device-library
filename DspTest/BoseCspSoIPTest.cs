@@ -49,13 +49,24 @@ public class BoseCspSoIPTest
     }
 
     [Theory]
-    [InlineData(0, $"SA\"{GainName}\">1=-60.5\r")]
-    [InlineData(100, $"SA\"{GainName}\">1=12\r")]
-    [InlineData(50, $"SA\"{GainName}\">1=-24\r")]
-    [InlineData(13, $"SA\"{GainName}\">1=-51\r")]
+    [InlineData(0, $"SA\"{GainName} Gain\">1=-60.5\r")]
+    [InlineData(100, $"SA\"{GainName} Gain\">1=12\r")]
+    [InlineData(50, $"SA\"{GainName} Gain\">1=-24\r")]
+    [InlineData(13, $"SA\"{GainName} Gain\">1=-51\r")]
     public void SetLevel_SendsTheCorrectDB(int percentage, string expectedCommand)
     {
         _dsp.SetLevel(GainName, percentage);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Theory]
+    [InlineData("1", $"SA\"{GainName} Selector\">1=1\r")]
+    [InlineData("2", $"SA\"{GainName} Selector\">1=2\r")]
+    [InlineData("3", $"SA\"{GainName} Selector\">1=3\r")]
+    [InlineData("4", $"SA\"{GainName} Selector\">1=4\r")]
+    public void SetValue_SendsTheCommand(string source, string expectedCommand)
+    {
+        _dsp.SetValue(GainName, source);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
 }
