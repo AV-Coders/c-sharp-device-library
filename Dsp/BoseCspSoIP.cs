@@ -76,7 +76,7 @@ public class BoseCspSoIP : Dsp
         var lines = response.Split('\r').ToList();
         lines.ForEach(line =>
         {
-            line.TrimEnd('\r');
+            _ = line.TrimEnd('\r');
             var match = _responseParser.Match(line);
             
             if (match.Groups[2].Value == "1" && _gains.ContainsKey(match.Groups[1].Value))

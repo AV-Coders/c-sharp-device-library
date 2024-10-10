@@ -51,7 +51,7 @@ public class SvsiDecoder : SvsiBase
         TcpClient.Send($"set:{streamId}\r");
     }
 
-    public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
+    public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamNumber);
 
 
     public void SetAudioMute(MuteState muteState)

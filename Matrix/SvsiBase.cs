@@ -11,7 +11,8 @@ public abstract class SvsiBase : InputOutputStatus
     public StreamChangeHandler? StreamChangeHandlers;
     protected readonly TcpClient TcpClient;
     protected readonly ThreadWorker PollWorker;
-    public uint StreamId;
+    protected uint StreamId;
+    public uint StreamNumber => StreamId;
 
     public SvsiBase(TcpClient tcpClient, int pollTime)
     {

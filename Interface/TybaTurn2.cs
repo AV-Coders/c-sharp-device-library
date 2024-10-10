@@ -215,7 +215,7 @@ public class TybaTurn2
     public void SetClimateTargetTemperature(double level) => SetLevel("temperature", 1, level);
     public void SetClimateCurrentTemperature(double level) => SetLevel("temperature", 2, level);
 
-    private async void SetLevel(string type, int index, int value)
+    private async Task SetLevel(string type, int index, int value)
     {
         if (value > 100)
             return;
@@ -225,7 +225,7 @@ public class TybaTurn2
         
     }
 
-    private async void SetLevel(string type, int index, double value)
+    private async Task SetLevel(string type, int index, double value)
     {
         if (value > 100)
             return;
