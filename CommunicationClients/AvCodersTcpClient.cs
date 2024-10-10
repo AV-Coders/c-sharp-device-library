@@ -23,6 +23,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
     protected override async Task Receive(CancellationToken token)
     {
+        Log("Receive Loop Begin");
         if (!_client.Connected)
         {
             Log("Receive - Client disconnected, waiting 10 seconds");
@@ -32,11 +33,13 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             try
             {
+                Log("Receive - Reading message");
                 byte[] buffer = new byte[1024];
                 var bytesRead = _client.GetStream().Read(buffer, 0, buffer.Length);
 
                 if (bytesRead > 0)
                 {
+                    var taken = buffer.Take(bytesRead);
                     string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
                     ResponseHandlers?.Invoke(response);
                     ResponseByteHandlers?.Invoke(buffer.Take(bytesRead).ToArray());
@@ -47,21 +50,18 @@ public class AvCodersTcpClient : Core_TcpClient
                 Log($"Receive - IOException:\n{e}", EventLevel.Error);
                 Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 Reconnect();
-                UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (ObjectDisposedException e)
             {
                 Log($"Receive  - ObjectDisposedException\n{e}", EventLevel.Error);
                 Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 Reconnect();
-                UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
                 Log($"Receive  - Exception:\n{e}", EventLevel.Error);
                 Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
                 Reconnect();
-                UpdateConnectionState(ConnectionState.Disconnected);
             }
             await Task.Delay(TimeSpan.FromMilliseconds(30), token);
         }
@@ -104,7 +104,6 @@ public class AvCodersTcpClient : Core_TcpClient
             }
             await Task.Delay(TimeSpan.FromSeconds(5), token);
         }
-            
     }
 
     protected override async Task ProcessSendQueue(CancellationToken token)
