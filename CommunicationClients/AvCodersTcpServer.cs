@@ -17,7 +17,7 @@ public class AvCodersTcpServer : Core_TcpClient
         _server = new TcpListener(IPAddress.Any, port);
         _server.Start();
         
-        ReceiveThreadWorker.Restart();
+        ReceiveThreadWorker.Restart(); // Used to connect to new clients
         ConnectionStateWorker.Restart();
     }
 

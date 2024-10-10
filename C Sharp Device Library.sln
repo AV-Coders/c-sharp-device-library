@@ -35,6 +35,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConferenceTest", "Conferenc
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Interface", "Interface\Interface.csproj", "{43F4703F-2AEB-4B5E-A450-548D8AD56D3D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lighting", "Lighting\Lighting.csproj", "{2D9CED27-8BEE-4D89-A91C-80929D8E954F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LightingTest", "LightingTest\LightingTest.csproj", "{5F5CF50D-3F75-451E-A494-519CC6F50857}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -113,5 +117,13 @@ Global
 		{43F4703F-2AEB-4B5E-A450-548D8AD56D3D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{43F4703F-2AEB-4B5E-A450-548D8AD56D3D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{43F4703F-2AEB-4B5E-A450-548D8AD56D3D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2D9CED27-8BEE-4D89-A91C-80929D8E954F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2D9CED27-8BEE-4D89-A91C-80929D8E954F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2D9CED27-8BEE-4D89-A91C-80929D8E954F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2D9CED27-8BEE-4D89-A91C-80929D8E954F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5F5CF50D-3F75-451E-A494-519CC6F50857}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F5CF50D-3F75-451E-A494-519CC6F50857}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F5CF50D-3F75-451E-A494-519CC6F50857}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F5CF50D-3F75-451E-A494-519CC6F50857}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
