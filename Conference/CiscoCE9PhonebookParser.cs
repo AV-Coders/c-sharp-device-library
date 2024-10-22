@@ -16,7 +16,7 @@ public record CiscoRoomOsPhonebookFolder(
     public bool ContentsFetched { get; set; }
 }
 
-public record CiscoRoomOsPhonebookContactMethod(string ContactMethodId, string Number, string Protocol, string CallRate)
+public record CiscoRoomOsPhonebookContactMethod(string ContactMethodId, string Number, string Protocol)
     : PhonebookNumber(Number);
 
 public record CiscoRoomOsPhonebookContact(string Name, string ContactId, List<PhonebookNumber> ContactMethods)
@@ -55,6 +55,7 @@ public class CiscoCE9PhonebookParser
             throw new InvalidOperationException("A phonebook can't be requested without a send deleagte");
 
         Comms.Invoke($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0\n");
+        LogHandlers?.Invoke($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0");
     }
 
     public CommunicationState HandlePhonebookSearchResponse(string response)
@@ -131,6 +132,7 @@ public class CiscoCE9PhonebookParser
                     Comms.Invoke(
                         $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder.FolderId}\n");
                     
+                    LogHandlers?.Invoke($" sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder.FolderId}");
                     return CommunicationState.Okay;
                 }
 
@@ -158,6 +160,8 @@ public class CiscoCE9PhonebookParser
 
         Comms.Invoke(
             $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
+        
+        LogHandlers?.Invoke($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}");
     }
 
     private CiscoRoomOsPhonebookFolder? FindUnFetchedFolder(List<PhonebookBase> phoneBookItems)
@@ -255,8 +259,7 @@ public class CiscoCE9PhonebookParser
             contactMethods.Add(new CiscoRoomOsPhonebookContactMethod(
                 contactMethod["ContactMethodId:"],
                 contactMethod["Number:"],
-                contactMethod["Protocol:"],
-                contactMethod["CallRate:"]));
+                contactMethod["Protocol:"]));
         });
 
         AddContactToFolder(new CiscoRoomOsPhonebookContact(_injestContact["Name:"], _injestContact["ContactId:"],
@@ -304,8 +307,6 @@ public class CiscoCE9PhonebookParser
             if (!dictionaryEntry.ContainsKey("Number:"))
                 return false;
             if (!dictionaryEntry.ContainsKey("Protocol:"))
-                return false;
-            if (!dictionaryEntry.ContainsKey("CallRate:"))
                 return false;
         }
 
