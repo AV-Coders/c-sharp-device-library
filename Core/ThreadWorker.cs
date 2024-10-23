@@ -24,15 +24,19 @@ public class ThreadWorker
     {
         if (_cancellationTokenSource == null) 
             return Task.CompletedTask;
-        
-        _cancellationTokenSource.Cancel();
+
         try
         {
+            _cancellationTokenSource.Cancel();
             _task?.Wait();
         }
         catch (AggregateException ex)
         {
             Console.WriteLine(ex);
+        }
+        catch (TaskCanceledException e)
+        {
+            // Do nothing
         }
         _cancellationTokenSource.Dispose();
         _cancellationTokenSource = null; 
