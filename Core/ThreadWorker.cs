@@ -22,13 +22,16 @@ public class ThreadWorker
 
     public Task Stop()
     {
-        if (_cancellationTokenSource == null) 
-            return Task.CompletedTask;
-
         try
         {
+            if (_cancellationTokenSource == null) 
+                return Task.CompletedTask;
+            
             _cancellationTokenSource.Cancel();
             _task?.Wait();
+            
+            _cancellationTokenSource.Dispose();
+            _cancellationTokenSource = null; 
         }
         catch (AggregateException ex)
         {
@@ -38,8 +41,7 @@ public class ThreadWorker
         {
             // Do nothing
         }
-        _cancellationTokenSource.Dispose();
-        _cancellationTokenSource = null; 
+        
         return Task.CompletedTask;
     }
 
