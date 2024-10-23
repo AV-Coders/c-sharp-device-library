@@ -16,9 +16,9 @@ public class SonyVisca : Camera
     private byte _zoomInSpeed;
     private byte _zoomOutSpeed;
     private byte _sequenceNumber;
-    private byte _header;
     private static readonly byte[] SequenceHeader = { 0xFF, 0xFF, 0xFF };
-    private static readonly byte CommandFooter = 0xFF;
+    protected byte _header;
+    protected static readonly byte CommandFooter = 0xFF;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
 
     public SonyVisca(CommunicationClient client, bool useIpHeaders, byte cameraId = 0x01)
@@ -43,7 +43,7 @@ public class SonyVisca : Camera
         _ipHeaders.Add(PayloadType.ControlReply, new byte[]{ 0x02, 0x01 });
     }
 
-    private void SendCommand(byte[] bytes)
+    protected void SendCommand(byte[] bytes)
     {
         try
         {

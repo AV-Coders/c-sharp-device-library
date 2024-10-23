@@ -3,7 +3,7 @@ using AVCoders.Core;
 
 namespace AVCoders.Camera;
 
-public abstract class Camera : IDevice
+public abstract class Camera : ICamera
 {
     protected PowerState PowerState = PowerState.Unknown;
     protected PowerState DesiredPowerState = PowerState.Unknown;
