@@ -37,7 +37,7 @@ public class ThreadWorker
         {
             Console.WriteLine(ex);
         }
-        catch (TaskCanceledException e)
+        catch (TaskCanceledException)
         {
             // Do nothing
         }
