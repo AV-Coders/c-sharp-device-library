@@ -3,21 +3,50 @@ using AVCoders.Dsp;
 
 namespace AVCoders.Conference;
 
+public record Call
+{
+    public Call(CallStatus Status, string Name, string Number)
+    {
+        this.Status = Status;
+        this.Name = Name;
+        this.Number = Number;
+    }
+
+    public CallStatus Status { get; set; }
+    public string Name { get; set; }
+    public string Number { get; set; }
+
+    public void Deconstruct(out CallStatus status, out string name, out string number)
+    {
+        status = Status;
+        name = Name;
+        number = Number;
+    }
+}
+
+public enum CallStatus
+{
+    Unknown, Dialling, Connected, Disconnecting, Ringing, Idle
+}
+
 public abstract class Conference : IDevice
 {
     protected PowerState PowerState = PowerState.Unknown;
     protected PowerState DesiredPowerState = PowerState.Unknown;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
-    protected List<string> _activeCalls;
+    protected string Uri = String.Empty;
+    protected Dictionary<int, Call> ActiveCalls = new ();
     public LogHandler? LogHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public Fader OutputVolume;
     public Mute OutputMute;
     public Mute MicrophoneMute;
-    public List<string> GetActiveCalls() => _activeCalls;
+    public List<Call> GetActiveCalls() => ActiveCalls.Values.ToList().FindAll(x => x.Status != CallStatus.Idle);
 
     public PowerState GetCurrentPowerState() => PowerState;
+    
+    public string GetUri() => Uri;
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
 
@@ -73,7 +102,16 @@ public abstract class Conference : IDevice
         PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
         PowerStateHandlers?.Invoke(DesiredPowerState);
+        ActiveCalls.Keys.ToList().ForEach(x =>
+        {
+            if (ActiveCalls[x].Status == CallStatus.Idle)
+            {
+                ActiveCalls.Remove(x);
+            }
+        });
     }
+
+    public abstract void HangUp(Call? call);
 
     protected abstract void DoPowerOff();
 

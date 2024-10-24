@@ -65,7 +65,7 @@ public class CiscoRoomOs : Conference
         SendCommand("xStatus Video Selfview");
         SendCommand("xStatus Video Layout CurrentLayouts ActiveLayout");
         SendCommand("xStatus SIP Registration URI");
-        PhoneBookParser.RequestPhonebook();
+        // PhoneBookParser.RequestPhonebook();
       }
       catch (Exception ex)
       {
@@ -110,7 +110,28 @@ public class CiscoRoomOs : Conference
     protected override void DoPowerOn() => SendCommand("xCommand Standby Deactivate");
 
     protected override Task Poll(CancellationToken token) => SendHeartbeat();
+
+    public override void HangUp(Call? call)
+    {
+      HangUp(FindCallId(call));
+    }
     
+    public int FindCallId(Call? value)
+    {
+      if (value == null)
+        return 0;
+      
+      foreach (var keyValuePair in ActiveCalls)
+      {
+        if (keyValuePair.Value.Equals(value))
+        {
+          return keyValuePair.Key;
+        }
+      }
+      Log($"No call found for {value}, terminating all");
+      return 0;
+    }
+
     protected override void DoPowerOff() => SendCommand("xCommand Standby Activate");
 
     public void SelfView(bool on) => SendCommand(on ? "xCommand Video SelfView Set Mode: On" : "xCommand Video SelfView Set Mode: Off");
@@ -131,6 +152,16 @@ public class CiscoRoomOs : Conference
         if (CommunicationState == CommunicationState.Error)
           InitialiseModule();
       }
+      else if (response.Contains("Call"))
+      {
+        if(!response.Contains("Conference"))
+          ProcessCallResponse(responses);
+      }
+      else if (response.Contains("Standby State:"))
+      {
+        PowerState = responses[3].Contains("Off")? PowerState.On : PowerState.Off;
+        ProcessPowerResponse();
+      }
       else if (response.Contains("Audio Volume:"))
       {
         OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
@@ -139,11 +170,32 @@ public class CiscoRoomOs : Conference
       {
         MicrophoneMute.MuteState = responses[4].Contains("On")? MuteState.On : MuteState.Off;
       }
-      else if (response.Contains("Standby State:"))
+      else if (response.Contains("SIP Registration 1 URI:"))
       {
-        PowerState = responses[3].Contains("Off")? PowerState.On : PowerState.Off;
-        ProcessPowerResponse();
+        Uri = responses[5].Trim().Trim('"');
       }
+    }
+
+    private void ProcessCallResponse(string[] responses)
+    {
+      int callId = int.Parse(responses[2]);
+      if (!ActiveCalls.ContainsKey(callId))
+      {
+        ActiveCalls[callId] = new Call(CallStatus.Unknown, String.Empty, String.Empty);
+      }
+      switch (responses[3])
+      {
+        case "Status:":
+          ActiveCalls[callId].Status = Enum.Parse<CallStatus>(responses[4].Trim());
+          break;
+        case "DisplayName:":
+          ActiveCalls[callId].Name = responses[4].Trim().Trim('"');
+          break;
+        case "CallbackNumber:":
+          ActiveCalls[callId].Number = responses[4].Trim().Trim('"');
+          break;
+      }
+      
     }
 
     public void SetOutputVolume(int volume)

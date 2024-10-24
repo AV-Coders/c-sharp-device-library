@@ -141,5 +141,104 @@ public class CiscoRoomOsTest
         
         _powerStateHandlers.Verify(x => x.Invoke(expectedState));
     }
+
+    [Fact]
+    public void CallResponses_HandleDialling()
+    {
+        new List<string>
+        {
+            "*s Call 203 AnswerState: Unanswered\n",
+            "*s Call 203 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 203 DisplayName: \"*123456\"",
+            "*s Call 203 Status: Dialling\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Dialling, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+    }
+
+    [Fact]
+    public void CallResponses_HandleConnected()
+    {
+        new List<string>
+        {
+            "*s Call 204 AnswerState: Autoanswered\n",
+            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 204 DisplayName: \"*123456\"",
+            "*s Call 204 Status: Dialling\n",
+            "*s Call 204 Status: Connected\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Connected, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+    }
+
+    [Fact]
+    public void CallResponses_HandleDisconnecting()
+    {
+        new List<string>
+        {
+            "*s Call 204 AnswerState: Unanswered\n",
+            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 204 DisplayName: \"*123456\"",
+            "*s Call 204 Status: Connected\n",
+            "*s Call 204 Status: Disconnecting\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Disconnecting, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+    }
+
+    [Fact]
+    public void CallResponses_HandleIdle()
+    {
+        new List<string>
+        {
+            "*s Call 204 AnswerState: Unanswered\n",
+            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 204 DisplayName: \"*123456\"",
+            "*s Call 204 Status: Disconnecting\n",
+            "*s Call 204 Status: Idle\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+
+        Assert.Empty(_codec.GetActiveCalls());
+    }
+
+    [Fact]
+    public void CallResponses_HandleRinging()
+    {
+        new List<string>
+        {
+            "*s Call 204 AnswerState: Unanswered\n",
+            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 204 DisplayName: \"*123456\"",
+            "*s Call 204 Status: Ringing\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+
+        
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Ringing, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+    }
+
+    [Fact]
+    public void RegistrationUri_IsStored()
+    {
+        _mockClient.Object.ResponseHandlers.Invoke("*s SIP Registration 1 URI: \"300300@client.domain\"\n");
+        
+        Assert.Equal("300300@client.domain", _codec.GetUri());
+    }
     
 }
