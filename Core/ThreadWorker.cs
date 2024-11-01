@@ -6,11 +6,13 @@ public class ThreadWorker
     private readonly TimeSpan _sleepTime;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _task;
+    private bool _waitFirst;
 
-    public ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime)
+    public ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false)
     {
         _action = action;
         _sleepTime = sleepTime;
+        _waitFirst = waitFirst;
         _cancellationTokenSource = null;
     }
     
@@ -55,8 +57,11 @@ public class ThreadWorker
             {
                 while (!token.IsCancellationRequested)
                 {
+                    if(_waitFirst)
+                        await Task.Delay(_sleepTime, token);
                     await _action.Invoke(token);
-                    await Task.Delay(_sleepTime, token);
+                    if(!_waitFirst)
+                        await Task.Delay(_sleepTime, token);
                 }
             }
             catch (OperationCanceledException)
@@ -73,5 +78,10 @@ public class ThreadWorker
     ~ThreadWorker()
     {
         Stop();
+    }
+
+    public void WaitFirst(bool waitFirst)
+    {
+        _waitFirst = waitFirst;
     }
 }
