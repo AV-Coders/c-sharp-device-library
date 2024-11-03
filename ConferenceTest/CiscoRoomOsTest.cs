@@ -240,5 +240,25 @@ public class CiscoRoomOsTest
         
         Assert.Equal("300300@client.domain", _codec.GetUri());
     }
+
+    [Theory]
+    [InlineData(MuteState.Off, "xCommand Audio Volume Unmute\r\n")]
+    [InlineData(MuteState.On, "xCommand Audio Volume Mute\r\n")]
+    public void SetOutputMute_SendsTheCommand(MuteState state, string expectedCommand)
+    {
+        _codec.SetOutputMute(state);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Theory]
+    [InlineData(MuteState.Off, "xCommand Audio Microphones Unmute\r\n")]
+    [InlineData(MuteState.On, "xCommand Audio Microphones Mute\r\n")]
+    public void SetMicrophoneMute_SendsTheCommand(MuteState state, string expectedCommand)
+    {
+        _codec.SetMicrophoneMute(state);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
     
 }

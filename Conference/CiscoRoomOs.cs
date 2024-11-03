@@ -198,8 +198,18 @@ public class CiscoRoomOs : Conference
       
     }
 
-    public void SetOutputVolume(int volume)
+    public override void SetOutputVolume(int volume)
     {
       SendCommand($"xCommand Audio Volume Set Level: {volume}");
+    }
+    
+    public override void SetOutputMute(MuteState state)
+    {
+      SendCommand($"xCommand Audio Volume {(state == MuteState.On ? "Mute": "Unmute")}");
+    }
+
+    public override void SetMicrophoneMute(MuteState state)
+    {
+      SendCommand($"xCommand Audio Microphones {(state == MuteState.On ? "Mute": "Unmute")}");
     }
   }

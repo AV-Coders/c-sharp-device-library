@@ -39,9 +39,9 @@ public abstract class Conference : IDevice
     public LogHandler? LogHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
-    public Fader OutputVolume;
-    public Mute OutputMute;
-    public Mute MicrophoneMute;
+    public readonly Fader OutputVolume;
+    public readonly Mute OutputMute;
+    public readonly Mute MicrophoneMute;
     public List<Call> GetActiveCalls() => ActiveCalls.Values.ToList().FindAll(x => x.Status != CallStatus.Idle);
 
     public PowerState GetCurrentPowerState() => PowerState;
@@ -57,6 +57,7 @@ public abstract class Conference : IDevice
     {
         OutputVolume = new Fader(_ => {}, false);
         MicrophoneMute = new Mute(_ => {});
+        OutputMute = new Mute(_ => {});
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         PollWorker.Restart();
     }
@@ -118,4 +119,21 @@ public abstract class Conference : IDevice
     public abstract void SendDtmf(char number);
 
     public abstract void Dial(string number);
+    
+    public abstract void SetOutputVolume(int percentage);
+    
+    public abstract void SetOutputMute(MuteState state);
+    
+    public abstract void SetMicrophoneMute(MuteState state);
+
+    public void ToggleOutputMute()
+    {
+        SetOutputMute(OutputMute.MuteState == MuteState.On ? MuteState.Off : MuteState.On);
+    }
+
+    public void ToggleMicrophoneMute()
+    {
+        SetMicrophoneMute(MicrophoneMute.MuteState == MuteState.On ? MuteState.Off : MuteState.On);
+    }
+    
 }
