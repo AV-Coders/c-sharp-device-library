@@ -10,8 +10,8 @@ public class AvCodersUdpClient : Core_UdpClient
     private IPEndPoint? _ipEndPoint;
     private readonly Queue<QueuedPayload<Byte[]>> _sendQueue = new();
 
-    public AvCodersUdpClient(string ipAddress, ushort port = 0) : 
-        base(ipAddress, port)
+    public AvCodersUdpClient(string ipAddress, ushort port = 0, string name = "") : 
+        base(ipAddress, port, name)
     {
         _client = CreateClient();
         

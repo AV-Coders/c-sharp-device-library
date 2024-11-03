@@ -10,7 +10,7 @@ public class NovastarH5Test
     
     public NovastarH5Test()
     {
-        _mockClient = new Mock<UdpClient>("foo", (ushort)1);
+        _mockClient = new Mock<UdpClient>("foo", NovaStarH5.DefaultPort, "bar");
         _display = new NovaStarH5(_mockClient.Object, 0, new List<int> { 0 }, 0, 1);
     }
     

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Security.Cryptography.X509Certificates;
+using System.Text;
 
 namespace AVCoders.Core;
 
@@ -9,6 +10,12 @@ public abstract class CommunicationClient
     public ConnectionStateHandler? ConnectionStateHandlers;
     public LogHandler? LogHandlers;
     protected ConnectionState ConnectionState = ConnectionState.Unknown;
+    public readonly string Name;
+
+    protected CommunicationClient(string name)
+    {
+        Name = name;
+    }
 
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
@@ -26,6 +33,9 @@ public abstract class CommunicationClient
 
 public abstract class SerialClient : CommunicationClient
 {
+    protected SerialClient(string name) : base(name)
+    { }
+
     public abstract void ConfigurePort(SerialSpec serialSpec);
 
     public abstract void Send(char[] chars);
@@ -37,7 +47,7 @@ public abstract class RestComms : CommunicationClient
     protected ushort Port;
     public HttpResponseHandler? HttpResponseHandlers;
 
-    protected RestComms(string host, ushort port)
+    protected RestComms(string host, ushort port, string name) : base(name)
     {
         Host = host;
         Port = port;
@@ -69,7 +79,7 @@ public abstract class IpComms : CommunicationClient
     protected readonly ThreadWorker ConnectionStateWorker;
     protected readonly ThreadWorker SendQueueWorker;
 
-    protected IpComms(string host, ushort port)
+    protected IpComms(string host, ushort port, string name) : base(name)
     {
         Host = host;
         Port = port;
@@ -139,14 +149,14 @@ public abstract class IpComms : CommunicationClient
 
 public abstract class SshClient : IpComms
 {
-    protected SshClient(string host, ushort port) : base(host, port)
+    protected SshClient(string host, ushort port, string name) : base(host, port, name)
     {
     }
 }
 
 public abstract class TcpClient : IpComms
 {
-    protected TcpClient(string host, ushort port) : base(host, port)
+    protected TcpClient(string host, ushort port, string name) : base(host, port, name)
     {
     }
 }
@@ -154,7 +164,7 @@ public abstract class TcpClient : IpComms
 public abstract class UdpClient : IpComms
 {
 
-    protected UdpClient(string host, ushort port) : base(host, port)
+    protected UdpClient(string host, ushort port, string name) : base(host, port, name)
     {
     }
 }

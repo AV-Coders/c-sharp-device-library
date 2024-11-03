@@ -23,7 +23,7 @@ public class SvsiDecoderTest
     
     public SvsiDecoderTest()
     {
-        _mockClient = new("foo", (ushort)1);
+        _mockClient = new("foo", SvsiBase.DefaultPort, "bar");
         _svsiDecoder = new(_mockClient.Object);
         _mockOutputStatusChangedHandler = new();
         _svsiDecoder.OutputStatusChangedHandlers += _mockOutputStatusChangedHandler.Object;

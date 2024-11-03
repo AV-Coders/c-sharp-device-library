@@ -11,7 +11,7 @@ public class ExtronIn16xxTest
 
     public ExtronIn16xxTest()
     {
-        _mockClient = new Mock<CommunicationClient>();
+        _mockClient = new Mock<CommunicationClient>("foo");
         _switcher = new ExtronIn16Xx(_mockClient.Object, 6);
     }
 

@@ -9,7 +9,7 @@ public class SonyViscaSerialTest
 
     public SonyViscaSerialTest()
     {
-        _mockClient = new Mock<CommunicationClient>();
+        _mockClient = new Mock<CommunicationClient>("foo");
         _viscaCamera = new SonyVisca(_mockClient.Object, false);
     }
 
@@ -147,7 +147,7 @@ public class SonyViscaIpTest
 
     public SonyViscaIpTest()
     {
-        _mockClient = new Mock<CommunicationClient>();
+        _mockClient = new Mock<CommunicationClient>("foo");
         _viscaCamera = new SonyVisca(_mockClient.Object, true);
     }
 

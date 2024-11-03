@@ -12,7 +12,7 @@ public class AvCodersTcpServer : Core_TcpClient
     private TcpListener _server;
     private readonly ConcurrentBag<TcpClient> _clients = new();
 
-    public AvCodersTcpServer(ushort port) : base("Any", port)
+    public AvCodersTcpServer(ushort port, string name = "") : base("Any", port, name)
     {
         _server = new TcpListener(IPAddress.Any, port);
         _server.Start();

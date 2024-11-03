@@ -9,7 +9,7 @@ public class AvCodersRestClient : RestComms
     private readonly Dictionary<string, string> _headers;
     private readonly Uri _uri;
     
-    public AvCodersRestClient(string host, ushort port, string protocol) : base(host, port)
+    public AvCodersRestClient(string host, ushort port, string protocol, string name = "") : base(host, port, name)
     {
         _headers = new Dictionary<string, string>();
         _uri = new Uri($"{protocol}://{host}:{port}", UriKind.Absolute);

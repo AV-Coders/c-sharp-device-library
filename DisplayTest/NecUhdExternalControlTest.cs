@@ -14,7 +14,7 @@ public class NecUhdExternalControlTest
     public NecUhdExternalControlTest(ITestOutputHelper testOutputHelper)
     {
         _testOutputHelper = testOutputHelper;
-        _mockClient = new Mock<TcpClient>("foo", (ushort)1);
+        _mockClient = new Mock<TcpClient>("foo", NecUhdExternalControl.DefaultPort, "bar");
         _display = new NecUhdExternalControl(_mockClient.Object, (byte)'A');
     }
     

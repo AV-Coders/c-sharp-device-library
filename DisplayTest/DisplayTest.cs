@@ -37,7 +37,7 @@ public class DisplayTest
 
     public DisplayTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", (ushort) 1);
+        _mockClient = new Mock<TcpClient>("foo", (ushort) 1, "bar");
         _mockLogHandler = new Mock<LogHandler>();
         _display = new DummyDisplay(_mockClient.Object, new List<Input> { Input.Hdmi1 });
         _display.LogHandlers += _mockLogHandler.Object;

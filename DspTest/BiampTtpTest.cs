@@ -10,7 +10,7 @@ public class BiampTtpTest
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();
-    private readonly Mock<TcpClient> _mockClient = new("foo", (ushort)1);
+    private readonly Mock<TcpClient> _mockClient = new("foo", BiampTtp.DefaultPort, "bar");
     private const string GainName = "Gain";
     private const string MuteName = "Mute";
     private const string StringName = "String";

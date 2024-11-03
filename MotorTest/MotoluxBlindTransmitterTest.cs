@@ -10,7 +10,7 @@ public class MotoluxBlindTransmitterTest
 
     public MotoluxBlindTransmitterTest()
     {
-        _mockClient = new Mock<SerialClient>();
+        _mockClient = new Mock<SerialClient>("foo");
         _device = new MotoluxBlindTransmitter("Blind", '\u0002', '\u0010', RelayAction.Lower, 30, _mockClient.Object);
     }
 

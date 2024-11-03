@@ -10,7 +10,7 @@ public class DyNetTest
 
     public DyNetTest()
     {
-        _mockClient = new("foo", (ushort)1);
+        _mockClient = new("foo", (ushort)1, "bar");
         _dyNet = new DyNet(_mockClient.Object);
     }
     

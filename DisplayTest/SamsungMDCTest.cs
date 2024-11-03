@@ -13,7 +13,7 @@ public class SamsungMDCTest
 
     public SamsungMDCTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", (ushort)1);
+        _mockClient = new Mock<TcpClient>("foo", SamsungMdc.DefaultPort, "bar");
         _samsungMdc = new SamsungMdc(_mockClient.Object, _displayId);
     }
 

@@ -6,7 +6,7 @@ public class ExtronSmp351Test
 {
     public abstract class StubbedClient : IpComms
     {
-        protected StubbedClient(string host, ushort port) : base(host, port){}
+        protected StubbedClient(string host, ushort port) : base(host, port, "StubbedClient"){}
 
         public override void Send(string message){}
 

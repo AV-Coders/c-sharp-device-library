@@ -10,7 +10,7 @@ public class ScreenTechnicsConnectTest
 
     public ScreenTechnicsConnectTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", ScreenTechnicsConnect.DefaultPort);
+        _mockClient = new Mock<TcpClient>("foo", ScreenTechnicsConnect.DefaultPort, "bar");
         _motor = new ScreenTechnicsConnect("Projector Screen", _mockClient.Object, RelayAction.Lower, 1, 2);
     }
     

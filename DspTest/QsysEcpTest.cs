@@ -11,7 +11,7 @@ public class QsysEcpTest
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();
     private readonly Mock<CommunicationStateHandler> _communicationStateHandler = new();
-    private readonly Mock<TcpClient> _mockClient = new("foo", (ushort)1);
+    private readonly Mock<TcpClient> _mockClient = new("foo", QsysEcp.DefaultPort, "bar");
     private const string GainName = "Gain";
     private const string MuteName = "Mute";
     private const string StringName = "String";
