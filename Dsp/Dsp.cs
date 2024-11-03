@@ -109,9 +109,9 @@ public class Fader : AudioBlock
         Report();
     }
 
-    public void SetVolumeFromPercentage(double precentage)
+    public void SetVolumeFromPercentage(double percentage)
     {
-        Volume = (int)precentage;
+        Volume = (int)percentage;
         Report();
     }
 
