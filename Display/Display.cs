@@ -16,8 +16,6 @@ public abstract class Display : VolumeControl, IDevice
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public InputHandler? InputHandlers;
-    public VolumeLevelHandler? VolumeLevelHandlers;
-    public MuteStateHandler? MuteStateHandlers;
     protected int Volume = 0;
     protected MuteState AudioMute = MuteState.Unknown;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
