@@ -160,6 +160,7 @@ public class BiampTtp : Dsp
 
     public override void Reinitialise()
     {
+        _pollCount = 0;
         _moduleQueries.ForEach(x => _activeQueries.Add(x));
     }
 
