@@ -58,7 +58,7 @@ public abstract class Conference : IDevice
         OutputVolume = new Fader(_ => {}, false);
         MicrophoneMute = new Mute(_ => {});
         OutputMute = new Mute(_ => {});
-        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), true);
         PollWorker.Restart();
     }
 
