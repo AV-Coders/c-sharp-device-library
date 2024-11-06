@@ -122,22 +122,21 @@ public class AvCodersSshClient : SshClientBase
 
             await Task.Delay(TimeSpan.FromSeconds(32), token);
         }
-        else
+        
+        if (_stream == null)
+            CreateStream();
+
+        try
         {
-            if (_stream == null)
-                CreateStream();
-
-            try
-            {
-                bool? test = _stream?.CanRead;
-            }
-            catch (ObjectDisposedException)
-            {
-                CreateStream();
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(5), token);
+            bool? test = _stream?.CanRead;
+            bool? test2 = _stream?.CanWrite;
         }
+        catch (ObjectDisposedException)
+        {
+            CreateStream();
+        }
+
+        await Task.Delay(TimeSpan.FromSeconds(5), token);
     }
 
     protected override async Task ProcessSendQueue(CancellationToken token)

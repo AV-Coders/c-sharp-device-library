@@ -45,11 +45,11 @@ public class VitecHttp : MediaPlayer, ISetTopBox
         catch (Exception e)
         {
             Log(e.Message);
-            Log(e.StackTrace);
+            Log(e.StackTrace?? "No stack trace available");
             if (e.InnerException == null)
                 return;
             Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace);
+            Log(e.InnerException.StackTrace?? "No stack trace available");
         }
     }
 

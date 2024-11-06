@@ -82,7 +82,7 @@ public class CiscoRoomOs : Conference
         _communicationClient.Send(command + "\r\n");
         UpdateCommunicationState(CommunicationState.Okay);
       }
-      catch (Exception ex)
+      catch (Exception)
       {
         UpdateCommunicationState(CommunicationState.Error);
       }

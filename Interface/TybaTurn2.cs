@@ -203,17 +203,17 @@ public class TybaTurn2
         }
     }
 
-    public void SetShadeLevel(int shade, int level) => SetLevel("shade", shade, level);
+    public void SetShadeLevel(int shade, int level) => _ = SetLevel("shade", shade, level);
 
-    public void SetLightLevel(int light, int level) => SetLevel("light", light, level);
+    public void SetLightLevel(int light, int level) => _ = SetLevel("light", light, level);
 
-    public void SetLightScene(int scene) => SetLevel("light_scenes", 1, scene);
+    public void SetLightScene(int scene) => _ = SetLevel("light_scenes", 1, scene);
 
-    public void SetClimateMode(int level) => SetLevel("modes", 1, level);
+    public void SetClimateMode(int level) => _ = SetLevel("modes", 1, level);
 
-    public void SetClimateFanSpeed(int level) => SetLevel("fan", 1, level);
-    public void SetClimateTargetTemperature(double level) => SetLevel("temperature", 1, level);
-    public void SetClimateCurrentTemperature(double level) => SetLevel("temperature", 2, level);
+    public void SetClimateFanSpeed(int level) => _ = SetLevel("fan", 1, level);
+    public void SetClimateTargetTemperature(double level) => _ = SetLevel("temperature", 1, level);
+    public void SetClimateCurrentTemperature(double level) => _ = SetLevel("temperature", 2, level);
 
     private async Task SetLevel(string type, int index, int value)
     {

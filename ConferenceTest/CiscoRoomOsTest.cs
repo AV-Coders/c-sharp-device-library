@@ -44,7 +44,7 @@ public class CiscoRoomOsTest
     [Fact]
     public void Module_RegistersAndSubscribes()
     {
-        _mockClient.Object.ConnectionStateHandlers.Invoke(ConnectionState.Connected);
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
         new List<string> {
         "xFeedback register /Status/Standby",
         "xFeedback register /Event/UserInterface/Extensions/Event",
@@ -79,7 +79,7 @@ public class CiscoRoomOsTest
     [Fact]
     public void HeartbeatOkayUpdatesCommunicationState()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("*r PeripheralsHeartBeatResult (status=OK): \n");
+        _mockClient.Object.ResponseHandlers!.Invoke("*r PeripheralsHeartBeatResult (status=OK): \n");
         
         _communicationStateHandlers.Verify(x => x.Invoke(CommunicationState.Okay), Times.Once);
     }
@@ -88,7 +88,7 @@ public class CiscoRoomOsTest
     [InlineData(50)]
     public void VolumeStatusResponse_UpdatesVolumeLevel(int volume)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"*s Audio Volume: {volume}\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"*s Audio Volume: {volume}\n");
         
         _outputVolumeLevelHandler.Verify(x => x.Invoke(volume));
     }
@@ -109,7 +109,7 @@ public class CiscoRoomOsTest
     [InlineData("On", MuteState.On)]
     public void MuteStatusResponse_UpdatesMuteState(string response, MuteState expectedState)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"*s Audio Microphones Mute: {response}\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"*s Audio Microphones Mute: {response}\n");
         
         _microphoneMuteStateHandler.Verify(x => x.Invoke(expectedState));
     }
@@ -137,7 +137,7 @@ public class CiscoRoomOsTest
     [InlineData("Off", PowerState.On)]
     public void StandbyStatusResponse_UpdatesPowerState(string response, PowerState expectedState)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"*s Standby State: {response}\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"*s Standby State: {response}\n");
         
         _powerStateHandlers.Verify(x => x.Invoke(expectedState));
     }
@@ -152,7 +152,7 @@ public class CiscoRoomOsTest
             "*s Call 203 DisplayName: \"*123456\"",
             "*s Call 203 Status: Dialling\n"
             
-        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         Assert.Single(_codec.GetActiveCalls());
         Assert.Equal(CallStatus.Dialling, _codec.GetActiveCalls()[0].Status);
@@ -171,7 +171,7 @@ public class CiscoRoomOsTest
             "*s Call 204 Status: Dialling\n",
             "*s Call 204 Status: Connected\n"
             
-        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         Assert.Single(_codec.GetActiveCalls());
         Assert.Equal(CallStatus.Connected, _codec.GetActiveCalls()[0].Status);
@@ -190,7 +190,7 @@ public class CiscoRoomOsTest
             "*s Call 204 Status: Connected\n",
             "*s Call 204 Status: Disconnecting\n"
             
-        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         Assert.Single(_codec.GetActiveCalls());
         Assert.Equal(CallStatus.Disconnecting, _codec.GetActiveCalls()[0].Status);
@@ -209,7 +209,7 @@ public class CiscoRoomOsTest
             "*s Call 204 Status: Disconnecting\n",
             "*s Call 204 Status: Idle\n"
             
-        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         Assert.Empty(_codec.GetActiveCalls());
     }
@@ -224,7 +224,7 @@ public class CiscoRoomOsTest
             "*s Call 204 DisplayName: \"*123456\"",
             "*s Call 204 Status: Ringing\n"
             
-        }.ForEach(command => _mockClient.Object.ResponseHandlers.Invoke(command));
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         
         Assert.Single(_codec.GetActiveCalls());
@@ -236,7 +236,7 @@ public class CiscoRoomOsTest
     [Fact]
     public void RegistrationUri_IsStored()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("*s SIP Registration 1 URI: \"300300@client.domain\"\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("*s SIP Registration 1 URI: \"300300@client.domain\"\n");
         
         Assert.Equal("300300@client.domain", _codec.GetUri());
     }

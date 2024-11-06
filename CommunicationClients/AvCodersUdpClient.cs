@@ -48,7 +48,7 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         if (_ipEndPoint == null)
         {
-            ReceiveThreadWorker.Stop();
+            await ReceiveThreadWorker.Stop();
             return;
         }
 

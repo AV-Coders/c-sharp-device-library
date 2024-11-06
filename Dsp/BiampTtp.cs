@@ -62,7 +62,7 @@ public class BiampTtp : Dsp
     private readonly List<string> _deviceSubscriptions = new();
     
 
-    public BiampTtp(CommunicationClient tcpClient, int pollTime = 50000) : base(pollTime)
+    public BiampTtp(CommunicationClient tcpClient, int pollTimeInMs = 29000) : base(pollTimeInMs)
     {
         _tcpClient = tcpClient;
         _tcpClient.ResponseHandlers += HandleResponse;
