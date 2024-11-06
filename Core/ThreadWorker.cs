@@ -70,6 +70,7 @@ public class ThreadWorker
             }
             catch (Exception ex)
             {
+                Console.WriteLine("ThreadWorker has encountered an exception while running a task:");
                 Console.WriteLine(ex);
             }
         }, token);
