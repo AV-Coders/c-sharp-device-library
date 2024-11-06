@@ -4,6 +4,49 @@ namespace AVCoders.Conference;
 
 public record CiscoRoomOsDeviceInfo(string Name, string SoftwareInfo, string HardwareInfo, string SerialNumber);
 
+public class CiscoRoomOsOutputFader : VolumeControl
+{
+  private readonly CiscoRoomOs _codec;
+    
+  public CiscoRoomOsOutputFader(string name, CiscoRoomOs codec, VolumeType type) : base(name, type)
+  {
+    _codec = codec;
+    _codec.OutputVolume.VolumeLevelHandlers += x => VolumeLevelHandlers?.Invoke(x);
+    _codec.OutputMute.MuteStateHandlers += x => MuteStateHandlers?.Invoke(x);
+  }
+
+  public override void LevelUp(int amount) => _codec.SetOutputVolume(_codec.OutputVolume.Volume + amount);
+
+  public override void LevelDown(int amount) => _codec.SetOutputVolume(_codec.OutputVolume.Volume - amount);
+
+  public override void SetLevel(int percentage) => _codec.SetOutputVolume(percentage);
+
+  public override void ToggleAudioMute() => _codec.ToggleOutputMute();
+
+  public override void SetAudioMute(MuteState state) => _codec.SetOutputMute(state);
+}
+
+public class CiscoRoomOsMicFader : VolumeControl
+{
+  private readonly CiscoRoomOs _codec;
+    
+  public CiscoRoomOsMicFader(string name, CiscoRoomOs codec, VolumeType type) : base(name, type)
+  {
+    _codec = codec;
+    _codec.MicrophoneMute.MuteStateHandlers += x => MuteStateHandlers?.Invoke(x);
+  }
+
+  public override void LevelUp(int amount) => throw new NotImplementedException("Cisco room os mic volume control is not supported");
+
+  public override void LevelDown(int amount) => throw new NotImplementedException("Cisco room os mic volume control is not supported");
+
+  public override void SetLevel(int percentage) => throw new NotImplementedException("Cisco room os mic volume control is not supported");
+
+  public override void ToggleAudioMute() => _codec.ToggleMicrophoneMute();
+
+  public override void SetAudioMute(MuteState state) => _codec.SetMicrophoneMute(state);
+}
+
 public class CiscoRoomOs : Conference
   {
     private readonly CommunicationClient _communicationClient;
