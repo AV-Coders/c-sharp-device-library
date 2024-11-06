@@ -68,10 +68,15 @@ public class ThreadWorker
             {
                 // Task was cancelled
             }
-            catch (Exception ex)
+            catch (Exception e)
             {
                 Console.WriteLine("ThreadWorker has encountered an exception while running a task:");
-                Console.WriteLine(ex);
+                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace ?? "No stack trace available");
+                if (e.InnerException == null)
+                    return;
+                Console.WriteLine(e.InnerException.Message);
+                Console.WriteLine(e.InnerException.StackTrace?? "No stack trace available");
             }
         }, token);
     }
