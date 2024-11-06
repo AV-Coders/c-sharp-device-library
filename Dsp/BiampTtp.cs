@@ -84,8 +84,16 @@ public class BiampTtp : Dsp
     {
         if (connectionState == ConnectionState.Connected)
         {
-            LogHandlers?.Invoke($"Re-establising subscriptions, subscription count: {_deviceSubscriptions.Count}");
-            _deviceSubscriptions.ForEach(subscriptionCommand => _tcpClient.Send(subscriptionCommand));
+            Log($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
+            Thread.Sleep(TimeSpan.FromSeconds(5));
+            _deviceSubscriptions.ForEach(subscriptionCommand =>
+            {
+                _tcpClient.Send(subscriptionCommand);
+                Log($"Sending: {subscriptionCommand}");
+            });
+            Thread.Sleep(TimeSpan.FromSeconds(1));
+            PollWorker.Restart();
+            
         }
         else
         {
@@ -95,13 +103,15 @@ public class BiampTtp : Dsp
 
     protected override Task Poll(CancellationToken token)
     {
-        if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
+        if (_tcpClient.GetConnectionState() != ConnectionState.Connected)
         {
-            if(_deviceQueries.Count > 0)
-                _tcpClient.Send(_deviceQueries[0].DspCommand);
-            else
-                _tcpClient.Send("DEVICE get version\n");
+            Log("IP Comms disconnected, not polling");
+            return Task.CompletedTask;
         }
+        Log("Device Connected - Polling");
+        _tcpClient.Send(_deviceQueries.Count > 0 ? 
+            _deviceQueries[0].DspCommand :
+            "DEVICE get version\n");
 
         return Task.CompletedTask;
     }
