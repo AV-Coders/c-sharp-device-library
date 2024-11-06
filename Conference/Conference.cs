@@ -53,12 +53,12 @@ public abstract class Conference : IDevice
     protected readonly ThreadWorker PollWorker;
     
 
-    protected Conference(int pollTime = 52)
+    protected Conference(int pollTimeInSeconds = 52)
     {
         OutputVolume = new Fader(_ => {}, false);
         MicrophoneMute = new Mute(_ => {});
         OutputMute = new Mute(_ => {});
-        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), true);
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTimeInSeconds), true);
         PollWorker.Restart();
     }
 
