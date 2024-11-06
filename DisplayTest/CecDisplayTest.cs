@@ -16,7 +16,7 @@ public class CecDisplayTest
     public CecDisplayTest()
     {
         _mockClient = new Mock<SerialClient>("foo");
-        _display = new CecDisplay(_mockClient.Object);
+        _display = new CecDisplay(_mockClient.Object, "Test display");
     }
 
     [Fact]

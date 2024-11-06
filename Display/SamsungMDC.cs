@@ -8,7 +8,14 @@ public class SamsungMdc : Display
     public static readonly ushort DefaultPort = 1515;
     private readonly byte _displayId;
     public readonly CommunicationClient CommunicationClient;
-    private readonly Dictionary<Input, byte> _inputDictionary;
+    private static readonly Dictionary<Input, byte> InputDictionary = new Dictionary<Input, byte>
+    {
+        { Input.Hdmi1, 0x21 },
+        { Input.Hdmi2, 0x23 },
+        { Input.Hdmi3, 0x31 },
+        { Input.Hdmi4, 0x33 },
+        { Input.DvbtTuner, 0x40 }
+    };
     private readonly Dictionary<MuteState, byte> _muteDictionary;
 
     private const byte Header = 0xAA;
@@ -24,10 +31,8 @@ public class SamsungMdc : Display
     private readonly byte[] _pollMuteCommand;
 
 
-    public SamsungMdc(CommunicationClient communicationClient, byte displayId) : base(new List<Input>
-    {
-        Input.Hdmi1, Input.Hdmi2, Input.Hdmi3, Input.Hdmi4, Input.DvbtTuner
-    })
+    public SamsungMdc(CommunicationClient communicationClient, byte displayId, string name) : 
+        base(InputDictionary.Keys.ToList(), name)
     {
         _displayId = displayId;
 
@@ -36,14 +41,7 @@ public class SamsungMdc : Display
 
         UpdateCommunicationState(CommunicationState.NotAttempted);
 
-        _inputDictionary = new Dictionary<Input, byte>
-        {
-            { Input.Hdmi1, 0x21 },
-            { Input.Hdmi2, 0x23 },
-            { Input.Hdmi3, 0x31 },
-            { Input.Hdmi4, 0x33 },
-            { Input.DvbtTuner, 0x40 }
-        };
+        
 
         _muteDictionary = new Dictionary<MuteState, byte>
         {
@@ -192,7 +190,7 @@ public class SamsungMdc : Display
         SendByteArray(commandWithChecksum);
     }
 
-    protected override void DoSetInput(Input input) => sendCommandWithOneDataLength(InputControlCommand, _inputDictionary[input]);
+    protected override void DoSetInput(Input input) => sendCommandWithOneDataLength(InputControlCommand, InputDictionary[input]);
 
     protected override void DoSetVolume(int volume) => sendCommandWithOneDataLength(VolumeControlCommand, (byte)volume);
 

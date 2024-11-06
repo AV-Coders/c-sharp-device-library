@@ -3,6 +3,8 @@ using AVCoders.Core;
 
 namespace AVCoders.Dsp;
 
+public record QscAudioBlockInfo(string Name, string LevelInstanceTag, string MuteInstanceTag);
+
 public class QscGain : Fader
 {
     public QscGain(VolumeLevelHandler volumeLevelHandler) : base(volumeLevelHandler, false)
@@ -22,6 +24,32 @@ public class QscInt : StringValue
     public QscInt(StringValueHandler stringValueHandler) : base(stringValueHandler)
     {
     }
+}
+
+public class QsysVolumeControl : VolumeControl
+{
+    private readonly string _levelNamedControl;
+    private readonly string _muteNamedControl;
+    private readonly QsysEcp _dsp;
+
+    public QsysVolumeControl(QscAudioBlockInfo audioBlockInfo, VolumeType type, QsysEcp dsp) : base(audioBlockInfo.Name, type)
+    {
+        _dsp = dsp;
+        _levelNamedControl = audioBlockInfo.LevelInstanceTag;
+        _muteNamedControl = audioBlockInfo.MuteInstanceTag;
+        _dsp.AddControl(volumeLevel => VolumeLevelHandlers?.Invoke(volumeLevel), _levelNamedControl);
+        _dsp.AddControl(muteState => MuteStateHandlers?.Invoke(muteState), _muteNamedControl);
+    }
+    
+    public override void LevelUp(int amount) => _dsp.LevelUp(_levelNamedControl, amount);
+
+    public override void LevelDown(int amount) => _dsp.LevelDown(_levelNamedControl, amount);
+
+    public override void SetLevel(int percentage) => _dsp.SetLevel(_levelNamedControl, percentage);
+
+    public override void ToggleAudioMute() => _dsp.ToggleAudioMute(_muteNamedControl);
+    
+    public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_muteNamedControl, state);
 }
 
 public class QsysEcp : Dsp

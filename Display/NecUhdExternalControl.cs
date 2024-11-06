@@ -24,7 +24,7 @@ public class NecUhdExternalControl : Display
         { Input.Hdmi4, new byte[] { 0x38, 0x33 } }
     };
 
-    public NecUhdExternalControl(CommunicationClient tcpClient, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList())
+    public NecUhdExternalControl(CommunicationClient tcpClient, string name, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name)
     {
         CommunicationClient = tcpClient;
         _displayId = displayId;

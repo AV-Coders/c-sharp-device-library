@@ -43,18 +43,19 @@ public class AvCodersSshClient : SshClientBase
 
     protected override async Task Receive(CancellationToken token)
     {
+        Log("Ready to receive messages...");
         if (_client.IsConnected && _stream is { CanRead: true })
         {
             while (_stream.Length > 0)
             {
                 ResponseHandlers?.Invoke(_stream.ReadLine() ?? string.Empty);
             }
-            await Task.Delay(50, token);
+            await Task.Delay(TimeSpan.FromMilliseconds(50), token);
         }
         else
         {
             Log("Client not connected or stream not ready, not reading");
-            await Task.Delay(5000, token);
+            await Task.Delay(TimeSpan.FromSeconds(5), token);
         }
     }
 
@@ -69,7 +70,7 @@ public class AvCodersSshClient : SshClientBase
             try
             {
                 await _client.ConnectAsync(token);
-                CreateStream();
+                await CreateStream(token);
             }
             catch (SshOperationTimeoutException e)
             {
@@ -124,8 +125,7 @@ public class AvCodersSshClient : SshClientBase
         }
         
         if (_stream == null)
-            CreateStream();
-
+            await CreateStream(token);
         try
         {
             bool? test = _stream?.CanRead;
@@ -133,7 +133,7 @@ public class AvCodersSshClient : SshClientBase
         }
         catch (ObjectDisposedException)
         {
-            CreateStream();
+            await CreateStream(token);
         }
 
         await Task.Delay(TimeSpan.FromSeconds(5), token);
@@ -155,13 +155,14 @@ public class AvCodersSshClient : SshClientBase
         }
     }
 
-    private void CreateStream()
+    private Task CreateStream(CancellationToken token)
     {
         Log("Recreating stream");
         _stream = _client.CreateShellStream("response", 1000, 1000, 1500, 1000, 8191, _modes);
         _stream!.ErrorOccurred += ClientOnErrorOccurred;
-        Thread.Sleep(1000);
+        Task.Delay(1000, token);
         UpdateConnectionState(ConnectionState.Connected);
+        return Task.CompletedTask;
     }
 
     private void AuthenticationMethodOnAuthenticationPrompt(object? sender, AuthenticationPromptEventArgs e)
@@ -176,6 +177,7 @@ public class AvCodersSshClient : SshClientBase
     {
         Log($"An error has occurred with the stream: \r\n{e.Exception.Message}", EventLevel.Error);
         Log(e.Exception.StackTrace ?? "No stack trace available", EventLevel.Error);
+        UpdateConnectionState(ConnectionState.Error);
     }
 
     public override void Send(string message)

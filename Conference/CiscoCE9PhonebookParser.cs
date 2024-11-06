@@ -88,8 +88,6 @@ public class CiscoCE9PhonebookParser
                         Log($"Unhandled ResultInfo key: {responses[3]}");
                         return CommunicationState.Error;
                 }
-
-                break;
             }
             case "Folder":
             {
@@ -115,7 +113,7 @@ public class CiscoCE9PhonebookParser
 
                 if (resultRow == _resultTotalRows)
                 {
-                    _currentInjestfolder.ContentsFetched = true;
+                    _currentInjestfolder!.ContentsFetched = true;
                     RequestNextPhoneBookFolder();
                     return CommunicationState.Okay;
                 }
@@ -124,13 +122,13 @@ public class CiscoCE9PhonebookParser
                 {
                     if (_resultTotalRows == _currentLimit)
                     {
-                        _currentInjestfolder.ContentsFetched = true;
+                        _currentInjestfolder!.ContentsFetched = true;
                         RequestNextPhoneBookFolder();
                         return CommunicationState.Okay;
                     }
                     
                     Comms.Invoke(
-                        $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder.FolderId}\n");
+                        $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder!.FolderId}\n");
                     
                     LogHandlers?.Invoke($" sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder.FolderId}");
                     return CommunicationState.Okay;

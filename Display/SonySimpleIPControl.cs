@@ -69,7 +69,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { RemoteButton.Menu, 7},
     };
 
-    public SonySimpleIpControl(TcpClient tcpClient)  : base(InputDictionary.Keys.ToList())
+    public SonySimpleIpControl(TcpClient tcpClient, string name) : base(InputDictionary.Keys.ToList(), name)
     {
         TcpClient = tcpClient;
         TcpClient.SetPort(DefaultPort);

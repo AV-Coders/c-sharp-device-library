@@ -11,7 +11,7 @@ public class PjLinkTest
     public PjLinkTest()
     {
         _mockClient = new Mock<TcpClient>("foo", PjLink.DefaultPort, "bar");
-        _display = new PjLink(_mockClient.Object);
+        _display = new PjLink(_mockClient.Object, "Test display");
     }
 
     [Fact]

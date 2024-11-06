@@ -4,7 +4,7 @@ namespace AVCoders.Display;
 
 public delegate void InputHandler(Input input);
 
-public abstract class Display : IDevice
+public abstract class Display : VolumeControl, IDevice
 {
     protected Input Input = Input.Unknown;
     protected Input DesiredInput = Input.Unknown;
@@ -29,7 +29,7 @@ public abstract class Display : IDevice
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
 
-    protected Display(List<Input> supportedInputs, int pollTime = 23)
+    protected Display(List<Input> supportedInputs, string name, int pollTime = 23) : base(name, VolumeType.Speaker)
     {
         SupportedInputs = supportedInputs;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
@@ -144,7 +144,25 @@ public abstract class Display : IDevice
 
     protected abstract void DoSetVolume(int percentage);
 
-    public void SetAudioMute(MuteState state)
+    public override void LevelUp(int amount)
+    {
+        int newVolume = Volume + amount;
+        if(newVolume > 100)
+            newVolume = 100;
+        SetVolume(newVolume);
+    }
+
+    public override void LevelDown(int amount)
+    {
+        int newVolume = Volume - amount;
+        if(newVolume < 0)
+            newVolume = 0;
+        SetVolume(newVolume);
+    }
+
+    public override void SetLevel(int level) => SetVolume(level);
+
+    public override void SetAudioMute(MuteState state)
     {
         DesiredAudioMute = state;
         DoSetAudioMute(state);
@@ -154,7 +172,7 @@ public abstract class Display : IDevice
 
     protected abstract void DoSetAudioMute(MuteState state);
 
-    public void ToggleAudioMute()
+    public override void ToggleAudioMute()
     {
         switch (AudioMute)
         {

@@ -21,7 +21,7 @@ public class LGCommercial : Display, ISetTopBox
     private readonly string _muteHeader = "ke";
     private readonly string _irccHeader = "mc";
     private readonly string _channelHeader = "ma";
-    private readonly Dictionary<Input, string> _inputDictionary = new()
+    private static readonly Dictionary<Input, string> InputDictionary = new()
     {
         { Input.Hdmi1, "90" },
         { Input.Hdmi2, "91" },
@@ -29,7 +29,7 @@ public class LGCommercial : Display, ISetTopBox
         { Input.Hdmi4, "93" },
         { Input.DvbtTuner, "00" }
     };
-    private readonly Dictionary<MuteState, string> _muteDictionary = new()
+    private static readonly Dictionary<MuteState, string> MuteDictionary = new()
     {
         { MuteState.On, "00" },
         { MuteState.Off, "01" }
@@ -76,11 +76,8 @@ public class LGCommercial : Display, ISetTopBox
         { RemoteButton.Menu, "43"},
     };
 
-    public LGCommercial(CommunicationClient comms, string? mac, int setId = 1) : base(new List<Input>
-    {
-        Input.Hdmi1, Input.Hdmi2, Input.Hdmi3, Input.Hdmi4, Input.DvbtTuner
-    },
-        12)
+    public LGCommercial(CommunicationClient comms, string name, string? mac, int setId = 1) : 
+        base(InputDictionary.Keys.ToList(), name, 12)
     {
         _comms = comms;
         _comms.ResponseHandlers += HandleResponse;
@@ -238,11 +235,11 @@ public class LGCommercial : Display, ISetTopBox
 
     protected override void DoPowerOff() => SendCommand(_powerHeader, "00");
 
-    protected override void DoSetInput(Input input) => SendCommand(_inputHeader, _inputDictionary[input]);
+    protected override void DoSetInput(Input input) => SendCommand(_inputHeader, InputDictionary[input]);
 
     protected override void DoSetVolume(int percentage) => SendCommand(_volumeHeader, $"{percentage:x2}");
 
-    protected override void DoSetAudioMute(MuteState state) => SendCommand(_muteHeader, _muteDictionary[state]);
+    protected override void DoSetAudioMute(MuteState state) => SendCommand(_muteHeader, MuteDictionary[state]);
 
     public void ChannelUp() => SendCommand(_irccHeader, "00");
 

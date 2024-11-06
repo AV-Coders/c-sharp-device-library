@@ -6,7 +6,7 @@ namespace AVCoders.Display.Tests;
 public class DummyDisplay : Display
 {
     private readonly TcpClient _client;
-    public DummyDisplay(TcpClient client, List<Input> supportedInputs) : base(supportedInputs) { _client = client; }
+    public DummyDisplay(TcpClient client, List<Input> supportedInputs) : base(supportedInputs, "dummy") { _client = client; }
     protected override Task Poll(CancellationToken token) => PollWorker.Stop();
 
     protected override void DoPowerOn() => _client.Send("Power On");

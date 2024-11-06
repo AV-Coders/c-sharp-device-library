@@ -14,6 +14,8 @@ public enum BiampQuery
 
 public record Query(string ArrayIndex, BiampQuery BiampQuery, string DspCommand);
 
+public record BiampAudioBlockInfo(string Name, string InstanceTag, int BlockIndex);
+
 public class BiampGain : Fader
 {
     public readonly int ControlIndex;
@@ -45,6 +47,32 @@ public class BiampInt : StringValue
     }
 }
 
+public class BiampVolumeControl : VolumeControl
+{
+    private readonly string _instanceTag;
+    private readonly int _index;
+    private readonly BiampTtp _dsp;
+
+    public BiampVolumeControl(BiampAudioBlockInfo audioBlockInfo, VolumeType type, BiampTtp dsp) : base(audioBlockInfo.Name, type)
+    {
+        _dsp = dsp;
+        _instanceTag = audioBlockInfo.InstanceTag;
+        _index = audioBlockInfo.BlockIndex;
+        
+        _dsp.AddControl(volumeLevel => VolumeLevelHandlers?.Invoke(volumeLevel), _instanceTag, _index);
+        _dsp.AddControl(muteState => MuteStateHandlers?.Invoke(muteState), _instanceTag, _index);
+    }
+    public override void LevelUp(int amount) => _dsp.LevelUp(_instanceTag, _index, amount);
+
+    public override void LevelDown(int amount) => _dsp.LevelDown(_instanceTag, _index, amount);
+
+    public override void SetLevel(int percentage) => _dsp.SetLevel(_instanceTag, _index, percentage);
+
+    public override void ToggleAudioMute() => _dsp.ToggleAudioMute(_instanceTag, _index);
+    
+    public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_instanceTag, state);
+}
+
 public class BiampTtp : Dsp
 {
     public static readonly ushort DefaultPort = 22;
@@ -55,18 +83,18 @@ public class BiampTtp : Dsp
     private readonly Dictionary<string, BiampInt> _strings = new();
     
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
-    private readonly CommunicationClient _tcpClient;
+    private readonly CommunicationClient _commsClient;
     private readonly Regex _subscriptionResponseParser;
 
     private readonly List<Query> _deviceQueries = new();
     private readonly List<string> _deviceSubscriptions = new();
     
 
-    public BiampTtp(CommunicationClient tcpClient, int pollTimeInMs = 29000) : base(pollTimeInMs)
+    public BiampTtp(CommunicationClient commsClient, int pollTimeInMs = 29000) : base(pollTimeInMs)
     {
-        _tcpClient = tcpClient;
-        _tcpClient.ResponseHandlers += HandleResponse;
-        _tcpClient.ConnectionStateHandlers += HandleConnectionState;
+        _commsClient = commsClient;
+        _commsClient.ResponseHandlers += HandleResponse;
+        _commsClient.ConnectionStateHandlers += HandleConnectionState;
         
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -77,7 +105,7 @@ public class BiampTtp : Dsp
         string subscriptionResponsePattern = "\":\"(.+)\" \"value\":(.+)";
         _subscriptionResponseParser = new Regex(subscriptionResponsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(200));
 
-        HandleConnectionState(tcpClient.GetConnectionState());
+        HandleConnectionState(commsClient.GetConnectionState());
     }
     
     private void HandleConnectionState(ConnectionState connectionState)
@@ -88,7 +116,7 @@ public class BiampTtp : Dsp
             Thread.Sleep(TimeSpan.FromSeconds(5));
             _deviceSubscriptions.ForEach(subscriptionCommand =>
             {
-                _tcpClient.Send(subscriptionCommand);
+                _commsClient.Send(subscriptionCommand);
                 Log($"Sending: {subscriptionCommand}");
             });
             Thread.Sleep(TimeSpan.FromSeconds(1));
@@ -97,19 +125,19 @@ public class BiampTtp : Dsp
         }
         else
         {
-            CommunicationState = CommunicationState.Error;
+            UpdateCommunicationState(CommunicationState.Error);
         }
     }
 
     protected override Task Poll(CancellationToken token)
     {
-        if (_tcpClient.GetConnectionState() != ConnectionState.Connected)
+        if (_commsClient.GetConnectionState() != ConnectionState.Connected)
         {
             Log("IP Comms disconnected, not polling");
             return Task.CompletedTask;
         }
         Log("Device Connected - Polling");
-        _tcpClient.Send(_deviceQueries.Count > 0 ? 
+        _commsClient.Send(_deviceQueries.Count > 0 ? 
             _deviceQueries[0].DspCommand :
             "DEVICE get version\n");
 
@@ -134,20 +162,24 @@ public class BiampTtp : Dsp
 
     private void ProcessChangeNotification(string line)
     {
-        // ! "publishToken":"AvCodersLevel-court_mics-1" "value":-6.000000
         if (!line.Contains("publishToken"))
             return;
         var match = _subscriptionResponseParser.Match(line);
         if (_gains.ContainsKey(match.Groups[1].Value))
+        {
             _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[2].Value));
+            UpdateCommunicationState(CommunicationState.Okay);
+        }
 
         if (_mutes.ContainsKey(match.Groups[1].Value))
+        {
             _mutes[match.Groups[1].Value].MuteState =  match.Groups[2].Value.Contains("true") ? MuteState.On : MuteState.Off;
+            UpdateCommunicationState(CommunicationState.Okay);
+        }
     }
 
     private void AllocateValueToBlock(string value)
     {
-        // +OK "value":12.000000
         if (_deviceQueries.Count == 0)
             return;
         var currentPolledBlock = _deviceQueries[0].ArrayIndex;
@@ -166,17 +198,21 @@ public class BiampTtp : Dsp
                     _gains[currentPolledBlock].SetMinGain(Double.Parse(value));
                     break;
             }
+            
+            UpdateCommunicationState(CommunicationState.Okay);
         }
 
         if (_mutes.ContainsKey(currentPolledBlock) && _deviceQueries[0].BiampQuery == BiampQuery.Mute)
         {
             _mutes[currentPolledBlock].MuteState = value == "true" ? MuteState.On : MuteState.Off;
             _mutes[currentPolledBlock].Report();
+            
+            UpdateCommunicationState(CommunicationState.Okay);
         }
 
         _deviceQueries.Remove(_deviceQueries[0]);
         if(_deviceQueries.Count > 0)
-            _tcpClient.Send(_deviceQueries[0].DspCommand);
+            _commsClient.Send(_deviceQueries[0].DspCommand);
     }
 
     public void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex)
@@ -194,7 +230,7 @@ public class BiampTtp : Dsp
             _deviceQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
             _deviceQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
 
-            _tcpClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
+            _commsClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
         }
     }
@@ -216,7 +252,7 @@ public class BiampTtp : Dsp
         {
             _mutes.Add(arrayIndex, new BiampMute(muteStateHandler, muteName, controlIndex));
 
-            _tcpClient.Send($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
+            _commsClient.Send($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
         }
     }
@@ -241,13 +277,13 @@ public class BiampTtp : Dsp
         // DEVICE recallPreset 1001
         // Value must be between 1001 and 9999.
         if(presetNumber > 1000 && presetNumber < 10000)
-            _tcpClient.Send($"DEVICE recallPreset {presetNumber}\n");
+            _commsClient.Send($"DEVICE recallPreset {presetNumber}\n");
     }
 
     public void SetLevel(string controlName, int controlIndex, int percentage)
     {
         var index = $"AvCodersLevel-{controlName}-{controlIndex}";
-        _tcpClient.Send($"{controlName} set level {controlIndex} {_gains[index].PercentageToDb(percentage)}\n");
+        _commsClient.Send($"{controlName} set level {controlIndex} {_gains[index].PercentageToDb(percentage)}\n");
     }
 
     public void LevelUp(string controlName, int index, int amount)
@@ -262,7 +298,7 @@ public class BiampTtp : Dsp
 
     public void SetAudioMute(string controlName, int controlIndex, MuteState muteState)
     {
-        _tcpClient.Send($"{controlName} set mute {controlIndex} {_muteStateDictionary[muteState]}\n");
+        _commsClient.Send($"{controlName} set mute {controlIndex} {_muteStateDictionary[muteState]}\n");
     }
 
     public void ToggleAudioMute(string controlName, int controlIndex)

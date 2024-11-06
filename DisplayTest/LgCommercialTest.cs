@@ -16,7 +16,7 @@ public class LgCommercialTest
     public LgCommercialTest()
     {
         _client = new Mock<TcpClient>("foo", LGCommercial.DefaultPort, "bar");
-        _display = new LGCommercial(_client.Object, "00-00-00-00-00-00",0);
+        _display = new LGCommercial(_client.Object, "Test display", "00-00-00-00-00-00",0);
     }
     
     [Fact]

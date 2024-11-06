@@ -85,8 +85,8 @@ public class CecDisplay : Display, ISetTopBox
         { Input.Network6, '\x60' }
     }; 
 
-    public CecDisplay(SerialClient cecStream, char sourceId = SourcePlayBack1, char destinationId = DestinationTv, int pollTime = 23) 
-        : base(InputMap.Keys.ToList(), pollTime)
+    public CecDisplay(SerialClient cecStream, string name,  char sourceId = SourcePlayBack1, char destinationId = DestinationTv, int pollTime = 23) 
+        : base(InputMap.Keys.ToList(), name, pollTime)
     {
         _cecStream = cecStream;
         _cecStream.ResponseHandlers += HandleResponse;
