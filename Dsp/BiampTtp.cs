@@ -112,21 +112,25 @@ public class BiampTtp : Dsp
     {
         if (connectionState == ConnectionState.Connected)
         {
-            Log($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
-            Thread.Sleep(TimeSpan.FromSeconds(5));
-            _deviceSubscriptions.ForEach(subscriptionCommand =>
-            {
-                _commsClient.Send(subscriptionCommand);
-                Log($"Sending: {subscriptionCommand}");
-            });
-            Thread.Sleep(TimeSpan.FromSeconds(1));
-            PollWorker.Restart();
-            
+            Resubscribe();
         }
         else
         {
             UpdateCommunicationState(CommunicationState.Error);
         }
+    }
+
+    private void Resubscribe()
+    {
+        Log($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
+        Thread.Sleep(TimeSpan.FromSeconds(5));
+        _deviceSubscriptions.ForEach(subscriptionCommand =>
+        {
+            _commsClient.Send(subscriptionCommand);
+            Log($"Sending: {subscriptionCommand}");
+        });
+        Thread.Sleep(TimeSpan.FromSeconds(1));
+        PollWorker.Restart();
     }
 
     protected override Task Poll(CancellationToken token)
@@ -157,6 +161,8 @@ public class BiampTtp : Dsp
             {   
                 ProcessChangeNotification(line);
             }
+            else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
+                Resubscribe();
         }
     }
 
