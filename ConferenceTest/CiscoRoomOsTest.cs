@@ -44,7 +44,7 @@ public class CiscoRoomOsTest
     [Fact]
     public void Module_RegistersAndSubscribes()
     {
-        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
         new List<string> {
         "xFeedback register /Status/Standby",
         "xFeedback register /Event/UserInterface/Extensions/Event",

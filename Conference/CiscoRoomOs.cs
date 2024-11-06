@@ -18,19 +18,10 @@ public class CiscoRoomOs : Conference
       _communicationClient = communicationClient;
       _deviceInfo = deviceInfo;
       _communicationClient.ResponseHandlers += HandleResponse;
-      _communicationClient.ConnectionStateHandlers += HandleConnectionState;
 
       PhoneBookParser = new CiscoCE9PhonebookParser();
       PhoneBookParser.Comms += _communicationClient.Send;
       PhoneBookParser.LogHandlers += (message, level) => Log($"Phonebook - {message}");
-      
-      HandleConnectionState(_communicationClient.GetConnectionState());
-    }
-
-    private void HandleConnectionState(ConnectionState connectionState)
-    {
-      if (connectionState == ConnectionState.Connected)
-        Reinitialise();
     }
 
     private void Reinitialise()
@@ -171,6 +162,10 @@ public class CiscoRoomOs : Conference
       else if (response.Contains("SIP Registration 1 URI:"))
       {
         Uri = responses[5].Trim().Trim('"');
+      }
+      else if (response.StartsWith("*r Login successful"))
+      {
+        Reinitialise();
       }
     }
 
