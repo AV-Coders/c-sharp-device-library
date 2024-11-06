@@ -193,21 +193,23 @@ public class CiscoRoomOs : Conference
           ActiveCalls[callId].Number = responses[4].Trim().Trim('"');
           break;
       }
-      
     }
 
     public override void SetOutputVolume(int volume)
     {
       SendCommand($"xCommand Audio Volume Set Level: {volume}");
+      OutputVolume.SetVolumeFromPercentage(volume);
     }
     
     public override void SetOutputMute(MuteState state)
     {
       SendCommand($"xCommand Audio Volume {(state == MuteState.On ? "Mute": "Unmute")}");
+      OutputMute.MuteState = state;
     }
 
     public override void SetMicrophoneMute(MuteState state)
     {
       SendCommand($"xCommand Audio Microphones {(state == MuteState.On ? "Mute": "Unmute")}");
+      MicrophoneMute.MuteState = state;
     }
   }
