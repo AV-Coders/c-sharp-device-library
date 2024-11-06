@@ -315,6 +315,8 @@ public class QsysEcp : Dsp
         return _strings[intName].Value;
     }
 
+    public override void Reinitialise() => GetAllControlStates();
+
     public void RecallPreset(string controlName)
     {
             _tcpClient.Send($"csv \"{controlName}\" 1 \n");

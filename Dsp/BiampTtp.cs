@@ -86,8 +86,10 @@ public class BiampTtp : Dsp
     private readonly CommunicationClient _commsClient;
     private readonly Regex _subscriptionResponseParser;
 
-    private readonly List<Query> _deviceQueries = new();
+    private readonly List<Query> _moduleQueries = new();
+    private readonly List<Query> _activeQueries = new();
     private readonly List<string> _deviceSubscriptions = new();
+    private int _pollCount = 0;
     
 
     public BiampTtp(CommunicationClient commsClient, int pollTimeInMs = 29000) : base(pollTimeInMs)
@@ -141,11 +143,20 @@ public class BiampTtp : Dsp
             return Task.CompletedTask;
         }
         Log("Device Connected - Polling");
-        _commsClient.Send(_deviceQueries.Count > 0 ? 
-            _deviceQueries[0].DspCommand :
+        _commsClient.Send(_activeQueries.Count > 0 ? 
+            _activeQueries[0].DspCommand :
             "DEVICE get version\n");
 
+        _pollCount++;
+        
+        if(_pollCount > 10) // Re-query every 20 poll cycles.  _pollCount will be reset whenever a level/mute change as well
+            Reinitialise();
         return Task.CompletedTask;
+    }
+
+    public override void Reinitialise()
+    {
+        _moduleQueries.ForEach(x => _activeQueries.Add(x));
     }
 
     private void HandleResponse(string response)
@@ -162,7 +173,10 @@ public class BiampTtp : Dsp
                 ProcessChangeNotification(line);
             }
             else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
+            {
+                Thread.Sleep(5000);
                 Resubscribe();
+            }
         }
     }
 
@@ -186,13 +200,13 @@ public class BiampTtp : Dsp
 
     private void AllocateValueToBlock(string value)
     {
-        if (_deviceQueries.Count == 0)
+        if (_activeQueries.Count == 0)
             return;
-        var currentPolledBlock = _deviceQueries[0].ArrayIndex;
+        var currentPolledBlock = _activeQueries[0].ArrayIndex;
         
         if (_gains.ContainsKey(currentPolledBlock))
         {
-            switch (_deviceQueries[0].BiampQuery)
+            switch (_activeQueries[0].BiampQuery)
             {
                 case BiampQuery.Level:
                     _gains[currentPolledBlock].SetVolumeFromDb(Double.Parse(value));
@@ -208,7 +222,7 @@ public class BiampTtp : Dsp
             UpdateCommunicationState(CommunicationState.Okay);
         }
 
-        if (_mutes.ContainsKey(currentPolledBlock) && _deviceQueries[0].BiampQuery == BiampQuery.Mute)
+        if (_mutes.ContainsKey(currentPolledBlock) && _activeQueries[0].BiampQuery == BiampQuery.Mute)
         {
             _mutes[currentPolledBlock].MuteState = value == "true" ? MuteState.On : MuteState.Off;
             _mutes[currentPolledBlock].Report();
@@ -216,9 +230,9 @@ public class BiampTtp : Dsp
             UpdateCommunicationState(CommunicationState.Okay);
         }
 
-        _deviceQueries.Remove(_deviceQueries[0]);
-        if(_deviceQueries.Count > 0)
-            _commsClient.Send(_deviceQueries[0].DspCommand);
+        _activeQueries.Remove(_activeQueries[0]);
+        if(_activeQueries.Count > 0)
+            _commsClient.Send(_activeQueries[0].DspCommand);
     }
 
     public void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex)
@@ -232,9 +246,12 @@ public class BiampTtp : Dsp
         else
         {
             _gains.Add(arrayIndex, new BiampGain(volumeLevelHandler, controlName, controlIndex));
-            _deviceQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
-            _deviceQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
-            _deviceQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+            _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
+            _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
+            _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+            _activeQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
+            _activeQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
+            _activeQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
 
             _commsClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
@@ -284,12 +301,14 @@ public class BiampTtp : Dsp
         // Value must be between 1001 and 9999.
         if(presetNumber > 1000 && presetNumber < 10000)
             _commsClient.Send($"DEVICE recallPreset {presetNumber}\n");
+        _pollCount = 0;
     }
 
     public void SetLevel(string controlName, int controlIndex, int percentage)
     {
         var index = $"AvCodersLevel-{controlName}-{controlIndex}";
         _commsClient.Send($"{controlName} set level {controlIndex} {_gains[index].PercentageToDb(percentage)}\n");
+        _pollCount = 0;
     }
 
     public void LevelUp(string controlName, int index, int amount)
@@ -305,6 +324,7 @@ public class BiampTtp : Dsp
     public void SetAudioMute(string controlName, int controlIndex, MuteState muteState)
     {
         _commsClient.Send($"{controlName} set mute {controlIndex} {_muteStateDictionary[muteState]}\n");
+        _pollCount = 0;
     }
 
     public void ToggleAudioMute(string controlName, int controlIndex)
@@ -323,7 +343,7 @@ public class BiampTtp : Dsp
     
     public override void SetValue(string controlName, string value)
     {
-        throw new NotImplementedException();
+        _pollCount = 0;
     }
 
     public int GetLevel(string controlName, int controlIndex)

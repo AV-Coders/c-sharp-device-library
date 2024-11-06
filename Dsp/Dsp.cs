@@ -58,6 +58,8 @@ public abstract class Dsp : IDevice
     public abstract int GetLevel(string controlName);
     public abstract MuteState GetAudioMute(string controlName);
     public abstract String GetValue(string controlName);
+
+    public abstract void Reinitialise();
 }
 
 public abstract class AudioBlock

@@ -201,4 +201,6 @@ public class BoseCspSoIP : Dsp
 
     public override string GetValue(string controlName)
         => !_selects.TryGetValue(controlName, out var select) ? String.Empty : select.Value;
+
+    public override void Reinitialise() => Log("This module doesn't pull data from the DSP");
 }
