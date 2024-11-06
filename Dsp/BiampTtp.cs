@@ -143,9 +143,13 @@ public class BiampTtp : Dsp
             return Task.CompletedTask;
         }
         Log("Device Connected - Polling");
-        _commsClient.Send(_activeQueries.Count > 0 ? 
-            _activeQueries[0].DspCommand :
-            "DEVICE get version\n");
+        if(_activeQueries.Count > 0)
+            _commsClient.Send(_activeQueries[0].DspCommand);
+        else
+        {
+            _activeQueries.Clear();
+            _commsClient.Send("DEVICE get version\n");
+        }
 
         _pollCount++;
         
