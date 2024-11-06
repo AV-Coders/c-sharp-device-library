@@ -30,12 +30,10 @@ public class CiscoRoomOs : Conference
     private void HandleConnectionState(ConnectionState connectionState)
     {
       if (connectionState == ConnectionState.Connected)
-        InitialiseModule();
-      else
-        PollWorker.Stop();
+        Reinitialise();
     }
 
-    private void InitialiseModule()
+    private void Reinitialise()
     {
       PollWorker.Stop();
       try
@@ -150,7 +148,7 @@ public class CiscoRoomOs : Conference
         UpdateCommunicationState(response.Contains("status=OK")? CommunicationState.Okay : CommunicationState.Error);
 
         if (CommunicationState == CommunicationState.Error)
-          InitialiseModule();
+          Reinitialise();
       }
       else if (response.Contains("Call"))
       {
