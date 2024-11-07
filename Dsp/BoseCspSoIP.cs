@@ -52,6 +52,32 @@ public class BoseSelect : StringValue
     }
 }
 
+public record BoseAudioBlockInfo(string Name, string ControlName);
+
+public class BoseCspSoIPVolumeControl : VolumeControl
+{
+    private readonly string _controlName;
+    private readonly BoseCspSoIP _dsp;
+
+    public BoseCspSoIPVolumeControl(BoseAudioBlockInfo audioBlockInfo, VolumeType type, BoseCspSoIP dsp) : base(audioBlockInfo.Name, type)
+    {
+        _dsp = dsp;
+        _controlName = audioBlockInfo.ControlName;
+        _dsp.AddControl(volumeLevel => VolumeLevelHandlers?.Invoke(volumeLevel), _controlName);
+        _dsp.AddControl(muteState => MuteStateHandlers?.Invoke(muteState), _controlName);
+    }
+    
+    public override void LevelUp(int amount) => _dsp.LevelUp(_controlName, amount);
+
+    public override void LevelDown(int amount) => _dsp.LevelDown(_controlName, amount);
+
+    public override void SetLevel(int percentage) => _dsp.SetLevel(_controlName, percentage);
+
+    public override void ToggleAudioMute() => _dsp.ToggleAudioMute(_controlName);
+    
+    public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_controlName, state);
+}
+
 public class BoseCspSoIP : Dsp
 {
     public static readonly ushort DefaultPort = 10055;
