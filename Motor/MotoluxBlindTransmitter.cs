@@ -4,6 +4,9 @@ namespace AVCoders.Motor;
 
 public class MotoluxBlindTransmitter : Motor
 {
+    public static readonly SerialSpec DefaultSpec = new SerialSpec(SerialBaud.Rate2400, SerialParity.None,
+        SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs485);
+    
     private readonly SerialClient _client;
 
     private readonly char _commandHeader = '\u009a';
