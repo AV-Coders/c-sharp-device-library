@@ -39,6 +39,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Lighting", "Lighting\Lighti
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LightingTest", "LightingTest\LightingTest.csproj", "{5F5CF50D-3F75-451E-A494-519CC6F50857}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Power", "Power\Power.csproj", "{5C21AA81-51B8-4FDB-B85E-7202CAA2C334}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PowerTest", "PowerTest\PowerTest.csproj", "{1E51A261-B3D8-480F-8FE2-1C0A573F0A8B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -125,5 +129,13 @@ Global
 		{5F5CF50D-3F75-451E-A494-519CC6F50857}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5F5CF50D-3F75-451E-A494-519CC6F50857}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5F5CF50D-3F75-451E-A494-519CC6F50857}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C21AA81-51B8-4FDB-B85E-7202CAA2C334}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C21AA81-51B8-4FDB-B85E-7202CAA2C334}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C21AA81-51B8-4FDB-B85E-7202CAA2C334}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C21AA81-51B8-4FDB-B85E-7202CAA2C334}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1E51A261-B3D8-480F-8FE2-1C0A573F0A8B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1E51A261-B3D8-480F-8FE2-1C0A573F0A8B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1E51A261-B3D8-480F-8FE2-1C0A573F0A8B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1E51A261-B3D8-480F-8FE2-1C0A573F0A8B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
