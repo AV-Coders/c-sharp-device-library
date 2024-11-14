@@ -3,7 +3,7 @@ using EventLevel = AVCoders.Core.EventLevel;
 
 namespace AVCoders.Camera;
 
-public class SonyVisca : Camera
+public class SonyVisca : CameraBase
 {
     private enum PayloadType
     {
@@ -97,7 +97,7 @@ public class SonyVisca : Camera
         _tiltSpeed = speed;
     }
 
-    public void setZoomSpeed(byte speed)
+    public void SetZoomSpeed(byte speed)
     {
         _zoomInSpeed = (byte)(speed + 0x20);
         _zoomOutSpeed = (byte)(speed + 0x30);

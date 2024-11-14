@@ -5,12 +5,8 @@ namespace AVCoders.Dsp;
 
 public delegate void StringValueHandler(string value);
 
-public abstract class Dsp : IDevice
+public abstract class Dsp : DeviceBase
 {
-    protected PowerState PowerState = PowerState.Unknown;
-    protected CommunicationState CommunicationState = CommunicationState.Unknown;
-    public LogHandler? LogHandlers;
-    public CommunicationStateHandler? CommunicationStateHandlers;
 
     protected readonly ThreadWorker PollWorker;
 
@@ -25,24 +21,6 @@ public abstract class Dsp : IDevice
     }
 
     protected abstract Task Poll(CancellationToken token);
-
-    public PowerState GetCurrentPowerState() => PowerState;
-
-    public CommunicationState GetCurrentCommunicationState() => CommunicationState;
-
-    protected void Log(string message) => LogHandlers?.Invoke(message);
-    protected void Error(string message) => LogHandlers?.Invoke(message, EventLevel.Error);
-
-    protected void UpdateCommunicationState(CommunicationState state)
-    {
-        CommunicationState = state;
-        CommunicationStateHandlers?.Invoke(state);
-    }
-
-    public abstract void PowerOn();
-
-    public abstract void PowerOff();
-
     public abstract void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName);
     public abstract void AddControl(MuteStateHandler muteStateHandler, string muteName);
     public abstract void AddControl(StringValueHandler stringValueHandler, string controlName);

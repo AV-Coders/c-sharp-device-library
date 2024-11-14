@@ -29,30 +29,18 @@ public enum CallStatus
     Unknown, Dialling, Connected, Disconnecting, Ringing, Idle
 }
 
-public abstract class Conference : IDevice
+public abstract class Conference : DeviceBase
 {
-    protected PowerState PowerState = PowerState.Unknown;
-    protected PowerState DesiredPowerState = PowerState.Unknown;
-    protected CommunicationState CommunicationState = CommunicationState.Unknown;
-    protected string Uri = String.Empty;
-    protected Dictionary<int, Call> ActiveCalls = new ();
-    public LogHandler? LogHandlers;
-    public PowerStateHandler? PowerStateHandlers;
-    public CommunicationStateHandler? CommunicationStateHandlers;
     public readonly Fader OutputVolume;
     public readonly Mute OutputMute;
     public readonly Mute MicrophoneMute;
     public List<Call> GetActiveCalls() => ActiveCalls.Values.ToList().FindAll(x => x.Status != CallStatus.Idle);
-
-    public PowerState GetCurrentPowerState() => PowerState;
-    
     public string GetUri() => Uri;
-
-    public CommunicationState GetCurrentCommunicationState() => CommunicationState;
-
+    
+    protected string Uri = String.Empty;
+    protected Dictionary<int, Call> ActiveCalls = new ();
     protected readonly ThreadWorker PollWorker;
     
-
     protected Conference(int pollTimeInSeconds = 52)
     {
         OutputVolume = new Fader(_ => {}, false);
@@ -62,47 +50,24 @@ public abstract class Conference : IDevice
         PollWorker.Restart();
     }
 
-    protected void ProcessPowerResponse()
-    {
-        PowerStateHandlers?.Invoke(PowerState);
-        if (PowerState == DesiredPowerState)
-            return;
-        if (DesiredPowerState == PowerState.Unknown)
-            return;
-        Log("Forcing Power");
-        if (DesiredPowerState == PowerState.Off)
-            PowerOff();
-        else if (DesiredPowerState == PowerState.On) 
-            PowerOn();
-    }
-
     protected abstract Task Poll(CancellationToken token);
 
-    protected void Log(string message) => LogHandlers?.Invoke($"{GetType()} - {message}");
-
-    protected void UpdateCommunicationState(CommunicationState state)
-    {
-        CommunicationState = state;
-        CommunicationStateHandlers?.Invoke(state);
-    }
-    public void PowerOn()
+    public override void PowerOn()
     {
         DoPowerOn();
         Log("Turning On");
-        PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
-        PowerStateHandlers?.Invoke(DesiredPowerState);
+        PowerState = PowerState.On;
     }
 
     protected abstract void DoPowerOn();
 
-    public void PowerOff()
+    public override void PowerOff()
     {
         DoPowerOff();
         Log("Turning Off");
-        PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
-        PowerStateHandlers?.Invoke(DesiredPowerState);
+        PowerState = PowerState.Off;
         ActiveCalls.Keys.ToList().ForEach(x =>
         {
             if (ActiveCalls[x].Status == CallStatus.Idle)
@@ -126,14 +91,8 @@ public abstract class Conference : IDevice
     
     public abstract void SetMicrophoneMute(MuteState state);
 
-    public void ToggleOutputMute()
-    {
-        SetOutputMute(OutputMute.MuteState == MuteState.On ? MuteState.Off : MuteState.On);
-    }
+    public void ToggleOutputMute() => SetOutputMute(OutputMute.MuteState == MuteState.On ? MuteState.Off : MuteState.On);
 
-    public void ToggleMicrophoneMute()
-    {
-        SetMicrophoneMute(MicrophoneMute.MuteState == MuteState.On ? MuteState.Off : MuteState.On);
-    }
+    public void ToggleMicrophoneMute() => SetMicrophoneMute(MicrophoneMute.MuteState == MuteState.On ? MuteState.Off : MuteState.On);
     
 }

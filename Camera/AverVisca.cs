@@ -2,7 +2,7 @@ using AVCoders.Core;
 
 namespace AVCoders.Camera;
 
-public class AverVisca : SonyVisca, IAutoTrackingCamera
+public class AverVisca : SonyVisca
 {
     public static readonly SerialSpec DefaultSerialConfig = new SerialSpec(
         SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232

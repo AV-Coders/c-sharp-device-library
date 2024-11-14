@@ -17,13 +17,13 @@ public class ServerEdgeOutlet : Outlet
 
     public override void PowerOn()
     {
-        CurrentPowerState = PowerState.On;
+        PowerState = PowerState.On;
         _pdu.TurnOnOutlet();
     }
 
     public override void PowerOff()
     {
-        CurrentPowerState = PowerState.Off;
+        PowerState = PowerState.Off;
         _pdu.TurnOffOutlet();
     }
 }
@@ -116,7 +116,7 @@ public class ServerEdgePdu: Pdu
     public void TurnOnOutlet()
     {
         StringBuilder sb = new StringBuilder();
-        Outlets.ForEach(outlet => { sb.Append(outlet.CurrentPowerState == PowerState.On ? "1" : "0"); });
+        Outlets.ForEach(outlet => { sb.Append(outlet.PowerState == PowerState.On ? "1" : "0"); });
         Uri powerOnUri = new Uri(_onUri, sb.ToString());
         _restClient.Get(powerOnUri);
     }
@@ -124,20 +124,20 @@ public class ServerEdgePdu: Pdu
     public void TurnOffOutlet()
     {
         StringBuilder sb = new StringBuilder();
-        Outlets.ForEach(outlet => { sb.Append(outlet.CurrentPowerState == PowerState.On ? "1" : "0"); });
+        Outlets.ForEach(outlet => { sb.Append(outlet.PowerState == PowerState.On ? "1" : "0"); });
         Uri powerOffUri = new Uri(_offUri, sb.ToString());
         _restClient.Get(powerOffUri);
     }
 
     public override void PowerOn()
     {
-        Outlets.ForEach(x => x.CurrentPowerState = PowerState.On);
+        Outlets.ForEach(x => x.PowerState = PowerState.On);
         TurnOnOutlet();
     }
 
     public override void PowerOff()
     {
-        Outlets.ForEach(x => x.CurrentPowerState = PowerState.Off);
+        Outlets.ForEach(x => x.PowerState = PowerState.Off);
         TurnOffOutlet();
     }
 }

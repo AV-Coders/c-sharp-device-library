@@ -6,10 +6,12 @@ public abstract class DeviceBase : IDevice
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     
-    private PowerState _powerState;
-    private CommunicationState _communicationState;
+    protected PowerState DesiredPowerState = PowerState.Unknown;
+    
+    private PowerState _powerState = PowerState.Unknown;
+    private CommunicationState _communicationState = CommunicationState.Unknown;
 
-    public PowerState CurrentPowerState
+    public PowerState PowerState
     {
         get => _powerState;
         set
@@ -34,16 +36,26 @@ public abstract class DeviceBase : IDevice
         }
     }
 
-    protected DeviceBase()
+    protected void ProcessPowerState()
     {
-        _powerState = PowerState.Unknown;
-        _communicationState = CommunicationState.Unknown;
+        PowerStateHandlers?.Invoke(PowerState);
+        if (PowerState == DesiredPowerState)
+            return;
+        if (DesiredPowerState == PowerState.Unknown)
+            return;
+        Log("Forcing Power");
+        if (DesiredPowerState == PowerState.Off)
+            PowerOff();
+        else if (DesiredPowerState == PowerState.On) 
+            PowerOn();
     }
 
-    protected void ReportPowerState() => PowerStateHandlers?.Invoke(CurrentPowerState);
-    private void ReportCommunicationState() => CommunicationStateHandlers?.Invoke(CommunicationState);
+    protected void ReportPowerState() => PowerStateHandlers?.Invoke(PowerState);
+    protected void ReportCommunicationState() => CommunicationStateHandlers?.Invoke(CommunicationState);
 
-    public PowerState GetCurrentPowerState() => CurrentPowerState;
+    protected void UpdateCommunicationState(CommunicationState state) => CommunicationState = state;
+
+    public PowerState GetCurrentPowerState() => PowerState;
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
 
@@ -51,13 +63,7 @@ public abstract class DeviceBase : IDevice
 
     public abstract void PowerOff();
 
-    protected void Log(string message)
-    {
-        LogHandlers?.Invoke($"{GetType()} - {message}");
-    }
+    protected void Log(string message) => LogHandlers?.Invoke($"{GetType()} - {message}");
 
-    protected void Error(string message)
-    {
-        LogHandlers?.Invoke($"{GetType()} - {message}", EventLevel.Error);
-    }
+    protected void Error(string message) => LogHandlers?.Invoke($"{GetType()} - {message}", EventLevel.Error);
 }

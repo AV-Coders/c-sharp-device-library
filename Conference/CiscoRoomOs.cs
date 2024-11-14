@@ -179,7 +179,7 @@ public class CiscoRoomOs : Conference
         UpdateCommunicationState(PhoneBookParser.HandlePhonebookSearchResponse(response));
       else if (response.Contains("PeripheralsHeartBeatResult"))
       {
-        UpdateCommunicationState(response.Contains("status=OK")? CommunicationState.Okay : CommunicationState.Error);
+        CommunicationState = CommunicationState.Okay;
 
         if (CommunicationState == CommunicationState.Error)
           Reinitialise();
@@ -192,7 +192,7 @@ public class CiscoRoomOs : Conference
       else if (response.Contains("Standby State:"))
       {
         PowerState = responses[3].Contains("Off")? PowerState.On : PowerState.Off;
-        ProcessPowerResponse();
+        ProcessPowerState();
       }
       else if (response.Contains("Audio Volume:"))
       {
