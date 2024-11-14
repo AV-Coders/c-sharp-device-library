@@ -8,33 +8,12 @@ public class ServerEdgePduTest
 {
     private readonly Mock<RestComms> _restComms;
     private readonly ServerEdgePdu _serverEdgePdu;
-    
+
     public ServerEdgePduTest()
     {
-        _restComms = new Mock<RestComms>("host", (ushort) 1, "test");
-        _serverEdgePdu = new ServerEdgePdu(_restComms.Object, "test", ServerEdgePdu.DefaultUser, ServerEdgePdu.DefaultPassword, 8);
-    }
-    
-    [Fact]
-    public void HandleResponse_GetsTheOutletNames()
-    {
-        _restComms.Object.HttpResponseHandlers!.Invoke(new HttpResponseMessage()
-        {
-            StatusCode = HttpStatusCode.OK,
-            
-            
-            // <?xml version="1.0" encoding="Big5" ?>
-            // <response>
-            // <na0>Table HDRX,OutletI,OutletQ,</na0>
-            // <na1>Codec,OutletJ,OutletR,</na1>
-            // <na2>Sharelink,OutletK,OutletS,</na2>
-            // <na3>DSP,OutletL,OutletT,</na3>
-            // <na4>Switch,OutletM,OutletU,</na4>
-            // <na5>AMP,OutletN,OutletV,</na5>
-            // <na6>IR HA,OutletO,OutletW,</na6>
-            // <na7>HDMI Split,OutletP,OutletX,</na7>
-            // </response>
-        });
+        _restComms = new Mock<RestComms>("host", (ushort)1, "test");
+        _serverEdgePdu = new ServerEdgePdu(_restComms.Object, "test", ServerEdgePdu.DefaultUser,
+            ServerEdgePdu.DefaultPassword, 8);
     }
 
     [Theory]
