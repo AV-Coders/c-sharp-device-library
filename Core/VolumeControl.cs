@@ -15,6 +15,8 @@ public abstract class VolumeControl
     public MuteStateHandler? MuteStateHandlers;
     private int _currentLevel;
     private int? _storedLevel = null;
+    private MuteState _currentMuteState;
+    private MuteState? _storedMuteState = null;
 
     protected VolumeControl(string name, VolumeType type)
     {
@@ -22,6 +24,7 @@ public abstract class VolumeControl
         Type = type;
         
         VolumeLevelHandlers += x => _currentLevel = x;
+        MuteStateHandlers += x => _currentMuteState = x;
     }
 
     public abstract void LevelUp(int amount);
@@ -34,11 +37,17 @@ public abstract class VolumeControl
 
     public abstract void SetAudioMute(MuteState state);
     
-    public void SaveLevel() => _storedLevel = _currentLevel;
+    public void SaveLevel()
+    {
+        _storedLevel = _currentLevel;
+        _storedMuteState = _currentMuteState;
+    }
 
     public void RestoreLevel()
     {
         if(_storedLevel.HasValue)
             SetLevel(_storedLevel.Value);
+        if(_storedMuteState.HasValue)
+            SetAudioMute(_storedMuteState.Value);
     }
 }

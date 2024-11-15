@@ -243,6 +243,7 @@ public class QsysEcpTest
     [Fact]
     public void HandleResponse_GivenABadResponse_ReportsError()
     {
+        _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\"");
         _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
         
         Assert.Equal(CommunicationState.Error, _dsp.GetCurrentCommunicationState());

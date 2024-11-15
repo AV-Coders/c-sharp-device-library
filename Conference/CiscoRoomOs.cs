@@ -112,11 +112,11 @@ public class CiscoRoomOs : Conference
       try
       {
         _communicationClient.Send(command + "\r\n");
-        UpdateCommunicationState(CommunicationState.Okay);
+        CommunicationState = CommunicationState.Okay;
       }
       catch (Exception)
       {
-        UpdateCommunicationState(CommunicationState.Error);
+        CommunicationState = CommunicationState.Error;
       }
     }
 
@@ -176,7 +176,7 @@ public class CiscoRoomOs : Conference
       var responses = response.Split(' ');
       
       if (response.Contains("PhonebookSearchResult"))
-        UpdateCommunicationState(PhoneBookParser.HandlePhonebookSearchResponse(response));
+        CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
       else if (response.Contains("PeripheralsHeartBeatResult"))
       {
         CommunicationState = CommunicationState.Okay;

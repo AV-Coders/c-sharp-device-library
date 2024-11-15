@@ -118,7 +118,7 @@ public class BiampTtp : Dsp
         }
         else
         {
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
         }
     }
 
@@ -193,13 +193,13 @@ public class BiampTtp : Dsp
         if (_gains.ContainsKey(match.Groups[1].Value))
         {
             _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[2].Value));
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
 
         if (_mutes.ContainsKey(match.Groups[1].Value))
         {
             _mutes[match.Groups[1].Value].MuteState =  match.Groups[2].Value.Contains("true") ? MuteState.On : MuteState.Off;
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
     }
 
@@ -224,7 +224,7 @@ public class BiampTtp : Dsp
                     break;
             }
             
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
 
         if (_mutes.ContainsKey(currentPolledBlock) && _activeQueries[0].BiampQuery == BiampQuery.Mute)
@@ -232,7 +232,7 @@ public class BiampTtp : Dsp
             _mutes[currentPolledBlock].MuteState = value == "true" ? MuteState.On : MuteState.Off;
             _mutes[currentPolledBlock].Report();
             
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
 
         _activeQueries.Remove(_activeQueries[0]);

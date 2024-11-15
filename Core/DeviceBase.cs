@@ -53,8 +53,6 @@ public abstract class DeviceBase : IDevice
     protected void ReportPowerState() => PowerStateHandlers?.Invoke(PowerState);
     protected void ReportCommunicationState() => CommunicationStateHandlers?.Invoke(CommunicationState);
 
-    protected void UpdateCommunicationState(CommunicationState state) => CommunicationState = state;
-
     public PowerState GetCurrentPowerState() => PowerState;
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
