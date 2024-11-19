@@ -41,8 +41,9 @@ public class ServerEdgePdu: Pdu
     private readonly RestComms _restClient;
     private readonly Uri _getNamesUri;
     private readonly Uri _statusUri;
-    private readonly string _onUri;
-    private readonly string _offUri;
+    private readonly string _onUri = "/ons.cgi?led=";
+    private readonly string _offUri = "/offs.cgi?led=";
+    private readonly string _rebootUri = "/offon.cgi?led=";
     private readonly Uri _setNameUri;
     private readonly ThreadWorker _pollWorker;
 
@@ -55,8 +56,6 @@ public class ServerEdgePdu: Pdu
         
         _getNamesUri = new Uri("/Getname.xml", UriKind.Relative);
         _statusUri = new Uri("/status.xml", UriKind.Relative);
-        _onUri = "/ons.cgi?led=";
-        _offUri = "/offs.cgi?led=";
         _setNameUri = new Uri("names1.cgi?led=0,", UriKind.Relative);
 
         for (int i = 0; i < numberOfOutlets; i++)
@@ -137,7 +136,7 @@ public class ServerEdgePdu: Pdu
     
     public void RebootOutlet()
     {
-        StringBuilder sb = new StringBuilder(_onUri);
+        StringBuilder sb = new StringBuilder(_rebootUri);
         Outlets.ForEach(outlet =>
         {
             sb.Append(outlet.PowerState == PowerState.Rebooting ? "1" : "0");
@@ -148,8 +147,8 @@ public class ServerEdgePdu: Pdu
             }).Start();
             
         });
-        Uri powerOnUri = new Uri(sb.ToString(), UriKind.Relative);
-        _restClient.Get(powerOnUri);
+        Uri rebootUri = new Uri(sb.ToString(), UriKind.Relative);
+        _restClient.Get(rebootUri);
     }
 
     public override void PowerOn()
