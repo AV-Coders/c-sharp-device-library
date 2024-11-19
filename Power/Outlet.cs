@@ -10,4 +10,6 @@ public abstract class Outlet : DeviceBase
     {
         Name = name;
     }
+    
+    public abstract void Reboot();
 }

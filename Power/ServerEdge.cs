@@ -26,6 +26,12 @@ public class ServerEdgeOutlet : Outlet
         PowerState = PowerState.Off;
         _pdu.TurnOffOutlet();
     }
+
+    public override void Reboot()
+    {
+        PowerState = PowerState.Rebooting;
+        _pdu.RebootOutlet();
+    }
 }
 
 public class ServerEdgePdu: Pdu
@@ -127,6 +133,23 @@ public class ServerEdgePdu: Pdu
         Outlets.ForEach(outlet => { sb.Append(outlet.PowerState == PowerState.Off ? "1" : "0"); });
         Uri powerOffUri = new Uri(sb.ToString(), UriKind.Relative);
         _restClient.Get(powerOffUri);
+    }
+    
+    public void RebootOutlet()
+    {
+        StringBuilder sb = new StringBuilder(_onUri);
+        Outlets.ForEach(outlet =>
+        {
+            sb.Append(outlet.PowerState == PowerState.Rebooting ? "1" : "0");
+            new Thread(_ =>
+            {
+                Thread.Sleep(2000);
+                outlet.PowerState = PowerState.On;
+            }).Start();
+            
+        });
+        Uri powerOnUri = new Uri(sb.ToString(), UriKind.Relative);
+        _restClient.Get(powerOnUri);
     }
 
     public override void PowerOn()

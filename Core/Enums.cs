@@ -24,7 +24,8 @@ public enum PowerState
     On,
     Off,
     Warming,
-    Cooling
+    Cooling,
+    Rebooting
 }
 
 public enum MuteState
