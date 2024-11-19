@@ -35,8 +35,8 @@ public class ServerEdgePdu: Pdu
     private readonly RestComms _restClient;
     private readonly Uri _getNamesUri;
     private readonly Uri _statusUri;
-    private readonly Uri _onUri;
-    private readonly Uri _offUri;
+    private readonly string _onUri;
+    private readonly string _offUri;
     private readonly Uri _setNameUri;
     private readonly ThreadWorker _pollWorker;
 
@@ -49,8 +49,8 @@ public class ServerEdgePdu: Pdu
         
         _getNamesUri = new Uri("/Getname.xml", UriKind.Relative);
         _statusUri = new Uri("/status.xml", UriKind.Relative);
-        _onUri = new Uri("/ons.cgi?led=", UriKind.Relative);
-        _offUri = new Uri("/offs.cgi?led=", UriKind.Relative);
+        _onUri = "/ons.cgi?led=";
+        _offUri = "/offs.cgi?led=";
         _setNameUri = new Uri("names1.cgi?led=0,", UriKind.Relative);
 
         for (int i = 0; i < numberOfOutlets; i++)
@@ -115,17 +115,17 @@ public class ServerEdgePdu: Pdu
 
     public void TurnOnOutlet()
     {
-        StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder(_onUri);
         Outlets.ForEach(outlet => { sb.Append(outlet.PowerState == PowerState.On ? "1" : "0"); });
-        Uri powerOnUri = new Uri(_onUri, sb.ToString());
+        Uri powerOnUri = new Uri(sb.ToString(), UriKind.Relative);
         _restClient.Get(powerOnUri);
     }
 
     public void TurnOffOutlet()
     {
-        StringBuilder sb = new StringBuilder();
-        Outlets.ForEach(outlet => { sb.Append(outlet.PowerState == PowerState.On ? "1" : "0"); });
-        Uri powerOffUri = new Uri(_offUri, sb.ToString());
+        StringBuilder sb = new StringBuilder(_offUri);
+        Outlets.ForEach(outlet => { sb.Append(outlet.PowerState == PowerState.Off ? "1" : "0"); });
+        Uri powerOffUri = new Uri(sb.ToString(), UriKind.Relative);
         _restClient.Get(powerOffUri);
     }
 
