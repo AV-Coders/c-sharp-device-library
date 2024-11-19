@@ -22,7 +22,7 @@ public record CiscoRoomOsPhonebookContactMethod(string ContactMethodId, string N
 public record CiscoRoomOsPhonebookContact(string Name, string ContactId, List<PhonebookNumber> ContactMethods)
     : PhonebookContact(Name, ContactMethods);
 
-public class CiscoCE9PhonebookParser
+public class CiscoCE9PhonebookParser : PhonebookParserBase
 {
     private readonly string _phonebookType;
     public readonly CiscoRoomOsPhonebookFolder PhoneBook;
@@ -150,6 +150,7 @@ public class CiscoCE9PhonebookParser
         if (unFetchedFolder == null)
         {
             Log("Phonebook search complete");
+            PhonebookUpdated?.Invoke(PhoneBook);
             return;
         }
 
