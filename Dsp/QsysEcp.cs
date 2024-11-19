@@ -5,6 +5,12 @@ namespace AVCoders.Dsp;
 
 public record QscAudioBlockInfo(string Name, string LevelInstanceTag, string MuteInstanceTag);
 
+public record QscAudioBlockWithSelectInfo(
+    string Name,
+    string LevelInstanceTag,
+    string MuteInstanceTag,
+    string SelectInstanceTag): QscAudioBlockInfo(Name, LevelInstanceTag, MuteInstanceTag);
+
 public class QscGain : Fader
 {
     public QscGain(VolumeLevelHandler volumeLevelHandler) : base(volumeLevelHandler, false)
