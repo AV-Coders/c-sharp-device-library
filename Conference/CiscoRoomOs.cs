@@ -97,7 +97,7 @@ public class CiscoRoomOs : Conference
         SendCommand("xStatus Video Selfview");
         SendCommand("xStatus Video Layout CurrentLayouts ActiveLayout");
         SendCommand("xStatus SIP Registration URI");
-        // PhoneBookParser.RequestPhonebook();
+        PhoneBookParser.RequestPhonebook();
       }
       catch (Exception ex)
       {
@@ -223,6 +223,7 @@ public class CiscoRoomOs : Conference
       {
         case "Status:":
           ActiveCalls[callId].Status = Enum.Parse<CallStatus>(responses[4].Trim());
+          CallStatusFeedback();
           break;
         case "DisplayName:":
           ActiveCalls[callId].Name = responses[4].Trim().Trim('"');
@@ -231,6 +232,23 @@ public class CiscoRoomOs : Conference
           ActiveCalls[callId].Number = responses[4].Trim().Trim('"');
           break;
       }
+    }
+
+    private void CallStatusFeedback()
+    {
+      var priorityOrder = new List<CallStatus>
+      {
+        CallStatus.Ringing,
+        CallStatus.Dialling,
+        CallStatus.Connected,
+        CallStatus.Disconnecting
+      };
+
+      CallStatus status = ActiveCalls.Values
+        .Select(call => call.Status)
+        .FirstOrDefault(status => priorityOrder.Contains(status), CallStatus.Idle);
+
+      CallStatus = status;
     }
 
     public override void SetOutputVolume(int volume)

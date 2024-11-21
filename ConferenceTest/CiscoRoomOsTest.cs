@@ -27,6 +27,7 @@ public class CiscoRoomOsTest
     private readonly Mock<VolumeLevelHandler> _outputVolumeLevelHandler = new ();
     private readonly Mock<MuteStateHandler> _outputMuteStateHandler = new ();
     private readonly Mock<MuteStateHandler> _microphoneMuteStateHandler = new ();
+    private readonly Mock<CallStatusHandler> _callStatusHandler = new ();
     
     private readonly CiscoRoomOs _codec;
 
@@ -39,6 +40,7 @@ public class CiscoRoomOsTest
         _codec.OutputVolume.VolumeLevelHandlers += _outputVolumeLevelHandler.Object;
         // _codec.OutputMute.MuteStateHandlers += _outputMuteStateHandler.Object;
         _codec.MicrophoneMute.MuteStateHandlers += _microphoneMuteStateHandler.Object;
+        _codec.CallStatusHandlers += _callStatusHandler.Object;
     }
 
     [Fact]
@@ -158,6 +160,7 @@ public class CiscoRoomOsTest
         Assert.Equal(CallStatus.Dialling, _codec.GetActiveCalls()[0].Status);
         Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
         Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Dialling));
     }
 
     [Fact]
@@ -177,6 +180,7 @@ public class CiscoRoomOsTest
         Assert.Equal(CallStatus.Connected, _codec.GetActiveCalls()[0].Status);
         Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
         Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connected));
     }
 
     [Fact]
@@ -196,6 +200,7 @@ public class CiscoRoomOsTest
         Assert.Equal(CallStatus.Disconnecting, _codec.GetActiveCalls()[0].Status);
         Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
         Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Disconnecting));
     }
 
     [Fact]
@@ -212,6 +217,7 @@ public class CiscoRoomOsTest
         }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         Assert.Empty(_codec.GetActiveCalls());
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle));
     }
 
     [Fact]
@@ -231,6 +237,7 @@ public class CiscoRoomOsTest
         Assert.Equal(CallStatus.Ringing, _codec.GetActiveCalls()[0].Status);
         Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
         Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Ringing));
     }
 
     [Fact]

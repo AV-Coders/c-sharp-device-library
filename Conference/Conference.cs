@@ -28,9 +28,11 @@ public enum CallStatus
 {
     Unknown, Dialling, Connected, Disconnecting, Ringing, Idle
 }
+public delegate void CallStatusHandler(CallStatus status);
 
 public abstract class Conference : DeviceBase
 {
+    public CallStatusHandler? CallStatusHandlers;
     public readonly Fader OutputVolume;
     public readonly Mute OutputMute;
     public readonly Mute MicrophoneMute;
@@ -40,6 +42,19 @@ public abstract class Conference : DeviceBase
     protected string Uri = String.Empty;
     protected Dictionary<int, Call> ActiveCalls = new ();
     protected readonly ThreadWorker PollWorker;
+
+    private CallStatus _callStatus;
+    public CallStatus CallStatus
+    {
+        get => _callStatus;
+        protected set
+        {
+            if (value == _callStatus)
+                return;
+            _callStatus = value;
+            CallStatusHandlers?.Invoke(value);
+        }
+    }
     
     protected Conference(int pollTimeInSeconds = 52)
     {
