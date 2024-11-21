@@ -164,6 +164,24 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
+    public void CallResponses_HandleDiallingFailed()
+    {
+        new List<string>
+        {
+            "*s Call 203 AnswerState: Unanswered\n",
+            "*s Call 203 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 203 DisplayName: \"*123456\"",
+            "*s Call 203 Status: Dialling\n",
+            "*s Call 203 (ghost=True):\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+
+        Assert.Empty(_codec.GetActiveCalls());
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Dialling));
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle));
+    }
+
+    [Fact]
     public void CallResponses_HandleConnected()
     {
         new List<string>
