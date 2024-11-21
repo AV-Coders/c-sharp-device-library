@@ -137,7 +137,12 @@ public class CiscoRoomOs : Conference
 
     public void Answer() => SendCallCommand("Accept");
 
-    public void HangUp(int callId = 0) => SendCallCommand(callId == 0 ? "Disconnect" : $"Disconnect CallId: {callId}");
+    public void HangUp(int callId = 0)
+    {
+      SendCallCommand(callId == 0 ? "Disconnect" : $"Disconnect CallId: {callId}");
+      if(callId == 0)
+        ActiveCalls.Clear();
+    }
 
     protected override void DoPowerOn() => SendCommand("xCommand Standby Deactivate");
 
