@@ -143,7 +143,7 @@ public class ServerEdgePdu: Pdu
             new Thread(_ =>
             {
                 Thread.Sleep(2000);
-                outlet.PowerState = PowerState.On;
+                outlet.OverridePowerState(PowerState.On);
             }).Start();
             
         });
@@ -153,13 +153,13 @@ public class ServerEdgePdu: Pdu
 
     public override void PowerOn()
     {
-        Outlets.ForEach(x => x.PowerState = PowerState.On);
+        Outlets.ForEach(x => x.OverridePowerState(PowerState.On));
         TurnOnOutlet();
     }
 
     public override void PowerOff()
     {
-        Outlets.ForEach(x => x.PowerState = PowerState.Off);
+        Outlets.ForEach(x => x.OverridePowerState(PowerState.Off));
         TurnOffOutlet();
     }
 }

@@ -14,7 +14,7 @@ public abstract class DeviceBase : IDevice
     public PowerState PowerState
     {
         get => _powerState;
-        set
+        protected set
         {
             if (value == _powerState)
                 return;
@@ -23,10 +23,10 @@ public abstract class DeviceBase : IDevice
         }
     }
 
-    protected CommunicationState CommunicationState
+    public CommunicationState CommunicationState
     {
         get => _communicationState;
-        set
+        protected set
         {
             if (value == _communicationState)
                 return;

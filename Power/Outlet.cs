@@ -10,6 +10,11 @@ public abstract class Outlet : DeviceBase
     {
         Name = name;
     }
+
+    public void OverridePowerState(PowerState state)
+    {
+        PowerState = state;
+    }
     
     public abstract void Reboot();
 }
