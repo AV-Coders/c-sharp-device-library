@@ -78,51 +78,21 @@ public class AvCodersSshClient : SshClientBase
                 await Task.Delay(TimeSpan.FromSeconds(1), token);
                 await CreateStream(token);
             }
-            catch (SshOperationTimeoutException e)
+            catch (Exception e) when (e is SshOperationTimeoutException ||
+                                      e is SshAuthenticationException ||
+                                      e is SshConnectionException ||
+                                      e is ObjectDisposedException ||
+                                      e is InvalidOperationException ||
+                                      e is SocketException ||
+                                      e is ProxyException)
             {
-                Log($"{Host} - The operation timed out\r\n{e.Message}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (SshAuthenticationException e)
-            {
-                Log($"{Host} - Authentication Error\r\n{e.Message}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (SshConnectionException e)
-            {
-                Log($"{Host} - The connection could not be established\r\n{e.Message}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (ObjectDisposedException e)
-            {
-                Log($"{Host} - Object disposed exception\r\n{e}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (InvalidOperationException e)
-            {
-                Log($"{Host} - InvalidOperationException - {e.Message}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
-                UpdateConnectionState(ConnectionState.Unknown);
-            }
-            catch (SocketException e)
-            {
-                Log($"{Host} - Socket exception\r\n{e}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (ProxyException e)
-            {
-                Log($"{Host} - Proxy exception\r\n{e}", EventLevel.Error);
+                Log($"{Host} - {e.GetType().Name} - {e.Message}", EventLevel.Error);
                 Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
-                Log($"{Host} - Unexpected exception\r\n{e}", EventLevel.Error);
+                Log($"{Host} - Unexpected exception - {e.GetType().Name}\r\n{e}", EventLevel.Error);
                 Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
