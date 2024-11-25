@@ -178,6 +178,7 @@ public class AvCodersSshClient : SshClientBase
     public override void Send(string message)
     {
         if (_client.IsConnected)
+        {
             try
             {
                 _stream!.Write(message);
@@ -188,6 +189,12 @@ public class AvCodersSshClient : SshClientBase
                 _ = CreateStream(new CancellationToken());
                 _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
             }
+            catch (NullReferenceException e)
+            {
+                Log("Send failed, stream has not yet been created. Waiting for the connection flow to continue");
+                _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
+            }
+        }
             
         else
             _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
