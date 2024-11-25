@@ -192,6 +192,14 @@ public class CiscoRoomOs : Conference
         if (CommunicationState == CommunicationState.Error)
           Reinitialise();
       }
+      else if (response.Contains("CallDisconnectResult"))
+      {
+        if (!response.Contains("status=OK")) 
+          return;
+        ActiveCalls.Clear();
+        CallStatus = CallStatus.Idle;
+
+      }
       else if (response.Contains("Call"))
       {
         if(!response.Contains("Conference"))

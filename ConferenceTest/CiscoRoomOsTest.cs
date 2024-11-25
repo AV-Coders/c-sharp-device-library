@@ -259,6 +259,17 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
+    public void CallResponses_HandleHangupRequestResponse()
+    {
+        new List<string>
+        {
+            "*r CallDisconnectResult (status=OK): \n"
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle));
+    }
+
+    [Fact]
     public void RegistrationUri_IsStored()
     {
         _mockClient.Object.ResponseHandlers!.Invoke("*s SIP Registration 1 URI: \"300300@client.domain\"\n");
