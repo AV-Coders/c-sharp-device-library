@@ -26,7 +26,7 @@ public record Call
 
 public enum CallStatus
 {
-    Unknown, Dialling, Connected, Disconnecting, Ringing, Idle
+    Unknown, Dialling, Connected, Disconnecting, Ringing, Idle, EarlyMedia, Connecting
 }
 public delegate void CallStatusHandler(CallStatus status);
 

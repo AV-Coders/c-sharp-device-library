@@ -182,49 +182,56 @@ public class CiscoRoomOs : Conference
         return;
       
       var responses = response.Split(' ');
-      
-      if (response.Contains("PhonebookSearchResult"))
-        CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
-      else if (response.Contains("PeripheralsHeartBeatResult"))
+      try
       {
-        CommunicationState = CommunicationState.Okay;
+        if (response.Contains("PhonebookSearchResult"))
+          CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
+        else if (response.Contains("PeripheralsHeartBeatResult"))
+        {
+          CommunicationState = CommunicationState.Okay;
 
-        if (CommunicationState == CommunicationState.Error)
+          if (CommunicationState == CommunicationState.Error)
+            Reinitialise();
+        }
+        else if (response.Contains("CallDisconnectResult"))
+        {
+          if (!response.Contains("status=OK"))
+            return;
+          ActiveCalls.Clear();
+          CallStatus = CallStatus.Idle;
+
+        }
+        else if (response.Contains("Call"))
+        {
+          if (!response.Contains("Conference"))
+            ProcessCallResponse(responses);
+        }
+        else if (response.Contains("Standby State:"))
+        {
+          PowerState = responses[3].Contains("Off") ? PowerState.On : PowerState.Off;
+          ProcessPowerState();
+        }
+        else if (response.Contains("Audio Volume:"))
+        {
+          OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
+        }
+        else if (response.Contains("Audio Microphones Mute:"))
+        {
+          MicrophoneMute.MuteState = responses[4].Contains("On") ? MuteState.On : MuteState.Off;
+        }
+        else if (response.Contains("SIP Registration 1 URI:"))
+        {
+          Uri = responses[5].Trim().Trim('"');
+        }
+        else if (response.StartsWith("*r Login successful"))
+        {
           Reinitialise();
+        }
       }
-      else if (response.Contains("CallDisconnectResult"))
+      catch (Exception e)
       {
-        if (!response.Contains("status=OK")) 
-          return;
-        ActiveCalls.Clear();
-        CallStatus = CallStatus.Idle;
-
-      }
-      else if (response.Contains("Call"))
-      {
-        if(!response.Contains("Conference"))
-          ProcessCallResponse(responses);
-      }
-      else if (response.Contains("Standby State:"))
-      {
-        PowerState = responses[3].Contains("Off")? PowerState.On : PowerState.Off;
-        ProcessPowerState();
-      }
-      else if (response.Contains("Audio Volume:"))
-      {
-        OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
-      }
-      else if (response.Contains("Audio Microphones Mute:"))
-      {
-        MicrophoneMute.MuteState = responses[4].Contains("On")? MuteState.On : MuteState.Off;
-      }
-      else if (response.Contains("SIP Registration 1 URI:"))
-      {
-        Uri = responses[5].Trim().Trim('"');
-      }
-      else if (response.StartsWith("*r Login successful"))
-      {
-        Reinitialise();
+        Error($"Codec - {e.GetType().Name} - {e.Message}");
+        Error(e.StackTrace ?? "No stack trace available");
       }
     }
 
