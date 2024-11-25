@@ -74,7 +74,7 @@ public class AvCodersRestClient : RestComms
 
     public override async Task Put(string content, string contentType) => await Put(null, content, contentType);
 
-    public async Task Put(Uri? endpoint, string content, string contentType)
+    public override async Task Put(Uri? endpoint, string content, string contentType)
     {
         try
         {
