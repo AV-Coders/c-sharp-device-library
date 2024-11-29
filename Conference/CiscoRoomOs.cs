@@ -77,6 +77,7 @@ public class CiscoRoomOs : Conference
         SendCommand("xFeedback register /Event/UserInterface/Extensions/Event");
         SendCommand("xFeedback register /Status/Call");
         SendCommand("xFeedback register /Status/Audio/Volume");
+        SendCommand("xFeedback register /Status/Audio/VolumeMute");
         SendCommand("xFeedback register /Status/Audio/Microphones");
         SendCommand("xFeedback register /Status/Conference/Presentation");
         SendCommand("xFeedback register /Event/UserInterface/Presentation/ExternalSource");
