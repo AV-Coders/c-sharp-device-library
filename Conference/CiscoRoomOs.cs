@@ -216,6 +216,10 @@ public class CiscoRoomOs : Conference
         {
           OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
         }
+        else if (response.Contains("Audio VolumeMute:"))
+        {
+          OutputMute.MuteState = responses[3].Contains("On") ? MuteState.On : MuteState.Off;
+        }
         else if (response.Contains("Audio Microphones Mute:"))
         {
           MicrophoneMute.MuteState = responses[4].Contains("On") ? MuteState.On : MuteState.Off;

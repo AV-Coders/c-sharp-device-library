@@ -38,7 +38,7 @@ public class CiscoRoomOsTest
         _codec.CommunicationStateHandlers += _communicationStateHandlers.Object;
         _codec.PowerStateHandlers += _powerStateHandlers.Object;
         _codec.OutputVolume.VolumeLevelHandlers += _outputVolumeLevelHandler.Object;
-        // _codec.OutputMute.MuteStateHandlers += _outputMuteStateHandler.Object;
+        _codec.OutputMute.MuteStateHandlers += _outputMuteStateHandler.Object;
         _codec.MicrophoneMute.MuteStateHandlers += _microphoneMuteStateHandler.Object;
         _codec.CallStatusHandlers += _callStatusHandler.Object;
     }
@@ -109,11 +109,21 @@ public class CiscoRoomOsTest
     [Theory]
     [InlineData("Off", MuteState.Off)]
     [InlineData("On", MuteState.On)]
-    public void MuteStatusResponse_UpdatesMuteState(string response, MuteState expectedState)
+    public void MicMuteStatusResponse_UpdatesMuteState(string response, MuteState expectedState)
     {
         _mockClient.Object.ResponseHandlers!.Invoke($"*s Audio Microphones Mute: {response}\n");
         
         _microphoneMuteStateHandler.Verify(x => x.Invoke(expectedState));
+    }
+
+    [Theory]
+    [InlineData("Off", MuteState.Off)]
+    [InlineData("On", MuteState.On)]
+    public void OutputMuteStatusResponse_UpdatesMuteState(string response, MuteState expectedState)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"*s Audio VolumeMute: {response}\n");
+        
+        _outputMuteStateHandler.Verify(x => x.Invoke(expectedState));
     }
 
     [Fact]
