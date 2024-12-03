@@ -12,10 +12,14 @@ public class NecUhdExternalControl : Display
     private const byte ReservedByte = 0x30;
     private const byte Controller = 0x30;
     private const byte MessageTypeCommand = 0x41;
+    private const byte MessageTypeCommandReply = 0x42;
+    private const byte MessageTypeGetParameter = 0x43;
+    private const byte MessageTypeGetParameterReply = 0x44;
     private const byte MessageTypeSetParameter = 0x45;
     private const byte Stx = 0x02;
     private const byte Etx = 0x03;
     private const byte Delimiter = 0x0d;
+
     private static readonly Dictionary<Input, byte[]> InputDictionary = new()
     {
         { Input.Hdmi1, new byte[] { 0x31, 0x31 } },
@@ -27,22 +31,97 @@ public class NecUhdExternalControl : Display
     public NecUhdExternalControl(CommunicationClient tcpClient, string name, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name)
     {
         CommunicationClient = tcpClient;
-        _displayId = displayId;
-        ConfigureCommClient();
-    }
-
-    protected override Task Poll(CancellationToken token) => PollWorker.Stop();
-
-    private void ConfigureCommClient()
-    {
-        CommunicationClient.ResponseHandlers += HandleResponse;
+        tcpClient.ResponseByteHandlers += HandleResponse;
         UpdateCommunicationState(CommunicationState.NotAttempted);
+        _displayId = displayId;
     }
 
-    private void HandleResponse(string response)
+    protected override async Task Poll(CancellationToken token)
     {
-        //Todo: Handle the response
-        // Don't forget to use the methods in the base class to force states
+        Log("Polling Power");
+        //Power
+        PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeCommand),
+            new byte[] { Stx, 0x30, 0x31, 0x44, 0x36, Etx });
+        await Task.Delay(1500, token);
+        if (PowerState == PowerState.On)
+        {
+            //Input
+            Log("Polling Input");
+            PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeGetParameter),
+                new byte[] { Stx, 0x30, 0x30, 0x36, 0x30, Etx });
+            await Task.Delay(1500, token);
+        }
+
+        if (PowerState == PowerState.On)
+        {
+            // Volume
+            Log("Polling Volume");
+            PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeGetParameter),
+                new byte[] { Stx, 0x30, 0x30, 0x36, 0x32, Etx });
+        }
+    }
+    
+    private int ConvertAsciiHexToNumber(byte[] asciiBytes)
+    {
+        if (asciiBytes.Length != 2)
+            throw new ArgumentException("Array must contain exactly two bytes.");
+        
+        string hexString = System.Text.Encoding.ASCII.GetString(asciiBytes);
+        int hexNumber = int.Parse(hexString, System.Globalization.NumberStyles.HexNumber);
+
+        return hexNumber;
+    }
+
+    private void HandleResponse(byte[] response)
+    {
+        Log($"Response: {BitConverter.ToString(response)}");
+        if (response[4] == MessageTypeCommandReply)
+        {
+            if (response[12] != 0x44 || response[13] != 0x36) 
+                return; // I only care about power responses
+            switch (response[23])
+            {
+                case 0x34:
+                    PowerState = PowerState.Off;
+                    break;
+                case 0x31:
+                    PowerState = PowerState.On;
+                    break;
+            }
+
+            ProcessPowerResponse();
+        }
+        else if (response[4] == MessageTypeGetParameterReply)
+        {
+            if(response[8] != 0x30 || response[9] != 0x30 || response[10] != 0x30 || response[11] != 0x30 || response[12] != 0x36)
+                return;
+            
+            switch (response[13])
+            {
+                case 0x30: // Input response
+                    Input = ConvertAsciiHexToNumber(new[] { response[22], response[23] }) switch
+                    {
+                        0x11 => Input.Hdmi1,
+                        0x12 => Input.Hdmi2,
+                        // 0x0F => Input.DisplayPort,
+                        _ => Input
+                    };
+                    ProcessInputResponse();
+                    break;
+                case 0x32: // Volume Response
+                    Volume = ConvertAsciiHexToNumber(new[] { response[22], response[23] });
+                    VolumeLevelHandlers?.Invoke(Volume);
+                    break;
+            }
+        }
+    }
+
+    private void PrepareAndSendCommand(List<byte> header, byte[] payload)
+    {
+        AddPayloadLengthToCommand(header, payload.Length);
+        AddPayloadToCommand(header, payload);
+        AddChecksumToCommand(header);
+        WrapAndSendCommand(header);
     }
 
     private List<byte> GetCommandHeaderWithoutSoh(byte commandType)
@@ -101,7 +180,8 @@ public class NecUhdExternalControl : Display
 
     protected override void DoSetInput(Input input)
     {
-        byte[] payload = { Stx, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, InputDictionary[input][0], InputDictionary[input][1], Etx };
+        byte[] payload =
+            { Stx, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, InputDictionary[input][0], InputDictionary[input][1], Etx };
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
@@ -122,7 +202,8 @@ public class NecUhdExternalControl : Display
 
     protected override void DoSetAudioMute(MuteState state)
     {
-        byte[] payload = { Stx, 0x30, 0x30, 0x38, 0x44, 0x30, 0x30, 0x30, (byte)(state == MuteState.On? 0x31:0x32), Etx };
+        byte[] payload =
+            { Stx, 0x30, 0x30, 0x38, 0x44, 0x30, 0x30, 0x30, (byte)(state == MuteState.On ? 0x31 : 0x32), Etx };
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
