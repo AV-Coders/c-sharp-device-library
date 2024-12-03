@@ -32,9 +32,19 @@ public class NecUhdExternalControl : Display
     public NecUhdExternalControl(CommunicationClient tcpClient, string name, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name)
     {
         CommunicationClient = tcpClient;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         tcpClient.ResponseByteHandlers += HandleResponse;
         UpdateCommunicationState(CommunicationState.NotAttempted);
         _displayId = displayId;
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        if (connectionState != ConnectionState.Connected) 
+            return;
+        
+        Thread.Sleep(1500);
+        PollWorker.Restart();
     }
 
     protected override async Task Poll(CancellationToken token)
