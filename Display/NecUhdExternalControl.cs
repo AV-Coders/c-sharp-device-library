@@ -25,7 +25,8 @@ public class NecUhdExternalControl : Display
         { Input.Hdmi1, new byte[] { 0x31, 0x31 } },
         { Input.Hdmi2, new byte[] { 0x31, 0x32 } },
         { Input.Hdmi3, new byte[] { 0x38, 0x32 } },
-        { Input.Hdmi4, new byte[] { 0x38, 0x33 } }
+        { Input.Hdmi4, new byte[] { 0x38, 0x33 } },
+        { Input.DisplayPort, new byte[] { 0x30, 0x46 } },
     };
 
     public NecUhdExternalControl(CommunicationClient tcpClient, string name, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name)
@@ -103,8 +104,10 @@ public class NecUhdExternalControl : Display
                     {
                         0x11 => Input.Hdmi1,
                         0x12 => Input.Hdmi2,
-                        // 0x0F => Input.DisplayPort,
-                        _ => Input
+                        0x82 => Input.Hdmi3,
+                        0x83 => Input.Hdmi4,
+                        0x0F => Input.DisplayPort,
+                        _ => Input.Unknown
                     };
                     ProcessInputResponse();
                     break;

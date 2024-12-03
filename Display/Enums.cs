@@ -10,4 +10,5 @@ public enum Input
     Sdi,
     DvbtTuner,
     Network6, // Epson 
+    DisplayPort,
 }
