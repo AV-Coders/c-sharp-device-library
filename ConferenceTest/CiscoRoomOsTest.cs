@@ -79,11 +79,21 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
-    public void HeartbeatOkayUpdatesCommunicationState()
+    public void HeartbeatOkay_UpdatesCommunicationState()
     {
         _mockClient.Object.ResponseHandlers!.Invoke("*r PeripheralsHeartBeatResult (status=OK): \n");
         
         _communicationStateHandlers.Verify(x => x.Invoke(CommunicationState.Okay), Times.Once);
+    }
+    
+    [Fact]
+    public void HeartbeatNotFound_TriggersRegistration()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("*r PeripheralsHeartBeatResult (status=Error)\n");
+        
+        _communicationStateHandlers.Verify(x => x.Invoke(CommunicationState.Error), Times.Once);
+        
+        Assert.StartsWith("xCommand Peripherals Connect ID: AV-Coders-RoomOS-Module-", (string) _mockClient.Invocations[0].Arguments[0]);
     }
 
     [Theory]

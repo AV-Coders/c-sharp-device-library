@@ -189,7 +189,11 @@ public class CiscoRoomOs : Conference
           CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
         else if (response.Contains("PeripheralsHeartBeatResult"))
         {
-          CommunicationState = CommunicationState.Okay;
+          if(response.Contains("status=OK"))
+            CommunicationState = CommunicationState.Okay;
+          else if(response.Contains("status=Error"))
+            CommunicationState = CommunicationState.Error;
+
 
           if (CommunicationState == CommunicationState.Error)
             Reinitialise();
