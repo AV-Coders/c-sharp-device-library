@@ -251,23 +251,24 @@ public class CiscoRoomOs : Conference
       {
         ActiveCalls[callId] = new Call(CallStatus.Unknown, String.Empty, String.Empty);
       }
-      switch (responses[3])
+
+      if (responses[3] == "Status:")
       {
-        case "Status:":
-          ActiveCalls[callId].Status = Enum.Parse<CallStatus>(responses[4].Trim());
-          CallStatusFeedback();
-          break;
-        case "DisplayName:":
-          ActiveCalls[callId].Name = responses[4].Trim().Trim('"');
-          break;
-        case "CallbackNumber:":
-          ActiveCalls[callId].Number = responses[4].Trim().Trim('"');
-          break;
-        case "(ghost=True)\n":
-        case "(ghost=True):\n":
-          ActiveCalls[callId].Status = CallStatus.Idle;
-          CallStatusFeedback();
-          break;
+        ActiveCalls[callId].Status = Enum.Parse<CallStatus>(responses[4].Trim());
+        CallStatusFeedback();
+      }
+      else if (responses[3] == "DisplayName:")
+      {
+        ActiveCalls[callId].Name = responses[4].Trim().Trim('"');
+      }
+      else if (responses[3] == "CallbackNumber:")
+      {
+        ActiveCalls[callId].Number = responses[4].Trim().Trim('"');
+      }
+      else if (responses[3].Contains("(ghost=True)"))
+      {
+        ActiveCalls[callId].Status = CallStatus.Idle;
+        CallStatusFeedback();
       }
     }
 

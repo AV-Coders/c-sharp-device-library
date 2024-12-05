@@ -229,12 +229,13 @@ public class CiscoRoomOsTest
             "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
             "*s Call 204 DisplayName: \"*123456\"",
             "*s Call 204 Status: Connected\n",
-            "*s Call 204 (ghost=True)\n"
+            "*s Call 204 (ghost=True):\n"
         }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle), Times.Once);
         Assert.Equal(CallStatus.Idle, _callStatusHandler.Invocations.Last().Arguments[0]);
         Assert.Empty(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Idle, _codec.CallStatus);
     }
 
     [Fact]
