@@ -232,9 +232,9 @@ public class CiscoRoomOsTest
             "*s Call 204 (ghost=True)\n"
         }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle), Times.Once);
+        Assert.Equal(CallStatus.Idle, _callStatusHandler.Invocations.Last().Arguments[0]);
         Assert.Empty(_codec.GetActiveCalls());
-        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connected));
-        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle));
     }
 
     [Fact]
