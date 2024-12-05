@@ -263,6 +263,7 @@ public class CiscoRoomOs : Conference
         case "CallbackNumber:":
           ActiveCalls[callId].Number = responses[4].Trim().Trim('"');
           break;
+        case "(ghost=True)\n":
         case "(ghost=True):\n":
           ActiveCalls[callId].Status = CallStatus.Idle;
           CallStatusFeedback();

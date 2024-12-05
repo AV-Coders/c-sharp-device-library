@@ -222,6 +222,22 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
+    public void CallResponses_HandleGhost()
+    {
+        new List<string>
+        {
+            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 204 DisplayName: \"*123456\"",
+            "*s Call 204 Status: Connected\n",
+            "*s Call 204 (ghost=True)\n"
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+
+        Assert.Empty(_codec.GetActiveCalls());
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connected));
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle));
+    }
+
+    [Fact]
     public void CallResponses_HandleDisconnecting()
     {
         new List<string>
