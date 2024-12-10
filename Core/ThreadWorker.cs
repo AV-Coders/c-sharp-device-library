@@ -35,9 +35,9 @@ public class ThreadWorker
             _cancellationTokenSource.Dispose();
             _cancellationTokenSource = null; 
         }
-        catch (AggregateException ex)
+        catch (AggregateException)
         {
-            Console.WriteLine(ex);
+            // Do nothing
         }
         catch (TaskCanceledException)
         {
