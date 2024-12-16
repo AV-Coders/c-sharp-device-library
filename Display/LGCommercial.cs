@@ -76,7 +76,7 @@ public class LGCommercial : Display, ISetTopBox
         { RemoteButton.Menu, "43"},
     };
 
-    public LGCommercial(CommunicationClient comms, string name, string? mac, Input defaultInput, int setId = 1) : 
+    public LGCommercial(CommunicationClient comms, string name, string? mac, Input? defaultInput, int setId = 1) : 
         base(InputDictionary.Keys.ToList(), name, defaultInput, 12)
     {
         _comms = comms;
