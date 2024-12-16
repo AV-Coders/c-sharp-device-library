@@ -29,7 +29,7 @@ public class NecUhdExternalControl : Display
         { Input.DisplayPort, new byte[] { 0x30, 0x46 } },
     };
 
-    public NecUhdExternalControl(CommunicationClient tcpClient, string name, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name)
+    public NecUhdExternalControl(CommunicationClient tcpClient, string name, Input? defaultInput, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name, defaultInput)
     {
         CommunicationClient = tcpClient;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;

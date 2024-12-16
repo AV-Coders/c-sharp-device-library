@@ -18,7 +18,7 @@ public class SonySimpleIPControlTest
     public SonySimpleIPControlTest()
     {
         _mockClient = new Mock<TcpClient>("foo", SonySimpleIpControl.DefaultPort, "bar");
-        _sonyTv = new SonySimpleIpControl(_mockClient.Object, "Test display");
+        _sonyTv = new SonySimpleIpControl(_mockClient.Object, "Test display", Input.Hdmi1);
         _sonyTv.PowerStateHandlers += _powerStateHandler.Object;
     }
 

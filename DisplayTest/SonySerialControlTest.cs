@@ -11,7 +11,7 @@ public class SonySerialControlTest
     public SonySerialControlTest()
     {
         _mockClient = new Mock<SerialClient>("foo");
-        _display = new SonySerialControl(_mockClient.Object, "Test display");
+        _display = new SonySerialControl(_mockClient.Object, "Test display", Input.Hdmi1);
     }
     
     [Fact]

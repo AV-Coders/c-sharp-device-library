@@ -12,6 +12,7 @@ public abstract class Display : VolumeControl, IDevice
     protected PowerState DesiredPowerState = PowerState.Unknown;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
     protected List<Input> SupportedInputs;
+    private readonly Input? _defaultInput;
     public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
@@ -27,9 +28,10 @@ public abstract class Display : VolumeControl, IDevice
 
     public CommunicationState GetCurrentCommunicationState() => CommunicationState;
 
-    protected Display(List<Input> supportedInputs, string name, int pollTime = 23) : base(name, VolumeType.Speaker)
+    protected Display(List<Input> supportedInputs, string name, Input? defaultInput, int pollTime = 23) : base(name, VolumeType.Speaker)
     {
         SupportedInputs = supportedInputs;
+        _defaultInput = defaultInput;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         new Thread(_ =>
         {
@@ -97,6 +99,8 @@ public abstract class Display : VolumeControl, IDevice
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
         PowerStateHandlers?.Invoke(DesiredPowerState);
+        if(_defaultInput != null)
+            DesiredInput = _defaultInput.Value;
     }
 
     protected abstract void DoPowerOn();

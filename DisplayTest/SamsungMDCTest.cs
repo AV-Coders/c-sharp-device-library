@@ -14,7 +14,7 @@ public class SamsungMDCTest
     public SamsungMDCTest()
     {
         _mockClient = new Mock<TcpClient>("foo", SamsungMdc.DefaultPort, "bar");
-        _samsungMdc = new SamsungMdc(_mockClient.Object, _displayId, "Test display");
+        _samsungMdc = new SamsungMdc(_mockClient.Object, _displayId, "Test display", Input.Hdmi2);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public class SamsungMDCTest
     [Fact]
     public void PowerOn_UsesTheCorrectDisplayId()
     {
-        SamsungMdc samsungMdcForDisplay2 = new SamsungMdc(_mockClient.Object, 0x02, "Test display");
+        SamsungMdc samsungMdcForDisplay2 = new SamsungMdc(_mockClient.Object, 0x02, "Test display", Input.Hdmi1);
         byte[] expectedPowerOnCommand = { 0xAA, 0x11, 0x02, 0x01, 0x01, 0x15 };
 
         samsungMdcForDisplay2.PowerOn();
@@ -81,7 +81,7 @@ public class SamsungMDCTest
     [Fact]
     public void PowerOff_UsesTheCorrectDisplayId()
     {
-        SamsungMdc samsungMdcForDisplay2 = new SamsungMdc(_mockClient.Object, 0x03, "Test display");
+        SamsungMdc samsungMdcForDisplay2 = new SamsungMdc(_mockClient.Object, 0x03, "Test display", Input.Hdmi1);
         byte[] expectedPowerOnCommand = { 0xAA, 0x11, 0x03, 0x01, 0x00, 0x15 };
 
         samsungMdcForDisplay2.PowerOff();

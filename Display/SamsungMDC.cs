@@ -31,8 +31,8 @@ public class SamsungMdc : Display
     private readonly byte[] _pollMuteCommand;
 
 
-    public SamsungMdc(CommunicationClient communicationClient, byte displayId, string name) : 
-        base(InputDictionary.Keys.ToList(), name)
+    public SamsungMdc(CommunicationClient communicationClient, byte displayId, string name, Input? defaultInput) : 
+        base(InputDictionary.Keys.ToList(), name, defaultInput)
     {
         _displayId = displayId;
 

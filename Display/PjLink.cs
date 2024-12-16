@@ -29,7 +29,7 @@ public class PjLink : Display
     
     private PollTask _pollTask;
 
-    public PjLink(TcpClient tcpClient, string name, string password = DefaultPassword) : base(InputDictionary.Keys.ToList(), name)
+    public PjLink(TcpClient tcpClient, string name, Input? defaultInput, string password = DefaultPassword) : base(InputDictionary.Keys.ToList(), name, defaultInput)
     {
         _password = password;
         _pollTask = PollTask.Power;
