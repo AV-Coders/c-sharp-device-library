@@ -19,7 +19,7 @@ public abstract class CommunicationClient
 
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
-    protected void Log(string message, EventLevel level = EventLevel.Informational) => LogHandlers?.Invoke($"{Name} - message", level);
+    protected void Log(string message, EventLevel level = EventLevel.Informational) => LogHandlers?.Invoke($"{Name} - {message}", level);
     public ConnectionState GetConnectionState() => ConnectionState;
     
     protected void UpdateConnectionState(ConnectionState connectionState)
