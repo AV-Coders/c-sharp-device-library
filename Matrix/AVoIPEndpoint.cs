@@ -8,7 +8,7 @@ public enum AVoIPDeviceType
     Decoder
 };
 
-public delegate StreamChangeHandler StreamChangeHandler(string streamAddress);
+public delegate void AddressChangeHandler(string streamAddress);
 
 public abstract class AVoIPEndpoint : InputOutputStatus
 {
