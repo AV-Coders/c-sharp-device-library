@@ -5,7 +5,7 @@ namespace AVCoders.Matrix.Tests;
 
 public class TestSvsiEncoder : SvsiEncoder
 {
-    public TestSvsiEncoder(TcpClient communicationClient, int pollTime = 10) : base(communicationClient, pollTime)
+    public TestSvsiEncoder(TcpClient communicationClient, int pollTime = 10) : base("dummy", communicationClient, pollTime)
     {
         StreamId = 3;
     }
@@ -24,7 +24,7 @@ public class SvsiDecoderTest
     public SvsiDecoderTest()
     {
         _mockClient = new("foo", SvsiBase.DefaultPort, "bar");
-        _svsiDecoder = new(_mockClient.Object);
+        _svsiDecoder = new("Test", _mockClient.Object);
         _mockOutputStatusChangedHandler = new();
         _svsiDecoder.OutputStatusChangedHandlers += _mockOutputStatusChangedHandler.Object;
     }

@@ -22,7 +22,7 @@ public abstract class SvsiBase : AVoIPEndpoint
         }
     }
 
-    public SvsiBase(TcpClient tcpClient, int pollTime, AVoIPDeviceType deviceType) : base(deviceType, tcpClient)
+    public SvsiBase(string name, TcpClient tcpClient, int pollTime, AVoIPDeviceType deviceType) : base(name, deviceType, tcpClient)
     {
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         StatusDictionary = new Dictionary<string, string>();

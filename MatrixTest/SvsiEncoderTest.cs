@@ -14,7 +14,7 @@ public class SvsiEncoderTest
     public SvsiEncoderTest()
     {
         _mockClient = new("foo", SvsiBase.DefaultPort, "bar");
-        _svsiEncoder = new(_mockClient.Object);
+        _svsiEncoder = new("Test", _mockClient.Object);
         _mockInputStatusChangedHandler = new();
         _svsiEncoder.InputStatusChangedHandlers += _mockInputStatusChangedHandler.Object;
     }
