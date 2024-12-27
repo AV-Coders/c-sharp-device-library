@@ -9,7 +9,7 @@ public class SvsiDecoder : SvsiBase
     private readonly Dictionary<MuteState, string> _muteDictionary;
     private MuteState _muteState = MuteState.Off;
     
-    public SvsiDecoder(TcpClient tcpClient, int pollTime = 10) : base(tcpClient, pollTime)
+    public SvsiDecoder(TcpClient tcpClient, int pollTime = 10) : base(tcpClient, pollTime, AVoIPDeviceType.Decoder)
     {
         _muteDictionary = new Dictionary<MuteState, string>
         {
@@ -37,29 +37,19 @@ public class SvsiDecoder : SvsiBase
                 "1" => MuteState.On,
                 _ => MuteState.Unknown
             };
-            if (currentMuteState != _muteState)
-            {
-                _muteState = currentMuteState;
-                MuteStateHandlers?.Invoke(_muteState);
-            }
-            
+            if (currentMuteState == _muteState) 
+                return;
+            _muteState = currentMuteState;
+            MuteStateHandlers?.Invoke(_muteState);
+
         }
     }
 
-    public void SetInput(uint streamId)
-    {
-        TcpClient.Send($"set:{streamId}\r");
-    }
+    public void SetInput(uint streamId) => TcpClient.Send($"set:{streamId}\r");
 
-    public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamNumber);
+    public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
 
-
-    public void SetAudioMute(MuteState muteState)
-    {
-        TcpClient.Send($"{_muteDictionary[muteState]}\r");
-        
-    }
+    public void SetAudioMute(MuteState muteState) => TcpClient.Send($"{_muteDictionary[muteState]}\r");
 
     public void ToggleAudioMute() => SetAudioMute(_muteState == MuteState.Off ? MuteState.On : MuteState.Off);
-
 }

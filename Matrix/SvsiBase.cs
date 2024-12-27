@@ -2,19 +2,28 @@
 
 namespace AVCoders.Matrix;
 
-public delegate StreamChangeHandler StreamChangeHandler(uint streamId);
-
-public abstract class SvsiBase : InputOutputStatus
+public abstract class SvsiBase : AVoIPEndpoint
 {
     public const ushort DefaultPort = 50002;
+    public const ushort SerialPassthroughPort = 50004;
     public readonly Dictionary<string, string> StatusDictionary;
-    public StreamChangeHandler? StreamChangeHandlers;
     protected readonly TcpClient TcpClient;
     protected readonly ThreadWorker PollWorker;
-    protected uint StreamId;
-    public uint StreamNumber => StreamId;
+    private uint _streamId;
 
-    public SvsiBase(TcpClient tcpClient, int pollTime)
+    public uint StreamId
+    {
+        get => _streamId;
+        protected set
+        {
+            if (value == _streamId)
+                return;
+            _streamId = value;
+            StreamAddress = value.ToString();
+        }
+    }
+
+    public SvsiBase(TcpClient tcpClient, int pollTime, AVoIPDeviceType deviceType) : base(deviceType)
     {
         TcpClient = tcpClient;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
@@ -42,15 +51,6 @@ public abstract class SvsiBase : InputOutputStatus
     }
     
     protected abstract void UpdateVariablesBasedOnStatus();
-
-    protected void UpdateStreamId(uint streamId)
-    {
-        if (streamId == StreamId)
-            return;
-        
-        StreamId = streamId;
-        StreamChangeHandlers?.Invoke(streamId);
-    }
 
     private Task Poll(CancellationToken token)
     {

@@ -38,5 +38,4 @@ public abstract class InputOutputStatus
         _outputConnectionStatus = status;
         _outputResolution = resolution;
     }
-
 }

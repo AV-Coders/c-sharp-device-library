@@ -37,7 +37,7 @@ public class SvsiEncoderTest
         Assert.Equal("Transmitter", _svsiEncoder.StatusDictionary["NAME"]);
         Assert.Equal("10.56.78.99", _svsiEncoder.StatusDictionary["IP"]);
         Assert.Equal("00:19:00:11:22:33", _svsiEncoder.StatusDictionary["MAC"]);
-        Assert.Equal((uint)2, _svsiEncoder.StreamNumber);
+        Assert.Equal((uint)2, _svsiEncoder.StreamId);
         _mockInputStatusChangedHandler.Verify(x => x.Invoke(1, ConnectionStatus.Disconnected, "0x0"));
     }
 
