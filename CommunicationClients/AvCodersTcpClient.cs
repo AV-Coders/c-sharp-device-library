@@ -23,7 +23,6 @@ public class AvCodersTcpClient : Core_TcpClient
 
     protected override async Task Receive(CancellationToken token)
     {
-        Log("Receive Loop Begin");
         if (!_client.Connected)
         {
             Log("Receive - Client disconnected, waiting 10 seconds");
@@ -33,7 +32,6 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             try
             {
-                Log("Receive - Reading message");
                 byte[] buffer = new byte[1024];
                 var bytesRead = await _client.GetStream().ReadAsync(buffer, token);
 
