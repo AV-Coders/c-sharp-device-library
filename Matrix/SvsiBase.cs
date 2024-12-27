@@ -33,6 +33,8 @@ public abstract class SvsiBase : AVoIPEndpoint
     {
         response.Split('\r').ToList().ForEach(item =>
         {
+            if (!item.Contains(':'))
+                return;
             var keyValuePairs = item.Split(':');
             var key = keyValuePairs[0].Trim(':');
             if(key.Length < 1)

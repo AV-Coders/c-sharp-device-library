@@ -41,6 +41,12 @@ public class SvsiDecoderTest
     }
 
     [Fact]
+    public void ResponseHandler_IgnoresInvalidResponses()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("ND_V\r");
+    }
+
+    [Fact]
     public void SetInput_AcceptsAStreamId()
     {
         _svsiDecoder.SetInput(1);
