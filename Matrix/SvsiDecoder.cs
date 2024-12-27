@@ -45,11 +45,11 @@ public class SvsiDecoder : SvsiBase
         }
     }
 
-    public void SetInput(uint streamId) => TcpClient.Send($"set:{streamId}\r");
+    public void SetInput(uint streamId) => CommunicationClient.Send($"set:{streamId}\r");
 
     public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
 
-    public void SetAudioMute(MuteState muteState) => TcpClient.Send($"{_muteDictionary[muteState]}\r");
+    public void SetAudioMute(MuteState muteState) => CommunicationClient.Send($"{_muteDictionary[muteState]}\r");
 
     public void ToggleAudioMute() => SetAudioMute(_muteState == MuteState.Off ? MuteState.On : MuteState.Off);
 }

@@ -7,7 +7,6 @@ public abstract class SvsiBase : AVoIPEndpoint
     public const ushort DefaultPort = 50002;
     public const ushort SerialPassthroughPort = 50004;
     public readonly Dictionary<string, string> StatusDictionary;
-    protected readonly TcpClient TcpClient;
     protected readonly ThreadWorker PollWorker;
     private uint _streamId;
 
@@ -23,12 +22,11 @@ public abstract class SvsiBase : AVoIPEndpoint
         }
     }
 
-    public SvsiBase(TcpClient tcpClient, int pollTime, AVoIPDeviceType deviceType) : base(deviceType)
+    public SvsiBase(TcpClient tcpClient, int pollTime, AVoIPDeviceType deviceType) : base(deviceType, tcpClient)
     {
-        TcpClient = tcpClient;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         StatusDictionary = new Dictionary<string, string>();
-        TcpClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ResponseHandlers += HandleResponse;
     }
 
     private void HandleResponse(string response)
@@ -54,7 +52,7 @@ public abstract class SvsiBase : AVoIPEndpoint
 
     private Task Poll(CancellationToken token)
     {
-        TcpClient.Send("\r");
+        CommunicationClient.Send("\r");
         return Task.CompletedTask;
     }
 }

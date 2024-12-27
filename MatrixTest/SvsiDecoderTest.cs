@@ -5,7 +5,7 @@ namespace AVCoders.Matrix.Tests;
 
 public class TestSvsiEncoder : SvsiEncoder
 {
-    public TestSvsiEncoder(TcpClient tcpClient, int pollTime = 10) : base(tcpClient, pollTime)
+    public TestSvsiEncoder(TcpClient communicationClient, int pollTime = 10) : base(communicationClient, pollTime)
     {
         StreamId = 3;
     }
