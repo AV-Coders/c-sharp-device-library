@@ -9,7 +9,7 @@ public class SvsiDecoder : SvsiBase
     private readonly Dictionary<MuteState, string> _muteDictionary;
     private MuteState _muteState = MuteState.Off;
     
-    public SvsiDecoder(string name, TcpClient tcpClient, int pollTime = 10) : base(name, tcpClient, pollTime, AVoIPDeviceType.Decoder)
+    public SvsiDecoder(string name, TcpClient tcpClient, int pollTime = 45) : base(name, tcpClient, pollTime, AVoIPDeviceType.Decoder)
     {
         _muteDictionary = new Dictionary<MuteState, string>
         {
