@@ -60,8 +60,7 @@ public class AvCodersUdpClient : Core_UdpClient
         try
         {
             var received = _client.Receive(ref _ipEndPoint);
-            ResponseHandlers?.Invoke(ConvertByteArrayToString(received));
-            ResponseByteHandlers?.Invoke(received);
+            InvokeResponseHandlers(ConvertByteArrayToString(received), received);
         }
         catch (Exception e)
         {

@@ -34,7 +34,7 @@ public class AvCodersRestClient : RestComms
         {
             var responseBody = await response.Content.ReadAsStringAsync();
             Log(responseBody);
-            ResponseHandlers?.Invoke(responseBody);
+            InvokeResponseHandlers(responseBody);
         }
     }
 

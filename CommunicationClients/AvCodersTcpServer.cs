@@ -52,8 +52,7 @@ public class AvCodersTcpServer : Core_TcpClient
                 while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, token)) != 0)
                 {
                     string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-                    ResponseHandlers?.Invoke(response);
-                    ResponseByteHandlers?.Invoke(buffer.Take(bytesRead).ToArray());
+                    InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
                 }
             }
             catch (IOException e)

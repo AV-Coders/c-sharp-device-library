@@ -30,8 +30,7 @@ public class AvCodersMulticastClient : IpComms
         {
             Log("Receiving");
             var received = await _client.ReceiveAsync(token);
-            ResponseHandlers?.Invoke(Encoding.UTF8.GetString(received.Buffer));
-            ResponseByteHandlers?.Invoke(received.Buffer);
+            InvokeResponseHandlers(Encoding.UTF8.GetString(received.Buffer), received.Buffer);
         }
         catch (Exception e)
         {

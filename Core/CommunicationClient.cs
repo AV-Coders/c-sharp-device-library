@@ -20,6 +20,7 @@ public abstract class CommunicationClient
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
     protected void Log(string message, EventLevel level = EventLevel.Informational) => LogHandlers?.Invoke($"{Name} - {message}", level);
+    protected void Error(string message, EventLevel level = EventLevel.Error) => LogHandlers?.Invoke($"{Name} - {message}", level);
     public ConnectionState GetConnectionState() => ConnectionState;
     
     protected void UpdateConnectionState(ConnectionState connectionState)
@@ -28,6 +29,39 @@ public abstract class CommunicationClient
             return;
         ConnectionState = connectionState;
         ConnectionStateHandlers?.Invoke(connectionState);
+    }
+
+    protected void InvokeResponseHandlers(string response, byte[] responseBytes)
+    {
+        try
+        {
+            ResponseHandlers?.Invoke(response);
+            ResponseByteHandlers?.Invoke(responseBytes);
+        }
+        catch (Exception e)
+        {
+            Error("A Response handler threw an exception");
+            Error(e.Message);
+            Error(e.StackTrace?? "No Stack trace available");
+            Error(e.InnerException?.Message ?? "No inner exception");
+            Error(e.InnerException?.StackTrace?? String.Empty);
+        }
+    }
+
+    protected void InvokeResponseHandlers(string response)
+    {
+        try
+        {
+            ResponseHandlers?.Invoke(response);
+        }
+        catch (Exception e)
+        {
+            Error("A Response handler threw an exception");
+            Error(e.Message);
+            Error(e.StackTrace?? "No Stack trace available");
+            Error(e.InnerException?.Message ?? "No inner exception");
+            Error(e.InnerException?.StackTrace?? String.Empty);
+        }
     }
 }
 

@@ -52,7 +52,7 @@ public class AvCodersSshClient : SshClientBase
             {
                 var line = await reader.ReadLineAsync();
                 if(line != null)
-                    ResponseHandlers?.Invoke(line);
+                    InvokeResponseHandlers(line);
             }
         }
         else
