@@ -171,4 +171,27 @@ public class NecUhdExternalControlTest
         _mockClient.Object.ResponseByteHandlers!.Invoke(response2);
         _mockVolumeLevelHandler.Verify(x => x.Invoke(0));
     }
+
+    [Fact]
+    public void ResponseHandler_HandlesMultipleResponcesInTheOnePayload()
+    {
+        var response1 = new byte[] { 0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44 };
+        var response2 = new byte[] { 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x31, 0x03, 0x74 };        
+        var response3 = new byte[] { 0x0D, 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30 };
+        var response4 = new byte[] { 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x38, 0x38, 0x30, 0x30, 0x31, 0x31, 0x03 };        
+        var response5 = new byte[] { 0x01, 0x0D, 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30 };
+        var response6 = new byte[] { 0x30, 0x36, 0x32, 0x30, 0x30, 0x30, 0x30, 0x36, 0x34, 0x30, 0x30, 0x30, 0x30 };
+        var response7 = new byte[] { 0x03, 0x01, 0x0D }; 
+            
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response1);
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response2);
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response3);
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response4);
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response5);
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response6);
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response7);
+        _mockPowerStateHandler.Verify(x => x.Invoke(PowerState.On));
+        _mockInputHandler.Verify(x => x.Invoke(Input.Hdmi1));
+        _mockVolumeLevelHandler.Verify(x => x.Invoke(0));
+    }
 }

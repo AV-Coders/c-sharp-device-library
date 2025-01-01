@@ -87,14 +87,27 @@ public class NecUhdExternalControl : Display
     private void HandleResponse(byte[] response)
     {
         _gather.AddRange(response);
-        if (_gather.Last() != 0x0D)
-            return;
-        Log($"Response: {BitConverter.ToString(_gather.ToArray())}");
-        if (_gather[4] == MessageTypeCommandReply)
+
+        while (_gather.Contains(0x0D))
         {
-            if (_gather[12] != 0x44 || _gather[13] != 0x36) 
-                return; // I only care about power responses
-            switch (_gather[23])
+            int endIndex = _gather.IndexOf(0x0D) + 1;
+            byte[] aResponsePayload = _gather.Take(endIndex).ToArray();
+            _gather = _gather.Skip(endIndex).ToList();
+
+            ProcessResponse(aResponsePayload);
+        }
+    }
+
+    private void ProcessResponse(byte[] response)
+    {
+        Log($"Response: {BitConverter.ToString(response)}");
+
+        if (response[4] == MessageTypeCommandReply)
+        {
+            if (response[12] != 0x44 || response[13] != 0x36)
+                return; // Only care about power responses
+
+            switch (response[23])
             {
                 case 0x34:
                     PowerState = PowerState.Off;
@@ -106,15 +119,15 @@ public class NecUhdExternalControl : Display
 
             ProcessPowerResponse();
         }
-        else if (_gather[4] == MessageTypeGetParameterReply)
+        else if (response[4] == MessageTypeGetParameterReply)
         {
-            if(_gather[8] != 0x30 || _gather[9] != 0x30 || _gather[10] != 0x30 || _gather[11] != 0x30 || _gather[12] != 0x36)
+            if (response[8] != 0x30 || response[9] != 0x30 || response[10] != 0x30 || response[11] != 0x30 || response[12] != 0x36)
                 return;
-            
-            switch (_gather[13])
+
+            switch (response[13])
             {
                 case 0x30: // Input response
-                    Input = ConvertAsciiHexToNumber(new[] { _gather[22], _gather[23] }) switch
+                    Input = ConvertAsciiHexToNumber(new[] { response[22], response[23] }) switch
                     {
                         0x11 => Input.Hdmi1,
                         0x12 => Input.Hdmi2,
@@ -126,7 +139,7 @@ public class NecUhdExternalControl : Display
                     ProcessInputResponse();
                     break;
                 case 0x32: // Volume Response
-                    Volume = ConvertAsciiHexToNumber(new[] { _gather[22], _gather[23] });
+                    Volume = ConvertAsciiHexToNumber(new[] { response[22], response[23] });
                     VolumeLevelHandlers?.Invoke(Volume);
                     break;
             }
