@@ -27,7 +27,19 @@ public abstract class SvsiBase : AVoIPEndpoint
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), true);
         StatusDictionary = new Dictionary<string, string>();
         CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         PollWorker.Restart();
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        if (connectionState != ConnectionState.Connected) 
+            return;
+        Task.Delay(300).ContinueWith(_ =>
+        {
+            Poll(CancellationToken.None);
+            PollWorker.Restart();
+        });
     }
 
     private void HandleResponse(string response)
