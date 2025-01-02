@@ -1,7 +1,6 @@
 ﻿namespace AVCoders.Matrix;
 
-public delegate InputStatusChangedHandler InputStatusChangedHandler(uint inputNumber, ConnectionStatus status, string resolution);
-public delegate OutputStatusChangedHandler OutputStatusChangedHandler(uint outputNumber, ConnectionStatus status, string resolution);
+public delegate void SyncInfoHandler(uint inputNumber, ConnectionStatus status, string resolution);
 
 public enum ConnectionStatus
 {
@@ -9,14 +8,14 @@ public enum ConnectionStatus
     Disconnected,
 }
 
-public abstract class InputOutputStatus
+public abstract class SyncStatus
 {
     private ConnectionStatus _inputConnectionStatus;
     private string _inputResolution = String.Empty;
     private ConnectionStatus _outputConnectionStatus;
     private string _outputResolution = String.Empty;
-    public InputStatusChangedHandler? InputStatusChangedHandlers;
-    public OutputStatusChangedHandler? OutputStatusChangedHandlers;
+    public SyncInfoHandler? InputStatusChangedHandlers;
+    public SyncInfoHandler? OutputStatusChangedHandlers;
 
     protected void UpdateInputStatus(ConnectionStatus status, string resolution, uint inputNumber = 1)
     {

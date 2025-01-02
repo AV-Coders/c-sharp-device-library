@@ -10,7 +10,7 @@ public enum AVoIPDeviceType
 
 public delegate void AddressChangeHandler(string streamAddress);
 
-public abstract class AVoIPEndpoint : InputOutputStatus
+public abstract class AVoIPEndpoint : SyncStatus
 {
     public readonly string Name;
     public readonly AVoIPDeviceType DeviceType;
