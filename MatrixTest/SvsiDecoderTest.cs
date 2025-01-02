@@ -71,4 +71,14 @@ public class SvsiDecoderTest
         
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Theory]
+    [InlineData(MuteState.On, "dviOff\r")]
+    [InlineData(MuteState.Off, "dviOn\r")]
+    public void SetVideoMute_SendsTheCommand(MuteState state, string expectedCommand)
+    {
+        _svsiDecoder.SetVideoMute(state);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
 }

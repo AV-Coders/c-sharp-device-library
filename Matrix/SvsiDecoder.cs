@@ -6,12 +6,12 @@ public class SvsiDecoder : SvsiBase
 {
     public MuteStateHandler? MuteStateHandlers;
     public VolumeLevelHandler? VolumeLevelHandlers;
-    private readonly Dictionary<MuteState, string> _muteDictionary;
+    private readonly Dictionary<MuteState, string> _audoMuteDictionary;
     private MuteState _muteState = MuteState.Off;
     
     public SvsiDecoder(string name, TcpClient tcpClient, int pollTime = 45) : base(name, tcpClient, pollTime, AVoIPDeviceType.Decoder)
     {
-        _muteDictionary = new Dictionary<MuteState, string>
+        _audoMuteDictionary = new Dictionary<MuteState, string>
         {
             { MuteState.On, "mute" },
             { MuteState.Off, "unmute" },
@@ -49,7 +49,13 @@ public class SvsiDecoder : SvsiBase
 
     public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
 
-    public void SetAudioMute(MuteState muteState) => CommunicationClient.Send($"{_muteDictionary[muteState]}\r");
+    public void SetAudioMute(MuteState muteState) => CommunicationClient.Send($"{_audoMuteDictionary[muteState]}\r");
 
     public void ToggleAudioMute() => SetAudioMute(_muteState == MuteState.Off ? MuteState.On : MuteState.Off);
+    
+    public void SetVideoMute(MuteState muteState)
+    {
+        string command = muteState == MuteState.On ? "Off" : "On";
+        CommunicationClient.Send($"dvi{command}\r");
+    }
 }
