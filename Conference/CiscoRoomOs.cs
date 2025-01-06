@@ -84,27 +84,8 @@ public class CiscoRoomOs : Conference
         SendCommand($"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: {_peripheralType.ToString()} Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
         SendCommand("xFeedback register /Status/Standby");
         SendCommand("xFeedback register /Status/Call");
-        SendCommand("xFeedback register /Status/Audio/Volume");
-        SendCommand("xFeedback register /Status/Audio/VolumeMute");
-        SendCommand("xFeedback register /Status/Audio/Microphones");
-        SendCommand("xFeedback register /Status/Conference/Presentation");
-        SendCommand("xFeedback register /Event/UserInterface/Presentation/ExternalSource");
-        SendCommand("xFeedback register /Status/Conference/DoNotDisturb");
-        SendCommand("xFeedback register /Status/Conference/Call/AuthenticationRequest");
-        SendCommand("xFeedback register /Status/Conference/Call");
-        SendCommand("xFeedback register /Status/Cameras/SpeakerTrack");
-        SendCommand("xFeedback register /Status/Video/Selfview");
-        SendCommand("xFeedback register /Status/Video/Layout/CurrentLayouts/ActiveLayout");
-        SendCommand("xFeedback register /Event/Bookings");
         SendCommand("xStatus Standby");
         SendCommand("xStatus Call");
-        SendCommand("xStatus Audio Volume");
-        SendCommand("xStatus Audio Microphones");
-        SendCommand("xStatus Conference DoNotDisturb");
-        SendCommand("xStatus Conference Presentation");
-        SendCommand("xStatus Cameras SpeakerTrack status");
-        SendCommand("xStatus Video Selfview");
-        SendCommand("xStatus Video Layout CurrentLayouts ActiveLayout");
         SendCommand("xStatus SIP Registration URI");
         PhoneBookParser.RequestPhonebook();
       }
