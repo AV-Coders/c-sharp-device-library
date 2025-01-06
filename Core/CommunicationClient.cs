@@ -5,8 +5,10 @@ namespace AVCoders.Core;
 
 public abstract class CommunicationClient
 {
-    public ResponseHandler? ResponseHandlers;
-    public ResponseByteHandler? ResponseByteHandlers;
+    public StringHandler? Requesthandlers;
+    public ByteHandler? RequestBytehandlers;
+    public StringHandler? ResponseHandlers;
+    public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
     public LogHandler? LogHandlers;
     protected ConnectionState ConnectionState = ConnectionState.Unknown;
@@ -29,6 +31,38 @@ public abstract class CommunicationClient
             return;
         ConnectionState = connectionState;
         ConnectionStateHandlers?.Invoke(connectionState);
+    }
+
+    protected void InvokeRequestHandlers(string request)
+    {
+        try
+        {
+            Requesthandlers?.Invoke(request);
+        }
+        catch (Exception e)
+        {
+            Error("A Request string handler threw an exception");
+            Error(e.Message);
+            Error(e.StackTrace?? "No Stack trace available");
+            Error(e.InnerException?.Message ?? "No inner exception");
+            Error(e.InnerException?.StackTrace?? String.Empty);
+        }
+    }
+
+    protected void InvokeRequestHandlers(byte[] request)
+    {
+        try
+        {
+            RequestBytehandlers?.Invoke(request);
+        }
+        catch (Exception e)
+        {
+            Error("A Request byte handler threw an exception");
+            Error(e.Message);
+            Error(e.StackTrace?? "No Stack trace available");
+            Error(e.InnerException?.Message ?? "No inner exception");
+            Error(e.InnerException?.StackTrace?? String.Empty);
+        }
     }
 
     protected void InvokeResponseHandlers(string response, byte[] responseBytes)

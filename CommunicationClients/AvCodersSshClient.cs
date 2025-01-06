@@ -112,7 +112,11 @@ public class AvCodersSshClient : SshClientBase
             {
                 var item = _sendQueue.Dequeue();
                 if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) < QueueTimeout)
+                {
                     _stream!.Write(item.Payload);
+                    InvokeRequestHandlers(item.Payload);
+                }
+                
             }
             await Task.Delay(1100, token);
         }
@@ -152,6 +156,7 @@ public class AvCodersSshClient : SshClientBase
             try
             {
                 _stream!.Write(message);
+                InvokeRequestHandlers(message);
             }
             catch (ObjectDisposedException e)
             {

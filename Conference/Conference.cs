@@ -30,9 +30,12 @@ public enum CallStatus
 }
 public delegate void CallStatusHandler(CallStatus status);
 
+public delegate void ActiveCallHandler(List<Call> activeCalls);
+
 public abstract class Conference : DeviceBase
 {
     public CallStatusHandler? CallStatusHandlers;
+    public ActiveCallHandler? ActiveCallHandlers;
     public readonly Fader OutputVolume;
     public readonly Mute OutputMute;
     public readonly Mute MicrophoneMute;
@@ -40,7 +43,7 @@ public abstract class Conference : DeviceBase
     public string GetUri() => Uri;
     
     protected string Uri = String.Empty;
-    protected Dictionary<int, Call> ActiveCalls = new ();
+    protected readonly Dictionary<int, Call> ActiveCalls = new ();
     protected readonly ThreadWorker PollWorker;
 
     private CallStatus _callStatus;
