@@ -74,7 +74,6 @@ public class CiscoRoomOs : Conference
       {
         SendCommand($"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: ControlSystem Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
         SendCommand("xFeedback register /Status/Standby");
-        SendCommand("xFeedback register /Event/UserInterface/Extensions/Event");
         SendCommand("xFeedback register /Status/Call");
         SendCommand("xFeedback register /Status/Audio/Volume");
         SendCommand("xFeedback register /Status/Audio/VolumeMute");

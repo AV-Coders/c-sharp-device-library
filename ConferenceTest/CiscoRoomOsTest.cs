@@ -49,7 +49,6 @@ public class CiscoRoomOsTest
         _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
         new List<string> {
         "xFeedback register /Status/Standby",
-        "xFeedback register /Event/UserInterface/Extensions/Event",
         "xFeedback register /Status/Call",
         "xFeedback register /Status/Audio/Volume",
         "xFeedback register /Status/Audio/Microphones",
