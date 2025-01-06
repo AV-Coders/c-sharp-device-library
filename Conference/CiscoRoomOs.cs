@@ -47,19 +47,28 @@ public class CiscoRoomOsMicFader : VolumeControl
   public override void SetAudioMute(MuteState state) => _codec.SetMicrophoneMute(state);
 }
 
+public enum PeripheralType
+{
+  TouchPanel,
+  ControlSystem,
+  Other
+}
+
 public class CiscoRoomOs : Conference
   {
     private readonly CommunicationClient _communicationClient;
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
     public readonly CiscoCE9PhonebookParser PhoneBookParser;
     private readonly string _moduleIdentifier;
+    private readonly PeripheralType _peripheralType;
 
-    public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo)
+    public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, PeripheralType peripheralType = PeripheralType.ControlSystem)
     {
       _moduleIdentifier = $"AV-Coders-RoomOS-Module-{DateTime.Now.Ticks:x}";
 
       _communicationClient = communicationClient;
       _deviceInfo = deviceInfo;
+      _peripheralType = peripheralType;
       _communicationClient.ResponseHandlers += HandleResponse;
 
       PhoneBookParser = new CiscoCE9PhonebookParser();
@@ -72,7 +81,7 @@ public class CiscoRoomOs : Conference
       PollWorker.Stop();
       try
       {
-        SendCommand($"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: ControlSystem Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
+        SendCommand($"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: {_peripheralType.ToString()} Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
         SendCommand("xFeedback register /Status/Standby");
         SendCommand("xFeedback register /Status/Call");
         SendCommand("xFeedback register /Status/Audio/Volume");
