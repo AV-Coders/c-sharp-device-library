@@ -46,5 +46,6 @@ public abstract class AVoIPEndpoint : SyncStatus
         CommunicationClient = communicationClient;
         _streamAddress = String.Empty;
         PreviewUrl = String.Empty;
+        _previewUrl = String.Empty;
     }
 }
