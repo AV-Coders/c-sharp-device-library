@@ -194,18 +194,22 @@ public class QsysEcpTest
         _volumeLevelHandler.Verify(x => x.Invoke(98));
     }
 
-    [Fact]
-    public void HandleResponse_GivenAMuteValue_UpdatesTheMuteState()
+    [Theory]
+    [InlineData("unmuted")]
+    [InlineData("false")]
+    public void HandleResponse_GivenAMuteValue_UpdatesTheMuteState(string muteState)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"unmuted\" 1 1");
+        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"{muteState}\" 1 1");
 
         Assert.Equal(MuteState.Off, _dsp.GetAudioMute(MuteName));
     }
-
-    [Fact]
-    public void HandleResponse_GivenAMuteValue_UpdatesTheMuteStateForMuted()
+    
+    [Theory]
+    [InlineData("muted")]
+    [InlineData("true")]
+    public void HandleResponse_GivenAMuteValue_UpdatesTheMuteStateForMuted(string muteState)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"muted\" 1 1");
+        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"{muteState}\" 1 1");
 
         Assert.Equal(MuteState.On, _dsp.GetAudioMute(MuteName));
     }

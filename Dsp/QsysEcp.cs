@@ -128,7 +128,7 @@ public class QsysEcp : Dsp
                 _gains[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
 
             if (_mutes.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Mute" "unmuted" 1 1
-                _mutes[controlName].MuteState = matches[0].Groups[2].Value.Contains("unmuted") ? MuteState.Off : MuteState.On;
+                _mutes[controlName].MuteState = FigureOutMuteState(matches[0].Groups[2].Value);
 
             if (_strings.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
                 _strings[controlName].Value = matches[0].Groups[2].Value;
@@ -137,6 +137,13 @@ public class QsysEcp : Dsp
         {
             LogHandlers?.Invoke($"QsysEcp: {e}\n {e.StackTrace}", EventLevel.Error);
         }
+    }
+
+    private MuteState FigureOutMuteState(string value)
+    {
+        if (value.Contains("unmuted") || value.Contains("false"))
+            return MuteState.Off;
+        return MuteState.On;
     }
 
     private void HandleConnectionState(ConnectionState connectionState)
