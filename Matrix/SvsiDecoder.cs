@@ -45,7 +45,17 @@ public class SvsiDecoder : SvsiBase
         }
     }
 
-    public void SetInput(uint streamId) => CommunicationClient.Send($"set:{streamId}\r");
+    public void SetInput(uint streamId)
+    {
+        CommunicationClient.Send($"set:{streamId}\r");
+        Thread.Sleep(200);
+        CommunicationClient.Send("live\r");
+    }
+
+    public void SetPlaylist(uint playlistId)
+    {
+        CommunicationClient.Send($"local:{playlistId}\r");
+    }
 
     public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
 

@@ -60,6 +60,15 @@ public class SvsiDecoderTest
         _svsiDecoder.SetInput(new TestSvsiEncoder(_mockClient.Object));
         
         _mockClient.Verify(x => x.Send("set:3\r"));
+        _mockClient.Verify(x => x.Send("live\r"));
+    }
+
+    [Fact]
+    public void SetPlaylist_AcceptsAStreamId()
+    {
+        _svsiDecoder.SetPlaylist(1);
+        
+        _mockClient.Verify(x => x.Send("local:1\r"));
     }
 
     [Theory]
