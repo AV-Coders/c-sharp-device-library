@@ -5,6 +5,7 @@ namespace AVCoders.Matrix.Tests;
 
 public class NavDecoderTest
 {
+    private readonly Mock<SshClient> _mockSshClient;
     private readonly NavDecoder _navDecoder;
     private readonly Mock<Navigator> _navigatorMock;
     private readonly Mock<SyncInfoHandler> _outputSyncInfoHandlerMock;
@@ -12,8 +13,8 @@ public class NavDecoderTest
 
     public NavDecoderTest()
     {
-        Mock<SshClient> mockSshClient = new("foo", Navigator.DefaultPort, "Test");
-        _navigatorMock = new Mock<Navigator>(mockSshClient.Object);
+        _mockSshClient = new("foo", Navigator.DefaultPort, "Test");
+        _navigatorMock = new Mock<Navigator>(_mockSshClient.Object);
         _navDecoder = new NavDecoder("Decoder", "1.1.1.1", _navigatorMock.Object);
         _outputSyncInfoHandlerMock = new Mock<SyncInfoHandler>();
         _navDecoder.OutputStatusChangedHandlers += _outputSyncInfoHandlerMock.Object;
@@ -35,5 +36,23 @@ public class NavDecoderTest
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
         theAction.Invoke("In3696 All");
         _addressChangeHandlerMock.Verify(x => x.Invoke("3696"));
+    }
+
+    [Fact]
+    public void SetInput_SendsTheCommand()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+        _navDecoder.SetInput(1);
+        _navigatorMock.Verify(x => x.RouteAV(1, 101));
+    }
+
+    [Fact]
+    public void SetInput_SendsTheDerouteCommand()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+        _navDecoder.SetInput(0);
+        _navigatorMock.Verify(x => x.RouteAV(0, 101));
     }
 }

@@ -9,7 +9,7 @@ public class Navigator : DeviceBase
     public readonly SshClient SshClient;
     private Dictionary<string, Action<string>> _callbacks;
     private readonly Regex _deviceResponseParser;
-    private readonly string EscapeHeader = "\x1b";
+    public const string EscapeHeader = "\x1b";
     
 
     public Navigator(SshClient sshClient)
@@ -23,9 +23,9 @@ public class Navigator : DeviceBase
         _deviceResponseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(100));
     }
 
-    private void HandleConnectionState(ConnectionState connectionstate)
+    private void HandleConnectionState(ConnectionState connectionState)
     {
-        if (connectionstate != ConnectionState.Connected)
+        if (connectionState != ConnectionState.Connected)
             return;
         SshClient.Send($"{EscapeHeader}3CV\r");
     }
@@ -38,11 +38,11 @@ public class Navigator : DeviceBase
             return;
         }
     }
+    public virtual void RouteAV(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}!\r");
+    public void RouteAudio(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}$\r");
+    public void RouteVideo(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}%\r");
 
-    public void SendCommandToDevice(string deviceId, string command)
-    {
-        SshClient.Send($"{{{deviceId}:{command}}}\r");
-    }
+    public void SendCommandToDevice(string deviceId, string command) => SshClient.Send($"{{{deviceId}:{command}}}\r");
 
     private void ForwardDeviceResponse(string response)
     {

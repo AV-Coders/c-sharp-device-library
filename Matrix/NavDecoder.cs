@@ -7,6 +7,10 @@ public class NavDecoder : NavDeviceBase
     {
     }
 
+    public void SetInput(uint deviceId) => Navigator.RouteAV(deviceId, DeviceNumber);
+
+    public void SetInput(NavEncoder encoder) => Navigator.RouteAV(encoder.DeviceNumber, DeviceNumber);
+
     protected override Task Poll(CancellationToken arg)
     {
         Send($"I");

@@ -2,14 +2,6 @@
 
 namespace AVCoders.Matrix;
 
-public enum NavManualPollItem
-{
-    None,
-    DeviceNumber,
-    SerialNumber,
-    DeviceName
-}
-
 public abstract class NavDeviceBase : AVoIPEndpoint
 {
     public LogHandler? LogHandlers;
@@ -18,14 +10,26 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     protected readonly ThreadWorker PollWorker;
     protected readonly Navigator Navigator;
     protected readonly string EscapeHeader = "\x1b";
-    protected int? DeviceNumber = null;
+    protected uint? _deviceNumber = null;
     protected string? SerialNumber = null;
     protected string? DeviceName = null;
-    private NavManualPollItem _currentPollItem = NavManualPollItem.None;
     
     private readonly string _deviceId;
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
+
+    public uint DeviceNumber
+    {
+        get => _deviceNumber ?? 0;
+        protected set
+        {
+            if (value == _deviceNumber)
+                return;
+            _deviceNumber = value;
+            if (DeviceType == AVoIPDeviceType.Encoder)
+                StreamAddress = DeviceNumber.ToString();
+        }
+    }
 
 
     public NavDeviceBase(string name, AVoIPDeviceType deviceType, string ipAddress, Navigator navigator) : 
@@ -35,7 +39,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         _deviceId = ipAddress;
         Navigator.RegisterDevice(ipAddress, PreHandleResponse);
         Navigator.SshClient.ConnectionStateHandlers += HandleConnectionState;
-        PollWorker = new ThreadWorker(PrePoll, TimeSpan.FromSeconds(60), true);
+        PollWorker = new ThreadWorker(PrePoll, TimeSpan.FromSeconds(45));
         PollWorker.Restart();
     }
 
@@ -44,61 +48,49 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         if (connectionstate != ConnectionState.Connected)
             return;
         Random random = new Random();
-        int waitDelay = random.Next(2, 20 + 1) * 200;
-        Thread.Sleep(TimeSpan.FromMilliseconds(waitDelay));
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
         Send($"{EscapeHeader}3CV\r");
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
+        PollWorker.Restart();
     }
 
     protected abstract Task Poll(CancellationToken token);
 
-    private Task PrePoll(CancellationToken token)
+    private async Task PrePoll(CancellationToken token)
     {
-        if (DeviceNumber == null)
-        {
-            _currentPollItem = NavManualPollItem.DeviceNumber;
+        if (_deviceNumber == null)
             Send($"{EscapeHeader}DNUM\r");
-            return Task.CompletedTask;
-        }
-        if (SerialNumber == null)
-        {
-            _currentPollItem = NavManualPollItem.SerialNumber;
-            Send("98I");
-            return Task.CompletedTask;
-        }
 
         if (DeviceName == null)
-        {
-            _currentPollItem = NavManualPollItem.DeviceName;
             Send($"{EscapeHeader}CN\r");
-            return Task.CompletedTask;
-        }
         
-        Poll(token);
-        return Task.CompletedTask;
+        if (SerialNumber == null)
+            Send("98I");
+        
+        await Poll(token);
     }
 
     protected abstract void HandleResponse(string response);
 
     private void PreHandleResponse(string payload)
     {
-        switch (_currentPollItem)
+        if (payload.StartsWith("Dnum"))
         {
-            case NavManualPollItem.DeviceNumber when payload.StartsWith("Dnum"):
-                DeviceNumber = int.Parse(payload.Replace("Dnum", String.Empty));
-                _currentPollItem = NavManualPollItem.None;
-                Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", HandleResponse);
-                if (DeviceType == AVoIPDeviceType.Encoder)
-                    StreamAddress = DeviceNumber.ToString() ?? string.Empty;
-                return;
-            case NavManualPollItem.SerialNumber when payload.StartsWith("Inf98*"):
-                SerialNumber = payload.Replace("Inf98*", String.Empty);
-                _currentPollItem = NavManualPollItem.None;
-                return;
-            
-            case NavManualPollItem.DeviceName when payload.StartsWith("Ipn "):
-                DeviceName = payload.Replace("Ipn ", String.Empty);
-                _currentPollItem = NavManualPollItem.None;
-                return;
+            DeviceNumber = uint.Parse(payload.Replace("Dnum", String.Empty));
+            Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", HandleResponse);
+            return;
+        }
+
+        if (payload.StartsWith("Inf98*"))
+        {
+            SerialNumber = payload.Replace("Inf98*", String.Empty);
+            return;
+        }
+
+        if (payload.StartsWith("Ipn "))
+        {
+            DeviceName = payload.Replace("Ipn ", String.Empty);
+            return;
         }
 
         if (payload.Contains('*'))
