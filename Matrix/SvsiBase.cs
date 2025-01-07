@@ -22,12 +22,13 @@ public abstract class SvsiBase : AVoIPEndpoint
         }
     }
 
-    public SvsiBase(string name, TcpClient tcpClient, int pollTime, AVoIPDeviceType deviceType) : base(name, deviceType, tcpClient)
+    public SvsiBase(string name, TcpClient tcpClient, AVoIPDeviceType deviceType) : base(name, deviceType, tcpClient)
     {
-        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), true);
         StatusDictionary = new Dictionary<string, string>();
         CommunicationClient.ResponseHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
+        
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(45), true);
         PollWorker.Restart();
     }
 
