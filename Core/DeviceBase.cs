@@ -19,7 +19,7 @@ public abstract class DeviceBase : IDevice
             if (value == _powerState)
                 return;
             _powerState = value;
-            ReportPowerState();
+            PowerStateHandlers?.Invoke(PowerState);
         }
     }
 
@@ -32,26 +32,26 @@ public abstract class DeviceBase : IDevice
                 return;
             
             _communicationState = value;
-            ReportCommunicationState();
+            CommunicationStateHandlers?.Invoke(CommunicationState);
         }
     }
 
     protected void ProcessPowerState()
     {
-        PowerStateHandlers?.Invoke(PowerState);
         if (PowerState == DesiredPowerState)
             return;
-        if (DesiredPowerState == PowerState.Unknown)
-            return;
-        Log("Forcing Power");
-        if (DesiredPowerState == PowerState.Off)
-            PowerOff();
-        else if (DesiredPowerState == PowerState.On) 
-            PowerOn();
+        switch (DesiredPowerState)
+        {
+            case PowerState.Off:
+                Log("Forcing Power off");
+                PowerOff();
+                break;
+            case PowerState.On:
+                Log("Forcing Power on");
+                PowerOn();
+                break;
+        }
     }
-
-    protected void ReportPowerState() => PowerStateHandlers?.Invoke(PowerState);
-    protected void ReportCommunicationState() => CommunicationStateHandlers?.Invoke(CommunicationState);
 
     public PowerState GetCurrentPowerState() => PowerState;
 
