@@ -1,7 +1,45 @@
-﻿namespace AVCoders.Matrix;
+﻿using AVCoders.Core;
+
+namespace AVCoders.Matrix;
 
 public class NavDecoder : NavDeviceBase
 {
+    public MuteStateHandler? AudioMuteStateHandlers;
+    public MuteStateHandler? VideoMuteStateHandlers;
+    private MuteState _audioMuteState = MuteState.Unknown;
+    private MuteState _videoMuteState = MuteState.Unknown;
+    
+    public MuteState AudioMute
+    {
+        get => _audioMuteState;
+        private set
+        {
+            if (_audioMuteState == value)
+                return;
+            _audioMuteState = value;
+            AudioMuteStateHandlers?.Invoke(value);
+        }
+    }
+    
+    public MuteState VideoMute
+    {
+        get => _videoMuteState;
+        private set
+        {
+            if (_videoMuteState == value)
+                return;
+            _videoMuteState = value;
+            VideoMuteStateHandlers?.Invoke(value);
+        }
+    }
+
+
+    private readonly Dictionary<MuteState, string> _audioMuteStates = new Dictionary<MuteState, string>
+    {
+        { MuteState.Off, "0" },
+        { MuteState.On, "1" },
+    };
+
     public NavDecoder(string name, string ipAddress, Navigator navigator) 
         : base(name, AVoIPDeviceType.Decoder, ipAddress, navigator)
     {
@@ -10,6 +48,17 @@ public class NavDecoder : NavDeviceBase
     public void SetInput(uint deviceId) => Navigator.RouteAV(deviceId, DeviceNumber);
 
     public void SetInput(NavEncoder encoder) => Navigator.RouteAV(encoder.DeviceNumber, DeviceNumber);
+    
+
+    public void SetAudioMute(MuteState muteState)
+    {
+        Send($"1*{_audioMuteStates[muteState]}Z");
+        Send($"2*{_audioMuteStates[muteState]}Z");
+    }
+
+    public void ToggleAudioMute() => SetAudioMute(_audioMuteState == MuteState.Off ? MuteState.On : MuteState.Off);
+
+    public void SetVideoMute(MuteState state) => Send(state == MuteState.On? "2B" : "0B");
 
     protected override Task Poll(CancellationToken arg)
     {
@@ -24,6 +73,33 @@ public class NavDecoder : NavDeviceBase
         {
             var streamId = response.Split(' ')[0][2..];
             StreamAddress = streamId;
+            return;
+        }
+
+        if (response.StartsWith("Vmt"))
+        {
+            switch (int.Parse(response[3..]))
+            {
+                case 0:
+                    VideoMute = MuteState.Off;
+                    return;
+                default:
+                    VideoMute = MuteState.On;
+                    return;
+            }
+        }
+
+        if (response.StartsWith("Amt"))
+        {
+            switch (int.Parse(response[5..]))
+            {
+                case 0:
+                    AudioMute = MuteState.Off;
+                    break;
+                case 1:
+                    AudioMute = MuteState.On;
+                    break;
+            }
         }
     }
 

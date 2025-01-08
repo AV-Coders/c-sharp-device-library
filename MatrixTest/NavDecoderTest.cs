@@ -39,6 +39,46 @@ public class NavDecoderTest
     }
 
     [Fact]
+    public void ResponseHandler_ProcessesVideoMuteOn()
+    {
+        Mock<MuteStateHandler> muteStateHandlerMock = new();
+        _navDecoder.VideoMuteStateHandlers = muteStateHandlerMock.Object;
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Vmt2");
+        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.On));
+    }
+
+    [Fact]
+    public void ResponseHandler_ProcessesVideoMuteOff()
+    {
+        Mock<MuteStateHandler> muteStateHandlerMock = new();
+        _navDecoder.VideoMuteStateHandlers = muteStateHandlerMock.Object;
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Vmt0");
+        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.Off));
+    }
+
+    [Fact]
+    public void ResponseHandler_ProcessesAudioMuteOn()
+    {
+        Mock<MuteStateHandler> muteStateHandlerMock = new();
+        _navDecoder.AudioMuteStateHandlers = muteStateHandlerMock.Object;
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Amt1*1");
+        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.On));
+    }
+
+    [Fact]
+    public void ResponseHandler_ProcessesAudioMuteOff()
+    {
+        Mock<MuteStateHandler> muteStateHandlerMock = new();
+        _navDecoder.AudioMuteStateHandlers = muteStateHandlerMock.Object;
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Amt1*0");
+        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.Off));
+    }
+
+    [Fact]
     public void SetInput_SendsTheCommand()
     {
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];

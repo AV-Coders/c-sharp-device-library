@@ -93,7 +93,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
             return;
         }
 
-        if (payload.Contains('*'))
+        if (payload.Contains('*') && !payload.Contains("Amt"))
         {
             payload.Split('*').ToList().ForEach(ProcessConcatenatedResponse);
             return;
