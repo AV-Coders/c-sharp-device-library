@@ -26,6 +26,7 @@ public class ExtronSmp351
     private readonly Regex _responseParser;
     private readonly ulong _memoryLowKBytes;
     private readonly ulong _memoryFullKBytes;
+    public const string EscapeHeader = "\x1b";
 
     public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, int pollTime = 1000)
     {
@@ -34,11 +35,34 @@ public class ExtronSmp351
         _memoryFullKBytes = memoryFullKBytes;
         _communicationClient.ResponseHandlers += HandleResponse;
         _recordState = RecordState.Unknown;
-        _pollWorker = new ThreadWorker(PollRecorderThreadFunction, TimeSpan.FromMilliseconds(pollTime));
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollTime));
         _pollWorker.Restart();
 
         string responsePattern = "<([^>]*)>";
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(100));
+    }
+
+    public void Record() => _communicationClient.Send($"{EscapeHeader}Y1RCDR\r");
+
+    public void Stop() => _communicationClient.Send($"{EscapeHeader}Y0RCDR\r");
+    
+    public void Pause() => _communicationClient.Send($"{EscapeHeader}Y2RCDR\r");
+    
+    
+    private void SetRecordState(RecordState desiredState)
+    {
+        switch (desiredState)
+        {
+            case RecordState.Recording:
+                Record();
+                break;
+            case RecordState.RecordingPaused:
+                Pause();
+                break;
+            case RecordState.Stopped:
+                Stop();
+                break;
+        }
     }
 
     private void HandleResponse(string response)
@@ -69,7 +93,7 @@ public class ExtronSmp351
         _recordState = currentState;
     }
 
-    private Task PollRecorderThreadFunction( CancellationToken token)
+    private Task Poll( CancellationToken token)
     {
         if(_communicationClient.GetConnectionState() == ConnectionState.Connected)
         {

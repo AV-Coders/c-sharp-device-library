@@ -18,10 +18,11 @@ public class ExtronSmp351Test
         public new ConnectionState GetConnectionState() => ConnectionState.Connected;
     }
     
-    private ExtronSmp351 _recorder;
+    private readonly ExtronSmp351 _recorder;
     private readonly Mock<StubbedClient> _mockClient = new("foo", (ushort)1);
     private readonly Mock<RecordStateHandler> _recordStateHandler = new();
     private readonly Mock<TimestampHandler> _timestampHandler = new ();
+    public const string EscapeHeader = "\x1b";
 
     public ExtronSmp351Test()
     {
@@ -58,5 +59,29 @@ public class ExtronSmp351Test
         _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         _timestampHandler.Verify(x => x.Invoke(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void Record_SendsTheCommand()
+    {
+        _recorder.Record();
+        
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}Y1RCDR\r"));
+    }
+
+    [Fact]
+    public void Pause_SendsTheCommand()
+    {
+        _recorder.Pause();
+        
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}Y2RCDR\r"));
+    }
+
+    [Fact]
+    public void Stop_SendsTheCommand()
+    {
+        _recorder.Stop();
+        
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}Y0RCDR\r"));
     }
 }
