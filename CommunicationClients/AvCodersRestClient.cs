@@ -40,7 +40,7 @@ public class AvCodersRestClient : RestComms
 
     public override async Task Post(string payload, string contentType) => await Post(null, payload, contentType);
     
-    public async Task Post(Uri? endpoint, string payload, string contentType)
+    public override async Task Post(Uri? endpoint, string payload, string contentType)
     {
         try
         {

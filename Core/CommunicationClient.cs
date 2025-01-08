@@ -126,6 +126,7 @@ public abstract class RestComms : CommunicationClient
     public abstract void RemoveDefaultHeader(string key);
 
     public abstract Task Post(string payload, string contentType);
+    public abstract Task Post(Uri? endpoint, string payload, string contentType);
     public abstract Task Put(string payload, string contentType);
     public abstract Task Put(Uri? endpoint, string content, string contentType);
 
