@@ -8,7 +8,8 @@ public enum RecordState
     Unknown,
     Recording,
     RecordingPaused,
-    Stopped
+    Stopped,
+    PreparingToRecord
 }
 
 public delegate void RecordStateHandler(RecordState state);
@@ -28,13 +29,25 @@ public class ExtronSmp351
     private readonly ulong _memoryFullKBytes;
     public const string EscapeHeader = "\x1b";
 
+    public RecordState RecordState
+    {
+        get => _recordState;
+        private set
+        {
+            if (_recordState == value)
+                return;
+            _recordState = value;
+            RecordStateHandlers?.Invoke(value);
+        }
+    }
+
     public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, int pollTime = 1000)
     {
         _communicationClient = communicationClient;
         _memoryLowKBytes = memoryLowKBytes;
         _memoryFullKBytes = memoryFullKBytes;
         _communicationClient.ResponseHandlers += HandleResponse;
-        _recordState = RecordState.Unknown;
+        RecordState = RecordState.Unknown;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollTime));
         _pollWorker.Restart();
 
@@ -67,10 +80,9 @@ public class ExtronSmp351
 
     private void HandleResponse(string response)
     {
-        RecordStateHandlers?.Invoke(RecordState.Stopped);
         var matches = _responseParser.Matches(response);
         ProcessRecordingState(matches[1].Groups[1].Value);
-        if (_recordState is RecordState.Recording or RecordState.RecordingPaused)
+        if (RecordState is RecordState.Recording or RecordState.RecordingPaused)
         {
             TimestampHandlers?.Invoke(matches[4].Groups[1].Value);
         }
@@ -78,19 +90,14 @@ public class ExtronSmp351
 
     private void ProcessRecordingState(string state)
     {
-        RecordState currentState = state switch
+        RecordState = state switch
         {
             "recording" => RecordState.Recording,
             "paused" => RecordState.RecordingPaused,
             "stopped" => RecordState.Stopped,
+            "setup" => RecordState.PreparingToRecord,
             _ => RecordState.Unknown
         };
-
-        if (currentState == _recordState)
-            return;
-        
-        RecordStateHandlers?.Invoke(currentState);
-        _recordState = currentState;
     }
 
     private Task Poll( CancellationToken token)
