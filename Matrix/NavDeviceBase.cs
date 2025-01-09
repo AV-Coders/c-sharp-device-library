@@ -10,9 +10,9 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     protected readonly ThreadWorker PollWorker;
     protected readonly Navigator Navigator;
     protected readonly string EscapeHeader = "\x1b";
-    protected uint? _deviceNumber = null;
+    private uint? _deviceNumber = null;
+    private string _hostname = String.Empty;
     protected string? SerialNumber = null;
-    protected string? DeviceName = null;
     
     private readonly string _deviceId;
     private PowerState _powerState = PowerState.Unknown;
@@ -29,6 +29,12 @@ public abstract class NavDeviceBase : AVoIPEndpoint
             if (DeviceType == AVoIPDeviceType.Encoder)
                 StreamAddress = DeviceNumber.ToString();
         }
+    }
+
+    public string Hostname
+    {
+        get => _hostname;
+        protected set => _hostname = value;
     }
 
 
@@ -61,7 +67,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         if (_deviceNumber == null)
             Send($"{EscapeHeader}DNUM\r");
 
-        if (DeviceName == null)
+        if (Hostname == String.Empty)
             Send($"{EscapeHeader}CN\r");
         
         if (SerialNumber == null)
@@ -89,7 +95,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
         if (payload.StartsWith("Ipn "))
         {
-            DeviceName = payload.Replace("Ipn ", String.Empty);
+            Hostname = payload.Replace("Ipn ", String.Empty);
             return;
         }
 
