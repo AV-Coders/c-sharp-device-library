@@ -118,7 +118,11 @@ public class AvCodersTcpClient : Core_TcpClient
         }
     }
 
-    public override void Send(string message) => Send(Bytes.FromString(message));
+    public override void Send(string message)
+    {
+        Send(Bytes.FromString(message));
+        InvokeRequestHandlers(message);
+    }
 
     public override void Send(byte[] bytes)
     {
@@ -127,6 +131,7 @@ public class AvCodersTcpClient : Core_TcpClient
             try
             {
                 _client.GetStream().Write(bytes);
+                InvokeRequestHandlers(bytes);
             }
             catch (IOException e)
             {

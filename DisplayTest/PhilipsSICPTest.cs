@@ -29,7 +29,7 @@ public class PhilipsSICPTest
     public void PowerOn_UsesTheCorrectDisplayId()
     {
         PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x05, 0x01,"Test display", Input.Hdmi1);
-        byte[] expectedPowerOnCommand = { 0x06, 0x05, 0x01, 0x18, 0x02, 0x1C };
+        byte[] expectedPowerOnCommand = { 0x06, 0x05, 0x01, 0x18, 0x02, 0x18 };
 
         display2.PowerOn();
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
@@ -48,7 +48,7 @@ public class PhilipsSICPTest
     public void PowerOff_UsesTheCorrectDisplayId()
     {
         PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x04, 0x01, "Test display", Input.Hdmi1);
-        byte[] expectedPowerOnCommand = { 0x06, 0x04, 0x01, 0x18, 0x01, 0x1F };
+        byte[] expectedPowerOnCommand = { 0x06, 0x04, 0x01, 0x18, 0x01, 0x1A };
 
         display2.PowerOff();
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
@@ -91,5 +91,15 @@ public class PhilipsSICPTest
     {
         _display.SetVolume(volume);
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x06, 0x01, 0x01, 0x19, 0x02, 0x1D }, PowerState.On)]
+    [InlineData(new byte[] { 0x06, 0x01, 0x01, 0x19, 0x01, 0x1E }, PowerState.Off)]
+    public void HandleResponse_UpdatesThePowerState(byte[] response, PowerState expectedState)
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response);
+        
+        Assert.Equal(expectedState, _display.GetCurrentPowerState());
     }
 }

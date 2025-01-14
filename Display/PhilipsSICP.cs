@@ -6,11 +6,13 @@ public class PhilipsSICP : Display
 {
     public const ushort DefaultPort = 5000;
     public static readonly SerialSpec DefaultSpec = new (SerialBaud.Rate9600, SerialParity.None,
-        SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232); 
+        SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
+    public readonly CommunicationClient CommunicationClient;
+    
+    private readonly List<byte> _gather = new();
 
     private readonly byte _monitorId;
     private readonly byte _groupId;
-    private CommunicationClient _client;
 
     private static readonly Dictionary<Input, byte> _inputMap = new Dictionary<Input, byte>
     {
@@ -23,34 +25,103 @@ public class PhilipsSICP : Display
     public PhilipsSICP(CommunicationClient client, byte monitorId, byte groupId, string name, Input? defaultInput, int pollTime = 23) : base(
         _inputMap.Keys.ToList(), name, defaultInput, pollTime)
     {
-        _client = client;
+        CommunicationClient = client;
+        CommunicationClient.ResponseByteHandlers += HandleResponse;
         _monitorId = monitorId;
         _groupId = groupId;
     }
 
-
-    protected override Task Poll(CancellationToken token)
+    private void HandleResponse(byte[] response)
     {
-        return Task.CompletedTask;
+        if (response.Length < response[0])
+        {
+            Error("The response was too small");
+            return;
+        }
+
+        switch (response[3])
+        {
+            case 0x19:
+                PowerState = response[4] switch
+                {
+                    0x01 => PowerState.Off,
+                    0x02 => PowerState.On,
+                    _ => PowerState
+                };
+                ProcessPowerResponse();
+                break;
+            case 0xAD:
+                Input = response[4] switch
+                {
+                    0x0d => Input.Hdmi1,
+                    0x06 => Input.Hdmi2,
+                    0x0f => Input.Hdmi3,
+                    0x19 => Input.Hdmi4,
+                    _ => Input
+                };
+                ProcessInputResponse();
+                break;
+            case 0x45:
+                Volume = response[4];
+                Log($"The current volume is {Volume}");
+                VolumeLevelHandlers?.Invoke(Volume);
+                break;
+            case 0x46:
+                AudioMute = response[4] switch
+                {
+                    0x00 => MuteState.Off,
+                    0x01 => MuteState.On,
+                    _ => MuteState.Unknown
+                };
+                Log($"The current mute state is {AudioMute.ToString()}");
+                MuteStateHandlers?.Invoke(AudioMute);
+                break;
+        }
+        
     }
 
-    private void Send(byte[] data)
+
+    protected override async Task Poll(CancellationToken token)
+    {
+        if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
+        {
+            Log("Not polling");
+        }
+        
+        Log("Polling Power");
+        
+        Send(new byte[]{ 0x19 }, 0x00);
+        if (PowerState == PowerState.On)
+        {
+            await Task.Delay(3000, token);
+            Send(new byte[] { 0xAD }, 0x00);
+            await Task.Delay(3000, token);
+            Send(new byte[] { 0x45 }, 0x00);
+            await Task.Delay(3000, token);
+            Send(new byte[] { 0x46 }, 0x00);
+        } 
+    }
+
+    private void Send(byte[] data) => Send(data, _groupId);
+
+    private void Send(byte[] data, byte groupId)
     {
         byte messageSize = (byte)(data.Length + 4);
-        byte checksum = GenerateChecksum(messageSize, data);
         byte[] payload = new byte[messageSize];
         
         payload[0] = messageSize;
         payload[1] = _monitorId;
-        payload[2] = _groupId;
+        payload[2] = groupId;
         Array.Copy(data, 0, payload, 3, data.Length);
+        
+        byte checksum = GenerateChecksum(payload);
         payload[messageSize - 1] = checksum;
-        _client.Send(payload);
+        CommunicationClient.Send(payload);
     }
 
-    private byte GenerateChecksum(byte messageSize, byte[] bytes)
+    private byte GenerateChecksum(byte[] bytes)
     {
-        byte checksum = messageSize;
+        byte checksum = 0x00;
         foreach (var t in bytes)
         {
             checksum ^= t;
