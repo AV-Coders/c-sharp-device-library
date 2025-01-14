@@ -92,6 +92,13 @@ public abstract class Display : VolumeControl, IDevice
     public MuteState GetAudioMute() => AudioMute;
     public MuteState GetVideoMute() => VideoMute;
 
+    public void TogglePower()
+    {
+        if(PowerState == PowerState.On)
+            PowerOff();
+        else
+            PowerOn();
+    }
     public void PowerOn()
     {
         DoPowerOn();
