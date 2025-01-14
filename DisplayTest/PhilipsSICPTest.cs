@@ -8,11 +8,12 @@ public class PhilipsSICPTest
     private readonly Mock<TcpClient> _mockClient;
     private readonly PhilipsSICP _display;
     private readonly byte _displayId = 0x00;
+    private readonly byte _groupId = 0x00;
 
     public PhilipsSICPTest()
     {
         _mockClient = new("foo", PhilipsSICP.DefaultPort, "Test");
-        _display = new PhilipsSICP(_mockClient.Object, _displayId, "Test", Input.Hdmi1);
+        _display = new PhilipsSICP(_mockClient.Object, _displayId, _groupId, "Test", Input.Hdmi1);
     }
     
     [Fact]
@@ -27,8 +28,8 @@ public class PhilipsSICPTest
     [Fact]
     public void PowerOn_UsesTheCorrectDisplayId()
     {
-        PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x05, "Test display", Input.Hdmi1);
-        byte[] expectedPowerOnCommand = { 0x06, 0x05, 0x00, 0x18, 0x02, 0x1C };
+        PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x05, 0x01,"Test display", Input.Hdmi1);
+        byte[] expectedPowerOnCommand = { 0x06, 0x05, 0x01, 0x18, 0x02, 0x1C };
 
         display2.PowerOn();
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
@@ -46,8 +47,8 @@ public class PhilipsSICPTest
     [Fact]
     public void PowerOff_UsesTheCorrectDisplayId()
     {
-        PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x04, "Test display", Input.Hdmi1);
-        byte[] expectedPowerOnCommand = { 0x06, 0x04, 0x00, 0x18, 0x01, 0x1F };
+        PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x04, 0x01, "Test display", Input.Hdmi1);
+        byte[] expectedPowerOnCommand = { 0x06, 0x04, 0x01, 0x18, 0x01, 0x1F };
 
         display2.PowerOff();
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);

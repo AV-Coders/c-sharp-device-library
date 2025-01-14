@@ -9,7 +9,7 @@ public class PhilipsSICP : Display
         SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232); 
 
     private readonly byte _monitorId;
-    private readonly byte _group0 = 0x00;
+    private readonly byte _groupId;
     private CommunicationClient _client;
 
     private static readonly Dictionary<Input, byte> _inputMap = new Dictionary<Input, byte>
@@ -20,17 +20,18 @@ public class PhilipsSICP : Display
         { Input.Hdmi4, 0x19},
     };
 
-    public PhilipsSICP(CommunicationClient client, byte monitorId, string name, Input? defaultInput, int pollTime = 23) : base(
+    public PhilipsSICP(CommunicationClient client, byte monitorId, byte groupId, string name, Input? defaultInput, int pollTime = 23) : base(
         _inputMap.Keys.ToList(), name, defaultInput, pollTime)
     {
         _client = client;
         _monitorId = monitorId;
+        _groupId = groupId;
     }
 
 
     protected override Task Poll(CancellationToken token)
     {
-        throw new NotImplementedException();
+        return Task.CompletedTask;
     }
 
     private void Send(byte[] data)
@@ -41,7 +42,7 @@ public class PhilipsSICP : Display
         
         payload[0] = messageSize;
         payload[1] = _monitorId;
-        payload[2] = _group0;
+        payload[2] = _groupId;
         Array.Copy(data, 0, payload, 3, data.Length);
         payload[messageSize - 1] = checksum;
         _client.Send(payload);
