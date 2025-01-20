@@ -53,7 +53,6 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     {
         if (connectionstate != ConnectionState.Connected)
             return;
-        Random random = new Random();
         Thread.Sleep(TimeSpan.FromMilliseconds(200));
         Send($"{EscapeHeader}3CV\r");
         Thread.Sleep(TimeSpan.FromMilliseconds(200));
