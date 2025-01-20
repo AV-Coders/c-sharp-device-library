@@ -6,6 +6,7 @@
         <Nullable>enable</Nullable>
         <AssemblyName>AVCoders.Conference</AssemblyName>
         <RootNamespace>AVCoders.Conference</RootNamespace>
+        <LangVersion>default</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>

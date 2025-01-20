@@ -6,7 +6,6 @@
         <Nullable>enable</Nullable>
         <AssemblyName>AVCoders.Dsp</AssemblyName>
         <RootNamespace>AVCoders.Dsp</RootNamespace>
-        <LangVersion>11</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>

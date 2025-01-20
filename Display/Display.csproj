@@ -6,7 +6,6 @@
         <Nullable>enable</Nullable>
         <AssemblyName>AVCoders.Display</AssemblyName>
         <RootNamespace>AVCoders.Display</RootNamespace>
-        <LangVersion>11</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>

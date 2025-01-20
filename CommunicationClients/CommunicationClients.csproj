@@ -6,7 +6,6 @@
         <Nullable>enable</Nullable>
         <AssemblyName>AVCoders.CommunicationClients</AssemblyName>
         <RootNamespace>AVCoders.CommunicationClients</RootNamespace>
-        <LangVersion>11</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>

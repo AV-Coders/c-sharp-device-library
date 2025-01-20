@@ -9,7 +9,6 @@
         <IsTestProject>true</IsTestProject>
         <AssemblyName>AVCoders.Matrix.Tests</AssemblyName>
         <RootNamespace>AVCoders.Matrix.Tests</RootNamespace>
-        <LangVersion>11</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>

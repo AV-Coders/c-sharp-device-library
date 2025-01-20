@@ -6,7 +6,6 @@
         <Nullable>enable</Nullable>
         <AssemblyName>AVCoders.Matrix</AssemblyName>
         <RootNamespace>AVCoders.Matrix</RootNamespace>
-        <LangVersion>11</LangVersion>
     </PropertyGroup>
 
     <ItemGroup>
