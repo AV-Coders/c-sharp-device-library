@@ -7,6 +7,7 @@ public class SamsungMdc : Display
 {
     public static readonly ushort DefaultPort = 1515;
     private readonly byte _displayId;
+    private List<byte> _gather = new ();
     public readonly CommunicationClient CommunicationClient;
     private static readonly Dictionary<Input, byte> InputDictionary = new Dictionary<Input, byte>
     {
@@ -123,6 +124,23 @@ public class SamsungMdc : Display
     }
 
     public void HandleResponse(byte[] response)
+    {
+        _gather.AddRange(response);
+        while (_gather.Count > 0 && _gather[0] != 0xAA)
+        {
+            _gather.RemoveAt(0);
+        }
+
+        while (_gather.Count > 4 && _gather.Count >= _gather[3] + 5 )
+        {
+            int endIndex = _gather[3] + 5;
+            byte[] aResponsePayload = _gather.Take(endIndex).ToArray();
+            _gather = _gather.Skip(endIndex).ToList();
+            ProcessResponse(aResponsePayload);
+        }
+    }
+
+    public void ProcessResponse(byte[] response)
     {
         // Log($"Response received, bytes: {BitConverter.ToString(response)}");
 

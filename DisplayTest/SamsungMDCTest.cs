@@ -220,4 +220,20 @@ public class SamsungMDCTest
         
         mockHandler.Verify(x => x.Invoke(expectedState));
     }
+
+    [Fact]
+    public void HandleResponse_HandlesPartialResponses()
+    {
+        Mock<VolumeLevelHandler> mockHandler = new Mock<VolumeLevelHandler>();
+        byte[] response1 = { 0xAA, 0xFF, 0x00, 0x03 };
+        byte[] response2 = {(byte)'A', 0x12, 0x0D, 0xFF };
+        
+        // payload is 8, data length is 3?
+
+        _samsungMdc.VolumeLevelHandlers += mockHandler.Object;
+        _samsungMdc.HandleResponse(response1);
+        _samsungMdc.HandleResponse(response2);
+        
+        mockHandler.Verify(x => x.Invoke(13));
+    }
 }
