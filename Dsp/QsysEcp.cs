@@ -330,8 +330,10 @@ public class QsysEcp : Dsp
 
     public override void Reinitialise() => GetAllControlStates();
 
-    public void RecallPreset(string controlName)
-    {
-            _tcpClient.Send($"csv \"{controlName}\" 1 \n");
-    }
+    public void RecallPreset(string controlName) =>_tcpClient.Send($"csv \"{controlName}\" 1 \n");
+    
+    public void RecallPreset(string controlName, string value, double rampTime = 0) 
+        => _tcpClient.Send($"ssl \"{controlName}\" \"{value}\" {rampTime}\n");
+    
+    public void RecallSnapshot(string controlName, string value, double rampTime = 0) => RecallPreset(controlName, value, rampTime);
 }
