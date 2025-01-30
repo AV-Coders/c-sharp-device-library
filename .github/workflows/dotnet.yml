@@ -77,7 +77,7 @@ jobs:
     - name: Publish to GitHub Packages 
       run: dotnet nuget push /home/runner/work/c-sharp-device-library/package/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }}  --source "github"
       
-    - name: Microsoft Teams Notification
+    - name: Notify on Error
       uses: skitionek/notify-microsoft-teams@master
       if: failure()
       with:
