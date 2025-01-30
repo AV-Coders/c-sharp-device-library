@@ -19,7 +19,7 @@ jobs:
       id: date
       run: echo "::set-output name=date::$(date +'%Y.%m')"
       
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@master
     
     - name: Setup .NET
       uses: actions/setup-dotnet@v3
@@ -76,3 +76,9 @@ jobs:
 
     - name: Publish to GitHub Packages 
       run: dotnet nuget push /home/runner/work/c-sharp-device-library/package/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }}  --source "github"
+      
+    - name: Microsoft Teams Notification
+      uses: skitionek/notify-microsoft-teams@master
+      if: failure()
+      with:
+        webhook_url: ${{ secrets.MSTEAMS_WEBHOOK }}
