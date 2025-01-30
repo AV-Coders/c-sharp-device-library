@@ -3,20 +3,7 @@ using AVCoders.Core;
 
 namespace AVCoders.MediaPlayer;
 
-public enum RecordState
-{
-    Unknown,
-    Recording,
-    RecordingPaused,
-    Stopped,
-    PreparingToRecord
-}
-
-public delegate void RecordStateHandler(RecordState state);
-
-public delegate void TimestampHandler(string timestamp);
-
-public class ExtronSmp351
+public class ExtronSmp351 : MediaPlayer
 {
     private readonly CommunicationClient _communicationClient;
     public static readonly ushort DefaultPort = 22023;
@@ -108,4 +95,8 @@ public class ExtronSmp351
         }
         return Task.CompletedTask;
     }
+
+    public override void PowerOn() { }
+
+    public override void PowerOff() { }
 }

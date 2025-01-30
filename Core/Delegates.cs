@@ -12,7 +12,9 @@ public delegate void VolumeLevelHandler(int volumeLevel);
 
 public delegate void MuteStateHandler(MuteState state);
 
-public delegate void StringHandler(string response);
+public delegate void StringHandler(string value);
+
+public delegate void StringListHandler(List<string> list);
 
 public delegate void ByteHandler(byte[] response);
 
