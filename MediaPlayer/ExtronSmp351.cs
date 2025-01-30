@@ -3,30 +3,17 @@ using AVCoders.Core;
 
 namespace AVCoders.MediaPlayer;
 
-public class ExtronSmp351 : MediaPlayer
+public class ExtronSmp351 : Recorder
 {
     private readonly CommunicationClient _communicationClient;
     public static readonly ushort DefaultPort = 22023;
     private readonly ThreadWorker _pollWorker;
-    public RecordStateHandler? RecordStateHandlers;
-    public TimestampHandler? TimestampHandlers;
-    private RecordState _recordState;
     private readonly Regex _responseParser;
     private readonly ulong _memoryLowKBytes;
     private readonly ulong _memoryFullKBytes;
     public const string EscapeHeader = "\x1b";
 
-    public RecordState RecordState
-    {
-        get => _recordState;
-        private set
-        {
-            if (_recordState == value)
-                return;
-            _recordState = value;
-            RecordStateHandlers?.Invoke(value);
-        }
-    }
+    
 
     public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, int pollTime = 1000)
     {
@@ -34,7 +21,6 @@ public class ExtronSmp351 : MediaPlayer
         _memoryLowKBytes = memoryLowKBytes;
         _memoryFullKBytes = memoryFullKBytes;
         _communicationClient.ResponseHandlers += HandleResponse;
-        RecordState = RecordState.Unknown;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollTime));
         _pollWorker.Restart();
 
