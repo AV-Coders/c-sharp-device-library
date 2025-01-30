@@ -13,8 +13,6 @@ public class ExtronSmp351 : Recorder
     private readonly ulong _memoryFullKBytes;
     public const string EscapeHeader = "\x1b";
 
-    
-
     public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, int pollTime = 1000)
     {
         _communicationClient = communicationClient;
@@ -28,34 +26,17 @@ public class ExtronSmp351 : Recorder
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(100));
     }
 
-    public void Record() => _communicationClient.Send($"{EscapeHeader}Y1RCDR\r");
+    public override void DoRecord() => _communicationClient.Send($"{EscapeHeader}Y1RCDR\r");
 
-    public void Stop() => _communicationClient.Send($"{EscapeHeader}Y0RCDR\r");
+    public override void DoStop() => _communicationClient.Send($"{EscapeHeader}Y0RCDR\r");
     
-    public void Pause() => _communicationClient.Send($"{EscapeHeader}Y2RCDR\r");
-    
-    
-    private void SetRecordState(RecordState desiredState)
-    {
-        switch (desiredState)
-        {
-            case RecordState.Recording:
-                Record();
-                break;
-            case RecordState.RecordingPaused:
-                Pause();
-                break;
-            case RecordState.Stopped:
-                Stop();
-                break;
-        }
-    }
+    public override void DoPause() => _communicationClient.Send($"{EscapeHeader}Y2RCDR\r");
 
     private void HandleResponse(string response)
     {
         var matches = _responseParser.Matches(response);
         ProcessRecordingState(matches[1].Groups[1].Value);
-        if (RecordState is RecordState.Recording or RecordState.RecordingPaused)
+        if (TransportState is TransportState.Recording or TransportState.RecordingPaused)
         {
             TimestampHandlers?.Invoke(matches[4].Groups[1].Value);
         }
@@ -63,13 +44,13 @@ public class ExtronSmp351 : Recorder
 
     private void ProcessRecordingState(string state)
     {
-        RecordState = state switch
+        TransportState = state switch
         {
-            "recording" => RecordState.Recording,
-            "paused" => RecordState.RecordingPaused,
-            "stopped" => RecordState.Stopped,
-            "setup" => RecordState.PreparingToRecord,
-            _ => RecordState.Unknown
+            "recording" => TransportState.Recording,
+            "paused" => TransportState.RecordingPaused,
+            "stopped" => TransportState.Stopped,
+            "setup" => TransportState.PreparingToRecord,
+            _ => TransportState.Unknown
         };
     }
 

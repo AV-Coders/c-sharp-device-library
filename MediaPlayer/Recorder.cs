@@ -1,20 +1,50 @@
-﻿namespace AVCoders.MediaPlayer;
+﻿using AVCoders.Core;
+
+namespace AVCoders.MediaPlayer;
 
 public abstract class Recorder : MediaPlayer
 {
-    public RecordStateHandler? RecordStateHandlers;
     public TimestampHandler? TimestampHandlers;
-    private RecordState _recordState = RecordState.Unknown;
     
-    public RecordState RecordState
+    public void SetRecordState(TransportState desiredState)
     {
-        get => _recordState;
-        protected set
+        switch (desiredState)
         {
-            if (_recordState == value)
-                return;
-            _recordState = value;
-            RecordStateHandlers?.Invoke(value);
+            case TransportState.Recording:
+                Record();
+                break;
+            case TransportState.RecordingPaused:
+                Pause();
+                break;
+            case TransportState.Stopped:
+                Stop();
+                break;
         }
     }
+
+    public void Record()
+    {
+        DesiredTransportState = TransportState.Recording;
+        DoRecord();
+    }
+
+    public void Pause()
+    {
+        if (TransportState is TransportState.Recording or TransportState.PreparingToRecord)
+            DesiredTransportState = TransportState.RecordingPaused;
+        if (DesiredTransportState is TransportState.Playing)
+            DesiredTransportState = TransportState.Paused;
+        DoPause();
+    }
+
+    public void Stop()
+    {
+        DesiredTransportState = TransportState.Stopped;
+        DoStop();
+    }
+
+    public abstract void DoRecord();
+    public abstract void DoPause();
+    public abstract void DoStop();
+
 }

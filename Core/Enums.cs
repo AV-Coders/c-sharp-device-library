@@ -44,6 +44,23 @@ public enum EventLevel
     Critical
     
 }
+public enum TransportState
+{
+    Unknown,
+    Recording,
+    RecordingPaused,
+    Stopped,
+    PreparingToRecord,
+    Playing,
+    Paused
+}
+
+public enum MediaState
+{
+    Unknown,
+    Inserted,
+    Ejected
+}
 
 public enum PollTask
 {

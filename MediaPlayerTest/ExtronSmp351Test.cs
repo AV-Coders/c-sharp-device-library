@@ -20,22 +20,22 @@ public class ExtronSmp351Test
     
     private readonly ExtronSmp351 _recorder;
     private readonly Mock<StubbedClient> _mockClient = new("foo", (ushort)1);
-    private readonly Mock<RecordStateHandler> _recordStateHandler = new();
+    private readonly Mock<TransportStateHandler> _recordStateHandler = new();
     private readonly Mock<TimestampHandler> _timestampHandler = new ();
     public const string EscapeHeader = "\x1b";
 
     public ExtronSmp351Test()
     {
         _recorder = new ExtronSmp351(_mockClient.Object, 1024000, 512000);
-        _recorder.RecordStateHandlers += _recordStateHandler.Object;
+        _recorder.TransportStateHandlers += _recordStateHandler.Object;
         _recorder.TimestampHandlers += _timestampHandler.Object;
     }
 
     [Theory]
-    [InlineData("<ChA1*ChB3>*<stopped>*<internal*auto>*<116606760*N/A>*<00:00:00>*<41:28:03*00:00:00>\r\n", RecordState.Stopped)]
-    [InlineData("<ChA1*ChB3>*<recording>*<internal*N/A>*<116606580*N/A>*<00:00:06>*<824:27:00*00:00:00>\r\n", RecordState.Recording)]
-    [InlineData("<ChA1*ChB3>*<paused>*<internal*N/A>*<116606376*N/A>*<00:00:13>*<824:26:40*00:00:00>\n\r\n", RecordState.RecordingPaused)]
-    public void HandleResponse_ReportsRecordingState(string response, RecordState expectedState)
+    [InlineData("<ChA1*ChB3>*<stopped>*<internal*auto>*<116606760*N/A>*<00:00:00>*<41:28:03*00:00:00>\r\n", TransportState.Stopped)]
+    [InlineData("<ChA1*ChB3>*<recording>*<internal*N/A>*<116606580*N/A>*<00:00:06>*<824:27:00*00:00:00>\r\n", TransportState.Recording)]
+    [InlineData("<ChA1*ChB3>*<paused>*<internal*N/A>*<116606376*N/A>*<00:00:13>*<824:26:40*00:00:00>\n\r\n", TransportState.RecordingPaused)]
+    public void HandleResponse_ReportsRecordingState(string response, TransportState expectedState)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(response);
         
