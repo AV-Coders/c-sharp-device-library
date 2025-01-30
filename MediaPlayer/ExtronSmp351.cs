@@ -26,11 +26,11 @@ public class ExtronSmp351 : Recorder
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(100));
     }
 
-    public override void DoRecord() => _communicationClient.Send($"{EscapeHeader}Y1RCDR\r");
+    protected override void DoRecord() => _communicationClient.Send($"{EscapeHeader}Y1RCDR\r");
 
-    public override void DoStop() => _communicationClient.Send($"{EscapeHeader}Y0RCDR\r");
+    protected override void DoStop() => _communicationClient.Send($"{EscapeHeader}Y0RCDR\r");
     
-    public override void DoPause() => _communicationClient.Send($"{EscapeHeader}Y2RCDR\r");
+    protected override void DoPause() => _communicationClient.Send($"{EscapeHeader}Y2RCDR\r");
 
     private void HandleResponse(string response)
     {

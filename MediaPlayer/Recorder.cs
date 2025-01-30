@@ -43,8 +43,8 @@ public abstract class Recorder : MediaPlayer
         DoStop();
     }
 
-    public abstract void DoRecord();
-    public abstract void DoPause();
-    public abstract void DoStop();
+    protected abstract void DoRecord();
+    protected abstract void DoPause();
+    protected abstract void DoStop();
 
 }
