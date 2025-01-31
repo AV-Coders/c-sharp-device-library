@@ -4,7 +4,7 @@ namespace AVCoders.MediaPlayer;
 
 public abstract class Recorder : MediaPlayer
 {
-    public TimestampHandler? TimestampHandlers;
+    public StringHandler? TimestampHandlers;
     
     public void SetRecordState(TransportState desiredState)
     {

@@ -16,10 +16,11 @@ public delegate void PowerStateHandler(PowerState state);
 
 public delegate void MediaStateHandler(MediaState state);
 
-public delegate void TransportStateHandler(TransportState state);
-
 public delegate void StringHandler(string value);
 
 public delegate void StringListHandler(List<string> list);
+
+public delegate void TimeSpanHandler(TimeSpan timeSpan);
+public delegate void TransportStateHandler(TransportState state);
 
 public delegate void VolumeLevelHandler(int volumeLevel);
