@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
 
@@ -9,6 +8,8 @@
         <IsTestProject>true</IsTestProject>
         <AssemblyName>AVCoders.MediaPlayer.Tests</AssemblyName>
         <RootNamespace>AVCoders.MediaPlayer.Tests</RootNamespace>
+        <LangVersion>default</LangVersion>
+        <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>
