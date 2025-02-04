@@ -27,8 +27,8 @@ public class CBusLightTest
     [Fact]
     public void PowerOffSendsTheCommand()
     {
-        _light.PowerOn();
+        _light.PowerOff();
         
-        _mockClient.Verify(x => x.Send(new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x01, 0x10, 0x3a, 0x0d }));
+        _mockClient.Verify(x => x.Send(new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x01, 0x10, 0xb2, 0x0d }));
     }
 }
