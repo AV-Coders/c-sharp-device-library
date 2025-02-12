@@ -2,6 +2,20 @@
 
 namespace AVCoders.Matrix;
 
+public class NavCommunicationEmulator : CommunicationClient
+{
+    public NavCommunicationEmulator(string name) : base(name)
+    {
+        ConnectionState = ConnectionState.Disconnected;
+    }
+
+    public void SetConnectionState(ConnectionState state) { ConnectionState = state; }
+
+    public override void Send(string message) { }
+
+    public override void Send(byte[] bytes) { }
+}
+
 public abstract class NavDeviceBase : AVoIPEndpoint
 {
     public LogHandler? LogHandlers;
@@ -13,6 +27,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     private uint? _deviceNumber = null;
     private string _hostname = String.Empty;
     protected string? SerialNumber = null;
+    private int _unansweredRequests = 0;
     
     private readonly string _deviceId;
     private PowerState _powerState = PowerState.Unknown;
@@ -39,19 +54,19 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
 
     public NavDeviceBase(string name, AVoIPDeviceType deviceType, string ipAddress, Navigator navigator) : 
-        base(name, deviceType, navigator.SshClient)
+        base(name, deviceType, new NavCommunicationEmulator(name))
     {
         Navigator = navigator;
         _deviceId = ipAddress;
         Navigator.RegisterDevice(ipAddress, PreHandleResponse);
-        Navigator.SshClient.ConnectionStateHandlers += HandleConnectionState;
-        PollWorker = new ThreadWorker(PrePoll, TimeSpan.FromSeconds(45));
+        Navigator.SshClient.ConnectionStateHandlers += HandleNavConnectionState;
+        PollWorker = new ThreadWorker(PrePoll, TimeSpan.FromSeconds(30));
         PollWorker.Restart();
     }
 
-    private void HandleConnectionState(ConnectionState connectionstate)
+    private void HandleNavConnectionState(ConnectionState connectionState)
     {
-        if (connectionstate != ConnectionState.Connected)
+        if (connectionState != ConnectionState.Connected)
             return;
         Thread.Sleep(TimeSpan.FromMilliseconds(200));
         Send($"{EscapeHeader}3CV\r");
@@ -63,6 +78,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
     private async Task PrePoll(CancellationToken token)
     {
+        _unansweredRequests++;
         if (_deviceNumber == null)
             Send($"{EscapeHeader}DNUM\r");
 
@@ -73,6 +89,12 @@ public abstract class NavDeviceBase : AVoIPEndpoint
             Send("98I");
         
         await Poll(token);
+
+        if (_unansweredRequests >= 3)
+        {
+            var client = (NavCommunicationEmulator)CommunicationClient;
+            client.SetConnectionState(ConnectionState.Disconnected);
+        }
     }
 
     protected abstract void HandleResponse(string response);
@@ -82,7 +104,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         if (payload.StartsWith("Dnum"))
         {
             DeviceNumber = uint.Parse(payload.Replace("Dnum", String.Empty));
-            Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", HandleResponse);
+            Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", PreHandleResponse);
             return;
         }
 
@@ -103,7 +125,12 @@ public abstract class NavDeviceBase : AVoIPEndpoint
             payload.Split('*').ToList().ForEach(ProcessConcatenatedResponse);
             return;
         }
+
         HandleResponse(payload);
+        
+        _unansweredRequests = 0;
+        var client = (NavCommunicationEmulator)CommunicationClient;
+        client.SetConnectionState(ConnectionState.Disconnected);
     }
 
     protected abstract void ProcessConcatenatedResponse(string response);
