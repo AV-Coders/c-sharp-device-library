@@ -11,8 +11,21 @@ public abstract class CommunicationClient
     public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
     public LogHandler? LogHandlers;
-    protected ConnectionState ConnectionState = ConnectionState.Unknown;
     public readonly string Name;
+
+    private ConnectionState _connectionState = ConnectionState.Unknown;
+
+    public ConnectionState ConnectionState
+    {
+        get => _connectionState;
+        protected set
+        {
+            if(_connectionState == value)
+                return;
+            _connectionState = value;
+            ConnectionStateHandlers?.Invoke(value);
+        }
+    }
 
     protected CommunicationClient(string name)
     {
@@ -27,10 +40,7 @@ public abstract class CommunicationClient
     
     protected void UpdateConnectionState(ConnectionState connectionState)
     {
-        if (ConnectionState == connectionState)
-            return;
         ConnectionState = connectionState;
-        ConnectionStateHandlers?.Invoke(connectionState);
     }
 
     protected void InvokeRequestHandlers(string request)
