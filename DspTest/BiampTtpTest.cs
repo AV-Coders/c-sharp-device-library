@@ -27,8 +27,6 @@ public class BiampTtpTest
         _mockClient.Setup(x => x.Send($"{GainName} get level 1\n"))
             .Callback(() => _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":3.000000\n"));
         
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
-        
         _dsp.AddControl(_volumeLevelHandler.Object, GainName);
         _dsp.AddControl(_muteStateHandler.Object, MuteName);
         _dsp.AddControl(_stringValueHandler.Object, StringName);
