@@ -63,8 +63,6 @@ public class PhilipsSICP : Display
                 break;
             case 0x45:
                 Volume = response[4];
-                Log($"The current volume is {Volume}");
-                VolumeLevelHandlers?.Invoke(Volume);
                 break;
             case 0x46:
                 AudioMute = response[4] switch
@@ -73,8 +71,6 @@ public class PhilipsSICP : Display
                     0x01 => MuteState.On,
                     _ => MuteState.Unknown
                 };
-                Log($"The current mute state is {AudioMute.ToString()}");
-                MuteStateHandlers?.Invoke(AudioMute);
                 break;
         }
         

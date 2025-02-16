@@ -97,7 +97,7 @@ public class PjLinkTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke(input);
 
-        Assert.Equal(_display.GetCurrentPowerState(), expectedPowerState);
+        Assert.Equal(_display.PowerState, expectedPowerState);
     }
 
     [Theory]
@@ -107,7 +107,7 @@ public class PjLinkTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke(input);
 
-        Assert.Equal(_display.GetCurrentInput(), expectedInput);
+        Assert.Equal(_display.Input, expectedInput);
     }
 
     [Fact]

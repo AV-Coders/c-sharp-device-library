@@ -35,7 +35,7 @@ public class NecUhdExternalControl : Display
         CommunicationClient = tcpClient;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         tcpClient.ResponseByteHandlers += HandleResponse;
-        UpdateCommunicationState(CommunicationState.NotAttempted);
+        CommunicationState = CommunicationState.NotAttempted;
         _displayId = displayId;
     }
 
@@ -140,7 +140,6 @@ public class NecUhdExternalControl : Display
                     break;
                 case 0x32: // Volume Response
                     Volume = ConvertAsciiHexToNumber(new[] { response[22], response[23] });
-                    VolumeLevelHandlers?.Invoke(Volume);
                     break;
             }
         }

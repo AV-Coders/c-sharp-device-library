@@ -100,6 +100,6 @@ public class PhilipsSICPTest
     {
         _mockClient.Object.ResponseByteHandlers!.Invoke(response);
         
-        Assert.Equal(expectedState, _display.GetCurrentPowerState());
+        Assert.Equal(expectedState, _display.PowerState);
     }
 }

@@ -153,8 +153,6 @@ public class CecDisplay : Display, ISetTopBox
         char volume = (char)(percentage * 1.27);
         Log("Volume not available");
         Send(new []{ _commandHeader, '\x7A', volume});
-        if(AudioMute != MuteState.Off)
-            MuteStateHandlers?.Invoke(MuteState.Off);
         DesiredAudioMute = MuteState.Off;
         AudioMute = MuteState.Off;
     }

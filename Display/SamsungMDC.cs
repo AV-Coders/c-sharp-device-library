@@ -40,7 +40,7 @@ public class SamsungMdc : Display
         CommunicationClient = communicationClient;
         CommunicationClient.ResponseByteHandlers += HandleResponse;
 
-        UpdateCommunicationState(CommunicationState.NotAttempted);
+        CommunicationState = CommunicationState.NotAttempted;
 
         
 
@@ -91,12 +91,12 @@ public class SamsungMdc : Display
         try
         {
             CommunicationClient.Send(bytes);
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
         {
             Debug.WriteLine(e);
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
         }
     }
 
@@ -153,11 +153,11 @@ public class SamsungMdc : Display
         if (response[4] == 0x4E)
         {
             Log("NAK Received");
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
             return;
         }
         
-        UpdateCommunicationState(CommunicationState.Okay);
+        CommunicationState = CommunicationState.Okay;
         
         switch (response[5])
         {
@@ -184,8 +184,6 @@ public class SamsungMdc : Display
                 break;
             case VolumeControlCommand:
                 Volume = response[6];
-                Log($"The current volume is {Volume}");
-                VolumeLevelHandlers?.Invoke(Volume);
                 break;
             case MuteControlCommand:
                 AudioMute = response[6] switch
@@ -194,8 +192,6 @@ public class SamsungMdc : Display
                     0x01 => MuteState.On,
                     _ => MuteState.Unknown
                 };
-                Log($"The current mute state is {AudioMute.ToString()}");
-                MuteStateHandlers?.Invoke(AudioMute);
                 break;
         }
     }

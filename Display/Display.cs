@@ -6,27 +6,24 @@ public delegate void InputHandler(Input input);
 
 public abstract class Display : VolumeControl, IDevice
 {
-    protected Input Input = Input.Unknown;
+    public List<Input> SupportedInputs { get; }
+    private Input _input = Input.Unknown;
     protected Input DesiredInput = Input.Unknown;
-    protected PowerState PowerState = PowerState.Unknown;
+    private PowerState _powerState = PowerState.Unknown;
     protected PowerState DesiredPowerState = PowerState.Unknown;
-    protected CommunicationState CommunicationState = CommunicationState.Unknown;
-    protected List<Input> SupportedInputs;
+    private CommunicationState _communicationState = CommunicationState.Unknown;
     private readonly Input? _defaultInput;
     public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public InputHandler? InputHandlers;
-    protected int Volume = 0;
-    protected MuteState AudioMute = MuteState.Unknown;
+    private int _volume = 0;
+    private MuteState _audioMute = MuteState.Unknown;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
-    protected MuteState VideoMute = MuteState.Unknown;
+    private MuteState _videoMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
 
     protected readonly ThreadWorker PollWorker;
-    public PowerState GetCurrentPowerState() => PowerState;
-
-    public CommunicationState GetCurrentCommunicationState() => CommunicationState;
 
     protected Display(List<Input> supportedInputs, string name, Input? defaultInput, int pollTime = 23) : base(name, VolumeType.Speaker)
     {
@@ -38,6 +35,73 @@ public abstract class Display : VolumeControl, IDevice
             Thread.Sleep(1000);
             PollWorker.Restart();
         }).Start();
+    }
+    
+    public Input Input
+    {
+        get => _input;
+        protected set
+        {
+            if (_input == value) 
+                return;
+            _input = value;
+            InputHandlers?.Invoke(value);
+        }
+    }
+
+    public PowerState PowerState
+    {
+        get => _powerState;
+        protected set
+        {
+            if(_powerState == value)
+                return;
+            _powerState = value;
+            PowerStateHandlers?.Invoke(value);
+        }
+    }
+    
+    public int Volume
+    {
+        get => _volume;
+        protected set
+        {
+            if(_volume == value)
+                return;
+            _volume = value;
+            VolumeLevelHandlers?.Invoke(value);
+        }
+    }
+
+
+    public MuteState AudioMute
+    {
+        get => _audioMute;
+        protected set
+        {
+            if (_audioMute == value)
+                return;
+            _audioMute = value;
+            MuteStateHandlers?.Invoke(AudioMute);
+        }
+    }
+
+    public MuteState VideoMute
+    {
+        get => _videoMute;
+        protected set => _videoMute = value;
+    }
+    
+    public CommunicationState CommunicationState
+    {
+        get => _communicationState;
+        protected set
+        {
+            if(_communicationState == value)
+                return;
+            _communicationState = value;
+            CommunicationStateHandlers?.Invoke(value);
+        }
     }
 
     protected abstract Task Poll(CancellationToken token);
@@ -52,15 +116,8 @@ public abstract class Display : VolumeControl, IDevice
         LogHandlers?.Invoke($"{GetType()} - {message}", EventLevel.Error);
     }
 
-    protected void UpdateCommunicationState(CommunicationState state)
-    {
-        CommunicationState = state;
-        CommunicationStateHandlers?.Invoke(state);
-    }
-
     protected void ProcessPowerResponse()
     {
-        PowerStateHandlers?.Invoke(PowerState);
         if (PowerState == DesiredPowerState)
             return;
         if (DesiredPowerState == PowerState.Unknown)
@@ -83,15 +140,6 @@ public abstract class Display : VolumeControl, IDevice
         SetInput(DesiredInput);
     }
 
-    public List<Input> GetSupportedInputs() => SupportedInputs;
-
-    public Input GetCurrentInput() => Input;
-    
-    public int GetCurrentVolume() => Volume;
-
-    public MuteState GetAudioMute() => AudioMute;
-    public MuteState GetVideoMute() => VideoMute;
-
     public void TogglePower()
     {
         if(PowerState == PowerState.On)
@@ -99,13 +147,13 @@ public abstract class Display : VolumeControl, IDevice
         else
             PowerOn();
     }
+    
     public void PowerOn()
     {
         DoPowerOn();
         Log("Turning On");
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
-        PowerStateHandlers?.Invoke(DesiredPowerState);
         if(_defaultInput != null)
             DesiredInput = _defaultInput.Value;
     }
@@ -118,7 +166,6 @@ public abstract class Display : VolumeControl, IDevice
         Log("Turning Off");
         PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
-        PowerStateHandlers?.Invoke(DesiredPowerState);
     }
 
     protected abstract void DoPowerOff();
@@ -134,7 +181,6 @@ public abstract class Display : VolumeControl, IDevice
         Log($"Setting input to {input.ToString()}");
         DesiredInput = input;
         Input = input;
-        InputHandlers?.Invoke(Input);
     }
 
     protected abstract void DoSetInput(Input input);
@@ -148,7 +194,6 @@ public abstract class Display : VolumeControl, IDevice
         }
         DoSetVolume(volume);
         Volume = volume;
-        VolumeLevelHandlers?.Invoke(Volume);
     }
 
     protected abstract void DoSetVolume(int percentage);
@@ -176,7 +221,6 @@ public abstract class Display : VolumeControl, IDevice
         DesiredAudioMute = state;
         DoSetAudioMute(state);
         AudioMute = state;
-        MuteStateHandlers?.Invoke(AudioMute);
     }
 
     protected abstract void DoSetAudioMute(MuteState state);

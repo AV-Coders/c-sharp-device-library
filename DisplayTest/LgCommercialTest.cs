@@ -129,7 +129,7 @@ public class LgCommercialTest
     }
 
     [Theory]
-    [InlineData("f 00 OK00x", 0)]
+    [InlineData("f 00 OK01x", 1)]
     [InlineData("f 00 OK09x", 9)]
     [InlineData("f 00 OK64x", 100)]
     public void HandleResponse_UpdatesTheVolumeLevel(string response, int expectedVolume)

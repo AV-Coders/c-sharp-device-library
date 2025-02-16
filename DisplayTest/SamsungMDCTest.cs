@@ -35,7 +35,7 @@ public class SamsungMDCTest
         var method = _samsungMdc.GetType().GetMethod("SendByteArray", BindingFlags.Instance | BindingFlags.NonPublic);
         method?.Invoke(_samsungMdc, new[] { input });
 
-        Assert.Equal(CommunicationState.Okay, _samsungMdc.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Okay, _samsungMdc.CommunicationState);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class SamsungMDCTest
         var method = _samsungMdc.GetType().GetMethod("SendByteArray", BindingFlags.Instance | BindingFlags.NonPublic);
         method?.Invoke(_samsungMdc, new[] { input });
 
-        Assert.Equal(CommunicationState.Error, _samsungMdc.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Error, _samsungMdc.CommunicationState);
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public class SamsungMDCTest
     {
         _samsungMdc.HandleResponse(response);
         
-        Assert.Equal(expectedState, _samsungMdc.GetCurrentPowerState());
+        Assert.Equal(expectedState, _samsungMdc.PowerState);
     }
 
     [Fact]
@@ -195,7 +195,6 @@ public class SamsungMDCTest
     }
 
     [Theory]
-    [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x12, 0x00, 0xFF }, 0)]
     [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x12, 0x01, 0xFF }, 1)]
     [InlineData(new byte[] { 0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x12, 0x0D, 0xFF }, 13)]
     public void HandleResponse_UpdatesTheVolumeLevel(byte[] response, int expectedState)

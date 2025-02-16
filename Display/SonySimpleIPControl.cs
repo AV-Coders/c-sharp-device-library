@@ -75,7 +75,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         TcpClient.SetPort(DefaultPort);
         TcpClient.ResponseHandlers += HandleResponse;
 
-        UpdateCommunicationState(CommunicationState.NotAttempted);
+        CommunicationState = CommunicationState.NotAttempted;
     }
 
     protected override Task Poll(CancellationToken token) => PollWorker.Stop();
@@ -85,11 +85,11 @@ public class SonySimpleIpControl : Display, ISetTopBox
         try
         {
             TcpClient.Send(command);
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
         {
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
             Debug.WriteLine($"Sony Simple IP Control - Communication error: {e.Message}");
         }
     }
@@ -118,26 +118,24 @@ public class SonySimpleIpControl : Display, ISetTopBox
             {
                 PowerState = PowerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
                 ProcessPowerResponse();
-                UpdateCommunicationState(CommunicationState.Okay);
+                CommunicationState = CommunicationState.Okay;
             }
             else if (trimmedResponse.StartsWith("*SNVOLU"))
             {
                 Volume = Int32.Parse(trimmedResponse.Remove(0, 7));
-                VolumeLevelHandlers?.Invoke(Volume);
-                UpdateCommunicationState(CommunicationState.Okay);
+                CommunicationState = CommunicationState.Okay;
             }
             else if (trimmedResponse.StartsWith("*SNAMUT"))
             {
                 AudioMute = trimmedResponse.EndsWith('1') ? MuteState.On : MuteState.Off;
-                MuteStateHandlers?.Invoke(AudioMute);
-                UpdateCommunicationState(CommunicationState.Okay);
+                CommunicationState = CommunicationState.Okay;
             }
             else if (trimmedResponse.StartsWith("*SNINPT"))
             {
                 string value = trimmedResponse.Remove(0, 7);
                 Input = InputDictionary.Keys.FirstOrDefault(key => InputDictionary[key] == value, Input.Unknown);
                 ProcessInputResponse();
-                UpdateCommunicationState(CommunicationState.Okay);
+                CommunicationState = CommunicationState.Okay;
             }
         }
     }

@@ -83,32 +83,32 @@ public class PjLink : Display
     {
         if (response.Contains("OK"))
         {
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
             return;
         }
 
         if (response.Contains("ERR3")) // It's just not the right time for this command
         {
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
             return;
         }
 
         if (response.Contains("ERRA"))
         {
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
             Log("Password not accepted");
             return;
         }
 
         if (response.Contains("ERR")) // ERR2 and ERR4
         {
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
             return;
         }
 
         if (response.Contains("PJLINK"))
         {
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
             if (!response.Contains('1')) 
                 return;
             

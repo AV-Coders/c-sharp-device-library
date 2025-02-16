@@ -64,7 +64,7 @@ public class CecDisplayTest
         _display.SetAudioMute(MuteState.On);
         _display.SetVolume(30);
         
-        Assert.Equal(MuteState.Off, _display.GetAudioMute());
+        Assert.Equal(MuteState.Off, _display.AudioMute);
     }
 
     [Theory]

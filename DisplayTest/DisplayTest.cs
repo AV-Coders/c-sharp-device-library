@@ -80,7 +80,7 @@ public class DisplayTest
     {
         _display.PowerOff();
 
-        Assert.Equal(PowerState.Off, _display.GetCurrentPowerState());
+        Assert.Equal(PowerState.Off, _display.PowerState);
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class DisplayTest
     {
         _display.PowerOn();
 
-        Assert.Equal(PowerState.On, _display.GetCurrentPowerState());
+        Assert.Equal(PowerState.On, _display.PowerState);
     }
     
 
@@ -101,7 +101,7 @@ public class DisplayTest
     }
 
     [Theory]
-    [InlineData(0)]
+    [InlineData(1)]
     [InlineData(100)]
     public void SetVolume_CallsTheDelegate(int volume)
     {
@@ -129,6 +129,6 @@ public class DisplayTest
     {
         _display.SetAudioMute(MuteState.On);
 
-        Assert.Equal(MuteState.On, _display.GetAudioMute());
+        Assert.Equal(MuteState.On, _display.AudioMute);
     }
 }

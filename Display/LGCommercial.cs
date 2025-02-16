@@ -85,8 +85,8 @@ public class LGCommercial : Display, ISetTopBox
         _setId = setId;
         if (mac != null)
             _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
-        
-        UpdateCommunicationState(CommunicationState.NotAttempted);
+
+        CommunicationState = CommunicationState.NotAttempted;
     }
 
     private void HandleConnectionState(ConnectionState connectionState)
@@ -127,9 +127,8 @@ public class LGCommercial : Display, ISetTopBox
         }
         else if (data[0].Contains($"f {_setId:d2} "))
         {
-            int.TryParse(data[1].Substring(0, 2), NumberStyles.HexNumber, null, out Volume);
-            Log($"The current volume is {Volume}");
-            VolumeLevelHandlers?.Invoke(Volume);
+            int.TryParse(data[1].Substring(0, 2), NumberStyles.HexNumber, null, out var volumeLevel);
+            Volume = volumeLevel;
         }
         else if (data[0].Contains($"e {_setId:d2} "))
         {
@@ -139,8 +138,6 @@ public class LGCommercial : Display, ISetTopBox
                 "00x" => MuteState.On,
                 _ => AudioMute
             };
-            Log($"The current mute state is {AudioMute.ToString()}");
-            MuteStateHandlers?.Invoke(AudioMute);
         }
     }
 

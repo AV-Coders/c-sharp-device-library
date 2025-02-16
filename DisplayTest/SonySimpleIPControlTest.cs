@@ -47,7 +47,7 @@ public class SonySimpleIPControlTest
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
         method?.Invoke(_sonyTv, new[] { input });
-        Assert.Equal(CommunicationState.Okay, _sonyTv.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Okay, _sonyTv.CommunicationState);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class SonySimpleIPControlTest
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
         method?.Invoke(_sonyTv, new[] { input });
-        Assert.Equal(CommunicationState.Error, _sonyTv.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Error, _sonyTv.CommunicationState);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class SonySimpleIPControlTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke(response);
 
-        Assert.Equal(expectedPowerState, _sonyTv.GetCurrentPowerState());
+        Assert.Equal(expectedPowerState, _sonyTv.PowerState);
     }
 
     [Theory]
@@ -105,7 +105,7 @@ public class SonySimpleIPControlTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke("*SNVOLU0000000000000010\n");
 
-        Assert.Equal(10, _sonyTv.GetCurrentVolume());
+        Assert.Equal(10, _sonyTv.Volume);
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public class SonySimpleIPControlTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke(input);
         
-        Assert.Equal(expectedMuteState, _sonyTv.GetAudioMute());
+        Assert.Equal(expectedMuteState, _sonyTv.AudioMute);
     }
 
     [Theory]
@@ -150,7 +150,7 @@ public class SonySimpleIPControlTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke(response);
 
-        Assert.Equal(expectedInput, _sonyTv.GetCurrentInput());
+        Assert.Equal(expectedInput, _sonyTv.Input);
     }
 
     [Theory]
@@ -174,9 +174,9 @@ public class SonySimpleIPControlTest
         _mockClient.Object.ResponseHandlers?.Invoke(
             "*SNINPT0000000000000000\n*SNPOWR0000000000000001\n*SNVOLU0000000000000010\n*SAVOLU0000000000000000\n");
 
-        Assert.Equal(10, _sonyTv.GetCurrentVolume());
-        Assert.Equal(PowerState.On, _sonyTv.GetCurrentPowerState());
-        Assert.Equal(Input.DvbtTuner, _sonyTv.GetCurrentInput());
+        Assert.Equal(10, _sonyTv.Volume);
+        Assert.Equal(PowerState.On, _sonyTv.PowerState);
+        Assert.Equal(Input.DvbtTuner, _sonyTv.Input);
     }
 
     [Fact]
@@ -185,9 +185,9 @@ public class SonySimpleIPControlTest
         _mockClient.Object.ResponseHandlers?.Invoke(
             "*SNINPT0000000000000000\n\t \t*SNPOWR0000000000000001\n                        *SNVOLU0000000000000010\n");
 
-        Assert.Equal(10, _sonyTv.GetCurrentVolume());
-        Assert.Equal(PowerState.On, _sonyTv.GetCurrentPowerState());
-        Assert.Equal(Input.DvbtTuner, _sonyTv.GetCurrentInput());
+        Assert.Equal(10, _sonyTv.Volume);
+        Assert.Equal(PowerState.On, _sonyTv.PowerState);
+        Assert.Equal(Input.DvbtTuner, _sonyTv.Input);
     }
 
     [Theory]
@@ -217,7 +217,7 @@ public class SonySimpleIPControlTest
     {
         _sonyTv.SetVolume(15);
 
-        Assert.Equal(15, _sonyTv.GetCurrentVolume());
+        Assert.Equal(15, _sonyTv.Volume);
     }
 
     [Theory]
@@ -256,7 +256,7 @@ public class SonySimpleIPControlTest
     {
         _sonyTv.SetVideoMute(MuteState.On);
 
-        Assert.Equal(MuteState.On, _sonyTv.GetVideoMute());
+        Assert.Equal(MuteState.On, _sonyTv.VideoMute);
     }
 
     [Fact]
