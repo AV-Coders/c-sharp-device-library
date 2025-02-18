@@ -4,6 +4,7 @@ namespace AVCoders.Camera;
 
 public abstract class CameraBase : DeviceBase
 {
+    public IntHandler? LasRecalledPresetHandlers;
     public abstract void ZoomStop();
 
     public abstract void ZoomIn();
@@ -20,7 +21,13 @@ public abstract class CameraBase : DeviceBase
 
     public abstract void PanTiltRight();
 
-    public abstract void RecallPreset(int presetNumber);
+    public void RecallPreset(int presetNumber)
+    {
+        DoRecallPreset(presetNumber);
+        LasRecalledPresetHandlers?.Invoke(presetNumber);
+    }
+
+    public abstract void DoRecallPreset(int presetNumber);
 
     public abstract void SavePreset(int presetNumber);
 }

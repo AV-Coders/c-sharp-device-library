@@ -163,7 +163,7 @@ public class SonyVisca : CameraBase
         Log("PTZ Right");
     }
 
-    public override void RecallPreset(int presetNumber)
+    public override void DoRecallPreset(int presetNumber)
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter });
         Log($"Recall Preset {presetNumber}");

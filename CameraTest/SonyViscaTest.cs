@@ -107,7 +107,7 @@ public class SonyViscaSerialTest
     public void RecallPreset_SendsTheCommand()
     {
         byte[] expectedCommand = { 0x81, 0x01, 0x04, 0x3f, 0x02, 0x01, 0xFF };
-        _viscaCamera.RecallPreset(1);
+        _viscaCamera.DoRecallPreset(1);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
@@ -116,7 +116,7 @@ public class SonyViscaSerialTest
     public void RecallPreset_SendsThePresetNumber()
     {
         byte[] expectedCommand = { 0x81, 0x01, 0x04, 0x3f, 0x02, 0x06, 0xFF };
-        _viscaCamera.RecallPreset(6);
+        _viscaCamera.DoRecallPreset(6);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
