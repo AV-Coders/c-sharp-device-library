@@ -54,8 +54,11 @@ public abstract class CommunicationClient
             Error("A Request string handler threw an exception");
             Error(e.Message);
             Error(e.StackTrace?? "No Stack trace available");
-            Error(e.InnerException?.Message ?? "No inner exception");
-            Error(e.InnerException?.StackTrace?? String.Empty);
+            if (e.InnerException != null)
+            {
+                Error(e.InnerException.Message);
+                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
+            }
         }
     }
 
@@ -70,8 +73,11 @@ public abstract class CommunicationClient
             Error("A Request byte handler threw an exception");
             Error(e.Message);
             Error(e.StackTrace?? "No Stack trace available");
-            Error(e.InnerException?.Message ?? "No inner exception");
-            Error(e.InnerException?.StackTrace?? String.Empty);
+            if (e.InnerException != null)
+            {
+                Error(e.InnerException.Message);
+                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
+            }
         }
     }
 
@@ -87,8 +93,11 @@ public abstract class CommunicationClient
             Error("A Response handler threw an exception");
             Error(e.Message);
             Error(e.StackTrace?? "No Stack trace available");
-            Error(e.InnerException?.Message ?? "No inner exception");
-            Error(e.InnerException?.StackTrace?? String.Empty);
+            if (e.InnerException != null)
+            {
+                Error(e.InnerException.Message);
+                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
+            }
         }
     }
 
@@ -103,8 +112,11 @@ public abstract class CommunicationClient
             Error("A Response handler threw an exception");
             Error(e.Message);
             Error(e.StackTrace?? "No Stack trace available");
-            Error(e.InnerException?.Message ?? "No inner exception");
-            Error(e.InnerException?.StackTrace?? String.Empty);
+            if (e.InnerException != null)
+            {
+                Error(e.InnerException.Message);
+                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
+            }
         }
     }
 }
