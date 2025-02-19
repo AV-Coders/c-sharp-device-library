@@ -117,6 +117,7 @@ public class ExtronSmp351Test
         _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         _mockRearUsbConnectionStateHandler.Verify(x => x.Invoke(expectedState));
+        Assert.Equal(expectedState, _recorder.RearUsbConnectionState);
     }
 
     [Theory]
@@ -129,5 +130,6 @@ public class ExtronSmp351Test
         _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         _mockFrontUsbConnectionStateHandler.Verify(x => x.Invoke(expectedState));
+        Assert.Equal(expectedState, _recorder.FrontUsbConnectionState);
     }
 }
