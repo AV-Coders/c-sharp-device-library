@@ -88,6 +88,14 @@ public class ExtronSmp351Test
         _recordStateHandler.Verify(x => x.Invoke(expectedState));
     }
 
+    [Fact]
+    public void HandleResponse_ClearsTimestampWhenStopped()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("RcdrY0\r\n");
+        
+        _timestampHandler.Verify(x => x.Invoke(String.Empty));
+    }
+
     [Theory]
     [InlineData("Inf*<ChA1*ChB3>*<recording>*<internal*auto>*<116606760*N/A>*<00:00:06>*<41:28:03*00:00:00>\r\n", "00:00:06")]
     [InlineData("Inf*<ChA1*ChB3>*<paused>*<internal*N/A>*<116606580*N/A>*<09:10:06>*<824:27:00*00:00:00>\r\n", "09:10:06")]
