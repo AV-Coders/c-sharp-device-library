@@ -130,7 +130,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         
         _unansweredRequests = 0;
         var client = (NavCommunicationEmulator)CommunicationClient;
-        client.SetConnectionState(ConnectionState.Disconnected);
+        client.SetConnectionState(ConnectionState.Connected);
     }
 
     protected abstract void ProcessConcatenatedResponse(string response);
