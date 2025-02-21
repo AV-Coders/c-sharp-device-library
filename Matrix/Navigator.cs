@@ -10,6 +10,7 @@ public class Navigator : DeviceBase
     private Dictionary<string, Action<string>> _callbacks;
     private readonly Regex _deviceResponseParser;
     public const string EscapeHeader = "\x1b";
+    private int _unansweredDeviceForwards = 0;
     
 
     public Navigator(SshClient sshClient)
@@ -35,7 +36,8 @@ public class Navigator : DeviceBase
         if (response.StartsWith('{'))
         {
             ForwardDeviceResponse(response);
-            return;
+            _unansweredDeviceForwards = 0;
+            CommunicationState = CommunicationState.Okay;
         }
     }
     public virtual void RouteAV(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}!\r");
@@ -59,6 +61,9 @@ public class Navigator : DeviceBase
         }
         else
             Error($"Nav has returned a response for a device that's not registered to this module: {respondant}");
+        _unansweredDeviceForwards++;
+        if (_unansweredDeviceForwards > 5)
+            CommunicationState = CommunicationState.Error;
     }
 
     public virtual void RegisterDevice(string deviceId, Action<string> responseHandler)
