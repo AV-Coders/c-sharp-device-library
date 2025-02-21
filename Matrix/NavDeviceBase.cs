@@ -54,7 +54,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
 
     public NavDeviceBase(string name, AVoIPDeviceType deviceType, string ipAddress, Navigator navigator) : 
-        base(name, deviceType, new NavCommunicationEmulator(name))
+        base(name, deviceType, new NavCommunicationEmulator(GetCommunicationClientName(deviceType, name)))
     {
         Navigator = navigator;
         _deviceId = ipAddress;
@@ -63,6 +63,8 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         PollWorker = new ThreadWorker(PrePoll, TimeSpan.FromSeconds(30));
         PollWorker.Restart();
     }
+
+    public static string GetCommunicationClientName(AVoIPDeviceType type, string name) => $"{name} {type.ToString()}";
 
     private void HandleNavConnectionState(ConnectionState connectionState)
     {
@@ -105,28 +107,19 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         {
             DeviceNumber = uint.Parse(payload.Replace("Dnum", String.Empty));
             Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", PreHandleResponse);
-            return;
         }
 
-        if (payload.StartsWith("Inf98*"))
-        {
+        else if (payload.StartsWith("Inf98*"))
             SerialNumber = payload.Replace("Inf98*", String.Empty);
-            return;
-        }
 
-        if (payload.StartsWith("Ipn "))
-        {
+        else if (payload.StartsWith("Ipn "))
             Hostname = payload.Replace("Ipn ", String.Empty);
-            return;
-        }
 
-        if (payload.Contains('*') && !payload.Contains("Amt"))
-        {
+        else if (payload.Contains('*') && !payload.Contains("Amt"))
             payload.Split('*').ToList().ForEach(ProcessConcatenatedResponse);
-            return;
-        }
 
-        HandleResponse(payload);
+        else
+            HandleResponse(payload);
         
         _unansweredRequests = 0;
         var client = (NavCommunicationEmulator)CommunicationClient;
