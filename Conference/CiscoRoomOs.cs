@@ -267,6 +267,7 @@ public class CiscoRoomOs : Conference
       {
         CallStatus.Ringing,
         CallStatus.Dialling,
+        CallStatus.Connecting,
         CallStatus.Connected,
         CallStatus.Disconnecting
       };

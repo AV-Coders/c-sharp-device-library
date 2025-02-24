@@ -277,6 +277,26 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
+    public void CallResponses_HandleConnecting()
+    {
+        new List<string>
+        {
+            "*s Call 204 AnswerState: Unanswered\n",
+            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 204 DisplayName: \"*123456\"",
+            "*s Call 204 Status: Connecting\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+
+        
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Connecting, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connecting));
+    }
+
+    [Fact]
     public void CallResponses_HandleHangupRequestResponse()
     {
         new List<string>
