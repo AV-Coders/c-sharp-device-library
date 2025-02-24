@@ -163,13 +163,13 @@ public class LGCommercial : Display, ISetTopBox
         
         Log("Polling");
         SendCommand(_powerHeader, _pollArgument);
-        Task.Delay(1000, token);
+        Task.Delay(1000, token).Wait(token);
         SendCommand(_inputHeader, _pollArgument);
         Log("Polling input");
-        Task.Delay(1000, token);
+        Task.Delay(1000, token).Wait(token);
         SendCommand(_volumeHeader, _pollArgument);
         Log("Polling volume");
-        Task.Delay(1000, token);
+        Task.Delay(1000, token).Wait(token);
         SendCommand(_muteHeader,  _pollArgument);
         Log("Polling mute");
         

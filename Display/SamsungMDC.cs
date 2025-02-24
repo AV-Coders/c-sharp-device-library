@@ -74,15 +74,15 @@ public class SamsungMdc : Display
         Log("Polling Power");
         
         CommunicationClient.Send(_pollPowerCommand);
-        if (PowerState == PowerState.On)
-        {
-            Task.Delay(1000, token);
-            CommunicationClient.Send(_pollInputCommand);
-            Task.Delay(1000, token);
-            CommunicationClient.Send(_pollVolumeCommand);
-            Task.Delay(1000, token);
-            CommunicationClient.Send(_pollMuteCommand);
-        } 
+        if (PowerState != PowerState.On) 
+            return Task.CompletedTask;
+        
+        Task.Delay(1000, token).Wait(token);
+        CommunicationClient.Send(_pollInputCommand);
+        Task.Delay(1000, token).Wait(token);
+        CommunicationClient.Send(_pollVolumeCommand);
+        Task.Delay(1000, token).Wait(token);
+        CommunicationClient.Send(_pollMuteCommand);
         return Task.CompletedTask;
     }
 
