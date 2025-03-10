@@ -10,6 +10,7 @@ public abstract class Motor : DeviceBase
     protected readonly int MoveSeconds;
     protected Guid CurrentMoveId;
     protected RelayAction CurrentMoveAction = RelayAction.None;
+    private CancellationTokenSource _cancellationTokenSource = new ();
 
     protected Motor(string name, RelayAction powerOnAction, int moveSeconds)
     {
@@ -20,17 +21,25 @@ public abstract class Motor : DeviceBase
         _powerOffAction = powerOnAction == RelayAction.Raise ? Lower : Raise;
     }
 
-    protected void CreateMoveTimer(Guid moveId) => new Thread(x =>
-        {
-            Thread.Sleep(MoveSeconds * 1000);
-            Log($"Move timer event, move id {moveId}, current move: {CurrentMoveId}");
-            if (CurrentMoveId == moveId)
+    ~Motor()
+    {
+        _cancellationTokenSource.Cancel();
+    }
+
+    protected void CreateMoveTimer(Guid moveId)
+    {
+        _cancellationTokenSource.Cancel();
+        _cancellationTokenSource = new CancellationTokenSource();
+        new Task(() =>
             {
+                Task.Delay(TimeSpan.FromSeconds(MoveSeconds), _cancellationTokenSource.Token)
+                    .Wait(_cancellationTokenSource.Token);
+                Log($"Move timer event, move id {moveId}, current move: {CurrentMoveId}");
                 CurrentMoveId = Guid.Empty;
                 CurrentMoveAction = RelayAction.None;
             }
-        }
-    ).Start();
+        ).Start();
+    }
 
     public abstract void Raise();
 
