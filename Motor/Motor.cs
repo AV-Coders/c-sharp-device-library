@@ -24,11 +24,13 @@ public abstract class Motor : DeviceBase
     ~Motor()
     {
         _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
     }
 
-    protected void CreateMoveTimer(Guid moveId)
+    protected void CreateMoveTimer(Guid moveId, Action? completeAction = null)
     {
         _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
         _cancellationTokenSource = new CancellationTokenSource();
         new Task(() =>
             {
@@ -37,6 +39,7 @@ public abstract class Motor : DeviceBase
                 Log($"Move timer event, move id {moveId}, current move: {CurrentMoveId}");
                 CurrentMoveId = Guid.Empty;
                 CurrentMoveAction = RelayAction.None;
+                completeAction?.Invoke();
             }
         ).Start();
     }
