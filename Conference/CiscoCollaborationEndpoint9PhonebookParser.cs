@@ -20,12 +20,14 @@ public record CiscoRoomOsPhonebookContact(string Name, string ContactId, List<Ph
 public class CiscoCollaborationEndpoint9PhonebookParser : PhonebookParserBase
 {
     private readonly string _phonebookType;
+    private readonly int _waitTime;
     private readonly CommunicationClient _client;
 
     // Phonebook parsing variables
     private readonly Dictionary<string, string> _injestFolder;
     private readonly Dictionary<string, string> _injestContact;
     private readonly List<Dictionary<string, string>> _injestContactMethods;
+    private CancellationTokenSource _cancellationTokenSource = new ();
     private int _currentRow;
     private int _currentSubRow;
     private int _resultOffset;
@@ -33,16 +35,41 @@ public class CiscoCollaborationEndpoint9PhonebookParser : PhonebookParserBase
     private CiscoRoomOsPhonebookFolder? _currentInjestfolder;
     private int _currentLimit = 50;
 
-    public CiscoCollaborationEndpoint9PhonebookParser(CommunicationClient client, string phonebookType = "Corporate")
+    public CiscoCollaborationEndpoint9PhonebookParser(CommunicationClient client, string phonebookType = "Corporate", int waitTime = 5)
     : base(new CiscoRoomOsPhonebookFolder("Top Level", String.Empty, String.Empty, new List<PhonebookBase>()))
     {
         _phonebookType = phonebookType;
+        _waitTime = waitTime;
         _client = client;
         _client.ResponseHandlers += HandleResponse;
+        _client.ConnectionStateHandlers += HandleConnectionState;
         
         _injestFolder = new Dictionary<string, string>();
         _injestContact = new Dictionary<string, string>();
         _injestContactMethods = [new Dictionary<string, string>()];
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
+        _cancellationTokenSource = new CancellationTokenSource();
+        
+        if (connectionState == ConnectionState.Connected)
+        {
+            new Task(() =>
+            {
+                Task.Delay(TimeSpan.FromSeconds(_waitTime), _cancellationTokenSource.Token)
+                    .Wait(_cancellationTokenSource.Token);
+                RequestPhonebook();
+            }).Start();
+        }
+    }
+
+    ~CiscoCollaborationEndpoint9PhonebookParser()
+    {
+        _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
     }
 
     private void HandleResponse(string response)

@@ -1,4 +1,5 @@
 using AVCoders.CommunicationClients;
+using AVCoders.Core;
 using Moq;
 
 namespace AVCoders.Conference.Tests;
@@ -11,7 +12,27 @@ public class CiscoCollaborationEndpoint9PhonebookParserTest
     public CiscoCollaborationEndpoint9PhonebookParserTest()
     {
         _mockClient = new Mock<AvCodersTcpClient>("Foo", (ushort) 1, "Bar");
-        _parser = new CiscoCollaborationEndpoint9PhonebookParser(_mockClient.Object);
+        _parser = new CiscoCollaborationEndpoint9PhonebookParser(_mockClient.Object, "Corporate", 1);
+    }
+
+    [Fact]
+    public async Task Module_RequestsPhonebookAfterConnectionConnected()
+    {
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        await Task.Delay(TimeSpan.FromMilliseconds(1100));
+        
+        _mockClient.Verify(x => x.Send($"xCommand Phonebook Search PhonebookType: Corporate Offset:0\n"));
+    }
+
+    [Fact]
+    public async Task Module_DoesntRequestPhonebookIfDisconnected()
+    {
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        await Task.Delay(TimeSpan.FromMilliseconds(10));
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Disconnected);
+        await Task.Delay(TimeSpan.FromMilliseconds(1100));
+        
+        _mockClient.Verify(x => x.Send("xCommand Phonebook Search PhonebookType: Corporate Offset:0\n"), Times.Never);
     }
 
     [Fact]
