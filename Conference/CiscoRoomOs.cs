@@ -58,7 +58,6 @@ public class CiscoRoomOs : Conference
   {
     private readonly CommunicationClient _communicationClient;
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
-    public readonly CiscoCE9PhonebookParser PhoneBookParser;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
 
@@ -70,10 +69,6 @@ public class CiscoRoomOs : Conference
       _deviceInfo = deviceInfo;
       _peripheralType = peripheralType;
       _communicationClient.ResponseHandlers += HandleResponse;
-
-      PhoneBookParser = new CiscoCE9PhonebookParser();
-      PhoneBookParser.Comms += _communicationClient.Send;
-      PhoneBookParser.LogHandlers += (message, level) => Log($"Phonebook - {message}");
     }
 
     private void Reinitialise()
@@ -87,10 +82,11 @@ public class CiscoRoomOs : Conference
         SendCommand("xStatus Standby");
         SendCommand("xStatus Call");
         SendCommand("xStatus SIP Registration URI");
-        PhoneBookParser.RequestPhonebook();
+        CommunicationState = CommunicationState.Okay;
       }
       catch (Exception ex)
       {
+        CommunicationState = CommunicationState.Error;
         Log("Can't initialise Cisco Room OS");
         Log(ex.Message);
       }
@@ -174,18 +170,15 @@ public class CiscoRoomOs : Conference
       var responses = response.Split(' ');
       try
       {
-        if (response.Contains("PhonebookSearchResult"))
-          CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
-        else if (response.Contains("PeripheralsHeartBeatResult"))
+        if (response.Contains("PeripheralsHeartBeatResult"))
         {
           if(response.Contains("status=OK"))
             CommunicationState = CommunicationState.Okay;
-          else if(response.Contains("status=Error"))
+          else if (response.Contains("status=Error"))
+          {
             CommunicationState = CommunicationState.Error;
-
-
-          if (CommunicationState == CommunicationState.Error)
             Reinitialise();
+          }
         }
         else if (response.Contains("CallDisconnectResult"))
         {

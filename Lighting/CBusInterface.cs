@@ -32,6 +32,7 @@ public class CBusInterface
     private readonly byte _clearBuffer = 63; // ASCII ?
     private readonly byte _beginPacket = 0x5c; // ASCII /
     public const byte LightingApplication = 0x38;
+    public const byte SceneApplication = 0xCA;
     private List<byte> _gather = new ();
 
     public CBusInterface(CommunicationClient comms, bool serialCheck = true)
