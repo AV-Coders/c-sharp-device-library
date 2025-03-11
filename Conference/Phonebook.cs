@@ -2,6 +2,17 @@ using AVCoders.Core;
 
 namespace AVCoders.Conference;
 
+public delegate void PhonebookRequestStatusChangedHandler(PhonebookRequestStatus status);
+
+public enum PhonebookRequestStatus
+{
+    Idle,
+    Downloading,
+    Waiting,
+    Error,
+    Complete
+}
+
 public record PhonebookBase(string Name);
 
 public record PhonebookNumber(string Number);
@@ -17,8 +28,23 @@ public delegate void PhonebookUpdated(PhonebookFolder folder);
 
 public abstract class PhonebookParserBase : DeviceBase
 {
+    private PhonebookRequestStatus _phonebookRequestStatus = PhonebookRequestStatus.Idle;
+
+    public PhonebookRequestStatusChangedHandler PhonebookRequestStatusChangedHandlers;
     public PhonebookUpdated? PhonebookUpdated { get; set; }
     public PhonebookFolder PhoneBook { get; init; }
+
+    public PhonebookRequestStatus PhonebookRequestStatus
+    {
+        get => _phonebookRequestStatus;
+        protected set
+        {
+            if (_phonebookRequestStatus == value)
+                return;
+            _phonebookRequestStatus = value;
+            PhonebookRequestStatusChangedHandlers?.Invoke(value);
+        }
+    }
 
     protected PhonebookParserBase(PhonebookFolder folder)
     {
@@ -27,6 +53,7 @@ public abstract class PhonebookParserBase : DeviceBase
 
     public void RequestPhonebook()
     {
+        PhonebookRequestStatus = PhonebookRequestStatus.Waiting;
         DoRequestPhonebook();
     }
     protected abstract void DoRequestPhonebook();

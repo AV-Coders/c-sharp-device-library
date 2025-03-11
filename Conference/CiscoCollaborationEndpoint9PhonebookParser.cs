@@ -95,6 +95,7 @@ public class CiscoCollaborationEndpoint9PhonebookParser : PhonebookParserBase
         {
             case "ResultInfo":
             {
+                PhonebookRequestStatus = PhonebookRequestStatus.Downloading;
                 switch (responses[3])
                 {
                     case "Offset:":
@@ -122,6 +123,7 @@ public class CiscoCollaborationEndpoint9PhonebookParser : PhonebookParserBase
             }
             case "Folder":
             {
+                PhonebookRequestStatus = PhonebookRequestStatus.Downloading;
                 var loadResult = HandlePhonebookFolderResponse(response, responses);
 
                 if (loadResult.state == EntryLoadState.Loaded && loadResult.responseRow == _resultTotalRows)
@@ -136,6 +138,7 @@ public class CiscoCollaborationEndpoint9PhonebookParser : PhonebookParserBase
             }
             case "Contact":
             {
+                PhonebookRequestStatus = PhonebookRequestStatus.Downloading;
                 var loadResult = HandlePhonebookContactResponse(response, responses);
 
                 int resultRow = loadResult.responseRow + _resultOffset;
@@ -170,6 +173,7 @@ public class CiscoCollaborationEndpoint9PhonebookParser : PhonebookParserBase
         }
 
         Error($"Unhandled response key: {responses[2]}");
+        PhonebookRequestStatus = PhonebookRequestStatus.Error;
         CommunicationState = CommunicationState.Error;
     }
 
@@ -181,6 +185,7 @@ public class CiscoCollaborationEndpoint9PhonebookParser : PhonebookParserBase
         if (unFetchedFolder == null)
         {
             Log("Phonebook search complete");
+            PhonebookRequestStatus = PhonebookRequestStatus.Complete;
             PhonebookUpdated?.Invoke(PhoneBook);
             return;
         }
