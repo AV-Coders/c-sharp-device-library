@@ -15,7 +15,7 @@ public class CiscoCollaborationEndpoint9PhonebookParserTest
         _parser = new CiscoCollaborationEndpoint9PhonebookParser(_mockClient.Object, "Corporate", 1);
     }
 
-    [Fact]
+    [Fact(Skip = "This causes GitHub Actions to run away")]
     public async Task Module_RequestsPhonebookAfterConnectionConnected()
     {
         _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
@@ -24,7 +24,7 @@ public class CiscoCollaborationEndpoint9PhonebookParserTest
         _mockClient.Verify(x => x.Send($"xCommand Phonebook Search PhonebookType: Corporate Offset:0\n"));
     }
 
-    [Fact]
+    [Fact(Skip = "This causes GitHub Actions to run away")]
     public async Task Module_DoesntRequestPhonebookIfDisconnected()
     {
         _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
