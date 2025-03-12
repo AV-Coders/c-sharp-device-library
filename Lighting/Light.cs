@@ -21,7 +21,7 @@ public abstract class Light : DeviceBase
     
     public void SetLevel(int level)
     {
-        if(level <= 0 || level >= 100)
+        if(level is >= 0 and <= 100)
             DoSetLevel(level);
     }
 
