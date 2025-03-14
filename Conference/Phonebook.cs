@@ -6,6 +6,7 @@ public delegate void PhonebookRequestStatusChangedHandler(PhonebookRequestStatus
 
 public enum PhonebookRequestStatus
 {
+    NotBegun,
     Idle,
     Downloading,
     Waiting,
@@ -17,9 +18,9 @@ public record PhonebookBase(string Name);
 
 public record PhonebookNumber(string Number);
 
-public record PhonebookFolder(string Name, List<PhonebookBase> Items, bool ContentsFetched): PhonebookBase(Name)
+public record PhonebookFolder(string Name, List<PhonebookBase> Items, PhonebookRequestStatus ContentDownloadState): PhonebookBase(Name)
 {
-    public bool ContentsFetched { get; set; }
+    public PhonebookRequestStatus ContentDownloadState { get; set; }
 }
 
 public record PhonebookContact(string Name, List<PhonebookNumber> Numbers): PhonebookBase(Name);
