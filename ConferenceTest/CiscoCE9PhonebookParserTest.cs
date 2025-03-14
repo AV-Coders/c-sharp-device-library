@@ -1,38 +1,12 @@
-using AVCoders.CommunicationClients;
-using AVCoders.Core;
-using Moq;
-
 namespace AVCoders.Conference.Tests;
 
-public class CiscoCollaborationEndpoint9PhonebookParserTest
+public class CiscoCE9PhonebookParserTest
 {
-    private readonly CiscoCollaborationEndpoint9PhonebookParser _parser;
-    private readonly Mock<AvCodersTcpClient> _mockClient;
+    private readonly CiscoCE9PhonebookParser _parser;
     
-    public CiscoCollaborationEndpoint9PhonebookParserTest()
+    public CiscoCE9PhonebookParserTest()
     {
-        _mockClient = new Mock<AvCodersTcpClient>("Foo", (ushort) 1, "Bar");
-        _parser = new CiscoCollaborationEndpoint9PhonebookParser(_mockClient.Object, "Corporate", 1);
-    }
-
-    [Fact(Skip = "This causes GitHub Actions to run away")]
-    public async Task Module_RequestsPhonebookAfterConnectionConnected()
-    {
-        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
-        await Task.Delay(TimeSpan.FromMilliseconds(1100));
-        
-        _mockClient.Verify(x => x.Send($"xCommand Phonebook Search PhonebookType: Corporate Offset:0\n"));
-    }
-
-    [Fact(Skip = "This causes GitHub Actions to run away")]
-    public async Task Module_DoesntRequestPhonebookIfDisconnected()
-    {
-        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
-        await Task.Delay(TimeSpan.FromMilliseconds(10));
-        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Disconnected);
-        await Task.Delay(TimeSpan.FromMilliseconds(1100));
-        
-        _mockClient.Verify(x => x.Send("xCommand Phonebook Search PhonebookType: Corporate Offset:0\n"), Times.Never);
+        _parser = new CiscoCE9PhonebookParser();
     }
 
     [Fact]
@@ -53,7 +27,7 @@ public class CiscoCollaborationEndpoint9PhonebookParserTest
             "*r PhonebookSearchResult Folder 3 LocalId: \"c_63\"",
             "*r PhonebookSearchResult Folder 3 FolderId: \"c_63\"",
             "*r PhonebookSearchResult Folder 3 Name: \"More folders\"",
-        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
+        }.ForEach(response => _parser.HandlePhonebookSearchResponse($"{response}\n"));
 
         CiscoRoomOsPhonebookFolder firstFolder = (CiscoRoomOsPhonebookFolder)_parser.PhoneBook.Items[0];
         
@@ -92,7 +66,7 @@ public class CiscoCollaborationEndpoint9PhonebookParserTest
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 Number: \"SIP:foomcbar@mcbarindustries.co.uk\"",
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 Protocol: SIP",
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 CallRate: 768",
-        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
+        }.ForEach(response => _parser.HandlePhonebookSearchResponse($"{response}\n"));
         
         CiscoRoomOsPhonebookContact firstContact = (CiscoRoomOsPhonebookContact)_parser.PhoneBook.Items[0];
         
