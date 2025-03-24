@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Serilog.Context;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
 
@@ -25,19 +26,21 @@ public class AvCodersTcpServer : Core_TcpClient
 
     public override void Send(byte[] bytes)
     {
-        foreach (TcpClient client in _clients)
+        using (LogContext.PushProperty(MethodProperty, "Send"))
         {
-            try
+            foreach (TcpClient client in _clients)
             {
-                if(client.Connected)
-                    client.GetStream().Write(bytes);
-            }
-            catch (IOException e)
-            {
-                Error($"IOException while sending: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}");
+                try
+                {
+                    if (client.Connected)
+                        client.GetStream().Write(bytes);
+                }
+                catch (IOException e)
+                {
+                    Error($"IOException while sending: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}");
+                }
             }
         }
-
     }
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken token)
@@ -57,24 +60,24 @@ public class AvCodersTcpServer : Core_TcpClient
             }
             catch (IOException e)
             {
-                Error($"Receive - IOException:\n{e}");
+                Error("IOException:");
+                Error(e.Message);
                 Error(e.StackTrace ?? "No Stack Trace available");
                 Reconnect();
-                UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (ObjectDisposedException e)
             {
-                Error($"Receive  - ObjectDisposedException\n{e}");
+                Error("ObjectDisposedException");
+                Error(e.Message);
                 Error(e.StackTrace ?? "No Stack Trace available");
                 Reconnect();
-                UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
-                Error($"Receive  - Exception:\n{e}");
+                Error(e.GetType().Name);
+                Error(e.Message);
                 Error(e.StackTrace ?? "No Stack Trace available");
                 Reconnect();
-                UpdateConnectionState(ConnectionState.Disconnected);
             }
         }
     }
@@ -83,28 +86,34 @@ public class AvCodersTcpServer : Core_TcpClient
 
     protected override async Task Receive(CancellationToken token)
     {
-        TcpClient client = await _server.AcceptTcpClientAsync(token);
-        _clients.Add(client);
-        IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? default;
-        Debug($"Added client - {remoteIpEndPoint?.Address}");
-        _ = HandleClientAsync(client, token);
-        await Task.Delay(TimeSpan.FromSeconds(1), token);
+        using (LogContext.PushProperty(MethodProperty, "Receive"))
+        {
+            TcpClient client = await _server.AcceptTcpClientAsync(token);
+            _clients.Add(client);
+            IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? default;
+            Debug($"Added client - {remoteIpEndPoint?.Address}");
+            _ = HandleClientAsync(client, token);
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+        }
     }
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        Debug($"Checking client status for {_clients.Count} clients");
-        foreach (TcpClient client in _clients)
+        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
         {
-            if (client.Connected) 
-                continue;
-            
-            Debug("Removing a client");
-            _clients.TryTake(out _);
-        }
+            Debug($"Checking client status for {_clients.Count} clients");
+            foreach (TcpClient client in _clients)
+            {
+                if (client.Connected)
+                    continue;
 
-        UpdateConnectionState(_clients.IsEmpty ? ConnectionState.Disconnected : ConnectionState.Connected);
-        await Task.Delay(TimeSpan.FromSeconds(45), token);
+                Debug("Removing a client");
+                _clients.TryTake(out _);
+            }
+
+            UpdateConnectionState(_clients.IsEmpty ? ConnectionState.Disconnected : ConnectionState.Connected);
+            await Task.Delay(TimeSpan.FromSeconds(45), token);
+        }
     }
 
     public override void SetHost(string host) => Error("Set Host is not supported");

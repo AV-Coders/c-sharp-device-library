@@ -1,5 +1,6 @@
 ﻿using System.Net.Sockets;
 using System.Text;
+using Serilog.Context;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
 
@@ -23,90 +24,100 @@ public class AvCodersTcpClient : Core_TcpClient
 
     protected override async Task Receive(CancellationToken token)
     {
-        if (!_client.Connected)
+        using (LogContext.PushProperty(MethodProperty, "Receive"))
         {
-            Debug("Receive - Client disconnected, waiting 10 seconds");
-            await Task.Delay(TimeSpan.FromSeconds(10), token);
-        }
-        else
-        {
-            try
+            if (!_client.Connected)
             {
-                byte[] buffer = new byte[1024];
-                var bytesRead = await _client.GetStream().ReadAsync(buffer, token);
-
-                if (bytesRead > 0)
+                Debug("Client disconnected, waiting 10 seconds");
+                await Task.Delay(TimeSpan.FromSeconds(10), token);
+            }
+            else
+            {
+                try
                 {
-                    string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-                    InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
+                    byte[] buffer = new byte[1024];
+                    var bytesRead = await _client.GetStream().ReadAsync(buffer, token);
+
+                    if (bytesRead > 0)
+                    {
+                        string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+                        InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
+                    }
                 }
+                catch (IOException e)
+                {
+                    Error("IOException:");
+                    Error(e.Message);
+                    Error(e.StackTrace ?? "No Stack Trace available");
+                    Reconnect();
+                }
+                catch (ObjectDisposedException e)
+                {
+                    Error("ObjectDisposedException");
+                    Error(e.Message);
+                    Error(e.StackTrace ?? "No Stack Trace available");
+                    Reconnect();
+                }
+                catch (Exception e)
+                {
+                    Error(e.GetType().Name);
+                    Error(e.Message);
+                    Error(e.StackTrace ?? "No Stack Trace available");
+                    Reconnect();
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(30), token);
             }
-            catch (IOException e)
-            {
-                Error($"Receive - IOException:\n{e}");
-                Error(e.StackTrace ?? "No Stack Trace available");
-                Reconnect();
-            }
-            catch (ObjectDisposedException e)
-            {
-                Error($"Receive  - ObjectDisposedException\n{e}");
-                Error(e.StackTrace ?? "No Stack Trace available");
-                Reconnect();
-            }
-            catch (Exception e)
-            {
-                Error($"Receive  - Exception:\n{e}");
-                Error(e.StackTrace ?? "No Stack Trace available");
-                Reconnect();
-            }
-            await Task.Delay(TimeSpan.FromMilliseconds(30), token);
         }
     }
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        if (_client.Connected)
+        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
         {
-            UpdateConnectionState(ConnectionState.Connected);
-            await Task.Delay(TimeSpan.FromSeconds(17), token);
-        }
-        else
-        {
-            UpdateConnectionState(ConnectionState.Connecting);
-            try
+            if (_client.Connected)
             {
-                var connectResult = _client.BeginConnect(Host, Port, null, null);
-                var success = connectResult.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1));
-
-                if (!success)
+                UpdateConnectionState(ConnectionState.Connected);
+                await Task.Delay(TimeSpan.FromSeconds(17), token);
+            }
+            else
+            {
+                UpdateConnectionState(ConnectionState.Connecting);
+                try
                 {
-                    Info("1 second connection wait failed, marking as disconnected");
+                    var connectResult = _client.BeginConnect(Host, Port, null, null);
+                    var success = connectResult.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(1));
+
+                    if (!success)
+                    {
+                        Info("1 second connection wait failed, marking as disconnected");
+                        UpdateConnectionState(ConnectionState.Disconnected);
+                    }
+
+                    _client.EndConnect(connectResult);
+                }
+                catch (SocketException e)
+                {
+                    Error($"Check Connection State  - Socket Exception: {e.Message}");
+                    UpdateConnectionState(ConnectionState.Disconnected);
+                }
+                catch (IOException e)
+                {
+                    Error($"Check Connection State - IOException: {e.Message}");
+                    Error(e.StackTrace ?? "No Stack Trace available");
+                    _client.Close();
+                    _client = new TcpClient();
+                    UpdateConnectionState(ConnectionState.Disconnected);
+                }
+                catch (Exception e)
+                {
+                    Error($"Check Connection State  - New Exception: {e.Message}");
+                    Error(e.GetType().ToString());
+                    Error(e.StackTrace ?? "No Stack Trace available");
                     UpdateConnectionState(ConnectionState.Disconnected);
                 }
 
-                _client.EndConnect(connectResult);
+                await Task.Delay(TimeSpan.FromSeconds(5), token);
             }
-            catch (SocketException e)
-            {
-                Error($"Check Connection State  - Socket Exception: {e.Message}");
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (IOException e)
-            {
-                Error($"Check Connection State - IOException: {e.Message}");
-                Error(e.StackTrace ?? "No Stack Trace available");
-                _client.Close();
-                _client = new TcpClient();
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (Exception e)
-            {
-                Error($"Check Connection State  - New Exception: {e.Message}");
-                Error(e.GetType().ToString());
-                Error(e.StackTrace ?? "No Stack Trace available");
-                UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            await Task.Delay(TimeSpan.FromSeconds(5), token);
         }
     }
 
@@ -134,21 +145,25 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Send(byte[] bytes)
     {
-        if (_client.Connected)
+        using (LogContext.PushProperty(MethodProperty, "Send"))
         {
-            try
+            if (_client.Connected)
             {
-                _client.GetStream().Write(bytes);
-                InvokeRequestHandlers(bytes);
+                try
+                {
+                    _client.GetStream().Write(bytes);
+                    InvokeRequestHandlers(bytes);
+                }
+                catch (IOException e)
+                {
+                    Error(
+                        $"IOException while sending, Queueing message: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}");
+                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
+                }
             }
-            catch (IOException e)
-            {
-                Error($"IOException while sending, Queueing message: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}");
+            else
                 _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
-            }
         }
-        else
-            _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
     }
 
     public override void SetPort(ushort port)

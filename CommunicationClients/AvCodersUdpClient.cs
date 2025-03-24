@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using Serilog.Context;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
 
@@ -24,47 +25,58 @@ public class AvCodersUdpClient : Core_UdpClient
 
     private UdpClient? CreateClient()
     {
-        try
+        using (LogContext.PushProperty(MethodProperty, "CreateClient"))
         {
-            Debug("Creating client");
-            UpdateConnectionState(ConnectionState.Connecting);
-            var client = new UdpClient(Host, Port);
-            if (IPAddress.TryParse(Host, out var remoteIpAddress))
-                _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
-            ReceiveThreadWorker.Restart();
-            ConnectionStateWorker.Restart();
-            UpdateConnectionState(ConnectionState.Connected);
-            return client;
+            try
+            {
+                Debug("Creating client");
+                UpdateConnectionState(ConnectionState.Connecting);
+                var client = new UdpClient(Host, Port);
+                if (IPAddress.TryParse(Host, out var remoteIpAddress))
+                    _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
+                ReceiveThreadWorker.Restart();
+                ConnectionStateWorker.Restart();
+                UpdateConnectionState(ConnectionState.Connected);
+                return client;
+            }
+            catch (Exception e)
+            {
+                Error($"Exception while connecting: {e.Message}\r\n{e.StackTrace}");
+            }
+
+            UpdateConnectionState(ConnectionState.Disconnected);
         }
-        catch( Exception e)
-        {
-           Error($"Exception while connecting: {e.Message}\r\n{e.StackTrace}");
-        }
-        UpdateConnectionState(ConnectionState.Disconnected);
         return null;
     }
 
     protected override async Task Receive(CancellationToken token)
     {
-        if (_ipEndPoint == null)
+        using (LogContext.PushProperty(MethodProperty, "Receive"))
         {
-            await ReceiveThreadWorker.Stop();
-            return;
-        }
+            if (_ipEndPoint == null)
+            {
+                await ReceiveThreadWorker.Stop();
+                return;
+            }
 
-        if (_client is not { Available: > 0 })
-        {
-            await Task.Delay(1100, token);
-            return;
-        }
-        try
-        {
-            var received = _client.Receive(ref _ipEndPoint);
-            InvokeResponseHandlers(ConvertByteArrayToString(received), received);
-        }
-        catch (Exception e)
-        {
-            Debug($"Receive - Error: {e.Message}");
+            if (_client is not { Available: > 0 })
+            {
+                await Task.Delay(1100, token);
+                return;
+            }
+
+            try
+            {
+                var received = _client.Receive(ref _ipEndPoint);
+                InvokeResponseHandlers(ConvertByteArrayToString(received), received);
+            }
+            catch (Exception e)
+            {
+                Error(e.GetType().Name);
+                Error(e.Message);
+                Error(e.StackTrace ?? "No Stack Trace available");
+                Reconnect();
+            }
         }
     }
 
@@ -89,14 +101,16 @@ public class AvCodersUdpClient : Core_UdpClient
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        Debug($"CheckConnectionState - Connection state is {ConnectionState}");
-        if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
+        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
         {
-            Debug($"Will recreate client");
-            CreateClient();
+            Debug($"Connection state is {ConnectionState}");
+            if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
+            {
+                Debug($"Will recreate client");
+                CreateClient();
+            }
+            await Task.Delay(TimeSpan.FromSeconds(30), token);
         }
-        
-        await Task.Delay(TimeSpan.FromSeconds(30), token);
     }
 
     public override void SetPort(ushort port)
@@ -139,19 +153,23 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Send(byte[] bytes)
     {
-        try
+        using (LogContext.PushProperty(MethodProperty, "Send"))
         {
-            if (_client == null)
+            try
             {
-                Debug("Queueing Message");
-                _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
-                return;
+                if (_client == null)
+                {
+                    Debug("Queueing Message");
+                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
+                    return;
+                }
+
+                _client.Send(bytes, bytes.Length);
             }
-            _client.Send(bytes, bytes.Length);
-        }
-        catch (Exception e)
-        {
-            Debug($"Send - Error: {e.Message}\r\n {e.StackTrace}");
+            catch (Exception e)
+            {
+                Error($"Error: {e.Message}\r\n {e.StackTrace}");
+            }
         }
     }
 

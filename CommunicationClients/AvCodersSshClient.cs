@@ -1,6 +1,7 @@
 ﻿using System.Net.Sockets;
 using Renci.SshNet;
 using Renci.SshNet.Common;
+using Serilog.Context;
 using SshClient = Renci.SshNet.SshClient;
 using SshClientBase = AVCoders.Core.SshClient;
 
@@ -43,63 +44,72 @@ public class AvCodersSshClient : SshClientBase
 
     protected override async Task Receive(CancellationToken token)
     {
-        Debug("Receive loop start");
-        if (_client.IsConnected)
+        using (LogContext.PushProperty(MethodProperty, "Receive"))
         {
-            Debug("Ready to receive messages...");
-            using var reader = new StreamReader(_stream!);
-            while (!token.IsCancellationRequested)
+            Debug("Receive loop start");
+            if (_client.IsConnected)
             {
-                var line = await reader.ReadLineAsync();
-                if(line != null)
-                    InvokeResponseHandlers(line);
+                Debug("Ready to receive messages...");
+                using var reader = new StreamReader(_stream!);
+                while (!token.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync();
+                    if (line != null)
+                        InvokeResponseHandlers(line);
+                }
             }
+            else
+            {
+                Debug("Client not connected or stream not ready, not reading");
+                await Task.Delay(TimeSpan.FromSeconds(5), token);
+            }
+
+            Debug("Receive loop end");
         }
-        else
-        {
-            Debug("Client not connected or stream not ready, not reading");
-            await Task.Delay(TimeSpan.FromSeconds(5), token);
-        }
-        Debug("Receive loop end");
     }
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        Debug("Checking connection state...");
-        if (!_client.IsConnected)
+        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
         {
-            Debug("Reconnecting to device");
-            UpdateConnectionState(ConnectionState.Disconnected);
-            if (_stream != null) 
-                await _stream.DisposeAsync();
-            try
+            Debug("Checking connection state...");
+            if (!_client.IsConnected)
             {
-                await _client.ConnectAsync(token);
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
-                await CreateStream(token);
-            }
-            catch (Exception e) when (e is SshOperationTimeoutException ||
-                                      e is SshAuthenticationException ||
-                                      e is SshConnectionException ||
-                                      e is ObjectDisposedException ||
-                                      e is InvalidOperationException ||
-                                      e is SocketException ||
-                                      e is ProxyException)
-            {
-                Error($"{Host} - {e.GetType().Name} - {e.Message}");
-                Error(e.StackTrace ?? "No stack trace available");
+                Debug("Reconnecting to device");
                 UpdateConnectionState(ConnectionState.Disconnected);
-            }
-            catch (Exception e)
-            {
-                Error($"{Host} - Unexpected exception - {e.GetType().Name}\r\n{e}");
-                Error(e.StackTrace ?? "No stack trace available");
-                UpdateConnectionState(ConnectionState.Disconnected);
+                if (_stream != null)
+                    await _stream.DisposeAsync();
+                try
+                {
+                    await _client.ConnectAsync(token);
+                    await Task.Delay(TimeSpan.FromSeconds(1), token);
+                    await CreateStream(token);
+                }
+                catch (Exception e) when (e is SshOperationTimeoutException ||
+                                          e is SshAuthenticationException ||
+                                          e is SshConnectionException ||
+                                          e is ObjectDisposedException ||
+                                          e is InvalidOperationException ||
+                                          e is SocketException ||
+                                          e is ProxyException)
+                {
+                    Error(e.Message);
+                    Error(e.StackTrace ?? "No stack trace available");
+                    UpdateConnectionState(ConnectionState.Disconnected);
+                }
+                catch (Exception e)
+                {
+                    Error("Unexpected exception");
+                    Error(e.Message);
+                    Error(e.StackTrace ?? "No stack trace available");
+                    UpdateConnectionState(ConnectionState.Disconnected);
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(60), token);
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(60), token);
+            await Task.Delay(TimeSpan.FromSeconds(5), token);
         }
-        await Task.Delay(TimeSpan.FromSeconds(5), token);
     }
 
     protected override async Task ProcessSendQueue(CancellationToken token)
@@ -151,28 +161,31 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Send(string message)
     {
-        if (_client.IsConnected)
+        using (LogContext.PushProperty(MethodProperty, "Send"))
         {
-            try
+            if (_client.IsConnected)
             {
-                _stream!.Write(message);
-                InvokeRequestHandlers(message);
+                try
+                {
+                    _stream!.Write(message);
+                    InvokeRequestHandlers(message);
+                }
+                catch (ObjectDisposedException)
+                {
+                    Debug("Send failed, stream was disposed.  Recreating stream and queueing message");
+                    _ = CreateStream(new CancellationToken());
+                    _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
+                }
+                catch (NullReferenceException)
+                {
+                    Debug("Send failed, stream has not yet been created. Waiting for the connection flow to continue");
+                    _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
+                }
             }
-            catch (ObjectDisposedException)
-            {
-                Debug("Send failed, stream was disposed.  Recreating stream and queueing message");
-                _ = CreateStream(new CancellationToken());
+
+            else
                 _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
-            }
-            catch (NullReferenceException)
-            {
-                Debug("Send failed, stream has not yet been created. Waiting for the connection flow to continue");
-                _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
-            }
         }
-            
-        else
-            _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
     }
 
     public override void Send(byte[] bytes)
