@@ -7,6 +7,8 @@ public abstract class DeviceBase : IDevice
 {
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
+    public readonly string InstanceUid;
+    private readonly Dictionary<string, string> _logProperties = new ();
     public string Name { get; protected set; }
 
     protected PowerState DesiredPowerState = PowerState.Unknown;
@@ -17,6 +19,7 @@ public abstract class DeviceBase : IDevice
     protected DeviceBase(string name)
     {
         Name = name;
+        InstanceUid = Guid.NewGuid().ToString();
     }
 
     public PowerState PowerState
@@ -69,59 +72,62 @@ public abstract class DeviceBase : IDevice
 
     public abstract void PowerOff();
 
+    public void AddLogProperty(string name, string value)
+    {
+        _logProperties[name] = value;
+    }
+    
+    private IDisposable PushProperties()
+    {
+        var disposables = new List<IDisposable>();
+
+        foreach (var property in _logProperties)
+        {
+            disposables.Add(LogContext.PushProperty(property.Key, property.Value));
+        }
+        
+        disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
+        disposables.Add(LogContext.PushProperty("Class", GetType()));
+        disposables.Add(LogContext.PushProperty("InstanceName", Name));
+
+        return new DisposableItems(disposables);
+    }
+
     protected void Verbose(string message)
     {
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
+        using (PushProperties())
             Log.Verbose(message);
-        }
     }
     
     protected void Debug(string message)
     {
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
+        using (PushProperties())
             Log.Debug(message);
-        }
     }
     
     protected void Info(string message)
     {
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
+        using (PushProperties())
             Log.Information(message);
-        }
     }
     
     protected void Warn(string message)
     {
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
+        using (PushProperties())
             Log.Warning(message);
-        }
     }
 
     protected void Error(string message)
     {
         
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
+        using (PushProperties())
             Log.Error(message);
-        }
     }
 
     protected void Fatal(string message)
     {
         
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
+        using (PushProperties())
             Log.Fatal(message);
-        }
     }
 }

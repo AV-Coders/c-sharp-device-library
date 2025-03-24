@@ -9,6 +9,8 @@ public delegate void InputHandler(Input input);
 public abstract class Display : VolumeControl, IDevice
 {
     public List<Input> SupportedInputs { get; }
+    public readonly string InstanceUid;
+    private readonly Dictionary<string, string> _logProperties = new ();
     private Input _input = Input.Unknown;
     protected Input DesiredInput = Input.Unknown;
     private PowerState _powerState = PowerState.Unknown;
@@ -30,6 +32,7 @@ public abstract class Display : VolumeControl, IDevice
     {
         SupportedInputs = supportedInputs;
         _defaultInput = defaultInput;
+        InstanceUid = Guid.NewGuid().ToString();
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         new Thread(_ =>
         {
@@ -106,24 +109,6 @@ public abstract class Display : VolumeControl, IDevice
     }
 
     protected abstract Task Poll(CancellationToken token);
-    
-    protected void Debug(string message)
-    {
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
-            Log.Debug(message);
-        }
-    }
-
-    protected void Error(string message)
-    {
-        using (LogContext.PushProperty("class", GetType()))
-        using (LogContext.PushProperty("instance_name", Name))
-        {
-            Log.Error(message);
-        }
-    }
 
     protected void ProcessPowerResponse()
     {
@@ -245,5 +230,37 @@ public abstract class Display : VolumeControl, IDevice
                 SetAudioMute(MuteState.On);
                 break;
         }
+    }
+    
+    protected void Debug(string message)
+    {
+        using (PushProperties())
+            Log.Debug(message);
+    }
+
+    protected void Error(string message)
+    {
+        using (PushProperties())
+            Log.Error(message);
+    }
+
+    public void AddLogProperty(string name, string value)
+    {
+        _logProperties[name] = value;
+    }
+    private IDisposable PushProperties()
+    {
+        var disposables = new List<IDisposable>();
+
+        foreach (var property in _logProperties)
+        {
+            disposables.Add(LogContext.PushProperty(property.Key, property.Value));
+        }
+        
+        disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
+        disposables.Add(LogContext.PushProperty("Class", GetType()));
+        disposables.Add(LogContext.PushProperty("InstanceName", Name));
+
+        return new DisposableItems(disposables);
     }
 }
