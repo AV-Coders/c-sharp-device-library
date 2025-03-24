@@ -109,7 +109,8 @@ public class TybaTurn2 : LogBase
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            Fatal(e.Message);
+            Fatal(e.StackTrace ?? "No Stack Trace Available");
             throw;
         }
 

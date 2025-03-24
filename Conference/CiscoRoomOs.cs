@@ -227,7 +227,7 @@ public class CiscoRoomOs : Conference
       }
       catch (Exception e)
       {
-        Error($"Codec - {e.GetType().Name} - {e.Message}");
+        Error(e.Message);
         Error(e.StackTrace ?? "No stack trace available");
       }
     }
