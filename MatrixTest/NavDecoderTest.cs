@@ -14,7 +14,7 @@ public class NavDecoderTest
     public NavDecoderTest()
     {
         _mockSshClient = new("foo", Navigator.DefaultPort, "Test");
-        _navigatorMock = new Mock<Navigator>(_mockSshClient.Object);
+        _navigatorMock = new Mock<Navigator>("NAV!", _mockSshClient.Object);
         _navDecoder = new NavDecoder("Decoder", "1.1.1.1", _navigatorMock.Object);
         _outputSyncInfoHandlerMock = new Mock<SyncInfoHandler>();
         _navDecoder.OutputStatusChangedHandlers += _outputSyncInfoHandlerMock.Object;

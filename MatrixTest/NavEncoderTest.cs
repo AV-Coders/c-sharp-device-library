@@ -12,7 +12,7 @@ public class NavEncoderTest
     public NavEncoderTest()
     {
         Mock<SshClient> mockSshClient = new("foo", Navigator.DefaultPort, "Test");
-        _navigatorMock = new Mock<Navigator>(mockSshClient.Object);
+        _navigatorMock = new Mock<Navigator>("NAV!", mockSshClient.Object);
         _navEncoder = new NavEncoder("Encoder", "1.1.1.1", _navigatorMock.Object);
         _inputSyncInfoHandlerMock = new Mock<SyncInfoHandler>();
         _navEncoder.InputStatusChangedHandlers += _inputSyncInfoHandlerMock.Object;
