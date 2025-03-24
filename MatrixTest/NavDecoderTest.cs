@@ -27,7 +27,7 @@ public class NavDecoderTest
     {
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
         theAction.Invoke("VidI1*HdcpI2*HdcpO2*ResI1920x1080@60*AudI1*StrmI1*Lnk1*Dec");
-        _outputSyncInfoHandlerMock.Verify(x => x.Invoke(1, ConnectionStatus.Connected, "1920x1080@60"));
+        _outputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionStatus.Connected, "1920x1080@60"));
     }
 
     [Fact]

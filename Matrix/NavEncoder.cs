@@ -2,7 +2,7 @@
 
 public class NavEncoder : NavDeviceBase
 {
-    public NavEncoder(string name, string ipAddress, Navigator navigator) 
+    public NavEncoder(string name, string ipAddress, Navigator navigator)
         : base(name, AVoIPDeviceType.Encoder, ipAddress, navigator)
     {
     }
@@ -19,7 +19,6 @@ public class NavEncoder : NavDeviceBase
         if (response.Contains('*'))
         {
             var responses = response.Split('*');
-            
         }
     }
 
@@ -31,10 +30,16 @@ public class NavEncoder : NavDeviceBase
         switch (kvp[0])
         {
             case "Res":
-                if(kvp[1].Contains("NOT DETECTED"))
-                    UpdateInputStatus(ConnectionStatus.Disconnected, String.Empty);
+                if (kvp[1].Contains("NOT DETECTED"))
+                {
+                    InputConnectionStatus = ConnectionStatus.Disconnected;
+                    InputResolution = String.Empty;
+                }
                 else
-                    UpdateInputStatus(ConnectionStatus.Connected, kvp[1]);
+                {
+                    InputConnectionStatus = ConnectionStatus.Connected;
+                    InputResolution = kvp[1];
+                }
                 break;
         }
     }

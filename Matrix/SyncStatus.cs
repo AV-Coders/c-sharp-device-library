@@ -1,6 +1,6 @@
 ﻿namespace AVCoders.Matrix;
 
-public delegate void SyncInfoHandler(uint inputNumber, ConnectionStatus status, string resolution);
+public delegate void SyncInfoHandler(ConnectionStatus status, string resolution);
 
 public enum ConnectionStatus
 {
@@ -17,24 +17,51 @@ public abstract class SyncStatus
     public SyncInfoHandler? InputStatusChangedHandlers;
     public SyncInfoHandler? OutputStatusChangedHandlers;
 
-    protected void UpdateInputStatus(ConnectionStatus status, string resolution, uint inputNumber = 1)
+    public ConnectionStatus InputConnectionStatus
     {
-        if (_inputConnectionStatus != status || _inputResolution != resolution)
+        get => _inputConnectionStatus;
+        protected set
         {
-            InputStatusChangedHandlers?.Invoke(inputNumber, status, resolution);
+            if (_inputConnectionStatus == value)
+                return;
+            _inputConnectionStatus = value;
+            InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution);
         }
-        _inputConnectionStatus = status;
-        _inputResolution = resolution;
     }
 
-    protected void UpdateOutputStatus(ConnectionStatus status, string resolution, uint outputNumber = 1)
+    public string InputResolution
     {
-        
-        if (_outputConnectionStatus != status || _outputResolution != resolution)
+        get => _inputResolution;
+        protected set
         {
-            OutputStatusChangedHandlers?.Invoke(outputNumber, status, resolution);
+            if(_inputResolution == value)
+                return;
+            _inputResolution = value;
+            InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution);
         }
-        _outputConnectionStatus = status;
-        _outputResolution = resolution;
+    }
+
+    public ConnectionStatus OutputConnectionStatus
+    {
+        get => _outputConnectionStatus;
+        protected set
+        {
+            if (_outputConnectionStatus == value)
+                return;
+            _outputConnectionStatus = value;
+            OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution);
+        }
+    }
+
+    public string OutputResolution
+    {
+        get => _outputResolution;
+        protected set
+        {
+            if(_outputResolution == value)
+                return;
+            _outputResolution = value;
+            OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution);
+        }
     }
 }

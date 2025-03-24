@@ -37,7 +37,7 @@ public class SvsiDecoderTest
         Assert.Equal("Receiver", _svsiDecoder.StatusDictionary["NAME"]);
         Assert.Equal("10.1.30.197", _svsiDecoder.StatusDictionary["IP"]);
         Assert.Equal("00:19:00:11:22:33", _svsiDecoder.StatusDictionary["MAC"]);
-        _mockOutputStatusChangedHandler.Verify(x => x.Invoke(1, ConnectionStatus.Connected, "1080p60"));
+        _mockOutputStatusChangedHandler.Verify(x => x.Invoke(ConnectionStatus.Connected, "1080p60"));
     }
 
     [Fact]

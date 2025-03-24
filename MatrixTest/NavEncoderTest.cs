@@ -25,7 +25,7 @@ public class NavEncoderTest
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
         theAction.Invoke("SigI1*HdcpI2*HdcpO2*ResI1920x1080@60*AudI0*StrmI1*Lnk1*Enc");
         
-        _inputSyncInfoHandlerMock.Verify(x => x.Invoke(1, ConnectionStatus.Connected, "1920x1080@60"));
+        _inputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionStatus.Connected, "1920x1080@60"));
     }
     
 }

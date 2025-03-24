@@ -115,9 +115,15 @@ public class NavDecoder : NavDeviceBase
         {
             case "Res":
                 if (kvp[1].Contains("NOT DETECTED"))
-                    UpdateOutputStatus(ConnectionStatus.Disconnected, String.Empty);
+                {
+                    OutputConnectionStatus = ConnectionStatus.Disconnected;
+                    OutputResolution = String.Empty;
+                }
                 else
-                    UpdateOutputStatus(ConnectionStatus.Connected, kvp[1]);
+                {
+                    OutputConnectionStatus = ConnectionStatus.Connected;
+                    OutputResolution = kvp[1];
+                }
                 break;
         }
     }
