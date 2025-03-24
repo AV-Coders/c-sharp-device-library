@@ -35,15 +35,6 @@ public enum MuteState
     Off
 }
 
-public enum EventLevel
-{
-    Verbose,
-    Informational,
-    Warning,
-    Error,
-    Critical
-    
-}
 public enum TransportState
 {
     Unknown,

@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using EventLevel = AVCoders.Core.EventLevel;
 
 namespace AVCoders.Camera;
 
