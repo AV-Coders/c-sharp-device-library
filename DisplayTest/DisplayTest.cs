@@ -15,7 +15,7 @@ public class DummyDisplay : Display
     protected override void DoSetVolume(int volume) => _client.Send($"Volume {volume}");
     protected override void DoSetAudioMute(MuteState state) => _client.Send($"Mute {state.ToString()}");
 
-    public void InvokeLog(string message) => Log(message);
+    public void InvokeLog(string message) => Debug(message);
     public void PowerOffResponse()
     {
         PowerState = PowerState.Off;
@@ -33,14 +33,11 @@ public class DisplayTest
 {
     private readonly DummyDisplay _display;
     private readonly Mock<TcpClient> _mockClient;
-    private readonly Mock<LogHandler> _mockLogHandler;
 
     public DisplayTest()
     {
         _mockClient = new Mock<TcpClient>("foo", (ushort) 1, "bar");
-        _mockLogHandler = new Mock<LogHandler>();
         _display = new DummyDisplay(_mockClient.Object, new List<Input> { Input.Hdmi1 });
-        _display.LogHandlers += _mockLogHandler.Object;
     }
 
     [Fact]
@@ -51,8 +48,6 @@ public class DisplayTest
         _display.PowerOffResponse();
 
         _mockClient.Verify(x => x.Send("Power On"), Times.Exactly(2));
-        
-        _mockLogHandler.Verify(x => x.Invoke("AVCoders.Display.Tests.DummyDisplay - Turning On", EventLevel.Verbose), Times.Exactly(2));
     }
 
     [Fact]
@@ -63,16 +58,12 @@ public class DisplayTest
         _display.InputHdmi2Response();
         
         _mockClient.Verify(x => x.Send("Input Hdmi1"), Times.Exactly(2));
-        
-        _mockLogHandler.Verify(x => x.Invoke("AVCoders.Display.Tests.DummyDisplay - Setting input to Hdmi1", EventLevel.Verbose), Times.Exactly(2));
     }
 
     [Fact]
     public void Logging_UsesTheCorrectClassName()
     {
         _display.InvokeLog("Hello");
-        
-        _mockLogHandler.Verify(x => x.Invoke("AVCoders.Display.Tests.DummyDisplay - Hello", EventLevel.Verbose));
     }
 
     [Fact]

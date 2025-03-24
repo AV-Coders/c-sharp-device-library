@@ -1,3 +1,5 @@
+using AVCoders.Core;
+
 namespace AVCoders.Conference;
 
 public record PhonebookBase(string Name);
@@ -10,7 +12,11 @@ public record PhonebookContact(string Name, List<PhonebookNumber> Numbers): Phon
 
 public delegate void PhonebookUpdated(PhonebookFolder folder);
 
-public abstract class PhonebookParserBase
+public abstract class PhonebookParserBase : LogBase
 {
+    protected PhonebookParserBase(string name) : base(name)
+    {
+    }
+
     public PhonebookUpdated? PhonebookUpdated { get; set; }
 }

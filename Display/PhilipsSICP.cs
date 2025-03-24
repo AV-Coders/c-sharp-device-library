@@ -81,10 +81,10 @@ public class PhilipsSICP : Display
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
-            Log("Not polling");
+            Debug("Not polling");
         }
         
-        Log("Polling Power");
+        Debug("Polling Power");
         
         Send(new byte[]{ 0x19 }, 0x00);
         if (PowerState == PowerState.On)

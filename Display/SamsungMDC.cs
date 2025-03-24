@@ -67,11 +67,11 @@ public class SamsungMdc : Display
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
-            Log("Not polling");
+            Debug("Not polling");
             return Task.CompletedTask;
         }
         
-        Log("Polling Power");
+        Debug("Polling Power");
         
         CommunicationClient.Send(_pollPowerCommand);
         if (PowerState != PowerState.On) 
@@ -95,7 +95,7 @@ public class SamsungMdc : Display
         }
         catch (Exception e)
         {
-            Debug.WriteLine(e);
+            System.Diagnostics.Debug.WriteLine(e);
             CommunicationState = CommunicationState.Error;
         }
     }
@@ -146,13 +146,13 @@ public class SamsungMdc : Display
 
         if (response[0] != 0xAA && response[1] != 0xFF)
         {
-            Log("The response does not have the correct header");
+            Debug("The response does not have the correct header");
             return;
         }
 
         if (response[4] == 0x4E)
         {
-            Log("NAK Received");
+            Debug("NAK Received");
             CommunicationState = CommunicationState.Error;
             return;
         }
@@ -210,7 +210,7 @@ public class SamsungMdc : Display
 
     protected override void DoSetAudioMute(MuteState state)
     {
-        Log($"Setting mute to {state.ToString()}");
+        Debug($"Setting mute to {state.ToString()}");
         sendCommandWithOneDataLength(MuteControlCommand, _muteDictionary[state]);
     }
 }

@@ -18,7 +18,7 @@ public class QsysEcpTest
 
     public QsysEcpTest()
     {
-        _dsp = new QsysEcp(_mockClient.Object, 100);
+        _dsp = new QsysEcp(_mockClient.Object, "Test", 100);
 
         _dsp.AddControl(_volumeLevelHandler.Object, GainName);
         _dsp.AddControl(_muteStateHandler.Object, MuteName);

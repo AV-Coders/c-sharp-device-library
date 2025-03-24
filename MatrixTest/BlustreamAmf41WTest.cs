@@ -10,7 +10,7 @@ public class BlustreamAmf41WTest
 
     public BlustreamAmf41WTest()
     {
-        _matrix = new BlustreamAmf41W(_mockClient.Object);
+        _matrix = new BlustreamAmf41W(_mockClient.Object, "test matrix");
     }
 
     [Fact]

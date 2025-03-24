@@ -12,7 +12,7 @@ public class ExterityTci : MediaPlayer, ISetTopBox
         { MuteState.Off, "off"}
     };
     
-    public ExterityTci(CommunicationClient communicationClient, string password)
+    public ExterityTci(CommunicationClient communicationClient, string password, string name) : base(name)
     {
         _communicationClient = communicationClient;
         _password = password;

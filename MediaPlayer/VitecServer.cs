@@ -37,17 +37,16 @@ public record VitecServerChannel(
     [property: JsonProperty("uri")] string Uri
 );
 
-public class VitecServer
+public class VitecServer : LogBase
 {
     private readonly Dictionary<int, string> _channelMap = new ();
-    public LogHandler? LogHandlers;
     private ThreadWorker _pollChannelsWorker;
     private readonly Dictionary<string, int> _currentChannelMap = new();
 
     private readonly Uri _channelUri;
     private readonly Uri _getChannelsUri;
 
-    public VitecServer(string host)
+    public VitecServer(string host, string name = "Server") : base(name)
     {
         _channelUri = new Uri($"http://{host}/api/public/control/devices/commands/channel", UriKind.Absolute);
         _getChannelsUri = new Uri($"http://{host}/api/public/control/channels", UriKind.Absolute);
@@ -73,17 +72,17 @@ public class VitecServer
         using HttpClient httpClient = new HttpClient(handler);
         try
         {
-            Log($"Sending request: {uri}");
+            Debug($"Sending request: {uri}");
             await httpClient.PostAsync(uri, new StringContent(content, Encoding.Default, "application/json"));
         }
         catch (Exception e)
         {
-            Log(e.Message);
-            Log(e.StackTrace?? "No stack trace available");
+            Debug(e.Message);
+            Debug(e.StackTrace?? "No stack trace available");
             if (e.InnerException == null)
                 return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace?? "No stack trace available");
+            Debug(e.InnerException.Message);
+            Debug(e.InnerException.StackTrace?? "No stack trace available");
         }
     }
 
@@ -96,35 +95,35 @@ public class VitecServer
         using HttpClient httpClient = new HttpClient(handler);
         try
         {
-            Log($"Sending request: {uri}");
+            Debug($"Sending request: {uri}");
             HttpResponseMessage response = await httpClient.GetAsync(uri);
             await HandleResponse(response);
         }
         catch (Exception e)
         {
-            Log(e.Message);
-            Log(e.StackTrace?? "No stack trace available");
+            Debug(e.Message);
+            Debug(e.StackTrace?? "No stack trace available");
             if (e.InnerException == null)
                 return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace?? "No stack trace available");
+            Debug(e.InnerException.Message);
+            Debug(e.InnerException.StackTrace?? "No stack trace available");
         }
     }
 
     private async Task HandleResponse(HttpResponseMessage response)
     {
-        Log($"Response status code: {response.StatusCode.ToString()}");
+        Debug($"Response status code: {response.StatusCode.ToString()}");
         if (response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync();
-            Log(responseBody);
+            Debug(responseBody);
             List<VitecServerChannel>? vitecServerChannels = JsonConvert.DeserializeObject<List<VitecServerChannel>>(responseBody);
             if (vitecServerChannels == null)
             {
-                Log("Response is not a list of channels");
+                Debug("Response is not a list of channels");
                 return;
             }
-            Log("Response is a list of channels");
+            Debug("Response is a list of channels");
             _channelMap.Clear();
 
             vitecServerChannels.ForEach(channelInfo =>
@@ -173,10 +172,5 @@ public class VitecServer
         }
         
         SetChannel(channels[newChannelIndex], deviceMac);
-    }
-   
-    protected void Log(string message)
-    {
-        LogHandlers?.Invoke($"VitecServer - {message}");
     }
 }

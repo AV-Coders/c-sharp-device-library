@@ -87,7 +87,7 @@ public class BoseCspSoIP : Dsp
     private readonly TcpClient _tcpClient;
     private readonly Regex _responseParser;
     
-    public BoseCspSoIP(TcpClient tcpClient, int pollTimeInMs = 50000) : base(pollTimeInMs)
+    public BoseCspSoIP(TcpClient tcpClient, string name = "Bose", int pollTimeInMs = 50000) : base(name, pollTimeInMs)
     {
         _tcpClient = tcpClient;
         _tcpClient.ResponseHandlers += HandleResponse;

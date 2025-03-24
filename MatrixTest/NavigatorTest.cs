@@ -12,7 +12,7 @@ public class NavigatorTest
     public NavigatorTest()
     {
         _mockSshClient = new("foo", Navigator.DefaultPort, "Test");
-        _navigator = new Navigator(_mockSshClient.Object);
+        _navigator = new Navigator("Foo", _mockSshClient.Object);
     }
 
     [Fact]

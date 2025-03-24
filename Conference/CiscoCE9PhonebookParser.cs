@@ -27,7 +27,6 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     private readonly string _phonebookType;
     public readonly CiscoRoomOsPhonebookFolder PhoneBook;
     public CommsClientSend Comms;
-    public LogHandler? LogHandlers;
 
     // Phonebook parsing variables
     private Dictionary<string, string> _injestFolder;
@@ -40,7 +39,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     private CiscoRoomOsPhonebookFolder? _currentInjestfolder = null;
     private int _currentLimit = 50;
 
-    public CiscoCE9PhonebookParser(string phonebookType = "Corporate")
+    public CiscoCE9PhonebookParser(string phonebookType = "Corporate") : base(phonebookType)
     {
         _phonebookType = phonebookType;
         PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", String.Empty, String.Empty, new List<PhonebookBase>());
@@ -55,7 +54,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
             throw new InvalidOperationException("A phonebook can't be requested without a send deleagte");
 
         Comms.Invoke($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0\n");
-        LogHandlers?.Invoke($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0");
+        Debug($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0");
     }
 
     public CommunicationState HandlePhonebookSearchResponse(string response)
@@ -73,11 +72,11 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                 {
                     case "Offset:":
                         _resultOffset = Parse(responses[4]);
-                        Log($"The offset is {_resultOffset}");
+                        Verbose($"The offset is {_resultOffset}");
                         return CommunicationState.Okay;
                     case "TotalRows:":
                         _resultTotalRows = Parse(responses[4]);
-                        Log($"Total rows is {_resultTotalRows}");
+                        Verbose($"Total rows is {_resultTotalRows}");
                         _currentRow = 1;
                         _currentSubRow = 1;
                         return CommunicationState.Okay;
@@ -85,7 +84,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                         _currentLimit = Parse(responses[4]);
                         return CommunicationState.Okay;
                     default:
-                        Log($"Unhandled ResultInfo key: {responses[3]}");
+                        Info($"Unhandled ResultInfo key: {responses[3]}");
                         return CommunicationState.Error;
                 }
             }
@@ -130,7 +129,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                     Comms.Invoke(
                         $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder!.FolderId}\n");
                     
-                    LogHandlers?.Invoke($" sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder.FolderId}");
+                    Debug($" sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder.FolderId}");
                     return CommunicationState.Okay;
                 }
 
@@ -138,7 +137,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
             }
         }
 
-        Log($"Unhandled response key: {responses[2]}");
+        Debug($"Unhandled response key: {responses[2]}");
         return CommunicationState.Error;
     }
 
@@ -149,7 +148,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         CiscoRoomOsPhonebookFolder? unFetchedFolder = FindUnFetchedFolder(PhoneBook.Items);
         if (unFetchedFolder == null)
         {
-            Log("Phonebook search complete");
+            Debug("Phonebook search complete");
             PhonebookUpdated?.Invoke(PhoneBook);
             return;
         }
@@ -160,7 +159,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         Comms.Invoke(
             $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
         
-        LogHandlers?.Invoke($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}");
+        Debug($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}");
     }
 
     private CiscoRoomOsPhonebookFolder? FindUnFetchedFolder(List<PhonebookBase> phoneBookItems)
@@ -185,7 +184,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         var responseRow = Parse(responses[3]);
         if (responseRow != _currentRow)
         {
-            Log($"Ignoring response as it's an invalid row, i'm expecting {_currentRow}");
+            Debug($"Ignoring response as it's an invalid row, i'm expecting {_currentRow}");
             return (responseRow, EntryLoadState.Error);
         }
 
@@ -220,7 +219,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         var responseRow = Parse(responses[3]);
         if (responseRow != _currentRow)
         {
-            Log($"Ignoring response as it's an invalid row, i'm expecting {_currentRow}");
+            Debug($"Ignoring response as it's an invalid row, i'm expecting {_currentRow}");
             return (responseRow, EntryLoadState.Error);
         }
 
@@ -311,6 +310,4 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
 
         return true;
     }
-
-    private void Log(string message) => LogHandlers?.Invoke($"{GetType()} - {message}");
 }

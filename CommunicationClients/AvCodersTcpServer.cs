@@ -34,7 +34,7 @@ public class AvCodersTcpServer : Core_TcpClient
             }
             catch (IOException e)
             {
-                Log($"IOException while sending: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}", EventLevel.Error);
+                Error($"IOException while sending: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}");
             }
         }
 
@@ -57,22 +57,22 @@ public class AvCodersTcpServer : Core_TcpClient
             }
             catch (IOException e)
             {
-                Log($"Receive - IOException:\n{e}", EventLevel.Error);
-                Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
+                Error($"Receive - IOException:\n{e}");
+                Error(e.StackTrace ?? "No Stack Trace available");
                 Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (ObjectDisposedException e)
             {
-                Log($"Receive  - ObjectDisposedException\n{e}", EventLevel.Error);
-                Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
+                Error($"Receive  - ObjectDisposedException\n{e}");
+                Error(e.StackTrace ?? "No Stack Trace available");
                 Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
-                Log($"Receive  - Exception:\n{e}", EventLevel.Error);
-                Log(e.StackTrace ?? "No Stack Trace available", EventLevel.Error);
+                Error($"Receive  - Exception:\n{e}");
+                Error(e.StackTrace ?? "No Stack Trace available");
                 Reconnect();
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
@@ -86,20 +86,20 @@ public class AvCodersTcpServer : Core_TcpClient
         TcpClient client = await _server.AcceptTcpClientAsync(token);
         _clients.Add(client);
         IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? default;
-        Log($"Added client - {remoteIpEndPoint?.Address}");
+        Debug($"Added client - {remoteIpEndPoint?.Address}");
         _ = HandleClientAsync(client, token);
         await Task.Delay(TimeSpan.FromSeconds(1), token);
     }
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        Log($"Checking client status for {_clients.Count} clients");
+        Debug($"Checking client status for {_clients.Count} clients");
         foreach (TcpClient client in _clients)
         {
             if (client.Connected) 
                 continue;
             
-            Log("Removing a client");
+            Debug("Removing a client");
             _clients.TryTake(out _);
         }
 
@@ -107,7 +107,7 @@ public class AvCodersTcpServer : Core_TcpClient
         await Task.Delay(TimeSpan.FromSeconds(45), token);
     }
 
-    public override void SetHost(string host) => Log("Set Host is not supported", EventLevel.Error);
+    public override void SetHost(string host) => Error("Set Host is not supported");
 
     public override void SetPort(ushort port)
     {

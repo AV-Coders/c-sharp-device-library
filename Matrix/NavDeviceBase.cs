@@ -18,7 +18,6 @@ public class NavCommunicationEmulator : CommunicationClient
 
 public abstract class NavDeviceBase : AVoIPEndpoint
 {
-    public LogHandler? LogHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     protected readonly ThreadWorker PollWorker;
@@ -139,10 +138,6 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     }
 
     protected void Send(string message) => Navigator.SendCommandToDevice(_deviceId, message);
-    
-    protected void Log(string message) => LogHandlers?.Invoke($"{GetType()} - {Name} - {message}");
-
-    protected void Error(string message) => LogHandlers?.Invoke($"{GetType()} - {Name} - {message}", EventLevel.Error);
     
     public void PowerOn() { }
 

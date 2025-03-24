@@ -6,7 +6,7 @@ public class ExtronDtpCpxx : VideoMatrix
 {
     private readonly CommunicationClient _communicationClient;
 
-    public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs) : base(numberOfOutputs)
+    public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name) : base(numberOfOutputs, name)
     {
         _communicationClient = communicationClient;
         PowerState = PowerState.Unknown;
@@ -22,14 +22,9 @@ public class ExtronDtpCpxx : VideoMatrix
         }
         catch (Exception e)
         {
-            Log($"ExtronDtpcPxx - Communication error: {e.Message}");
+            Error(e.Message);
             UpdateCommunicationState(CommunicationState.Error);
         }
-    }
-
-    private new void Log(string message)
-    {
-        LogHandlers?.Invoke($"ExtronDtpCpxx - {message}");
     }
 
     public override void RouteAV(int input, int output)

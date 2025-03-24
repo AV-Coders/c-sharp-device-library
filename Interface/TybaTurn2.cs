@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AVCoders.Core;
+using Serilog;
 
 namespace AvCoders.Interface;
 
@@ -28,12 +29,11 @@ public record TemperatureChangeData(
     double Value
 );
 
-public class TybaTurn2
+public class TybaTurn2 : LogBase
 {
     private readonly Uri _baseUri;
     private readonly Dictionary<string, string> _headers;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
-    public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     private string _currentEvent = String.Empty;
     public IntChangeHandler? LightSceneChangeHandlers;
@@ -46,7 +46,7 @@ public class TybaTurn2
     private readonly Guid _thisInstanceGuid = Guid.NewGuid();
 
 
-    public TybaTurn2(string ipAddress)
+    public TybaTurn2(string ipAddress, string name) : base(name)
     {
         _baseUri = new Uri($"http://{ipAddress}:55555/api/v1.0/", UriKind.Absolute);
         _headers = new Dictionary<string, string>();
@@ -65,7 +65,7 @@ public class TybaTurn2
 
     private async Task CreateStream()
     {
-        Log("Creating stream");
+        Debug("Creating stream");
         _streamConnected = true;
         try
         {
@@ -93,18 +93,18 @@ public class TybaTurn2
         }
         catch (SocketException e)
         {
-            LogHandlers?.Invoke(e.Message, EventLevel.Error);
-            LogHandlers?.Invoke(e.StackTrace ?? string.Empty, EventLevel.Error);
+            Error(e.Message);
+            Error(e.StackTrace?? String.Empty);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (IOException e)
         {
-            LogHandlers?.Invoke(e.Message, EventLevel.Error);
+            Error(e.Message);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (HttpRequestException e)
         {
-            LogHandlers?.Invoke(e.Message, EventLevel.Error);
+            Error(e.Message);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (Exception e)
@@ -114,7 +114,7 @@ public class TybaTurn2
         }
 
         _streamConnected = false;
-        Log("Stream Closed");
+        Debug("Stream Closed");
     }
 
     private void ProcessLine(string line)
@@ -122,7 +122,7 @@ public class TybaTurn2
         if (line.Contains(": heartbeat"))
         {
             UpdateCommunicationState(CommunicationState.Okay);
-            Log($"Heartbeat received");
+            Debug($"Heartbeat received");
             // TODO: Heartbeat logic goes here
             return;
         }
@@ -130,7 +130,7 @@ public class TybaTurn2
         if (line.Contains("event: "))
         {
             _currentEvent = line.Remove(0, 7);
-            Log($"Event received: {_currentEvent}");
+            Debug($"Event received: {_currentEvent}");
         }
         else if (line.Contains("data: "))
         {
@@ -140,7 +140,7 @@ public class TybaTurn2
                 || line.Contains("InternalTemperatureServiceImpl")
                 )
                 return;
-            Log(line, EventLevel.Verbose);
+            Verbose(line);
             ProcessEvent(line.Remove(0, 6));
             _currentEvent = String.Empty;
         }
@@ -173,13 +173,13 @@ public class TybaTurn2
         {
             if (valueAndOnChangeData == null && eventData[0] != "temperature")
             {
-                Log("Data is invalid", EventLevel.Error);
+                Debug("Data is invalid");
                 return;
             }
 
             if (temperatureChangeData == null && eventData[0] == "temperature")
             {
-                Log("Data is invalid", EventLevel.Error);
+                Debug("Data is invalid");
                 return;
             }
 
@@ -187,7 +187,7 @@ public class TybaTurn2
         }
         else
         {
-            Log($"Unhandled event type: {eventData[0]}", EventLevel.Warning);
+            Warn($"Unhandled event type: {eventData[0]}");
         }
     }
 
@@ -240,7 +240,7 @@ public class TybaTurn2
         
         try
         {
-            LogHandlers?.Invoke($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
+            Verbose($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
             using HttpClient httpClient = new HttpClient();
             foreach (var (key, v) in _headers)
             {
@@ -250,11 +250,11 @@ public class TybaTurn2
             httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
             var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
-            LogHandlers?.Invoke($"Response {response.StatusCode}: {response.ReasonPhrase}");
+            Verbose($"Response {response.StatusCode}: {response.ReasonPhrase}");
         }
         catch (HttpRequestException e)
         {
-            LogHandlers?.Invoke(e.Message, EventLevel.Error);
+            Error(e.Message);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (Exception e)
@@ -268,10 +268,5 @@ public class TybaTurn2
     {
         CommunicationState = state;
         CommunicationStateHandlers?.Invoke(state);
-    }
-
-    private void Log(string message, EventLevel level = EventLevel.Informational)
-    {
-        LogHandlers?.Invoke(message, level);
     }
 }

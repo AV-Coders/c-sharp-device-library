@@ -43,10 +43,10 @@ public class AvCodersSshClient : SshClientBase
 
     protected override async Task Receive(CancellationToken token)
     {
-        Log("Receive loop start");
+        Debug("Receive loop start");
         if (_client.IsConnected)
         {
-            Log("Ready to receive messages...");
+            Debug("Ready to receive messages...");
             using var reader = new StreamReader(_stream!);
             while (!token.IsCancellationRequested)
             {
@@ -57,18 +57,18 @@ public class AvCodersSshClient : SshClientBase
         }
         else
         {
-            Log("Client not connected or stream not ready, not reading");
+            Debug("Client not connected or stream not ready, not reading");
             await Task.Delay(TimeSpan.FromSeconds(5), token);
         }
-        Log("Receive loop end");
+        Debug("Receive loop end");
     }
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        Log("Checking connection state...");
+        Debug("Checking connection state...");
         if (!_client.IsConnected)
         {
-            Log("Reconnecting to device");
+            Debug("Reconnecting to device");
             UpdateConnectionState(ConnectionState.Disconnected);
             if (_stream != null) 
                 await _stream.DisposeAsync();
@@ -86,14 +86,14 @@ public class AvCodersSshClient : SshClientBase
                                       e is SocketException ||
                                       e is ProxyException)
             {
-                Log($"{Host} - {e.GetType().Name} - {e.Message}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
+                Error($"{Host} - {e.GetType().Name} - {e.Message}");
+                Error(e.StackTrace ?? "No stack trace available");
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
             catch (Exception e)
             {
-                Log($"{Host} - Unexpected exception - {e.GetType().Name}\r\n{e}", EventLevel.Error);
-                Log(e.StackTrace ?? "No stack trace available", EventLevel.Error);
+                Error($"{Host} - Unexpected exception - {e.GetType().Name}\r\n{e}");
+                Error(e.StackTrace ?? "No stack trace available");
                 UpdateConnectionState(ConnectionState.Disconnected);
             }
 
@@ -124,7 +124,7 @@ public class AvCodersSshClient : SshClientBase
 
     private async Task<ShellStream> CreateStream(CancellationToken token)
     {
-        Log("Recreating stream");
+        Debug("Recreating stream");
         await ReceiveThreadWorker.Stop();
         _stream = _client.CreateShellStream("response", 1000, 1000, 1500, 1000, 8191, _modes);
         _stream.ErrorOccurred += ClientOnErrorOccurred;
@@ -144,8 +144,8 @@ public class AvCodersSshClient : SshClientBase
 
     private void ClientOnErrorOccurred(object? sender, ExceptionEventArgs e)
     {
-        Log($"An error has occurred with the stream: \r\n{e.Exception.Message}", EventLevel.Error);
-        Log(e.Exception.StackTrace ?? "No stack trace available", EventLevel.Error);
+        Error($"An error has occurred with the stream: \r\n{e.Exception.Message}");
+        Error(e.Exception.StackTrace ?? "No stack trace available");
         UpdateConnectionState(ConnectionState.Error);
     }
 
@@ -160,13 +160,13 @@ public class AvCodersSshClient : SshClientBase
             }
             catch (ObjectDisposedException)
             {
-                Log("Send failed, stream was disposed.  Recreating stream and queueing message");
+                Debug("Send failed, stream was disposed.  Recreating stream and queueing message");
                 _ = CreateStream(new CancellationToken());
                 _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
             }
             catch (NullReferenceException)
             {
-                Log("Send failed, stream has not yet been created. Waiting for the connection flow to continue");
+                Debug("Send failed, stream has not yet been created. Waiting for the connection flow to continue");
                 _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
             }
         }
@@ -202,7 +202,7 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Reconnect()
     {
-        Log($"Reconnecting");
+        Debug($"Reconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
         ReceiveThreadWorker.Stop();
         _stream?.Dispose();
@@ -213,7 +213,7 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Disconnect()
     {
-        Log($"Disconnecting");
+        Debug($"Disconnecting");
         ConnectionStateWorker.Stop();
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client.Disconnect();

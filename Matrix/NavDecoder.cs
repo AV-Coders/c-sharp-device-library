@@ -69,7 +69,7 @@ public class NavDecoder : NavDeviceBase
 
     protected override void HandleResponse(string response)
     {
-        Log($"Device response - {response}");
+        Debug($"Device response - {response}");
         if (response.StartsWith("In"))
         {
             var streamId = response.Split(' ')[0][2..];

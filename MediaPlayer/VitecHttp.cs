@@ -18,7 +18,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     {
     };
 
-    public VitecHttp(string host, string password)
+    public VitecHttp(string host, string password, string name) : base(name)
     {
         _remoteKeyUri = new Uri($"https://{host}:8080/irremote/key", UriKind.Absolute);
         _deviceStateUri = new Uri($"https://{host}:8080/devicestate", UriKind.Absolute);

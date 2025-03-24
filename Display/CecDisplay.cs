@@ -99,21 +99,21 @@ public class CecDisplay : Display, ISetTopBox
     {
         if (incoming[0] == _responseHeader && incoming[1] == '\x90')
         {
-            Log("It's a power response");
+            Debug("It's a power response");
             PowerState = incoming[2] switch
             {
                 '\x00' => PowerState.On,
                 '\x01' => PowerState.Off,
                 _ => PowerState
             };
-            Log($"Power state is {PowerState.ToString()}");
+            Debug($"Power state is {PowerState.ToString()}");
             ProcessPowerResponse();
         }
     }
 
     protected override Task Poll(CancellationToken token)
     {
-        Log("Polling Power");
+        Debug("Polling Power");
         Send(new[] { '\xF0', '\x8F' });
         return Task.CompletedTask;
     }
@@ -151,7 +151,7 @@ public class CecDisplay : Display, ISetTopBox
     {
         // scale to a value between 0-127
         char volume = (char)(percentage * 1.27);
-        Log("Volume not available");
+        Debug("Volume not available");
         Send(new []{ _commandHeader, '\x7A', volume});
         DesiredAudioMute = MuteState.Off;
         AudioMute = MuteState.Off;
@@ -179,7 +179,7 @@ public class CecDisplay : Display, ISetTopBox
     {
         if (UnsupportedButtons.Contains(button))
         {
-            Log($"Unsupported button - {button.ToString()}");
+            Debug($"Unsupported button - {button.ToString()}");
             return;
         }
         RemoteControlPassthrough(RemoteButtonMap[button]);

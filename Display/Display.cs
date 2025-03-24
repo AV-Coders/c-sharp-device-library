@@ -1,4 +1,6 @@
 ﻿using AVCoders.Core;
+using Serilog;
+using Serilog.Context;
 
 namespace AVCoders.Display;
 
@@ -13,7 +15,6 @@ public abstract class Display : VolumeControl, IDevice
     protected PowerState DesiredPowerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
     private readonly Input? _defaultInput;
-    public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public InputHandler? InputHandlers;
@@ -106,14 +107,22 @@ public abstract class Display : VolumeControl, IDevice
 
     protected abstract Task Poll(CancellationToken token);
     
-    protected void Log(string message)
+    protected void Debug(string message)
     {
-        LogHandlers?.Invoke($"{GetType()} - {message}");
+        using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
+        {
+            Log.Debug(message);
+        }
     }
 
     protected void Error(string message)
     {
-        LogHandlers?.Invoke($"{GetType()} - {message}", EventLevel.Error);
+        using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
+        {
+            Log.Error(message);
+        }
     }
 
     protected void ProcessPowerResponse()
@@ -122,7 +131,7 @@ public abstract class Display : VolumeControl, IDevice
             return;
         if (DesiredPowerState == PowerState.Unknown)
             return;
-        Log("Forcing Power");
+        Debug("Forcing Power");
         if (DesiredPowerState == PowerState.Off)
             PowerOff();
         else if (DesiredPowerState == PowerState.On) 
@@ -136,7 +145,7 @@ public abstract class Display : VolumeControl, IDevice
             return;
         if (DesiredInput == Input.Unknown)
             return;
-        Log("Forcing Input");
+        Debug("Forcing Input");
         SetInput(DesiredInput);
     }
 
@@ -151,7 +160,7 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOn()
     {
         DoPowerOn();
-        Log("Turning On");
+        Debug("Turning On");
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
         if(_defaultInput != null)
@@ -163,7 +172,7 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOff()
     {
         DoPowerOff();
-        Log("Turning Off");
+        Debug("Turning Off");
         PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
     }
@@ -178,7 +187,7 @@ public abstract class Display : VolumeControl, IDevice
             return;
         }
         DoSetInput(input);
-        Log($"Setting input to {input.ToString()}");
+        Debug($"Setting input to {input.ToString()}");
         DesiredInput = input;
         Input = input;
     }

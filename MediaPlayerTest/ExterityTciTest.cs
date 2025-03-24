@@ -16,7 +16,7 @@ public class ExterityTciTest
     {
         _mockClient = new Mock<CommunicationClient>("foo");
         
-        _interface = new ExterityTci(_mockClient.Object, _password);
+        _interface = new ExterityTci(_mockClient.Object, _password, "test device");
     }
 
     [Fact]

@@ -4,12 +4,7 @@ namespace AVCoders.Power;
 
 public abstract class Outlet : DeviceBase
 {
-    public string Name { protected set; get; }
-
-    protected Outlet(string name)
-    {
-        Name = name;
-    }
+    protected Outlet(string name) : base(name) { }
 
     public void OverridePowerState(PowerState state)
     {

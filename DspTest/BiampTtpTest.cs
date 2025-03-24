@@ -18,7 +18,7 @@ public class BiampTtpTest
     public BiampTtpTest(ITestOutputHelper testOutputHelper)
     {
         _testOutputHelper = testOutputHelper;
-        _dsp = new BiampTtp(_mockClient.Object, 100);
+        _dsp = new BiampTtp(_mockClient.Object, "Test", 100);
         
         _mockClient.Setup(x => x.Send($"{GainName} get maxLevel 1\n"))
             .Callback(() => _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":12.000000\n"));

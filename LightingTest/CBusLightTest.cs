@@ -13,7 +13,7 @@ public class CBusLightTest
     {
         _mockClient = new Mock<CommunicationClient>("foo");
         _mockInterface = new Mock<CBusInterface>(_mockClient.Object, true);
-        _light = new CBusLight(_mockInterface.Object, 3, CBusRampTime.Instant);
+        _light = new CBusLight("Test Light", _mockInterface.Object, 3, CBusRampTime.Instant);
     }
 
     [Fact]

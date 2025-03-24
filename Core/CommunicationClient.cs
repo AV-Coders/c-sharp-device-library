@@ -3,15 +3,13 @@ using System.Text;
 
 namespace AVCoders.Core;
 
-public abstract class CommunicationClient
+public abstract class CommunicationClient : LogBase
 {
     public StringHandler? Requesthandlers;
     public ByteHandler? RequestBytehandlers;
     public StringHandler? ResponseHandlers;
     public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
-    public LogHandler? LogHandlers;
-    public readonly string Name;
 
     private ConnectionState _connectionState = ConnectionState.Unknown;
 
@@ -27,15 +25,12 @@ public abstract class CommunicationClient
         }
     }
 
-    protected CommunicationClient(string name)
+    protected CommunicationClient(string name) : base(name)
     {
-        Name = name;
     }
 
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
-    protected void Log(string message, EventLevel level = EventLevel.Informational) => LogHandlers?.Invoke(message, level);
-    protected void Error(string message) => Log(message, EventLevel.Error);
     public ConnectionState GetConnectionState() => ConnectionState;
     
     protected void UpdateConnectionState(ConnectionState connectionState)

@@ -42,9 +42,9 @@ public class ColorlightXandZSeries : Display
             RecallPreset(_powerOffPreset.Value);
     }
 
-    protected override void DoSetInput(Input input) => Log("This module does not support input select");
+    protected override void DoSetInput(Input input) => Debug("This module does not support input select");
 
-    protected override void DoSetVolume(int percentage) => Log("This device does not support volume");
+    protected override void DoSetVolume(int percentage) => Debug("This device does not support volume");
 
-    protected override void DoSetAudioMute(MuteState state) => Log("This device does not support audio mute");
+    protected override void DoSetAudioMute(MuteState state) => Debug("This device does not support audio mute");
 }

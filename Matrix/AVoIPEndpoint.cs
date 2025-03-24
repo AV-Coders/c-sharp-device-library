@@ -12,7 +12,6 @@ public delegate void AddressChangeHandler(string streamAddress);
 
 public abstract class AVoIPEndpoint : SyncStatus
 {
-    public readonly string Name;
     public readonly AVoIPDeviceType DeviceType;
     public readonly CommunicationClient CommunicationClient;
     public AddressChangeHandler? StreamChangeHandlers;
@@ -39,9 +38,8 @@ public abstract class AVoIPEndpoint : SyncStatus
     }
 
 
-    protected AVoIPEndpoint(string name, AVoIPDeviceType deviceType, CommunicationClient communicationClient)
+    protected AVoIPEndpoint(string name, AVoIPDeviceType deviceType, CommunicationClient communicationClient) : base(name)
     {
-        Name = name;
         DeviceType = deviceType;
         CommunicationClient = communicationClient;
         _streamAddress = String.Empty;

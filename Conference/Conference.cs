@@ -59,7 +59,7 @@ public abstract class Conference : DeviceBase
         }
     }
     
-    protected Conference(int pollTimeInSeconds = 52)
+    protected Conference(string name = "Main Codec", int pollTimeInSeconds = 52) : base(name)
     {
         OutputVolume = new Fader(_ => {}, false);
         MicrophoneMute = new Mute(_ => {});

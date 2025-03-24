@@ -25,7 +25,7 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         if (!_client.Connected)
         {
-            Log("Receive - Client disconnected, waiting 10 seconds");
+            Debug("Receive - Client disconnected, waiting 10 seconds");
             await Task.Delay(TimeSpan.FromSeconds(10), token);
         }
         else
@@ -80,7 +80,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
                 if (!success)
                 {
-                    LogHandlers?.Invoke("1 second connection wait failed, marking as disconnected");
+                    Info("1 second connection wait failed, marking as disconnected");
                     UpdateConnectionState(ConnectionState.Disconnected);
                 }
 
@@ -153,14 +153,14 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void SetPort(ushort port)
     {
-        Log($"Setting port to {port}");
+        Debug($"Setting port to {port}");
         Port = port;
         Reconnect();
     }
 
     public override void SetHost(string host)
     {
-        Log($"Setting host to {host}");
+        Debug($"Setting host to {host}");
         Host = host;
         Reconnect();
     }
@@ -173,7 +173,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Reconnect()
     {
-        Log($"Reconnecting");
+        Debug($"Reconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client.Close();
         _client = new TcpClient();
@@ -183,7 +183,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Disconnect()
     {
-        Log($"Disconnecting");
+        Debug($"Disconnecting");
         ConnectionStateWorker.Stop();
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client.Close();

@@ -8,7 +8,7 @@ public class CBusLight : Light
     private readonly byte _powerOff = 0x01;
     private readonly byte _powerOn = 0x79;
 
-    public CBusLight(CBusInterface @interface, byte group, CBusRampTime defaultRampTime)
+    public CBusLight(string name, CBusInterface @interface, byte group, CBusRampTime defaultRampTime) : base(name)
     {
         _group = group;
         _defaultRampTime = defaultRampTime;

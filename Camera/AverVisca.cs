@@ -7,7 +7,8 @@ public class AverVisca : SonyVisca
     public static readonly SerialSpec DefaultSerialConfig = new SerialSpec(
         SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232
     );
-    public AverVisca(CommunicationClient client, bool useIpHeaders = false, byte cameraId = 1) : base(client, useIpHeaders, cameraId)
+    public AverVisca(CommunicationClient client, string name, bool useIpHeaders = false, byte cameraId = 1) : 
+        base(client, useIpHeaders, name, cameraId)
     {
     }
 

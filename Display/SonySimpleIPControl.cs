@@ -90,7 +90,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         catch (Exception e)
         {
             CommunicationState = CommunicationState.Error;
-            Debug.WriteLine($"Sony Simple IP Control - Communication error: {e.Message}");
+            System.Diagnostics.Debug.WriteLine($"Sony Simple IP Control - Communication error: {e.Message}");
         }
     }
 
@@ -108,12 +108,12 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     private void HandleResponse(String response)
     {
-        Log("HandleResponse");
+        Debug("HandleResponse");
         foreach (var singleResponse in response.Split('\n'))
         {
             var trimmedResponse = singleResponse.TrimStart('\t', ' ');
-            Log(singleResponse);
-            Log(trimmedResponse);
+            Debug(singleResponse);
+            Debug(trimmedResponse);
             if (trimmedResponse.StartsWith("*SNPOWR"))
             {
                 PowerState = PowerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
@@ -159,7 +159,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
     {
         if (UnsupportedButtons.Contains(button))
         {
-            Log($"Unsupported button - {button.ToString()}");
+            Debug($"Unsupported button - {button.ToString()}");
             return;
         }
         SendCommand(WrapMessage($"CIRCC{RemoteButtonMap[button]:D16}"));

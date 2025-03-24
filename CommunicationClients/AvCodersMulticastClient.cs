@@ -28,13 +28,13 @@ public class AvCodersMulticastClient : IpComms
     {
         try
         {
-            Log("Receiving");
+            Debug("Receiving");
             var received = await _client.ReceiveAsync(token);
             InvokeResponseHandlers(Encoding.UTF8.GetString(received.Buffer), received.Buffer);
         }
         catch (Exception e)
         {
-            Log($"Receive - Error: {e.Message}");
+            Debug($"Receive - Error: {e.Message}");
         }
     }
 
@@ -46,7 +46,7 @@ public class AvCodersMulticastClient : IpComms
         }
         catch (Exception e)
         {
-            Log($"Send - Error: {e.Message}\r\n {e.StackTrace}");
+            Debug($"Send - Error: {e.Message}\r\n {e.StackTrace}");
         }
     }
 
@@ -54,15 +54,15 @@ public class AvCodersMulticastClient : IpComms
 
     protected override async Task CheckConnectionState(CancellationToken token) => await ConnectionStateWorker.Stop();
 
-    public override void SetPort(ushort port) => Log("Method not supported");
+    public override void SetPort(ushort port) => Debug("Method not supported");
 
-    public override void SetHost(string host) => Log("Method not supported");
+    public override void SetHost(string host) => Debug("Method not supported");
 
-    public override void Connect() => Log("Method not supported");
+    public override void Connect() => Debug("Method not supported");
 
-    public override void Reconnect() => Log("Method not supported");
+    public override void Reconnect() => Debug("Method not supported");
 
-    public override void Disconnect() => Log("Method not supported");
+    public override void Disconnect() => Debug("Method not supported");
 
     public override void Send(String message) => Send(ConvertStringToByteArray(message));
 }

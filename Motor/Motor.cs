@@ -4,7 +4,6 @@ namespace AVCoders.Motor;
 
 public abstract class Motor : DeviceBase
 {
-    public readonly string Name;
     private readonly Action _powerOnAction;
     private readonly Action _powerOffAction;
     protected readonly int MoveSeconds;
@@ -12,9 +11,8 @@ public abstract class Motor : DeviceBase
     protected RelayAction CurrentMoveAction = RelayAction.None;
     private CancellationTokenSource _cancellationTokenSource = new ();
 
-    protected Motor(string name, RelayAction powerOnAction, int moveSeconds)
+    protected Motor(string name, RelayAction powerOnAction, int moveSeconds) : base(name)
     {
-        Name = name;
         MoveSeconds = moveSeconds;
         CurrentMoveId = Guid.Empty;
         _powerOnAction = powerOnAction == RelayAction.Raise ? Raise : Lower;

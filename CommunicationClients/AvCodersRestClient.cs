@@ -29,11 +29,11 @@ public class AvCodersRestClient : RestComms
     private async Task HandleResponse(HttpResponseMessage response)
     {
         HttpResponseHandlers?.Invoke(response);
-        Log($"Response status code: {response.StatusCode.ToString()}");
+        Debug($"Response status code: {response.StatusCode.ToString()}");
         if (response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync();
-            Log(responseBody);
+            Debug(responseBody);
             InvokeResponseHandlers(responseBody);
         }
     }
@@ -55,7 +55,7 @@ public class AvCodersRestClient : RestComms
             }
             
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            Log($"Actioning Post of {payload} to {uri}");
+            Debug($"Actioning Post of {payload} to {uri}");
             HttpResponseMessage response = await httpClient.PostAsync(uri, new StringContent(payload, Encoding.Default, contentType));
             await HandleResponse(response);
             UpdateConnectionState(ConnectionState.Connected);
@@ -63,12 +63,12 @@ public class AvCodersRestClient : RestComms
         catch (Exception e)
         {
             UpdateConnectionState(ConnectionState.Error);
-            Log(e.Message);
-            Log(e.StackTrace ?? "No stack trace available");
+            Debug(e.Message);
+            Debug(e.StackTrace ?? "No stack trace available");
             if (e.InnerException == null)
                 return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace ?? "No stack trace available");
+            Debug(e.InnerException.Message);
+            Debug(e.InnerException.StackTrace ?? "No stack trace available");
         }
     }
 
@@ -88,7 +88,7 @@ public class AvCodersRestClient : RestComms
                 httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
             }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            Log($"Actioning Put to {uri}");
+            Debug($"Actioning Put to {uri}");
             HttpResponseMessage response = await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, contentType));
             await HandleResponse(response);
             UpdateConnectionState(ConnectionState.Connected);
@@ -96,12 +96,12 @@ public class AvCodersRestClient : RestComms
         catch (Exception e)
         {
             UpdateConnectionState(ConnectionState.Error);
-            Log(e.Message);
-            Log(e.StackTrace?? "No stack trace available");
+            Debug(e.Message);
+            Debug(e.StackTrace?? "No stack trace available");
             if (e.InnerException == null)
                 return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace?? "No stack trace available");
+            Debug(e.InnerException.Message);
+            Debug(e.InnerException.StackTrace?? "No stack trace available");
         }
     }
 
@@ -121,7 +121,7 @@ public class AvCodersRestClient : RestComms
                 httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
             }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            Log($"Actioning Put to {uri}");
+            Debug($"Actioning Put to {uri}");
             HttpResponseMessage response = await httpClient.GetAsync(uri);
             await HandleResponse(response);
             UpdateConnectionState(ConnectionState.Connected);
@@ -129,12 +129,12 @@ public class AvCodersRestClient : RestComms
         catch (Exception e)
         {
             UpdateConnectionState(ConnectionState.Error);
-            Log(e.Message);
-            Log(e.StackTrace?? "No stack trace available");
+            Debug(e.Message);
+            Debug(e.StackTrace?? "No stack trace available");
             if (e.InnerException == null)
                 return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace?? "No stack trace available");
+            Debug(e.InnerException.Message);
+            Debug(e.InnerException.StackTrace?? "No stack trace available");
         }
 
     }

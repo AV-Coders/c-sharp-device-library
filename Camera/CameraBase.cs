@@ -5,6 +5,11 @@ namespace AVCoders.Camera;
 public abstract class CameraBase : DeviceBase
 {
     public IntHandler? LastRecalledPresetHandlers;
+
+    protected CameraBase(string name) : base(name)
+    {
+    }
+
     public abstract void ZoomStop();
 
     public abstract void ZoomIn();

@@ -92,7 +92,7 @@ public class BiampTtp : Dsp
     private int _pollCount = 0;
     
 
-    public BiampTtp(CommunicationClient commsClient, int pollTimeInMs = 29000) : base(pollTimeInMs)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollTimeInMs = 29000) : base(name, pollTimeInMs)
     {
         _commsClient = commsClient;
         _commsClient.ResponseHandlers += HandleResponse;

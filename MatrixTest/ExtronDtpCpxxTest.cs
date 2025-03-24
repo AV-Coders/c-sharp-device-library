@@ -11,7 +11,7 @@ public class ExtronDtpCpxxTest
 
     public ExtronDtpCpxxTest()
     {
-        _switcher = new ExtronDtpCpxx(_mockClient.Object, 8);
+        _switcher = new ExtronDtpCpxx(_mockClient.Object, 8, "test matrix");
     }
 
     [Fact]

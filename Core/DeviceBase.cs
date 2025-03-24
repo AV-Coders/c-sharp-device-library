@@ -9,9 +9,15 @@ public abstract class DeviceBase : IDevice
     public PowerStateHandler? PowerStateHandlers;
     
     protected PowerState DesiredPowerState = PowerState.Unknown;
+    protected string Name;
     
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
+
+    protected DeviceBase(string name)
+    {
+        Name = name;
+    }
 
     public PowerState PowerState
     {
@@ -66,6 +72,7 @@ public abstract class DeviceBase : IDevice
     protected void Verbose(string message)
     {
         using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
         {
             Log.Verbose(message);
         }
@@ -74,6 +81,7 @@ public abstract class DeviceBase : IDevice
     protected void Debug(string message)
     {
         using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
         {
             Log.Debug(message);
         }
@@ -82,6 +90,7 @@ public abstract class DeviceBase : IDevice
     protected void Info(string message)
     {
         using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
         {
             Log.Information(message);
         }
@@ -90,6 +99,7 @@ public abstract class DeviceBase : IDevice
     protected void Warn(string message)
     {
         using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
         {
             Log.Warning(message);
         }
@@ -99,6 +109,7 @@ public abstract class DeviceBase : IDevice
     {
         
         using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
         {
             Log.Error(message);
         }
@@ -108,6 +119,7 @@ public abstract class DeviceBase : IDevice
     {
         
         using (LogContext.PushProperty("class", GetType()))
+        using (LogContext.PushProperty("instance_name", Name))
         {
             Log.Fatal(message);
         }

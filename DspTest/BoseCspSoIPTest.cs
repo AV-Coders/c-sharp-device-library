@@ -16,7 +16,7 @@ public class BoseCspSoIPTest
 
     public BoseCspSoIPTest()
     {
-        _dsp = new BoseCspSoIP(_mockClient.Object, 100);
+        _dsp = new BoseCspSoIP(_mockClient.Object, "Test", 100);
 
         _mockClient.Setup(x => x.Send($"GA\"{GainName}\">1\r"))
             .Callback(() => _mockClient.Object.ResponseHandlers!.Invoke($"GA\"{GainName}\">1=0\r"));

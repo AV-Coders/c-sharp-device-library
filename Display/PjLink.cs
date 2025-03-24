@@ -45,11 +45,11 @@ public class PjLink : Display
     {
         if (TcpClient.GetConnectionState() != ConnectionState.Connected)
         {
-            Log("Not polling");
+            Debug("Not polling");
             return Task.CompletedTask;
         }
         
-        Log("Polling");
+        Debug("Polling");
         PollProjector(_pollTask);
         
         _pollTask = _pollTask switch
@@ -64,7 +64,7 @@ public class PjLink : Display
 
     private void PollProjector(PollTask pollTask)
     {
-        Log("Polling");
+        Debug("Polling");
         switch (pollTask)
         {
             case PollTask.Power:
@@ -96,7 +96,7 @@ public class PjLink : Display
         if (response.Contains("ERRA"))
         {
             CommunicationState = CommunicationState.Error;
-            Log("Password not accepted");
+            Debug("Password not accepted");
             return;
         }
 

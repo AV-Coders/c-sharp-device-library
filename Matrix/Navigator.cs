@@ -13,7 +13,7 @@ public class Navigator : DeviceBase
     private int _unansweredDeviceForwards = 0;
     
 
-    public Navigator(SshClient sshClient)
+    public Navigator(string name, SshClient sshClient) : base(name)
     {
         SshClient = sshClient;
         SshClient.ResponseHandlers += HandleResponse;

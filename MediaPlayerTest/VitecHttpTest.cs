@@ -10,7 +10,7 @@ public class VitecHttpTest
 
     public VitecHttpTest()
     {
-        _vitecHttp = new VitecHttp("foo", "bar");
+        _vitecHttp = new VitecHttp("foo", "bar", "Name");
     }
 
     [Theory]

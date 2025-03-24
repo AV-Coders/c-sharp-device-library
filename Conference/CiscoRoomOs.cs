@@ -73,7 +73,6 @@ public class CiscoRoomOs : Conference
 
       PhoneBookParser = new CiscoCE9PhonebookParser();
       PhoneBookParser.Comms += _communicationClient.Send;
-      PhoneBookParser.LogHandlers += (message, level) => Verbose($"Phonebook - {message}");
     }
 
     private void Reinitialise()

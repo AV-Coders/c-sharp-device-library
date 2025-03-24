@@ -7,6 +7,10 @@ public abstract class Light : DeviceBase
     private int _level;
     public IntHandler? LevelChangeHandlers;
 
+    protected Light(string name) : base(name)
+    {
+    }
+
     public int Level
     {
         get => _level;

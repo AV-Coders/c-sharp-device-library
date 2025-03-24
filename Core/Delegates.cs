@@ -10,8 +10,6 @@ public delegate void HttpResponseHandler(HttpResponseMessage response);
 
 public delegate void IntHandler(int value);
 
-public delegate void LogHandler(string message, EventLevel level = EventLevel.Verbose);
-
 public delegate void MuteStateHandler(MuteState state);
 
 public delegate void PowerStateHandler(PowerState state);

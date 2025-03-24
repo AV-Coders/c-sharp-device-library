@@ -8,7 +8,7 @@ public class ExtronIn16Xx : VideoMatrix
     private readonly CommunicationClient _communicationClient;
     private readonly int _numberOfInputs;
 
-    public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs) : base(1)
+    public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name) : base(1, name)
     {
         _communicationClient = communicationClient;
         _numberOfInputs = numberOfInputs;
@@ -25,7 +25,8 @@ public class ExtronIn16Xx : VideoMatrix
         }
         catch (Exception e)
         {
-            Debug.WriteLine($"ExtronIN16xx - Communication error: {e.Message}");
+            Error(e.Message);
+            Error(e.StackTrace?? String.Empty);
             UpdateCommunicationState(CommunicationState.Error);
         }
     }

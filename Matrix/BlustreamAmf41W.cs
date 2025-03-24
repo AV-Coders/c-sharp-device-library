@@ -8,7 +8,7 @@ public class BlustreamAmf41W : VideoMatrix
     public static readonly ushort DefaultPort = 23;
     private readonly TcpClient _tcpClient;
 
-    public BlustreamAmf41W(TcpClient tcpClient) : base(1)
+    public BlustreamAmf41W(TcpClient tcpClient, string name) : base(1, name)
     {
         _tcpClient = tcpClient;
         _tcpClient.SetPort(DefaultPort);

@@ -1,4 +1,6 @@
-﻿namespace AVCoders.Matrix;
+﻿using AVCoders.Core;
+
+namespace AVCoders.Matrix;
 
 public delegate void SyncInfoHandler(ConnectionStatus status, string resolution);
 
@@ -8,7 +10,7 @@ public enum ConnectionStatus
     Disconnected,
 }
 
-public abstract class SyncStatus
+public abstract class SyncStatus : LogBase
 {
     private ConnectionStatus _inputConnectionStatus;
     private string _inputResolution = String.Empty;
@@ -16,6 +18,10 @@ public abstract class SyncStatus
     private string _outputResolution = String.Empty;
     public SyncInfoHandler? InputStatusChangedHandlers;
     public SyncInfoHandler? OutputStatusChangedHandlers;
+
+    protected SyncStatus(string name) : base(name)
+    {
+    }
 
     public ConnectionStatus InputConnectionStatus
     {

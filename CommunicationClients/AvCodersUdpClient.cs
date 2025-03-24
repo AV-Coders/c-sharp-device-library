@@ -26,7 +26,7 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         try
         {
-            Log("Creating client");
+            Debug("Creating client");
             UpdateConnectionState(ConnectionState.Connecting);
             var client = new UdpClient(Host, Port);
             if (IPAddress.TryParse(Host, out var remoteIpAddress))
@@ -38,7 +38,7 @@ public class AvCodersUdpClient : Core_UdpClient
         }
         catch( Exception e)
         {
-           Log($"Exception while connecting: {e.Message}\r\n{e.StackTrace}", EventLevel.Error);
+           Error($"Exception while connecting: {e.Message}\r\n{e.StackTrace}");
         }
         UpdateConnectionState(ConnectionState.Disconnected);
         return null;
@@ -64,7 +64,7 @@ public class AvCodersUdpClient : Core_UdpClient
         }
         catch (Exception e)
         {
-            Log($"Receive - Error: {e.Message}");
+            Debug($"Receive - Error: {e.Message}");
         }
     }
 
@@ -72,7 +72,7 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         if (_client == null)
         {
-            Log("Messages in send queue will not be sent while client is not connected");
+            Debug("Messages in send queue will not be sent while client is not connected");
             await Task.Delay(500, token);
         }
         else
@@ -89,10 +89,10 @@ public class AvCodersUdpClient : Core_UdpClient
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        Log($"CheckConnectionState - Connection state is {ConnectionState}");
+        Debug($"CheckConnectionState - Connection state is {ConnectionState}");
         if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
         {
-            Log($"Will recreate client");
+            Debug($"Will recreate client");
             CreateClient();
         }
         
@@ -119,7 +119,7 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Reconnect()
     {
-        Log($"Reconnecting");
+        Debug($"Reconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client?.Close();
         UpdateConnectionState(ConnectionState.Disconnected);
@@ -128,7 +128,7 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Disconnect()
     {
-        Log($"Disconnecting");
+        Debug($"Disconnecting");
         UpdateConnectionState(ConnectionState.Disconnecting);
         _client = null;
         _ipEndPoint = null;
@@ -143,7 +143,7 @@ public class AvCodersUdpClient : Core_UdpClient
         {
             if (_client == null)
             {
-                Log("Queueing Message");
+                Debug("Queueing Message");
                 _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
                 return;
             }
@@ -151,7 +151,7 @@ public class AvCodersUdpClient : Core_UdpClient
         }
         catch (Exception e)
         {
-            Log($"Send - Error: {e.Message}\r\n {e.StackTrace}");
+            Debug($"Send - Error: {e.Message}\r\n {e.StackTrace}");
         }
     }
 

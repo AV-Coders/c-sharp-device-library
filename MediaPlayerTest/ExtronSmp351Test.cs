@@ -28,7 +28,7 @@ public class ExtronSmp351Test
 
     public ExtronSmp351Test()
     {
-        _recorder = new ExtronSmp351(_mockClient.Object, 1024000, 512000);
+        _recorder = new ExtronSmp351(_mockClient.Object, 1024000, 512000, "test");
         _recorder.TransportStateHandlers += _recordStateHandler.Object;
         _recorder.TimestampHandlers += _timestampHandler.Object;
         _recorder.FrontUsbConnectionStateHandlers += _mockFrontUsbConnectionStateHandler.Object;

@@ -157,21 +157,21 @@ public class LGCommercial : Display, ISetTopBox
 
         if (PowerState != PowerState.On)
         {
-            Log("Not Polling");
+            Debug("Not Polling");
             return Task.CompletedTask;
         }
         
-        Log("Polling");
+        Debug("Polling");
         SendCommand(_powerHeader, _pollArgument);
         Task.Delay(1000, token).Wait(token);
         SendCommand(_inputHeader, _pollArgument);
-        Log("Polling input");
+        Debug("Polling input");
         Task.Delay(1000, token).Wait(token);
         SendCommand(_volumeHeader, _pollArgument);
-        Log("Polling volume");
+        Debug("Polling volume");
         Task.Delay(1000, token).Wait(token);
         SendCommand(_muteHeader,  _pollArgument);
-        Log("Polling mute");
+        Debug("Polling mute");
         
         return Task.CompletedTask;
     }
