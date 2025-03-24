@@ -5,6 +5,7 @@ namespace AVCoders.Core;
 
 public abstract class LogBase
 {
+    public const string MethodProperty = "Method";
     public readonly string Name;
     public readonly string InstanceUid;
     private readonly Dictionary<string, string> _logProperties = new ();
@@ -30,7 +31,7 @@ public abstract class LogBase
         }
         
         disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
-        disposables.Add(LogContext.PushProperty("Class", GetType()));
+        disposables.Add(LogContext.PushProperty("Class", GetType().Name));
         disposables.Add(LogContext.PushProperty("InstanceName", Name));
 
         return new DisposableItems(disposables);

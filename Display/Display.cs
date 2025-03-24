@@ -258,7 +258,7 @@ public abstract class Display : VolumeControl, IDevice
         }
         
         disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
-        disposables.Add(LogContext.PushProperty("Class", GetType()));
+        disposables.Add(LogContext.PushProperty("Class", GetType().Name));
         disposables.Add(LogContext.PushProperty("InstanceName", Name));
 
         return new DisposableItems(disposables);
