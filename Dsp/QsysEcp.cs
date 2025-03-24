@@ -1,5 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 using AVCoders.Core;
+using Serilog.Context;
 
 namespace AVCoders.Dsp;
 
@@ -135,7 +136,7 @@ public class QsysEcp : Dsp
         }
         catch (Exception e)
         {
-            LogHandlers?.Invoke($"QsysEcp: {e}\n {e.StackTrace}", EventLevel.Error);
+            Error($"Exception: {e}\n {e.StackTrace}\n {e.InnerException}\n {e.InnerException?.StackTrace}");
         }
     }
 

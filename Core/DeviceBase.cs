@@ -1,8 +1,10 @@
+using Serilog;
+using Serilog.Context;
+
 namespace AVCoders.Core;
 
 public abstract class DeviceBase : IDevice
 {
-    public LogHandler? LogHandlers;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     
@@ -43,11 +45,11 @@ public abstract class DeviceBase : IDevice
         switch (DesiredPowerState)
         {
             case PowerState.Off:
-                Log("Forcing Power off");
+                Verbose("Forcing Power off");
                 PowerOff();
                 break;
             case PowerState.On:
-                Log("Forcing Power on");
+                Verbose("Forcing Power on");
                 PowerOn();
                 break;
         }
@@ -61,7 +63,53 @@ public abstract class DeviceBase : IDevice
 
     public abstract void PowerOff();
 
-    protected void Log(string message) => LogHandlers?.Invoke($"{GetType()} - {message}");
+    protected void Verbose(string message)
+    {
+        using (LogContext.PushProperty("class", GetType()))
+        {
+            Log.Verbose(message);
+        }
+    }
+    
+    protected void Debug(string message)
+    {
+        using (LogContext.PushProperty("class", GetType()))
+        {
+            Log.Debug(message);
+        }
+    }
+    
+    protected void Info(string message)
+    {
+        using (LogContext.PushProperty("class", GetType()))
+        {
+            Log.Information(message);
+        }
+    }
+    
+    protected void Warn(string message)
+    {
+        using (LogContext.PushProperty("class", GetType()))
+        {
+            Log.Warning(message);
+        }
+    }
 
-    protected void Error(string message) => LogHandlers?.Invoke($"{GetType()} - {message}", EventLevel.Error);
+    protected void Error(string message)
+    {
+        
+        using (LogContext.PushProperty("class", GetType()))
+        {
+            Log.Error(message);
+        }
+    }
+
+    protected void Fatal(string message)
+    {
+        
+        using (LogContext.PushProperty("class", GetType()))
+        {
+            Log.Fatal(message);
+        }
+    }
 }

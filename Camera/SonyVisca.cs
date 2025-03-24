@@ -57,7 +57,7 @@ public class SonyVisca : CameraBase
         }
         catch (Exception e)
         {
-            LogHandlers?.Invoke($"VISCACamera - Communication error: {e.Message}", EventLevel.Error);
+            Error($"Communication error: {e.Message}");
             CommunicationState = CommunicationState.Error;
         }
             
@@ -107,72 +107,72 @@ public class SonyVisca : CameraBase
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x00, 0x03, CommandFooter });
         DesiredPowerState = PowerState.Off;
-        Log("Power Off");
+        Verbose("Power Off");
     }
 
     public override void PowerOn()
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x00, 0x02, CommandFooter });
         DesiredPowerState = PowerState.On;
-        Log("Power On");
+        Verbose("Power On");
     }public override void ZoomStop()
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x07, 0x00, CommandFooter });
-        Log("Zoom Stop");
+        Verbose("Zoom Stop");
     }
 
     public override void ZoomIn()
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x07, _zoomInSpeed, CommandFooter });
-        Log("Zooming In");
+        Verbose("Zooming In");
     }
 
     public override void ZoomOut()
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x07, _zoomOutSpeed, CommandFooter });
-        Log("Zooming Out");
+        Verbose("Zooming Out");
     }
 
     public override void PanTiltStop()
     {
         SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x03, CommandFooter });
-        Log("PTZ Stop");
+        Verbose("PTZ Stop");
     }
 
     public override void PanTiltUp()
     {
         SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x01, CommandFooter });
-        Log("PTZ Up");
+        Verbose("PTZ Up");
     }
 
     public override void PanTiltDown()
     {
         SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x02, CommandFooter });
-        Log("PTZ Down");
+        Verbose("PTZ Down");
     }
 
     public override void PanTiltLeft()
     {
         SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x01, 0x03, CommandFooter });
-        Log("PTZ Left");
+        Verbose("PTZ Left");
     }
 
     public override void PanTiltRight()
     {
         SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x02, 0x03, CommandFooter });
-        Log("PTZ Right");
+        Verbose("PTZ Right");
     }
 
     public override void DoRecallPreset(int presetNumber)
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter });
-        Log($"Recall Preset {presetNumber}");
+        Verbose($"Recall Preset {presetNumber}");
     }
 
     public override void SavePreset(int presetNumber)
     {
         SendCommand(new byte[] { _header, 0x01, 0x04, 0x3f, 0x01, (byte)presetNumber, CommandFooter });
-        Log($"Save Preset {presetNumber}");
+        Verbose($"Save Preset {presetNumber}");
     }
 
     private void HandleResponse(String response)

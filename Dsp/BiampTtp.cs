@@ -124,12 +124,12 @@ public class BiampTtp : Dsp
 
     private void Resubscribe()
     {
-        Log($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
+        Verbose($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
         Thread.Sleep(TimeSpan.FromSeconds(5));
         _deviceSubscriptions.ForEach(subscriptionCommand =>
         {
             _commsClient.Send(subscriptionCommand);
-            Log($"Sending: {subscriptionCommand}");
+            Verbose($"Sending: {subscriptionCommand}");
         });
         Thread.Sleep(TimeSpan.FromSeconds(1));
         PollWorker.Restart();
@@ -139,10 +139,10 @@ public class BiampTtp : Dsp
     {
         if (_commsClient.GetConnectionState() != ConnectionState.Connected)
         {
-            Log("IP Comms disconnected, not polling");
+            Verbose("IP Comms disconnected, not polling");
             return Task.CompletedTask;
         }
-        Log("Device Connected - Polling");
+        Verbose("Device Connected - Polling");
         if(_activeQueries.Count > 0)
             _commsClient.Send(_activeQueries[0].DspCommand);
         else

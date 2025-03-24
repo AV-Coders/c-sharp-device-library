@@ -39,17 +39,17 @@ public class VitecHttp : MediaPlayer, ISetTopBox
         {
             httpClient.DefaultRequestHeaders.Add("X-API-Version", "7");
             httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", _authInfo);
-            Log($"Sending request: {uri}");
+            Verbose($"Sending request: {uri}");
             await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, "application/json"));
         }
         catch (Exception e)
         {
-            Log(e.Message);
-            Log(e.StackTrace?? "No stack trace available");
+            Verbose(e.Message);
+            Verbose(e.StackTrace?? "No stack trace available");
             if (e.InnerException == null)
                 return;
-            Log(e.InnerException.Message);
-            Log(e.InnerException.StackTrace?? "No stack trace available");
+            Verbose(e.InnerException.Message);
+            Verbose(e.InnerException.StackTrace?? "No stack trace available");
         }
     }
 
@@ -103,7 +103,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     {
         if (UnsupportedButtons.Contains(button))
         {
-            Log($"Unsupported button - {button.ToString()}");
+            Verbose($"Unsupported button - {button.ToString()}");
             return;
         }
         string command = button switch

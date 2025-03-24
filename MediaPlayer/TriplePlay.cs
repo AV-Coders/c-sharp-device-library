@@ -21,12 +21,12 @@ public class TriplePlay : MediaPlayer, ISetTopBox
         {
             try
             {
-                Log($"Sending request: {uri}");
+                Verbose($"Sending request: {uri}");
                 await httpClient.GetAsync(uri);
             }
             catch (Exception e)
             {
-                Log(e.Message);
+                Verbose(e.Message);
             }
         }
     }
@@ -53,7 +53,7 @@ public class TriplePlay : MediaPlayer, ISetTopBox
         Get(GenerateCommandString("ChannelDown"));
     }
 
-    public void SendIRCode(RemoteButton button) => Log("This is not supported");
+    public void SendIRCode(RemoteButton button) => Verbose("This is not supported");
 
     public void SetChannel(int channel) => GoToChannelNumber((uint) channel);
     public void ToggleSubtitles()

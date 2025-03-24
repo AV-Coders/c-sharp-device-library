@@ -73,7 +73,7 @@ public abstract class Conference : DeviceBase
     public override void PowerOn()
     {
         DoPowerOn();
-        Log("Turning On");
+        Verbose("Turning On");
         DesiredPowerState = PowerState.On;
         PowerState = PowerState.On;
     }
@@ -83,7 +83,7 @@ public abstract class Conference : DeviceBase
     public override void PowerOff()
     {
         DoPowerOff();
-        Log("Turning Off");
+        Verbose("Turning Off");
         DesiredPowerState = PowerState.Off;
         PowerState = PowerState.Off;
         ActiveCalls.Keys.ToList().ForEach(x =>

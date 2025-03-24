@@ -73,7 +73,7 @@ public class CiscoRoomOs : Conference
 
       PhoneBookParser = new CiscoCE9PhonebookParser();
       PhoneBookParser.Comms += _communicationClient.Send;
-      PhoneBookParser.LogHandlers += (message, level) => Log($"Phonebook - {message}");
+      PhoneBookParser.LogHandlers += (message, level) => Verbose($"Phonebook - {message}");
     }
 
     private void Reinitialise()
@@ -91,8 +91,8 @@ public class CiscoRoomOs : Conference
       }
       catch (Exception ex)
       {
-        Log("Can't initialise Cisco Room OS");
-        Log(ex.Message);
+        Verbose("Can't initialise Cisco Room OS");
+        Verbose(ex.Message);
       }
       PollWorker.Restart();
     }
@@ -113,7 +113,7 @@ public class CiscoRoomOs : Conference
     private Task SendHeartbeat()
     {
       SendCommand($"xCommand Peripherals HeartBeat ID: {_moduleIdentifier} Timeout: 120");
-      Log("Sending Heartbeat");
+      Verbose("Sending Heartbeat");
       return Task.CompletedTask;
     }
 
@@ -158,7 +158,7 @@ public class CiscoRoomOs : Conference
           return keyValuePair.Key;
         }
       }
-      Log($"No call found for {value}, terminating all");
+      Verbose($"No call found for {value}, terminating all");
       return 0;
     }
 

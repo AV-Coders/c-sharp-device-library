@@ -17,19 +17,19 @@ public class AverVisca : SonyVisca
         {
             case CameraTrackingMode.Auto:
                 SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x02, 0x00, CommandFooter }); 
-                Log("Tracking Mode: Auto");
+                Verbose("Tracking Mode: Auto");
                 break;
             case CameraTrackingMode.Disabled:
                 SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x01, 0x00, CommandFooter });
-                Log("Tracking Mode: Disabled");
+                Verbose("Tracking Mode: Disabled");
                 break;
             case CameraTrackingMode.TriggerOnce:
                 SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x00, 0x00, CommandFooter });
-                Log("Tracking Mode: Trigger Once");
+                Verbose("Tracking Mode: Trigger Once");
                 break;
             case CameraTrackingMode.Manual:
                 SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x03, 0x00, CommandFooter });
-                Log("Tracking Mode: Manual");
+                Verbose("Tracking Mode: Manual");
                 break;
         }
     }

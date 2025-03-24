@@ -21,13 +21,13 @@ public class ScreenTechnicsConnect : Motor
 
     private void ConnectionStateHandlers(ConnectionState connectionState)
     {
-        Log($"Connection State Change - {connectionState.ToString()}");
+        Debug($"Connection State Change - {connectionState.ToString()}");
         if (connectionState != ConnectionState.Connected)
             return;
         if (_queuedMessage != String.Empty)
         {
             Thread.Sleep(500); // You need a slight pause because the device doesn't accept commands when the event is triggered.
-            Log($"Sending queued message {_queuedMessage}");
+            Debug($"Sending queued message {_queuedMessage}");
             _client.Send(_queuedMessage);
             _queuedMessage = String.Empty;
         }
@@ -42,7 +42,7 @@ public class ScreenTechnicsConnect : Motor
             _client.Send(message);
         else
         {
-            Log("Queuing Message");
+            Debug("Queuing Message");
             _queuedMessage = message;
             _client.Connect();
         }
@@ -66,22 +66,20 @@ public class ScreenTechnicsConnect : Motor
     {
         Send($"30 {_moduleId}\r");
         CurrentMoveAction = RelayAction.Raise;
-        Log("Screen technics will Raise");
+        Debug("Screen technics will Raise");
     }
 
     public override void Lower()
     {
         Send($"33 {_moduleId}\r");
         CurrentMoveAction = RelayAction.Lower;
-        Log("Screen technics will Lower");
+        Debug("Screen technics will Lower");
     }
 
     public override void Stop()
     {
         Send($"36 {_moduleId}\r");
         CurrentMoveAction = RelayAction.None;
-        Log("Screen technics will Stop");
+        Debug("Screen technics will Stop");
     }
-
-    private new void Log(string message) => LogHandlers?.Invoke($"{DateTime.Now} - {Name} - ScreenTechnicsConnect - {message}");
 }

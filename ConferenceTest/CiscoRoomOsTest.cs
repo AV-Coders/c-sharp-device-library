@@ -21,7 +21,6 @@ public class CiscoRoomOsTest
     }
     
     private readonly Mock<StubbedClient> _mockClient = new("foo", (ushort)1);
-    private readonly Mock<LogHandler> _logHandlers = new ();
     private readonly Mock<CommunicationStateHandler> _communicationStateHandlers = new ();
     private readonly Mock<PowerStateHandler> _powerStateHandlers = new ();
     private readonly Mock<VolumeLevelHandler> _outputVolumeLevelHandler = new ();
@@ -34,7 +33,6 @@ public class CiscoRoomOsTest
     public CiscoRoomOsTest()
     {
         _codec = new CiscoRoomOs(_mockClient.Object, new CiscoRoomOsDeviceInfo("Test", "Xunit", "An Awesome Laptop", "012934"));
-        _codec.LogHandlers += _logHandlers.Object;
         _codec.CommunicationStateHandlers += _communicationStateHandlers.Object;
         _codec.PowerStateHandlers += _powerStateHandlers.Object;
         _codec.OutputVolume.VolumeLevelHandlers += _outputVolumeLevelHandler.Object;
