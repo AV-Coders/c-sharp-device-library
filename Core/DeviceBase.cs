@@ -7,9 +7,9 @@ public abstract class DeviceBase : IDevice
 {
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
-    
+    public string Name { get; protected set; }
+
     protected PowerState DesiredPowerState = PowerState.Unknown;
-    protected string Name;
     
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;

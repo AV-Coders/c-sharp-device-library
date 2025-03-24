@@ -5,7 +5,7 @@ namespace AVCoders.Core;
 
 public abstract class LogBase
 {
-    protected readonly string Name;
+    public readonly string Name;
 
     protected LogBase(string name)
     {
