@@ -1,9 +1,10 @@
 ﻿using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Serilog.Context;
 
 namespace AVCoders.Core;
 
-public abstract class CommunicationClient : LogBase
+public abstract class CommunicationClient(string name) : LogBase(name)
 {
     public StringHandler? Requesthandlers;
     public ByteHandler? RequestBytehandlers;
@@ -23,10 +24,6 @@ public abstract class CommunicationClient : LogBase
             _connectionState = value;
             ConnectionStateHandlers?.Invoke(value);
         }
-    }
-
-    protected CommunicationClient(string name) : base(name)
-    {
     }
 
     public abstract void Send(string message);
