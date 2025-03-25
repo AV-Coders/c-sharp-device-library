@@ -93,15 +93,12 @@ public class AvCodersSshClient : SshClientBase
                                           e is SocketException ||
                                           e is ProxyException)
                 {
-                    Error(e.Message);
-                    Error(e.StackTrace ?? "No stack trace available");
                     UpdateConnectionState(ConnectionState.Disconnected);
+                    LogException(e);
                 }
                 catch (Exception e)
                 {
-                    Error("Unexpected exception");
-                    Error(e.Message);
-                    Error(e.StackTrace ?? "No stack trace available");
+                    LogException(e);
                     UpdateConnectionState(ConnectionState.Disconnected);
                 }
 

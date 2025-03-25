@@ -37,7 +37,7 @@ public class AvCodersTcpServer : Core_TcpClient
                 }
                 catch (IOException e)
                 {
-                    Error($"IOException while sending: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}");
+                    LogException(e);
                 }
             }
         }
@@ -45,6 +45,7 @@ public class AvCodersTcpServer : Core_TcpClient
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
+        using (LogContext.PushProperty(MethodProperty, "HandleClientAsync"))
         using (client)
         {
             try
@@ -58,25 +59,9 @@ public class AvCodersTcpServer : Core_TcpClient
                     InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
                 }
             }
-            catch (IOException e)
-            {
-                Error("IOException:");
-                Error(e.Message);
-                Error(e.StackTrace ?? "No Stack Trace available");
-                Reconnect();
-            }
-            catch (ObjectDisposedException e)
-            {
-                Error("ObjectDisposedException");
-                Error(e.Message);
-                Error(e.StackTrace ?? "No Stack Trace available");
-                Reconnect();
-            }
             catch (Exception e)
             {
-                Error(e.GetType().Name);
-                Error(e.Message);
-                Error(e.StackTrace ?? "No Stack Trace available");
+                LogException(e);
                 Reconnect();
             }
         }

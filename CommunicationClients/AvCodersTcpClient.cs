@@ -44,25 +44,9 @@ public class AvCodersTcpClient : Core_TcpClient
                         InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
                     }
                 }
-                catch (IOException e)
-                {
-                    Error("IOException:");
-                    Error(e.Message);
-                    Error(e.StackTrace ?? "No Stack Trace available");
-                    Reconnect();
-                }
-                catch (ObjectDisposedException e)
-                {
-                    Error("ObjectDisposedException");
-                    Error(e.Message);
-                    Error(e.StackTrace ?? "No Stack Trace available");
-                    Reconnect();
-                }
                 catch (Exception e)
                 {
-                    Error(e.GetType().Name);
-                    Error(e.Message);
-                    Error(e.StackTrace ?? "No Stack Trace available");
+                    LogException(e);
                     Reconnect();
                 }
                 await Task.Delay(TimeSpan.FromMilliseconds(30), token);
@@ -97,22 +81,19 @@ public class AvCodersTcpClient : Core_TcpClient
                 }
                 catch (SocketException e)
                 {
-                    Error($"Check Connection State  - Socket Exception: {e.Message}");
+                    LogException(e);
                     UpdateConnectionState(ConnectionState.Disconnected);
                 }
                 catch (IOException e)
                 {
-                    Error($"Check Connection State - IOException: {e.Message}");
-                    Error(e.StackTrace ?? "No Stack Trace available");
+                    LogException(e);
                     _client.Close();
                     _client = new TcpClient();
                     UpdateConnectionState(ConnectionState.Disconnected);
                 }
                 catch (Exception e)
                 {
-                    Error($"Check Connection State  - New Exception: {e.Message}");
-                    Error(e.GetType().ToString());
-                    Error(e.StackTrace ?? "No Stack Trace available");
+                    LogException(e);
                     UpdateConnectionState(ConnectionState.Disconnected);
                 }
 
@@ -156,8 +137,7 @@ public class AvCodersTcpClient : Core_TcpClient
                 }
                 catch (IOException e)
                 {
-                    Error(
-                        $"IOException while sending, Queueing message: {e.Message}\r\n{e.StackTrace ?? "No Stack trace available"}");
+                    LogException(e);
                     _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
                 }
             }

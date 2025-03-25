@@ -63,12 +63,7 @@ public class AvCodersRestClient : RestComms
         catch (Exception e)
         {
             UpdateConnectionState(ConnectionState.Error);
-            Debug(e.Message);
-            Debug(e.StackTrace ?? "No stack trace available");
-            if (e.InnerException == null)
-                return;
-            Debug(e.InnerException.Message);
-            Debug(e.InnerException.StackTrace ?? "No stack trace available");
+            LogException(e);
         }
     }
 
@@ -96,12 +91,7 @@ public class AvCodersRestClient : RestComms
         catch (Exception e)
         {
             UpdateConnectionState(ConnectionState.Error);
-            Debug(e.Message);
-            Debug(e.StackTrace?? "No stack trace available");
-            if (e.InnerException == null)
-                return;
-            Debug(e.InnerException.Message);
-            Debug(e.InnerException.StackTrace?? "No stack trace available");
+            LogException(e);
         }
     }
 
@@ -129,12 +119,7 @@ public class AvCodersRestClient : RestComms
         catch (Exception e)
         {
             UpdateConnectionState(ConnectionState.Error);
-            Debug(e.Message);
-            Debug(e.StackTrace?? "No stack trace available");
-            if (e.InnerException == null)
-                return;
-            Debug(e.InnerException.Message);
-            Debug(e.InnerException.StackTrace?? "No stack trace available");
+            LogException(e);
         }
 
     }

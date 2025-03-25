@@ -100,14 +100,16 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         catch (Exception e)
         {
             Error("A Response handler threw an exception");
-            Error(e.Message);
-            Error(e.StackTrace?? "No Stack trace available");
-            if (e.InnerException != null)
-            {
-                Error(e.InnerException.Message);
-                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
-            }
+            LogException(e);
         }
+    }
+
+    protected void LogException(Exception e)
+    {
+        Error(e.GetType().Name + ": " + e.Message + Environment.NewLine + e.StackTrace);
+        if (e.InnerException == null)
+            return;
+        Error("Caused by: " + e.InnerException.GetType().Name + Environment.NewLine + e.InnerException.Message + Environment.NewLine + e.InnerException.StackTrace);
     }
 }
 

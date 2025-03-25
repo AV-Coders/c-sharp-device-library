@@ -41,7 +41,7 @@ public class AvCodersUdpClient : Core_UdpClient
             }
             catch (Exception e)
             {
-                Error($"Exception while connecting: {e.Message}\r\n{e.StackTrace}");
+                LogException(e);
             }
 
             UpdateConnectionState(ConnectionState.Disconnected);
@@ -72,9 +72,7 @@ public class AvCodersUdpClient : Core_UdpClient
             }
             catch (Exception e)
             {
-                Error(e.GetType().Name);
-                Error(e.Message);
-                Error(e.StackTrace ?? "No Stack Trace available");
+                LogException(e);
                 Reconnect();
             }
         }
@@ -168,7 +166,7 @@ public class AvCodersUdpClient : Core_UdpClient
             }
             catch (Exception e)
             {
-                Error($"Error: {e.Message}\r\n {e.StackTrace}");
+                LogException(e);
             }
         }
     }
