@@ -34,7 +34,6 @@ public class AvCodersMulticastClient : IpComms
         {
             try
             {
-                Verbose("Receiving");
                 var received = await _client.ReceiveAsync(token);
                 InvokeResponseHandlers(Encoding.UTF8.GetString(received.Buffer), received.Buffer);
             }
