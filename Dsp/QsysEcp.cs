@@ -104,12 +104,12 @@ public class QsysEcp : Dsp
                 ProcessValueChange(line);
                 CommunicationState = CommunicationState.Okay;
             }
-            else if (response.StartsWith("sr"))
+            else if (line.StartsWith("sr"))
                 CommunicationState = CommunicationState.Okay;
-            else if (response.Contains("bad_id"))
+            else if (line.Contains("bad_id"))
             {
                 CommunicationState = CommunicationState.Error;
-                Error($"Invalid named control found: {response}");
+                Error($"Invalid named control found: {line}");
             }
         }
         
