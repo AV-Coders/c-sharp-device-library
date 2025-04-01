@@ -78,6 +78,10 @@ public class AvCodersTcpClient : Core_TcpClient
                     }
 
                     _client.EndConnect(connectResult);
+
+                    ConnectionState = ConnectionState.Connected;
+                    ReceiveThreadWorker.Restart();
+                    SendQueueWorker.Restart();
                 }
                 catch (SocketException e)
                 {
