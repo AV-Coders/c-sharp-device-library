@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Serilog.Context;
 
 namespace AVCoders.Core;
 
@@ -75,13 +76,16 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         }
         catch (Exception e)
         {
-            Error("A Response handler threw an exception");
-            Error(e.Message);
-            Error(e.StackTrace?? "No Stack trace available");
-            if (e.InnerException != null)
+            using (LogContext.PushProperty(MethodProperty, "InvokeResponseHandlers"))
             {
-                Error(e.InnerException.Message);
-                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
+                Error("A Response handler threw an exception");
+                Error(e.Message);
+                Error(e.StackTrace?? "No Stack trace available");
+                if (e.InnerException != null)
+                {
+                    Error(e.InnerException.Message);
+                    Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
+                }
             }
         }
     }

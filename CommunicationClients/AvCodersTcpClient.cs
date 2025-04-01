@@ -28,8 +28,8 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             if (!_client.Connected)
             {
-                Debug("Client disconnected, waiting 10 seconds");
-                await Task.Delay(TimeSpan.FromSeconds(10), token);
+                Debug("Client disconnected, waiting 30 seconds");
+                await Task.Delay(TimeSpan.FromSeconds(30), token);
             }
             else
             {
@@ -49,7 +49,6 @@ public class AvCodersTcpClient : Core_TcpClient
                     LogException(e);
                     Reconnect();
                 }
-                await Task.Delay(TimeSpan.FromMilliseconds(30), token);
             }
         }
     }
@@ -81,7 +80,6 @@ public class AvCodersTcpClient : Core_TcpClient
 
                     ConnectionState = ConnectionState.Connected;
                     ReceiveThreadWorker.Restart();
-                    SendQueueWorker.Restart();
                 }
                 catch (SocketException e)
                 {
