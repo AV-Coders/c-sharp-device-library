@@ -14,7 +14,7 @@ public class AvCodersTcpClient : Core_TcpClient
     public AvCodersTcpClient(string host, ushort port = 23, string name = "") :
         base(host, port, name)
     {
-        UpdateConnectionState(ConnectionState.Unknown);
+        ConnectionState = ConnectionState.Unknown;
         _client = new TcpClient();
         
         ConnectionStateWorker.Restart();
@@ -60,12 +60,12 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             if (_client.Connected)
             {
-                UpdateConnectionState(ConnectionState.Connected);
+                ConnectionState = ConnectionState.Connected;
                 await Task.Delay(TimeSpan.FromSeconds(17), token);
             }
             else
             {
-                UpdateConnectionState(ConnectionState.Connecting);
+                ConnectionState = ConnectionState.Connecting;
                 try
                 {
                     var connectResult = _client.BeginConnect(Host, Port, null, null);
@@ -74,7 +74,7 @@ public class AvCodersTcpClient : Core_TcpClient
                     if (!success)
                     {
                         Info("1 second connection wait failed, marking as disconnected");
-                        UpdateConnectionState(ConnectionState.Disconnected);
+                        ConnectionState = ConnectionState.Disconnected;
                     }
 
                     _client.EndConnect(connectResult);
@@ -82,19 +82,19 @@ public class AvCodersTcpClient : Core_TcpClient
                 catch (SocketException e)
                 {
                     LogException(e);
-                    UpdateConnectionState(ConnectionState.Disconnected);
+                    ConnectionState = ConnectionState.Disconnected;
                 }
                 catch (IOException e)
                 {
                     LogException(e);
                     _client.Close();
                     _client = new TcpClient();
-                    UpdateConnectionState(ConnectionState.Disconnected);
+                    ConnectionState = ConnectionState.Disconnected;
                 }
                 catch (Exception e)
                 {
                     LogException(e);
-                    UpdateConnectionState(ConnectionState.Disconnected);
+                    ConnectionState = ConnectionState.Disconnected;
                 }
 
                 await Task.Delay(TimeSpan.FromSeconds(5), token);
@@ -139,6 +139,8 @@ public class AvCodersTcpClient : Core_TcpClient
                 {
                     LogException(e);
                     _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
+                    Debug("Reconnecting due to an IOException");
+                    Reconnect();
                 }
             }
             else
@@ -169,10 +171,10 @@ public class AvCodersTcpClient : Core_TcpClient
     public override void Reconnect()
     {
         Debug($"Reconnecting");
-        UpdateConnectionState(ConnectionState.Disconnecting);
+        ConnectionState = ConnectionState.Disconnecting;
         _client.Close();
         _client = new TcpClient();
-        UpdateConnectionState(ConnectionState.Disconnected);
+        ConnectionState = ConnectionState.Disconnected;
         // The worker will handle reconnection
     }
 
@@ -180,9 +182,9 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         Debug($"Disconnecting");
         ConnectionStateWorker.Stop();
-        UpdateConnectionState(ConnectionState.Disconnecting);
+        ConnectionState = ConnectionState.Disconnecting;
         _client.Close();
         _client = new TcpClient();
-        UpdateConnectionState(ConnectionState.Disconnected);
+        ConnectionState = ConnectionState.Disconnected;
     }
 }

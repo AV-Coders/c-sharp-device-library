@@ -96,7 +96,7 @@ public class AvCodersTcpServer : Core_TcpClient
                 _clients.TryTake(out _);
             }
 
-            UpdateConnectionState(_clients.IsEmpty ? ConnectionState.Disconnected : ConnectionState.Connected);
+            ConnectionState = _clients.IsEmpty ? ConnectionState.Disconnected : ConnectionState.Connected;
             await Task.Delay(TimeSpan.FromSeconds(45), token);
         }
     }

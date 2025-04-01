@@ -21,7 +21,7 @@ public class AvCodersSshClient : SshClientBase
     public AvCodersSshClient(string host, ushort port, string username, string password, string name = "")
         : base(host, port, name)
     {
-        UpdateConnectionState(ConnectionState.Unknown);
+        ConnectionState = ConnectionState.Unknown;
         _username = username;
         _password = password;
         
@@ -76,7 +76,7 @@ public class AvCodersSshClient : SshClientBase
             if (!_client.IsConnected)
             {
                 Debug("Reconnecting to device");
-                UpdateConnectionState(ConnectionState.Disconnected);
+                ConnectionState = ConnectionState.Disconnected;
                 if (_stream != null)
                     await _stream.DisposeAsync();
                 try
@@ -93,13 +93,13 @@ public class AvCodersSshClient : SshClientBase
                                           e is SocketException ||
                                           e is ProxyException)
                 {
-                    UpdateConnectionState(ConnectionState.Disconnected);
+                    ConnectionState = ConnectionState.Disconnected;
                     LogException(e);
                 }
                 catch (Exception e)
                 {
                     LogException(e);
-                    UpdateConnectionState(ConnectionState.Disconnected);
+                    ConnectionState = ConnectionState.Disconnected;
                 }
 
                 await Task.Delay(TimeSpan.FromSeconds(60), token);
@@ -137,7 +137,7 @@ public class AvCodersSshClient : SshClientBase
         _stream.ErrorOccurred += ClientOnErrorOccurred;
         await Task.Delay(200, token);
         ReceiveThreadWorker.Restart();
-        UpdateConnectionState(ConnectionState.Connected);
+        ConnectionState = ConnectionState.Connected;
         return _stream;
     }
 
@@ -153,7 +153,7 @@ public class AvCodersSshClient : SshClientBase
     {
         Error($"An error has occurred with the stream: \r\n{e.Exception.Message}");
         Error(e.Exception.StackTrace ?? "No stack trace available");
-        UpdateConnectionState(ConnectionState.Error);
+        ConnectionState = ConnectionState.Error;
     }
 
     public override void Send(string message)
@@ -213,11 +213,11 @@ public class AvCodersSshClient : SshClientBase
     public override void Reconnect()
     {
         Debug($"Reconnecting");
-        UpdateConnectionState(ConnectionState.Disconnecting);
+        ConnectionState = ConnectionState.Disconnecting;
         ReceiveThreadWorker.Stop();
         _stream?.Dispose();
         _client.Disconnect();
-        UpdateConnectionState(ConnectionState.Disconnected);
+        ConnectionState = ConnectionState.Disconnected;
         // The worker will handle reconnection
     }
 
@@ -225,8 +225,8 @@ public class AvCodersSshClient : SshClientBase
     {
         Debug($"Disconnecting");
         ConnectionStateWorker.Stop();
-        UpdateConnectionState(ConnectionState.Disconnecting);
+        ConnectionState = ConnectionState.Disconnecting;
         _client.Disconnect();
-        UpdateConnectionState(ConnectionState.Disconnected);
+        ConnectionState = ConnectionState.Disconnected;
     }
 }

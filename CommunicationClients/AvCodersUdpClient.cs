@@ -30,21 +30,20 @@ public class AvCodersUdpClient : Core_UdpClient
             try
             {
                 Debug("Creating client");
-                UpdateConnectionState(ConnectionState.Connecting);
+                ConnectionState = ConnectionState.Connecting;
                 var client = new UdpClient(Host, Port);
                 if (IPAddress.TryParse(Host, out var remoteIpAddress))
                     _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
                 ReceiveThreadWorker.Restart();
                 ConnectionStateWorker.Restart();
-                UpdateConnectionState(ConnectionState.Connected);
+                ConnectionState = ConnectionState.Connected;
                 return client;
             }
             catch (Exception e)
             {
                 LogException(e);
+                ConnectionState = ConnectionState.Disconnected;
             }
-
-            UpdateConnectionState(ConnectionState.Disconnected);
         }
         return null;
     }
@@ -55,18 +54,21 @@ public class AvCodersUdpClient : Core_UdpClient
         {
             if (_ipEndPoint == null)
             {
+                Debug("Client disconnected, aborting receive");
                 await ReceiveThreadWorker.Stop();
                 return;
             }
 
             if (_client is not { Available: > 0 })
             {
+                Verbose("No incoming data available");
                 await Task.Delay(1100, token);
                 return;
             }
 
             try
             {
+                Verbose("Incoming data is available");
                 var received = _client.Receive(ref _ipEndPoint);
                 InvokeResponseHandlers(ConvertByteArrayToString(received), received);
             }
@@ -104,7 +106,7 @@ public class AvCodersUdpClient : Core_UdpClient
             Debug($"Connection state is {ConnectionState}");
             if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
             {
-                Debug($"Will recreate client");
+                Debug("Will recreate client");
                 CreateClient();
             }
             await Task.Delay(TimeSpan.FromSeconds(30), token);
@@ -132,21 +134,21 @@ public class AvCodersUdpClient : Core_UdpClient
     public override void Reconnect()
     {
         Debug($"Reconnecting");
-        UpdateConnectionState(ConnectionState.Disconnecting);
+        ConnectionState = ConnectionState.Disconnecting;
         _client?.Close();
-        UpdateConnectionState(ConnectionState.Disconnected);
+        ConnectionState = ConnectionState.Disconnected;
         CreateClient();
     }
 
     public override void Disconnect()
     {
         Debug($"Disconnecting");
-        UpdateConnectionState(ConnectionState.Disconnecting);
+        ConnectionState = ConnectionState.Disconnecting;
         _client = null;
         _ipEndPoint = null;
         ReceiveThreadWorker.Stop();
         ConnectionStateWorker.Stop();
-        UpdateConnectionState(ConnectionState.Disconnected);
+        ConnectionState = ConnectionState.Disconnected;
     }
 
     public override void Send(byte[] bytes)
@@ -163,6 +165,7 @@ public class AvCodersUdpClient : Core_UdpClient
                 }
 
                 _client.Send(bytes, bytes.Length);
+                InvokeRequestHandlers(bytes);
             }
             catch (Exception e)
             {
@@ -171,5 +174,9 @@ public class AvCodersUdpClient : Core_UdpClient
         }
     }
 
-    public override void Send(String message) => Send(ConvertStringToByteArray(message));
+    public override void Send(String message)
+    {
+        Send(Bytes.FromString(message));
+        InvokeRequestHandlers(message);
+    }
 }

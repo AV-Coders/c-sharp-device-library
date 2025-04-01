@@ -27,11 +27,6 @@ public abstract class CommunicationClient(string name) : LogBase(name)
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
     public ConnectionState GetConnectionState() => ConnectionState;
-    
-    protected void UpdateConnectionState(ConnectionState connectionState)
-    {
-        ConnectionState = connectionState;
-    }
 
     protected void InvokeRequestHandlers(string request)
     {
@@ -201,18 +196,6 @@ public abstract class IpComms : CommunicationClient
     public abstract void Reconnect();
 
     public abstract void Disconnect();
-
-    protected static byte[] ConvertStringToByteArray(string input)
-    {
-        byte[] byteArray = new byte[input.Length];
-
-        for (int i = 0; i < input.Length; i++)
-        {
-            byteArray[i] = (byte)input[i];
-        }
-
-        return byteArray;
-    }
 
     protected static string ConvertByteArrayToString(byte[] byteArray)
     {

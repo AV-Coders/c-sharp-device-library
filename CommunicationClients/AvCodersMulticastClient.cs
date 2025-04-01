@@ -14,14 +14,14 @@ public class AvCodersMulticastClient : IpComms
     {
         using (LogContext.PushProperty(MethodProperty, "Constructor"))
         {
-            UpdateConnectionState(ConnectionState.Connecting);
+            ConnectionState = ConnectionState.Connecting;
             IPEndPoint localEndPoint = new IPEndPoint(IPAddress.Any, port);
             _client = new UdpClient(localEndPoint);
 
             _remoteEndPoint = new IPEndPoint(IPAddress.Parse(ipAddress), port);
             _client.JoinMulticastGroup(IPAddress.Parse(ipAddress));
 
-            UpdateConnectionState(ConnectionState.Connected);
+            ConnectionState = ConnectionState.Connected;
 
             // This works around a race condition coming from base being called first.
             ReceiveThreadWorker.Restart();
@@ -51,6 +51,7 @@ public class AvCodersMulticastClient : IpComms
             try
             {
                 _client.Send(bytes, bytes.Length, _remoteEndPoint);
+                InvokeRequestHandlers(bytes);
             }
             catch (Exception e)
             {
@@ -73,5 +74,9 @@ public class AvCodersMulticastClient : IpComms
 
     public override void Disconnect() => Debug("Disconnect not supported");
 
-    public override void Send(String message) => Send(ConvertStringToByteArray(message));
+    public override void Send(String message)
+    {
+        Send(Bytes.FromString(message));
+        InvokeRequestHandlers(message);
+    }
 }
