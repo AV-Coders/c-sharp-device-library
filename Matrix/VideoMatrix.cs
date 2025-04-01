@@ -2,23 +2,9 @@
 
 namespace AVCoders.Matrix;
 
-public abstract class VideoMatrix : DeviceBase
+public abstract class VideoMatrix(int numberOfOutputs, string name) : DeviceBase(name)
 {
-    protected List<int> Sources;
-    protected PowerState PowerState;
-    protected CommunicationState CommunicationState;
-    public CommunicationStateHandler? CommunicationStateHandlers;
-
-    protected VideoMatrix(int numberOfOutputs, string name) : base(name)
-    {
-        Sources = new List<int>(numberOfOutputs);
-        PowerState = PowerState.Unknown;
-        CommunicationState = CommunicationState.Unknown;
-    }
-
-    public PowerState GetCurrentPowerState() => PowerState;
-
-    public CommunicationState GetCurrentCommunicationState() => CommunicationState;
+    protected List<int> Sources = new(numberOfOutputs);
 
     protected void UpdateCommunicationState(CommunicationState state)
     {

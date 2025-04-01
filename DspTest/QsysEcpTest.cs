@@ -250,7 +250,7 @@ public class QsysEcpTest
         _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\"");
         _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
         
-        Assert.Equal(CommunicationState.Error, _dsp.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Error, _dsp.CommunicationState);
         _communicationStateHandler.Verify(x => x.Invoke(CommunicationState.Error));
     }
 

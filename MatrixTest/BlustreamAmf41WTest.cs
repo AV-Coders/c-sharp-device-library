@@ -24,7 +24,7 @@ public class BlustreamAmf41WTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke("[SUCCESS] Start Showing HDMI1");
 
-        Assert.Equal(CommunicationState.Okay, _matrix.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Okay, _matrix.CommunicationState);
     }
 
     [Fact]
@@ -32,7 +32,7 @@ public class BlustreamAmf41WTest
     {
         _mockClient.Object.ResponseHandlers?.Invoke("[FAIL] Invalid Argument");
 
-        Assert.Equal(CommunicationState.Error, _matrix.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Error, _matrix.CommunicationState);
     }
 
     [Fact]

@@ -64,10 +64,6 @@ public abstract class DeviceBase : IDevice
         }
     }
 
-    public PowerState GetCurrentPowerState() => PowerState;
-
-    public CommunicationState GetCurrentCommunicationState() => CommunicationState;
-
     public abstract void PowerOn();
 
     public abstract void PowerOff();

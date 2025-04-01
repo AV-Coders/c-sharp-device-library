@@ -2,13 +2,9 @@ using AVCoders.Core;
 
 namespace AVCoders.Camera;
 
-public abstract class CameraBase : DeviceBase
+public abstract class CameraBase(string name) : DeviceBase(name)
 {
     public IntHandler? LastRecalledPresetHandlers;
-
-    protected CameraBase(string name) : base(name)
-    {
-    }
 
     public abstract void ZoomStop();
 

@@ -33,7 +33,7 @@ public class ExtronDtpCpxxTest
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
         method?.Invoke(_switcher, new[] { input });
 
-        Assert.Equal(CommunicationState.Okay, _switcher.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class ExtronDtpCpxxTest
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
         method?.Invoke(_switcher, new[] { input });
 
-        Assert.Equal(CommunicationState.Error, _switcher.GetCurrentCommunicationState());
+        Assert.Equal(CommunicationState.Error, _switcher.CommunicationState);
     }
 
     [Fact]
