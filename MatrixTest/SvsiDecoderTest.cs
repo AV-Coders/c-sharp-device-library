@@ -64,6 +64,22 @@ public class SvsiDecoderTest
     }
 
     [Fact]
+    public void SetAudioInput_AcceptsAStreamId()
+    {
+        _svsiDecoder.SetAudioInput(1);
+        
+        _mockClient.Verify(x => x.Send("seta:1\r"));
+    }
+
+    [Fact]
+    public void SetAudioInput_AcceptsAnEncoder()
+    {
+        _svsiDecoder.SetAudioInput(new TestSvsiEncoder(_mockClient.Object));
+        
+        _mockClient.Verify(x => x.Send("seta:3\r"));
+    }
+
+    [Fact]
     public void SetPlaylist_AcceptsAStreamId()
     {
         _svsiDecoder.SetPlaylist(1);

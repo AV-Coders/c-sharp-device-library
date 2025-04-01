@@ -60,6 +60,14 @@ public class SvsiDecoder : SvsiBase
     }
 
     public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
+    
+    public void SetAudioInput(SvsiEncoder encoder) => SetAudioInput(encoder.StreamId);
+    
+    /// <summary>Setting to 0 will enable audio follows video</summary>
+    public void SetAudioInput(uint streamId)
+    {
+        CommunicationClient.Send($"seta:{streamId}\r");
+    }
 
     public void SetAudioMute(MuteState muteState) => CommunicationClient.Send($"{_audoMuteDictionary[muteState]}\r");
 
