@@ -244,6 +244,18 @@ public abstract class Display : VolumeControl, IDevice
             Log.Error(message);
     }
 
+    protected void Information(string message)
+    {
+        using (PushProperties())
+            Log.Information(message);
+    }
+
+    protected void Verbose(string message)
+    {
+        using (PushProperties())
+            Log.Verbose(message);
+    }
+
     public void AddLogProperty(string name, string value)
     {
         _logProperties[name] = value;

@@ -54,7 +54,6 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
             throw new InvalidOperationException("A phonebook can't be requested without a send deleagte");
 
         Comms.Invoke($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0\n");
-        Debug($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0");
     }
 
     public CommunicationState HandlePhonebookSearchResponse(string response)
@@ -126,10 +125,8 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                         return CommunicationState.Okay;
                     }
                     
-                    Comms.Invoke(
-                        $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder!.FolderId}\n");
+                    Comms.Invoke($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder!.FolderId}\n");
                     
-                    Debug($" sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder.FolderId}");
                     return CommunicationState.Okay;
                 }
 
@@ -156,10 +153,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         _currentInjestfolder = unFetchedFolder;
         _currentRow = 0;
 
-        Comms.Invoke(
-            $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
-        
-        Debug($"sending xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}");
+        Comms.Invoke($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
     }
 
     private CiscoRoomOsPhonebookFolder? FindUnFetchedFolder(List<PhonebookBase> phoneBookItems)
