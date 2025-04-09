@@ -1,5 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 using AVCoders.Core;
+using Serilog;
 using Serilog.Context;
 
 namespace AVCoders.Dsp;
@@ -201,22 +202,34 @@ public class QsysEcp : Dsp
     {
         new Thread(_ =>
         {
-            foreach (string key in _gains.Keys)
+            using (LogContext.PushProperty(LogBase.MethodProperty, "GetAllControlStates"))
             {
-                GetControl(key);
-                Thread.Sleep(100);
-            }
+                try
+                {
+                    foreach (string key in _gains.Keys)
+                    {
+                        GetControl(key);
+                        Thread.Sleep(100);
+                    }
 
-            foreach (string key in _mutes.Keys)
-            {
-                GetControl(key);
-                Thread.Sleep(100);
-            }
+                    foreach (string key in _mutes.Keys)
+                    {
+                        GetControl(key);
+                        Thread.Sleep(100);
+                    }
 
-            foreach (string key in _strings.Keys)
-            {
-                GetControl(key);
-                Thread.Sleep(100);
+                    foreach (string key in _strings.Keys)
+                    {
+                        GetControl(key);
+                        Thread.Sleep(100);
+                    }
+                }
+                catch (Exception e)
+                {
+                    LogException(e);
+                    Thread.Sleep(TimeSpan.FromSeconds(5));
+                    GetAllControlStates();
+                }
             }
         }).Start();
     }

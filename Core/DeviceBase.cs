@@ -126,4 +126,12 @@ public abstract class DeviceBase : IDevice
         using (PushProperties())
             Log.Fatal(message);
     }
+    
+    protected void LogException(Exception e)
+    {
+        Error(e.GetType().Name + ": " + e.Message + Environment.NewLine + e.StackTrace);
+        if (e.InnerException == null)
+            return;
+        Error("Caused by: " + e.InnerException.GetType().Name + Environment.NewLine + e.InnerException.Message + Environment.NewLine + e.InnerException.StackTrace);
+    }
 }
