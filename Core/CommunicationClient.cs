@@ -102,14 +102,6 @@ public abstract class CommunicationClient(string name) : LogBase(name)
             LogException(e);
         }
     }
-
-    protected void LogException(Exception e)
-    {
-        Error(e.GetType().Name + ": " + e.Message + Environment.NewLine + e.StackTrace);
-        if (e.InnerException == null)
-            return;
-        Error("Caused by: " + e.InnerException.GetType().Name + Environment.NewLine + e.InnerException.Message + Environment.NewLine + e.InnerException.StackTrace);
-    }
 }
 
 public abstract class SerialClient : CommunicationClient
