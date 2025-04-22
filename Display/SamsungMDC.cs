@@ -8,7 +8,6 @@ public class SamsungMdc : Display
     public static readonly ushort DefaultPort = 1515;
     private readonly byte _displayId;
     private List<byte> _gather = new ();
-    public readonly CommunicationClient CommunicationClient;
     private static readonly Dictionary<Input, byte> InputDictionary = new Dictionary<Input, byte>
     {
         { Input.Hdmi1, 0x21 },
@@ -33,11 +32,10 @@ public class SamsungMdc : Display
 
 
     public SamsungMdc(CommunicationClient communicationClient, byte displayId, string name, Input? defaultInput) : 
-        base(InputDictionary.Keys.ToList(), name, defaultInput)
+        base(InputDictionary.Keys.ToList(), name, defaultInput, communicationClient)
     {
         _displayId = displayId;
 
-        CommunicationClient = communicationClient;
         CommunicationClient.ResponseByteHandlers += HandleResponse;
 
         CommunicationState = CommunicationState.NotAttempted;

@@ -8,7 +8,6 @@ namespace AVCoders.Display;
 public class SonySimpleIpControl : Display, ISetTopBox
 {
     public static readonly ushort DefaultPort = 20060;
-    public readonly TcpClient TcpClient;
     private static readonly Dictionary<Input, string> InputDictionary = new ()
     {
         { Input.Hdmi1, "0000000100000001" },
@@ -69,11 +68,10 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { RemoteButton.Menu, 7},
     };
 
-    public SonySimpleIpControl(TcpClient tcpClient, string name, Input? defaultInput) : base(InputDictionary.Keys.ToList(), name, defaultInput)
+    public SonySimpleIpControl(TcpClient tcpClient, string name, Input? defaultInput) : base(InputDictionary.Keys.ToList(), name, defaultInput, tcpClient)
     {
-        TcpClient = tcpClient;
-        TcpClient.SetPort(DefaultPort);
-        TcpClient.ResponseHandlers += HandleResponse;
+        tcpClient.SetPort(DefaultPort);
+        CommunicationClient.ResponseHandlers += HandleResponse;
 
         CommunicationState = CommunicationState.NotAttempted;
     }
@@ -84,7 +82,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
     {
         try
         {
-            TcpClient.Send(command);
+            CommunicationClient.Send(command);
             CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)

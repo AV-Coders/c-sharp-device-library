@@ -5,7 +5,6 @@ namespace AVCoders.Display;
 public class NecUhdExternalControl : Display
 {
     public static readonly ushort DefaultPort = 7142;
-    public readonly CommunicationClient CommunicationClient;
     private readonly byte _displayId;
     private List<byte> _gather = new ();
 
@@ -30,11 +29,10 @@ public class NecUhdExternalControl : Display
         { Input.DisplayPort, new byte[] { 0x30, 0x46 } },
     };
 
-    public NecUhdExternalControl(CommunicationClient tcpClient, string name, Input? defaultInput, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name, defaultInput)
+    public NecUhdExternalControl(CommunicationClient comms, string name, Input? defaultInput, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name, defaultInput, comms)
     {
-        CommunicationClient = tcpClient;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
-        tcpClient.ResponseByteHandlers += HandleResponse;
+        CommunicationClient.ResponseByteHandlers += HandleResponse;
         CommunicationState = CommunicationState.NotAttempted;
         _displayId = displayId;
     }

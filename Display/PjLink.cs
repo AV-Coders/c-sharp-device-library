@@ -8,7 +8,6 @@ public class PjLink : Display
 {
     public static readonly ushort DefaultPort = 4352;
     public const string DefaultPassword = "JBMIAProjectorLink";
-    public readonly TcpClient TcpClient;
     private readonly string _password;
     private static readonly Dictionary<Input, int> InputDictionary = new ()
     {
@@ -29,21 +28,20 @@ public class PjLink : Display
     
     private PollTask _pollTask;
 
-    public PjLink(TcpClient tcpClient, string name, Input? defaultInput, string password = DefaultPassword) : base(InputDictionary.Keys.ToList(), name, defaultInput)
+    public PjLink(TcpClient tcpClient, string name, Input? defaultInput, string password = DefaultPassword) : base(InputDictionary.Keys.ToList(), name, defaultInput, tcpClient)
     {
         _password = password;
         _pollTask = PollTask.Power;
         DesiredAudioMute = MuteState.Off;
         DesiredVideoMute = MuteState.Off;
         
-        TcpClient = tcpClient;
-        TcpClient.SetPort(DefaultPort);
-        TcpClient.ResponseHandlers += HandleResponse;
+        tcpClient.SetPort(DefaultPort);
+        CommunicationClient.ResponseHandlers += HandleResponse;
     }
 
     protected override Task Poll(CancellationToken token)
     {
-        if (TcpClient.GetConnectionState() != ConnectionState.Connected)
+        if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
             Debug("Not polling");
             return Task.CompletedTask;
@@ -120,7 +118,7 @@ public class PjLink : Display
             Buffer.BlockCopy(answer, 0, combined, 0, answer.Length);
             Buffer.BlockCopy(poll, 0, combined, answer.Length, poll.Length);
 
-            TcpClient.Send(combined);
+            CommunicationClient.Send(combined);
             return;
         }
 
@@ -180,7 +178,7 @@ public class PjLink : Display
         return resultBytes.ToArray();
     }
 
-    private void Send(string command) => TcpClient.Send($"%1{command}\r");
+    private void Send(string command) => CommunicationClient.Send($"%1{command}\r");
 
     private void SetPowerState(PowerState desiredPowerState)
     {

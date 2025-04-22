@@ -9,6 +9,7 @@ public delegate void InputHandler(Input input);
 public abstract class Display : VolumeControl, IDevice
 {
     public List<Input> SupportedInputs { get; }
+    public readonly CommunicationClient CommunicationClient;
     public readonly string InstanceUid;
     private readonly Dictionary<string, string> _logProperties = new ();
     private Input _input = Input.Unknown;
@@ -28,10 +29,11 @@ public abstract class Display : VolumeControl, IDevice
 
     protected readonly ThreadWorker PollWorker;
 
-    protected Display(List<Input> supportedInputs, string name, Input? defaultInput, int pollTime = 23) : base(name, VolumeType.Speaker)
+    protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, int pollTime = 23) : base(name, VolumeType.Speaker)
     {
         SupportedInputs = supportedInputs;
         _defaultInput = defaultInput;
+        CommunicationClient = communicationClient;
         InstanceUid = Guid.NewGuid().ToString();
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         new Thread(_ =>

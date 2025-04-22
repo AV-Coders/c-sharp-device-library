@@ -11,7 +11,6 @@ public class LGCommercial : Display, ISetTopBox
     // Source:
     // https://www.lg.com/ca_en/support/product-support/troubleshoot/help-library/cs-CT52001643-20153058982994/
     public static readonly ushort DefaultPort = 9761;
-    private readonly CommunicationClient _comms;
     private readonly byte[]? _wolPacket;
     private readonly int _setId;
     private readonly string _pollArgument = "FF";
@@ -77,11 +76,10 @@ public class LGCommercial : Display, ISetTopBox
     };
 
     public LGCommercial(CommunicationClient comms, string name, string? mac, Input? defaultInput, int setId = 1) : 
-        base(InputDictionary.Keys.ToList(), name, defaultInput, 12)
+        base(InputDictionary.Keys.ToList(), name, defaultInput, comms, 12)
     {
-        _comms = comms;
-        _comms.ResponseHandlers += HandleResponse;
-        _comms.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         _setId = setId;
         if (mac != null)
             _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
@@ -141,11 +139,11 @@ public class LGCommercial : Display, ISetTopBox
         }
     }
 
-    private void SendCommand(string header, string value) => _comms.Send($"{header} {_setId:d2} {value}\r");
+    private void SendCommand(string header, string value) => CommunicationClient.Send($"{header} {_setId:d2} {value}\r");
 
     protected override Task Poll(CancellationToken token)
     {
-        PowerState = _comms.GetConnectionState() switch
+        PowerState = CommunicationClient.GetConnectionState() switch
         {
             ConnectionState.Connected => PowerState.On,
             _ => PowerState.Off

@@ -1,4 +1,6 @@
 ﻿using AVCoders.Core;
+using Serilog;
+using Serilog.Context;
 
 namespace AVCoders.Lighting;
 
@@ -22,7 +24,7 @@ public enum CBusRampTime : byte
     SeventeenMinutes = 0x7A,
 }
 
-public class CBusInterface
+public class CBusInterface : LogBase
 {
     private readonly CommunicationClient _comms;
     private bool _serialCheck;
@@ -35,7 +37,7 @@ public class CBusInterface
     public const byte SceneApplication = 0xCA;
     private List<byte> _gather = new ();
 
-    public CBusInterface(CommunicationClient comms, bool serialCheck = true)
+    public CBusInterface(CommunicationClient comms, bool serialCheck = true) : base("Cbus Interface")
     {
         _comms = comms;
         _comms.ResponseByteHandlers += GatherResponse;
@@ -58,7 +60,10 @@ public class CBusInterface
 
     private void ProcessResponse(byte[] aResponsePayload)
     {
-        
+        using (LogContext.PushProperty(MethodProperty, "ProcessResponse"))
+        {
+            Log.Information(BitConverter.ToString(aResponsePayload));
+        }
     }
 
     private byte CalculateChecksum(byte[] data)

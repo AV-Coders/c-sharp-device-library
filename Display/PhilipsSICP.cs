@@ -7,7 +7,6 @@ public class PhilipsSICP : Display
     public const ushort DefaultPort = 5000;
     public static readonly SerialSpec DefaultSpec = new (SerialBaud.Rate9600, SerialParity.None,
         SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
-    public readonly CommunicationClient CommunicationClient;
     
     private readonly List<byte> _gather = new();
 
@@ -23,9 +22,8 @@ public class PhilipsSICP : Display
     };
 
     public PhilipsSICP(CommunicationClient client, byte monitorId, byte groupId, string name, Input? defaultInput, int pollTime = 23) : base(
-        _inputMap.Keys.ToList(), name, defaultInput, pollTime)
+        _inputMap.Keys.ToList(), name, defaultInput, client, pollTime)
     {
-        CommunicationClient = client;
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         _monitorId = monitorId;
         _groupId = groupId;
