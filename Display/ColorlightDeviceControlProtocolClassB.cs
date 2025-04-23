@@ -55,4 +55,21 @@ public class ColorlightDeviceControlProtocolClassB : Display
     protected override void DoSetVolume(int percentage) => Debug("This device does not support volume");
 
     protected override void DoSetAudioMute(MuteState state) => Debug("This device does not support audio mute");
+
+    public void SetBrightness(uint percentage)
+    {
+        if (percentage > 100)
+        {
+            Error("The brightness can't go over 100%");
+            return;
+        }
+        
+        // Step 1: Convert percentage to a value between 0 and 10,000
+        int scaledValue = (int)(percentage * 100);
+
+        // Step 2: Get the high and low bytes
+        byte highByte = (byte)(scaledValue >> 8); // Extract high byte
+        byte lowByte = (byte)(scaledValue & 0xFF); // Extract low byte
+        CommunicationClient.Send([0x50, 0x10, 0x00, 0x13,  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00,  0x00, 0x00, 0x00, 0x00,  0x00, lowByte, highByte ]);
+    }
 }
