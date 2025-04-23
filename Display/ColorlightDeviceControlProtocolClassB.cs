@@ -6,17 +6,13 @@ public class ColorlightDeviceControlProtocolClassB : Display
 {
     public const ushort TcpPort = 9999;
     public const ushort UdpPort = 9099;
-    private readonly int? _powerOnPreset;
-    private readonly int? _powerOffPreset;
     private readonly byte[] _heartbeatResponse = [0x99, 0x99, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00];
     private readonly byte[] _heartbeatRequest = [0x99, 0x99, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00];
 
 
-    public ColorlightDeviceControlProtocolClassB(IpComms comms, string name, int? powerOnPreset, int? powerOffPreset) : base(new List<Input>(), name, Input.Unknown, comms, 1)
+    public ColorlightDeviceControlProtocolClassB(IpComms comms, string name) : base(new List<Input>(), name, Input.Unknown, comms, 1)
     {
         CommunicationClient.ResponseByteHandlers += HandleResponse;
-        _powerOnPreset = powerOnPreset;
-        _powerOffPreset = powerOffPreset;
         PollWorker.Stop();
     }
 
@@ -46,14 +42,12 @@ public class ColorlightDeviceControlProtocolClassB : Display
 
     protected override void DoPowerOn()
     {
-        if (_powerOnPreset != null)
-            RecallPreset(_powerOnPreset.Value);
+        CommunicationClient.Send([0x10, 0x10, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
     }
 
     protected override void DoPowerOff()
     {
-        if(_powerOffPreset != null)
-            RecallPreset(_powerOffPreset.Value);
+        CommunicationClient.Send([0x10, 0x10, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
     }
 
     protected override void DoSetInput(Input input) => Debug("This module does not support input select");
