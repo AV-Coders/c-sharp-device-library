@@ -59,8 +59,8 @@ public class BiampVolumeControl : VolumeControl
         _instanceTag = audioBlockInfo.InstanceTag;
         _index = audioBlockInfo.BlockIndex;
         
-        _dsp.AddControl(volumeLevel => VolumeLevelHandlers?.Invoke(volumeLevel), _instanceTag, _index);
-        _dsp.AddControl(muteState => MuteStateHandlers?.Invoke(muteState), _instanceTag, _index);
+        _dsp.AddControl(volumeLevel => Volume = volumeLevel, _instanceTag, _index);
+        _dsp.AddControl(muteState => MuteState = muteState, _instanceTag, _index);
     }
     public override void LevelUp(int amount) => _dsp.LevelUp(_instanceTag, _index, amount);
 

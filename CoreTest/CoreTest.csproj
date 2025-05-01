@@ -8,8 +8,8 @@
         <IsTestProject>true</IsTestProject>
         <AssemblyName>AVCoders.Core.Tests</AssemblyName>
         <RootNamespace>AVCoders.Core.Tests</RootNamespace>
-        <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
         <LangVersion>default</LangVersion>
+        <TargetFramework>net8.0</TargetFramework>
     </PropertyGroup>
 
     <ItemGroup>

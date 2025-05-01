@@ -11,8 +11,8 @@ public class CiscoRoomOsOutputFader : VolumeControl
   public CiscoRoomOsOutputFader(string name, CiscoRoomOs codec, VolumeType type) : base(name, type)
   {
     _codec = codec;
-    _codec.OutputVolume.VolumeLevelHandlers += x => VolumeLevelHandlers?.Invoke(x);
-    _codec.OutputMute.MuteStateHandlers += x => MuteStateHandlers?.Invoke(x);
+    _codec.OutputVolume.VolumeLevelHandlers += x => Volume = x;
+    _codec.OutputMute.MuteStateHandlers += x => MuteState = x;
   }
 
   public override void LevelUp(int amount) => _codec.SetOutputVolume(_codec.OutputVolume.Volume + amount);
@@ -33,7 +33,7 @@ public class CiscoRoomOsMicFader : VolumeControl
   public CiscoRoomOsMicFader(string name, CiscoRoomOs codec, VolumeType type) : base(name, type)
   {
     _codec = codec;
-    _codec.MicrophoneMute.MuteStateHandlers += x => MuteStateHandlers?.Invoke(x);
+    _codec.MicrophoneMute.MuteStateHandlers += x => MuteState = x;
   }
 
   public override void LevelUp(int amount) => throw new NotImplementedException("Cisco room os mic volume control is not supported");

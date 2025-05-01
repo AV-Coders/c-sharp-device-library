@@ -45,8 +45,8 @@ public class QsysVolumeControl : VolumeControl
         _dsp = dsp;
         _levelNamedControl = audioBlockInfo.LevelInstanceTag;
         _muteNamedControl = audioBlockInfo.MuteInstanceTag;
-        _dsp.AddControl(volumeLevel => VolumeLevelHandlers?.Invoke(volumeLevel), _levelNamedControl);
-        _dsp.AddControl(muteState => MuteStateHandlers?.Invoke(muteState), _muteNamedControl);
+        _dsp.AddControl(volumeLevel => Volume = volumeLevel, _levelNamedControl);
+        _dsp.AddControl(muteState => MuteState = muteState, _muteNamedControl);
     }
     
     public override void LevelUp(int amount) => _dsp.LevelUp(_levelNamedControl, amount);

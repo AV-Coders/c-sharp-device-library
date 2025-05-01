@@ -63,8 +63,8 @@ public class BoseCspSoIPVolumeControl : VolumeControl
     {
         _dsp = dsp;
         _controlName = audioBlockInfo.ControlName;
-        _dsp.AddControl(volumeLevel => VolumeLevelHandlers?.Invoke(volumeLevel), _controlName);
-        _dsp.AddControl(muteState => MuteStateHandlers?.Invoke(muteState), _controlName);
+        _dsp.AddControl(volumeLevel => Volume = volumeLevel, _controlName);
+        _dsp.AddControl(muteState => MuteState = muteState, _controlName);
     }
     
     public override void LevelUp(int amount) => _dsp.LevelUp(_controlName, amount);

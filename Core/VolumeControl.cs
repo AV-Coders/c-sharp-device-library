@@ -13,18 +13,42 @@ public abstract class VolumeControl
     public readonly VolumeType Type;
     public VolumeLevelHandler? VolumeLevelHandlers;
     public MuteStateHandler? MuteStateHandlers;
-    private int _currentLevel;
+    private int _volume;
     private int? _storedLevel = null;
-    private MuteState _currentMuteState;
+    private MuteState _muteState;
     private MuteState? _storedMuteState = null;
+
+    public int Volume
+    {
+        get => _volume;
+        protected set
+        {
+            if( _volume == value)
+                return;
+            _volume = value;
+            VolumeLevelHandlers?.Invoke(_volume);
+        }
+    }
+
+    public MuteState MuteState
+    {
+        get => _muteState;
+        protected set
+        {
+            if( _muteState == value)
+                return;
+            _muteState = value;
+            MuteStateHandlers?.Invoke(_muteState);
+        }
+    }
 
     protected VolumeControl(string name, VolumeType type)
     {
         Name = name;
         Type = type;
         
-        VolumeLevelHandlers += x => _currentLevel = x;
-        MuteStateHandlers += x => _currentMuteState = x;
+        VolumeLevelHandlers += x => _volume = x;
+        MuteStateHandlers += x => _muteState = x;
     }
 
     public abstract void LevelUp(int amount);
@@ -39,8 +63,8 @@ public abstract class VolumeControl
     
     public void SaveLevel()
     {
-        _storedLevel = _currentLevel;
-        _storedMuteState = _currentMuteState;
+        _storedLevel = _volume;
+        _storedMuteState = _muteState;
     }
 
     public void RestoreLevel()

@@ -6,8 +6,8 @@
         <IsPackable>false</IsPackable>
         <AssemblyName>AVCoders.Conference.Tests</AssemblyName>
         <RootNamespace>AVCoders.Conference.Tests</RootNamespace>
-        <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
         <LangVersion>default</LangVersion>
+        <TargetFramework>net8.0</TargetFramework>
     </PropertyGroup>
 
     <ItemGroup>

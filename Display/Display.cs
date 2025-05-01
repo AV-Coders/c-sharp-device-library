@@ -21,7 +21,6 @@ public abstract class Display : VolumeControl, IDevice
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public InputHandler? InputHandlers;
-    private int _volume = 0;
     private MuteState _audioMute = MuteState.Unknown;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     private MuteState _videoMute = MuteState.Unknown;
@@ -64,18 +63,6 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             _powerState = value;
             PowerStateHandlers?.Invoke(value);
-        }
-    }
-    
-    public int Volume
-    {
-        get => _volume;
-        protected set
-        {
-            if(_volume == value)
-                return;
-            _volume = value;
-            VolumeLevelHandlers?.Invoke(value);
         }
     }
 
