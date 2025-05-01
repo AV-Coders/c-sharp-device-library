@@ -61,6 +61,7 @@ public class CiscoRoomOs : Conference
     public readonly CiscoCE9PhonebookParser PhoneBookParser;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
+    public StringHandler? OutputVolumeResponseHandlers;
 
     public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, PeripheralType peripheralType = PeripheralType.ControlSystem)
     {
@@ -83,9 +84,11 @@ public class CiscoRoomOs : Conference
         SendCommand($"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: {_peripheralType.ToString()} Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
         SendCommand("xFeedback register /Status/Standby");
         SendCommand("xFeedback register /Status/Call");
+        SendCommand("xFeedback register /Status/Audio/Volume");
         SendCommand("xStatus Standby");
         SendCommand("xStatus Call");
         SendCommand("xStatus SIP Registration URI");
+        SendCommand("xStatus Audio Volume");
         PhoneBookParser.RequestPhonebook();
       }
       catch (Exception ex)

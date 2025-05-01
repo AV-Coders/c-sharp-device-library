@@ -77,6 +77,7 @@ public class CiscoRoomOsTest
 
     [Theory]
     [InlineData(50)]
+    [InlineData(60)]
     public void VolumeStatusResponse_UpdatesVolumeLevel(int volume)
     {
         _mockClient.Object.ResponseHandlers!.Invoke($"*s Audio Volume: {volume}\n");
