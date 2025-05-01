@@ -75,6 +75,7 @@ public abstract class Display : VolumeControl, IDevice
             if (_audioMute == value)
                 return;
             _audioMute = value;
+            MuteState = value;
             MuteStateHandlers?.Invoke(AudioMute);
         }
     }
