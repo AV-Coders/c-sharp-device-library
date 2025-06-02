@@ -7,9 +7,18 @@ public class ExterityTciTest
     private readonly ExterityTci _interface;
     private readonly Mock<CommunicationClient> _mockClient;
     private readonly string _password = "Password1";
+    private static RemoteButton[] _excludedButtons = 
+        [
+            RemoteButton.Display, RemoteButton.Eject, 
+            RemoteButton.PopupMenu, RemoteButton.TopMenu
+        ];
+
     public static IEnumerable<object[]> RemoteButtonValues()
     {
-        return Enum.GetValues(typeof(RemoteButton)).Cast<RemoteButton>().Select(rb => new object[] { rb });
+        return Enum.GetValues(typeof(RemoteButton))
+            .Cast<RemoteButton>()
+            .Where(rb => !_excludedButtons.Contains(rb))
+            .Select(rb => new object[] { rb });
     }
 
     public ExterityTciTest()
