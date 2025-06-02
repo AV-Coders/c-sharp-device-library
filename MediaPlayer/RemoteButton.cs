@@ -38,5 +38,9 @@ public enum RemoteButton
     Green,
     Red,
     Guide,
-    Menu
+    Menu,
+    Eject,
+    TopMenu,
+    PopupMenu,
+    Display
 }
