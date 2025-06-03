@@ -21,7 +21,7 @@ public abstract class LogBase
         _logProperties[name] = value;
     }
 
-    private IDisposable PushProperties()
+    protected IDisposable PushProperties()
     {
         var disposables = new List<IDisposable>();
 
