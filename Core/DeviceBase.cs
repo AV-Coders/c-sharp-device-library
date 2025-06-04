@@ -73,7 +73,7 @@ public abstract class DeviceBase : IDevice
         _logProperties[name] = value;
     }
     
-    private IDisposable PushProperties()
+    protected IDisposable PushProperties()
     {
         var disposables = new List<IDisposable>();
 
