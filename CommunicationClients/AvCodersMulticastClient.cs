@@ -15,11 +15,12 @@ public class AvCodersMulticastClient : IpComms
         using (LogContext.PushProperty(MethodProperty, "Constructor"))
         {
             ConnectionState = ConnectionState.Connecting;
-            IPEndPoint localEndPoint = new IPEndPoint(IPAddress.Any, port);
+            IPEndPoint localEndPoint = new IPEndPoint(IPAddress.Any, 0);
             _client = new UdpClient(localEndPoint);
 
-            _remoteEndPoint = new IPEndPoint(IPAddress.Parse(ipAddress), port);
-            _client.JoinMulticastGroup(IPAddress.Parse(ipAddress));
+            var multicastIp = IPAddress.Parse(ipAddress);
+            _remoteEndPoint = new IPEndPoint(multicastIp, port);
+            _client.JoinMulticastGroup(multicastIp);
 
             ConnectionState = ConnectionState.Connected;
 
