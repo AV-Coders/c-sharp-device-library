@@ -35,7 +35,7 @@ public class ColorlightDeviceControlProtocolClassB : Display
         CommunicationClient.Send([0x07, 0x10, 0x03, 0x13, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, (byte)preset, 0x00]);
     }
 
-    protected override Task Poll(CancellationToken token)
+    protected override Task DoPoll(CancellationToken token)
     {
         PollWorker.Stop();
         return Task.CompletedTask;

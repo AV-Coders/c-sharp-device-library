@@ -61,7 +61,7 @@ public class SamsungMdc : Display
         _pollMuteCommand = new byte[] { 0xAA, MuteControlCommand, _displayId, 0x00,  GenerateChecksum(pollMuteCommandWithoutChecksum)};
     }
 
-    protected override Task Poll(CancellationToken token)
+    protected override Task DoPoll(CancellationToken token)
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {

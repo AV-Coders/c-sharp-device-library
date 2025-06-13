@@ -75,7 +75,7 @@ public class PhilipsSICP : Display
     }
 
 
-    protected override async Task Poll(CancellationToken token)
+    protected override async Task DoPoll(CancellationToken token)
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {

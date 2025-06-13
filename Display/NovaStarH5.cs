@@ -58,7 +58,7 @@ public class NovaStarH5 : Display
         });
     }
 
-    protected override Task Poll(CancellationToken token) => PollWorker.Stop();
+    protected override Task DoPoll(CancellationToken token) => PollWorker.Stop();
 
     protected override void DoPowerOn()
     {

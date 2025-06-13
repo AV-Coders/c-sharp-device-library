@@ -91,7 +91,7 @@ public class LGCommercial : Display, ISetTopBox
     {
         if (connectionState != ConnectionState.Connected) 
             return;
-        Poll(new CancellationToken());
+        Poll(CancellationToken.None);
     }
 
     private void HandleResponse(string response)
@@ -141,7 +141,7 @@ public class LGCommercial : Display, ISetTopBox
 
     private void SendCommand(string header, string value) => CommunicationClient.Send($"{header} {_setId:d2} {value}\r");
 
-    protected override Task Poll(CancellationToken token)
+    protected override Task DoPoll(CancellationToken token)
     {
         PowerState = CommunicationClient.GetConnectionState() switch
         {

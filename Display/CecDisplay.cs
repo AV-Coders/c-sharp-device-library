@@ -111,7 +111,7 @@ public class CecDisplay : Display, ISetTopBox
         }
     }
 
-    protected override Task Poll(CancellationToken token)
+    protected override Task DoPoll(CancellationToken token)
     {
         Debug("Polling Power");
         Send(new[] { '\xF0', '\x8F' });

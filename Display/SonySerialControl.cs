@@ -52,7 +52,7 @@ public class SonySerialControl : Display
         _client = client;
     }
 
-    protected override Task Poll(CancellationToken token) => PollWorker.Stop();
+    protected override Task DoPoll(CancellationToken token) => PollWorker.Stop();
 
     private void SendCommand(char [] command) => _client.Send(command);
 

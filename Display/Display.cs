@@ -98,7 +98,14 @@ public abstract class Display : VolumeControl, IDevice
         }
     }
 
-    protected abstract Task Poll(CancellationToken token);
+    protected Task Poll(CancellationToken token)
+    {
+        using (LogContext.PushProperty(LogBase.MethodProperty, "Poll"))
+        {
+            return DoPoll(token);
+        }
+    }
+    protected abstract Task DoPoll(CancellationToken token);
 
     protected void ProcessPowerResponse()
     {

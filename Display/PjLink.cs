@@ -39,7 +39,7 @@ public class PjLink : Display
         CommunicationClient.ResponseHandlers += HandleResponse;
     }
 
-    protected override Task Poll(CancellationToken token)
+    protected override Task DoPoll(CancellationToken token)
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
