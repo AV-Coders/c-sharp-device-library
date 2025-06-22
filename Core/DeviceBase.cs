@@ -73,7 +73,7 @@ public abstract class DeviceBase : IDevice
         _logProperties[name] = value;
     }
     
-    protected IDisposable PushProperties()
+    protected IDisposable PushProperties(string? methodName = null)
     {
         var disposables = new List<IDisposable>();
 
@@ -85,6 +85,8 @@ public abstract class DeviceBase : IDevice
         disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
         disposables.Add(LogContext.PushProperty("Class", GetType().Name));
         disposables.Add(LogContext.PushProperty("InstanceName", Name));
+        if(methodName != null)
+            disposables.Add(LogContext.PushProperty(LogBase.MethodProperty, methodName));
 
         return new DisposableItems(disposables);
     }
