@@ -27,6 +27,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\CommunicationClients\CommunicationClients.csproj" />
       <ProjectReference Include="..\Core\Core.csproj" />
       <ProjectReference Include="..\MediaPlayer\MediaPlayer.csproj" />
     </ItemGroup>

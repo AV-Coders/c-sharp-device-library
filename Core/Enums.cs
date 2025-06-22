@@ -41,9 +41,12 @@ public enum TransportState
     Recording,
     RecordingPaused,
     Stopped,
+    Stopping,
     PreparingToRecord,
     Playing,
-    Paused
+    Paused,
+    Ready,
+    
 }
 
 public enum MediaState
