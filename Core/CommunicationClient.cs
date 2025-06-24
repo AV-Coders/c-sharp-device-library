@@ -98,7 +98,7 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         }
         catch (Exception e)
         {
-            Error("A Response handler threw an exception");
+            Error($"A Response handler threw an exception when given response:\n\t {response}");
             LogException(e);
         }
     }
