@@ -10,9 +10,9 @@ public abstract class Dsp : DeviceBase
 
     protected readonly ThreadWorker PollWorker;
 
-    protected Dsp(string name, int pollTimeInMs) : base(name)
+    protected Dsp(string name, int pollIntervalInSeconds) : base(name)
     {
-        PollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollTimeInMs));
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollIntervalInSeconds));
         Task.Run(async () =>
         {
             await Task.Delay(1000);

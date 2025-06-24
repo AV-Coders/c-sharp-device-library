@@ -1,5 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Dsp;
 
@@ -20,8 +21,6 @@ public class BiampGain : Fader
 {
     public readonly int ControlIndex;
     public readonly string ControlName;
-    public bool MinSet = false;
-    public bool MaxSet = false;
     public BiampGain(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex) : base(volumeLevelHandler, false)
     {
         ControlName = controlName;
@@ -92,7 +91,7 @@ public class BiampTtp : Dsp
     private int _pollCount = 0;
     
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollTimeInMs = 29000) : base(name, pollTimeInMs)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 5) : base(name, pollIntervalInSeconds)
     {
         _commsClient = commsClient;
         _commsClient.ResponseHandlers += HandleResponse;
@@ -124,44 +123,52 @@ public class BiampTtp : Dsp
 
     private void Resubscribe()
     {
-        Verbose($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
-        Thread.Sleep(TimeSpan.FromSeconds(5));
-        _deviceSubscriptions.ForEach(subscriptionCommand =>
+        using (PushProperties("Resubscribe"))
         {
-            _commsClient.Send(subscriptionCommand);
-            Verbose($"Sending: {subscriptionCommand}");
-        });
-        Thread.Sleep(TimeSpan.FromSeconds(1));
-        PollWorker.Restart();
+            Verbose($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
+            Thread.Sleep(TimeSpan.FromSeconds(5));
+            _deviceSubscriptions.ForEach(subscriptionCommand =>
+            {
+                _commsClient.Send(subscriptionCommand);
+                Verbose($"Sending: {subscriptionCommand}");
+            });
+            Thread.Sleep(TimeSpan.FromSeconds(1));
+            PollWorker.Restart();
+        }
     }
 
     protected override Task Poll(CancellationToken token)
     {
-        if (_commsClient.GetConnectionState() != ConnectionState.Connected)
+        using (PushProperties("Poll"))
         {
-            Verbose("IP Comms disconnected, not polling");
+            if (_commsClient.GetConnectionState() != ConnectionState.Connected)
+            {
+                Verbose("IP Comms disconnected, not polling");
+                return Task.CompletedTask;
+            }
+            
+            if (_activeQueries.Count > 0)
+                _commsClient.Send(_activeQueries[0].DspCommand);
+            else
+            {
+                _activeQueries.Clear();
+                _commsClient.Send("DEVICE get version\n");
+                Reinitialise();
+            }
+
+            _pollCount++;
             return Task.CompletedTask;
         }
-        Verbose("Device Connected - Polling");
-        if(_activeQueries.Count > 0)
-            _commsClient.Send(_activeQueries[0].DspCommand);
-        else
-        {
-            _activeQueries.Clear();
-            _commsClient.Send("DEVICE get version\n");
-        }
-
-        _pollCount++;
-        
-        if(_pollCount > 10) // Re-query every 20 poll cycles.  _pollCount will be reset whenever a level/mute change as well
-            Reinitialise();
-        return Task.CompletedTask;
     }
 
     public override void Reinitialise()
     {
-        _pollCount = 0;
-        _moduleQueries.ForEach(x => _activeQueries.Add(x));
+        using (PushProperties("Reinitialise"))
+        {
+            Log.Verbose("Reinitialising Biamp TTP");
+            _pollCount = 0;
+            _moduleQueries.ForEach(x => _activeQueries.Add(x));
+        }
     }
 
     private void HandleResponse(string response)
