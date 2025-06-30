@@ -344,7 +344,10 @@ public class QsysEcp : Dsp
 
     public override void Reinitialise() => GetAllControlStates();
 
+    [Obsolete("This method is deprecated in favor of TriggerPreset")]
     public void RecallPreset(string controlName) =>_tcpClient.Send($"csv \"{controlName}\" 1 \n");
+    
+    public void TriggerPreset(string controlName) => _tcpClient.Send($"ct \"{controlName}\"\n");
     
     public void RecallPreset(string controlName, int value, double rampTime = 0) 
         => _tcpClient.Send($"ssl \"{controlName}\" {value} {rampTime}\n");
