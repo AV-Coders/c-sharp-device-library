@@ -3,15 +3,15 @@ using AVCoders.Core;
 
 namespace AVCoders.Camera.Tests;
 
-public class OneBeyondTest
+public class AutomateVxTest
 {
     private readonly Mock<RestComms> _mockClient;
-    private readonly OneBeyond _oneBeyond;
+    private readonly AutomateVX _automateVx;
     
-    public OneBeyondTest()
+    public AutomateVxTest()
     {
         _mockClient = new("foo", (ushort)1, "Test");
-        _oneBeyond = new OneBeyond(_mockClient.Object);
+        _automateVx = new AutomateVX(_mockClient.Object);
     }
     
     [Fact]
@@ -36,7 +36,7 @@ public class OneBeyondTest
     public void ResponseHandler_ProcessesLayoutResponses()
     {
         Mock<LayoutsChangedHandler> mockHandler = new();
-        _oneBeyond.LayoutsChangedHandlers = mockHandler.Object;
+        _automateVx.LayoutsChangedHandlers = mockHandler.Object;
         
         var response = new HttpResponseMessage(HttpStatusCode.OK);
         response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Layouts loaded successfully\",\n    \"layouts\": [\n        {\n            \"id\": \"A\",\n            \"name\": \"Full Screen\"\n        },\n        {\n            \"id\": \"B\",\n            \"name\": \"Dynamic Q&A\"\n        },\n        {\n            \"id\": \"C\",\n            \"name\": \"PiP\"\n        }\n    ]\n}");
@@ -54,7 +54,7 @@ public class OneBeyondTest
     public void ResponseHandler_ProcessesScenarioResponses()
     {
         Mock<ScenariosChangedHandler> mockHandler = new();
-        _oneBeyond.ScenariosChangedHandlers = mockHandler.Object;
+        _automateVx.ScenariosChangedHandlers = mockHandler.Object;
         
         var response = new HttpResponseMessage(HttpStatusCode.OK);
         response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Scenarios loaded successfully\",\n    \"scenarios\": [\n        {\n            \"id\": 1,\n            \"name\": \"Scenario 1\"\n        },\n        {\n            \"id\": 2,\n            \"name\": \"Scenario 2\"\n        }\n    ]\n}");
@@ -71,38 +71,38 @@ public class OneBeyondTest
     public void ResponseHandler_InvokesTheScenarioHandler()
     {
         Mock<IntHandler> mockhandler = new();
-        _oneBeyond.ActiveScenarioChangedHandlers += mockhandler.Object;
+        _automateVx.ActiveScenarioChangedHandlers += mockhandler.Object;
         var response = new HttpResponseMessage(HttpStatusCode.OK);
         response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Successfully called scenario 1\",\n    \"cameras\": []\n}");
         _mockClient.Object.HttpResponseHandlers!.Invoke(response);
         
         mockhandler.Verify(x => x.Invoke(0));
-        Assert.Equal(0, _oneBeyond.ActiveScenario);
+        Assert.Equal(0, _automateVx.ActiveScenario);
     }
 
     [Fact]
     public void ResponseHandler_InvokesTheScenarioHandlerForADifferentIndex()
     {
         Mock<IntHandler> mockhandler = new();
-        _oneBeyond.ActiveScenarioChangedHandlers += mockhandler.Object;
+        _automateVx.ActiveScenarioChangedHandlers += mockhandler.Object;
         var response = new HttpResponseMessage(HttpStatusCode.OK);
         response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Successfully called scenario 2\",\n    \"cameras\": []\n}");
         _mockClient.Object.HttpResponseHandlers!.Invoke(response);
         
         mockhandler.Verify(x => x.Invoke(1));
-        Assert.Equal(1, _oneBeyond.ActiveScenario);
+        Assert.Equal(1, _automateVx.ActiveScenario);
     }
     
     [Fact]
     public void ResponseHandler_InvokesTheLayoutHandler()
     {
         Mock<IntHandler> mockhandler = new();
-        _oneBeyond.ActiveLayoutChangedHandlers += mockhandler.Object;
+        _automateVx.ActiveLayoutChangedHandlers += mockhandler.Object;
         var response = new HttpResponseMessage(HttpStatusCode.OK);
         response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Changed to Layout C\"\n}");
         _mockClient.Object.HttpResponseHandlers!.Invoke(response);
         
         mockhandler.Verify(x => x.Invoke(2));
-        Assert.Equal(2, _oneBeyond.ActiveLayout);
+        Assert.Equal(2, _automateVx.ActiveLayout);
     }
 }

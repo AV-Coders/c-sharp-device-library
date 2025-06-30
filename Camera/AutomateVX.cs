@@ -10,7 +10,7 @@ public record OneBeyondScenario(int Id, string Name);
 public delegate void LayoutsChangedHandler(List<OneBeyondLayout> layouts);
 public delegate void ScenariosChangedHandler(List<OneBeyondScenario> layouts);
 
-public class OneBeyond : DeviceBase
+public class AutomateVX : DeviceBase
 {
     /// <summary>
     /// Legacy protocol (http) used for VX1 systems.
@@ -84,7 +84,7 @@ public class OneBeyond : DeviceBase
         }
     }
 
-    public OneBeyond(RestComms client, string username = "admin", string password = "1beyond") :
+    public AutomateVX(RestComms client, string username = "admin", string password = "1beyond") :
         base("1Beyond")
     {
         _client = client;
