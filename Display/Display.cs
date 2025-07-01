@@ -142,7 +142,7 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOn()
     {
         DoPowerOn();
-        Debug("Turning On");
+        Verbose("Turning On");
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
         if(_defaultInput != null)
@@ -154,7 +154,7 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOff()
     {
         DoPowerOff();
-        Debug("Turning Off");
+        Verbose("Turning Off");
         PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
     }
@@ -169,7 +169,7 @@ public abstract class Display : VolumeControl, IDevice
             return;
         }
         DoSetInput(input);
-        Debug($"Setting input to {input.ToString()}");
+        Verbose($"Setting input to {input.ToString()}");
         DesiredInput = input;
         Input = input;
     }
@@ -209,6 +209,7 @@ public abstract class Display : VolumeControl, IDevice
 
     public override void SetAudioMute(MuteState state)
     {
+        Verbose($"Setting audio mute to {state.ToString()}");
         DesiredAudioMute = state;
         DoSetAudioMute(state);
         AudioMute = state;

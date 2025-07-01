@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -65,11 +66,11 @@ public class SamsungMdc : Display
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
-            Debug("Not polling");
+            Log.Warning("Not polling");
             return Task.CompletedTask;
         }
         
-        Debug("Polling Power");
+        Verbose("Polling Power");
         
         CommunicationClient.Send(_pollPowerCommand);
         if (PowerState != PowerState.On) 
@@ -208,7 +209,6 @@ public class SamsungMdc : Display
 
     protected override void DoSetAudioMute(MuteState state)
     {
-        Debug($"Setting mute to {state.ToString()}");
         sendCommandWithOneDataLength(MuteControlCommand, _muteDictionary[state]);
     }
 }

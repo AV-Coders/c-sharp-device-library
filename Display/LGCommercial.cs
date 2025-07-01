@@ -159,17 +159,17 @@ public class LGCommercial : Display, ISetTopBox
             return Task.CompletedTask;
         }
         
-        Debug("Polling");
+        Verbose("Polling");
         SendCommand(_powerHeader, _pollArgument);
         Task.Delay(1000, token).Wait(token);
         SendCommand(_inputHeader, _pollArgument);
-        Debug("Polling input");
+        Verbose("Polling input");
         Task.Delay(1000, token).Wait(token);
         SendCommand(_volumeHeader, _pollArgument);
-        Debug("Polling volume");
+        Verbose("Polling volume");
         Task.Delay(1000, token).Wait(token);
         SendCommand(_muteHeader,  _pollArgument);
-        Debug("Polling mute");
+        Verbose("Polling mute");
         
         return Task.CompletedTask;
     }

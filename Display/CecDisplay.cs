@@ -113,7 +113,7 @@ public class CecDisplay : Display, ISetTopBox
 
     protected override Task DoPoll(CancellationToken token)
     {
-        Debug("Polling Power");
+        Verbose("Polling Power");
         Send(new[] { '\xF0', '\x8F' });
         return Task.CompletedTask;
     }

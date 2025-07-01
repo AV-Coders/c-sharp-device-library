@@ -2,6 +2,7 @@
 using System.Text;
 using AVCoders.Core;
 using AVCoders.MediaPlayer;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -106,12 +107,12 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     private void HandleResponse(String response)
     {
-        Debug("HandleResponse");
+        Verbose("HandleResponse");
         foreach (var singleResponse in response.Split('\n'))
         {
             var trimmedResponse = singleResponse.TrimStart('\t', ' ');
-            Debug(singleResponse);
-            Debug(trimmedResponse);
+            Verbose(singleResponse);
+            Verbose(trimmedResponse);
             if (trimmedResponse.StartsWith("*SNPOWR"))
             {
                 PowerState = PowerStateMap.GetValueOrDefault(trimmedResponse, PowerState.Unknown);
@@ -157,7 +158,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
     {
         if (UnsupportedButtons.Contains(button))
         {
-            Debug($"Unsupported button - {button.ToString()}");
+            Log.Warning($"Unsupported button - {button.ToString()}");
             return;
         }
         SendCommand(WrapMessage($"CIRCC{RemoteButtonMap[button]:D16}"));

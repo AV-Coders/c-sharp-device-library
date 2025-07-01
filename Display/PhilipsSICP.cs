@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -79,10 +80,10 @@ public class PhilipsSICP : Display
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
-            Debug("Not polling");
+            Log.Warning("Not polling");
         }
         
-        Debug("Polling Power");
+        Verbose("Polling Power");
         
         Send(new byte[]{ 0x19 }, 0x00);
         if (PowerState == PowerState.On)

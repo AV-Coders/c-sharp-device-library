@@ -48,7 +48,7 @@ public class NecUhdExternalControl : Display
 
     protected override async Task DoPoll(CancellationToken token)
     {
-        Debug("Polling Power");
+        Verbose("Polling Power");
         //Power
         PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeCommand),
             new byte[] { Stx, 0x30, 0x31, 0x44, 0x36, Etx });
@@ -56,7 +56,7 @@ public class NecUhdExternalControl : Display
         if (PowerState == PowerState.On)
         {
             //Input
-            Debug("Polling Input");
+            Verbose("Polling Input");
             PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeGetParameter),
                 new byte[] { Stx, 0x30, 0x30, 0x36, 0x30, Etx });
             await Task.Delay(1500, token);
@@ -65,7 +65,7 @@ public class NecUhdExternalControl : Display
         if (PowerState == PowerState.On)
         {
             // Volume
-            Debug("Polling Volume");
+            Verbose("Polling Volume");
             PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeGetParameter),
                 new byte[] { Stx, 0x30, 0x30, 0x36, 0x32, Etx });
         }
@@ -98,7 +98,7 @@ public class NecUhdExternalControl : Display
 
     private void ProcessResponse(byte[] response)
     {
-        Debug($"Response: {BitConverter.ToString(response)}");
+        Verbose($"Response: {BitConverter.ToString(response)}");
 
         if (response[4] == MessageTypeCommandReply)
         {

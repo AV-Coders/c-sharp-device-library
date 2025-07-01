@@ -1,6 +1,7 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -43,11 +44,11 @@ public class PjLink : Display
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
         {
-            Debug("Not polling");
+            Log.Warning("Not polling");
             return Task.CompletedTask;
         }
         
-        Debug("Polling");
+        Verbose("Polling");
         PollProjector(_pollTask);
         
         _pollTask = _pollTask switch
@@ -62,7 +63,7 @@ public class PjLink : Display
 
     private void PollProjector(PollTask pollTask)
     {
-        Debug("Polling");
+        Verbose("Polling");
         switch (pollTask)
         {
             case PollTask.Power:
