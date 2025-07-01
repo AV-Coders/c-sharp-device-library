@@ -89,7 +89,8 @@ public class BiampTtp : Dsp
     private readonly List<Query> _activeQueries = new();
     private readonly List<string> _deviceSubscriptions = new();
     private int _pollCount = 0;
-    
+    private bool _lastRequestWasForTheVersion;
+
 
     public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 5) : base(name, pollIntervalInSeconds)
     {
@@ -153,6 +154,7 @@ public class BiampTtp : Dsp
             {
                 _activeQueries.Clear();
                 _commsClient.Send("DEVICE get version\n");
+                _lastRequestWasForTheVersion = true;
                 Reinitialise();
             }
 
@@ -178,6 +180,11 @@ public class BiampTtp : Dsp
         {
             if (line.StartsWith("+OK \"value\":"))
             {
+                if (_lastRequestWasForTheVersion)
+                {
+                    _lastRequestWasForTheVersion = false;
+                    return;
+                }
                 AllocateValueToBlock(line.Split(':')[1]);
             }
             else if (line.StartsWith("!"))
