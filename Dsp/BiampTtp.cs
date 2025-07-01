@@ -316,6 +316,12 @@ public class BiampTtp : Dsp
         _pollCount = 0;
     }
 
+    public void RecallPreset(string presetName)
+    {
+        if(presetName.Length > 0)
+            _commsClient.Send($"DEVICE recallPresetByName \"{presetName}\"\n");
+    }
+
     public void SetLevel(string controlName, int controlIndex, int percentage)
     {
         var index = $"AvCodersLevel-{controlName}-{controlIndex}";

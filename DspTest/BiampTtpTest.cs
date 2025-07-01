@@ -81,4 +81,13 @@ public class BiampTtpTest
         _dsp.RecallPreset(presetNumber);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Theory]
+    [InlineData("EWIS_ON", "DEVICE recallPresetByName \"EWIS_ON\"\n")]
+    [InlineData("EWIS_OFF","DEVICE recallPresetByName \"EWIS_OFF\"\n")]
+    public void RecallPresetByName_RecallsThePreset(string presetName, string expectedCommand)
+    {
+        _dsp.RecallPreset(presetName);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
 }
