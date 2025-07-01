@@ -46,10 +46,10 @@ public class AvCodersSshClient : SshClientBase
     {
         using (LogContext.PushProperty(MethodProperty, "Receive"))
         {
-            Debug("Receive loop start");
+            Verbose("Receive loop start");
             if (_client.IsConnected)
             {
-                Debug("Ready to receive messages...");
+                Verbose("Ready to receive messages...");
                 using var reader = new StreamReader(_stream!);
                 while (!token.IsCancellationRequested)
                 {
@@ -64,7 +64,7 @@ public class AvCodersSshClient : SshClientBase
                 await Task.Delay(TimeSpan.FromSeconds(5), token);
             }
 
-            Debug("Receive loop end");
+            Verbose("Receive loop end");
         }
     }
 
@@ -72,10 +72,10 @@ public class AvCodersSshClient : SshClientBase
     {
         using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
         {
-            Debug("Checking connection state...");
+            Verbose("Checking connection state...");
             if (!_client.IsConnected)
             {
-                Debug("Reconnecting to device");
+                Verbose("Reconnecting to device");
                 ConnectionState = ConnectionState.Disconnected;
                 if (_stream != null)
                     await _stream.DisposeAsync();
@@ -131,7 +131,7 @@ public class AvCodersSshClient : SshClientBase
 
     private async Task<ShellStream> CreateStream(CancellationToken token)
     {
-        Debug("Recreating stream");
+        Verbose("Recreating stream");
         await ReceiveThreadWorker.Stop();
         _stream = _client.CreateShellStream("response", 1000, 1000, 1500, 1000, 8191, _modes);
         _stream.ErrorOccurred += ClientOnErrorOccurred;
