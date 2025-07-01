@@ -85,6 +85,7 @@ public class BiampTtpTest
     [Theory]
     [InlineData("EWIS_ON", "DEVICE recallPresetByName \"EWIS_ON\"\n")]
     [InlineData("EWIS_OFF","DEVICE recallPresetByName \"EWIS_OFF\"\n")]
+    [InlineData("EWIS OFF","DEVICE recallPresetByName \"EWIS OFF\"\n")]
     public void RecallPresetByName_RecallsThePreset(string presetName, string expectedCommand)
     {
         _dsp.RecallPreset(presetName);
