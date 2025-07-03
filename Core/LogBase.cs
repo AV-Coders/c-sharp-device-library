@@ -3,25 +3,19 @@ using Serilog.Context;
 
 namespace AVCoders.Core;
 
-public abstract class LogBase
+public abstract class LogBase(string name)
 {
     public const string MethodProperty = "Method";
-    public readonly string Name;
-    public readonly string InstanceUid;
+    public readonly string Name = name;
+    public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
-
-    protected LogBase(string name)
-    {
-        Name = name;
-        InstanceUid = Guid.NewGuid().ToString();
-    }
 
     public void AddLogProperty(string name, string value)
     {
         _logProperties[name] = value;
     }
 
-    protected IDisposable PushProperties()
+    protected IDisposable PushProperties(string? methodName = null)
     {
         var disposables = new List<IDisposable>();
 
@@ -33,7 +27,9 @@ public abstract class LogBase
         disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
         disposables.Add(LogContext.PushProperty("Class", GetType().Name));
         disposables.Add(LogContext.PushProperty("InstanceName", Name));
-
+        if (methodName != null)
+            disposables.Add(LogContext.PushProperty("Method", methodName));
+        
         return new DisposableItems(disposables);
     }
 
