@@ -32,6 +32,12 @@ public class ExtronMatrixEndpoint : SyncStatus
         InUse = true;
         OutputHdcpStatus = status;
     }
+    
+    public void SetInputHdcpStatus(HdcpStatus status)
+    {
+        InUse = true;
+        InputHdcpStatus = status;
+    }
 
     public void SetName(string name) => Name = name;
 }

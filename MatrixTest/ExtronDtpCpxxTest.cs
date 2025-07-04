@@ -204,6 +204,22 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
+    [InlineData("HdcpI01*1", 0, ConnectionStatus.Connected, HdcpStatus.Active)]
+    [InlineData("HdcpI01*0", 0, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI02*2", 1, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpI02*0", 1, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI03*2", 2, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpI03*0", 2, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI04*1", 3, ConnectionStatus.Connected, HdcpStatus.Active)]
+    [InlineData("HdcpI04*0", 3, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
+    public void HandleResponse_SetsInputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionStatus expected, HdcpStatus expectedHdcpStatus)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
+        Assert.Equal(expected, _switcher.Inputs[arrayIndex].InputConnectionStatus);
+        Assert.True(_switcher.Inputs[arrayIndex].InUse);
+    }
+
+    [Theory]
     [InlineData("HdcpO1*1", 0, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
     [InlineData("HdcpO1*0", 0, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
     [InlineData("HdcpO2*2", 1, ConnectionStatus.Connected, HdcpStatus.Available)]
@@ -216,6 +232,7 @@ public class ExtronDtpCpxxTest
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.ComposedOutputs[arrayIndex].Primary.OutputConnectionStatus);
+        Assert.Equal(expectedHdcpStatus, _switcher.ComposedOutputs[arrayIndex].Primary.OutputHdcpStatus);
         Assert.True(_switcher.ComposedOutputs[arrayIndex].Primary.InUse);
     }
 
@@ -228,6 +245,7 @@ public class ExtronDtpCpxxTest
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.ComposedOutputs[arrayIndex].Primary.OutputConnectionStatus);
+        Assert.Equal(expectedHdcpStatus, _switcher.ComposedOutputs[arrayIndex].Primary.OutputHdcpStatus);
         Assert.True(_switcher.ComposedOutputs[arrayIndex].Primary.InUse);
     }
 
@@ -240,6 +258,7 @@ public class ExtronDtpCpxxTest
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.ComposedOutputs[arrayIndex].Secondary.OutputConnectionStatus);
+        Assert.Equal(expectedHdcpStatus, _switcher.ComposedOutputs[arrayIndex].Secondary.OutputHdcpStatus);
         Assert.True(_switcher.ComposedOutputs[arrayIndex].Secondary.InUse);
     }
 }

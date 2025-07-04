@@ -50,6 +50,35 @@ public class ExtronDtpCpxx : VideoMatrix
                 Inputs[inputNumber].SetInputStatus(connectionStatus);
             }
         }
+        else if (response.StartsWith("HdcpI"))
+        {
+            var parts = response.TrimStart('H', 'd', 'c', 'p', 'I').TrimEnd('\r').Split('*');
+            int inputNumber = int.Parse(parts[0].TakeWhile(char.IsDigit).ToArray());
+            if (inputNumber <= 0 || inputNumber > ComposedOutputs.Count)
+                return;
+            
+            ConnectionStatus connectionStatus = ConnectionStatus.Unknown;
+            HdcpStatus hdcpStatus = HdcpStatus.Unknown;
+            switch (parts[1])
+            {
+                case "0":
+                    connectionStatus = ConnectionStatus.Disconnected;
+                    hdcpStatus = HdcpStatus.Unknown;
+                    break;
+                case "1":
+                    connectionStatus = ConnectionStatus.Connected;
+                    hdcpStatus = HdcpStatus.NotSupported;
+                    break;
+                case "2":
+                    connectionStatus = ConnectionStatus.Connected;
+                    hdcpStatus = HdcpStatus.Active;
+                    break;
+            }
+            
+            Log.Information("Setting output {outputNumber} B as {status}", inputNumber, connectionStatus.ToString()); 
+            Inputs[inputNumber - 1].SetInputStatus(connectionStatus);
+            Inputs[inputNumber - 1].SetInputHdcpStatus(hdcpStatus);
+        }
         else if (response.StartsWith("HdcpO"))
         {
             var parts = response.TrimStart('H', 'd', 'c', 'p', 'O').TrimEnd('\r').Split('*');
@@ -171,6 +200,7 @@ public class ExtronDtpCpxx : VideoMatrix
                 var input = new ExtronMatrixInput($"Input {index}", index);
                 Inputs.Add(input);
                 WrapAndSendCommand($"{index}NI");
+                WrapAndSendCommand($"I{index}HDCP");
             }
 
             while (ComposedOutputs.Count < outputCount)
