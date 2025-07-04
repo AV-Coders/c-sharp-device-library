@@ -40,7 +40,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
             if (value == _deviceNumber)
                 return;
             _deviceNumber = value;
-            if (DeviceType == AVoIPDeviceType.Encoder)
+            if (DeviceType == AVEndpointType.Encoder)
                 StreamAddress = DeviceNumber.ToString();
         }
     }
@@ -52,7 +52,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     }
 
 
-    public NavDeviceBase(string name, AVoIPDeviceType deviceType, string ipAddress, Navigator navigator) : 
+    public NavDeviceBase(string name, AVEndpointType deviceType, string ipAddress, Navigator navigator) : 
         base(name, deviceType, new NavCommunicationEmulator(GetCommunicationClientName(deviceType, name)))
     {
         Navigator = navigator;
@@ -63,7 +63,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         PollWorker.Restart();
     }
 
-    public static string GetCommunicationClientName(AVoIPDeviceType type, string name) => $"{name} {type.ToString()}";
+    public static string GetCommunicationClientName(AVEndpointType type, string name) => $"{name} {type.ToString()}";
 
     private void HandleNavConnectionState(ConnectionState connectionState)
     {
@@ -131,8 +131,8 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     {
         return DeviceType switch
         {
-            AVoIPDeviceType.Encoder => "i",
-            AVoIPDeviceType.Decoder => "o",
+            AVEndpointType.Encoder => "i",
+            AVEndpointType.Decoder => "o",
             _ => throw new ArgumentOutOfRangeException(nameof(DeviceType), DeviceType, null)
         };
     }

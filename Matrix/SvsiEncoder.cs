@@ -4,7 +4,7 @@ namespace AVCoders.Matrix;
 
 public class SvsiEncoder : SvsiBase
 {
-    public SvsiEncoder(string name, TcpClient tcpClient) : base(name, tcpClient, AVoIPDeviceType.Encoder)
+    public SvsiEncoder(string name, TcpClient tcpClient) : base(name, tcpClient, AVEndpointType.Encoder)
     {
     }
 

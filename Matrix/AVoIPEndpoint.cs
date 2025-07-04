@@ -2,30 +2,14 @@ using AVCoders.Core;
 
 namespace AVCoders.Matrix;
 
-public enum AVoIPDeviceType
-{
-    Encoder,
-    Decoder
-};
-
 public delegate void AddressChangeHandler(string streamAddress);
 
-public abstract class AVoIPEndpoint : SyncStatus
+public abstract class AVoIPEndpoint(string name, AVEndpointType deviceType, CommunicationClient communicationClient)
+    : SyncStatus(name, deviceType)
 {
-    public readonly AVoIPDeviceType DeviceType;
-    public readonly CommunicationClient CommunicationClient;
-    public AddressChangeHandler? StreamChangeHandlers;
+    public readonly CommunicationClient CommunicationClient = communicationClient;
     public AddressChangeHandler? PreviewUrlChangeHandlers;
-    private string _streamAddress;
-    private string _previewUrl;
-    public string StreamAddress { 
-        get => _streamAddress;
-        protected set
-        {
-            _streamAddress = value;
-            StreamChangeHandlers?.Invoke(value);
-        }
-    }
+    private string _previewUrl = String.Empty;
 
     public string PreviewUrl
     {
@@ -35,15 +19,5 @@ public abstract class AVoIPEndpoint : SyncStatus
             _previewUrl = value;
             PreviewUrlChangeHandlers?.Invoke(value);
         }
-    }
-
-
-    protected AVoIPEndpoint(string name, AVoIPDeviceType deviceType, CommunicationClient communicationClient) : base(name)
-    {
-        DeviceType = deviceType;
-        CommunicationClient = communicationClient;
-        _streamAddress = String.Empty;
-        PreviewUrl = String.Empty;
-        _previewUrl = String.Empty;
     }
 }

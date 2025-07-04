@@ -9,7 +9,7 @@ public class SvsiDecoder : SvsiBase
     private readonly Dictionary<MuteState, string> _audoMuteDictionary;
     private MuteState _muteState = MuteState.Off;
     
-    public SvsiDecoder(string name, TcpClient tcpClient) : base(name, tcpClient, AVoIPDeviceType.Decoder)
+    public SvsiDecoder(string name, TcpClient tcpClient) : base(name, tcpClient, AVEndpointType.Decoder)
     {
         _audoMuteDictionary = new Dictionary<MuteState, string>
         {

@@ -2,26 +2,46 @@
 
 namespace AVCoders.Matrix;
 
-public delegate void SyncInfoHandler(ConnectionStatus status, string resolution);
+public enum AVEndpointType
+{
+    Unnown,
+    Encoder,
+    Decoder
+}
+
+public delegate void SyncInfoHandler(ConnectionStatus status, string resolution, HdcpStatus hdcpStatus);
 
 public enum ConnectionStatus
 {
+    Unknown,
     Connected,
     Disconnected,
 }
 
-public abstract class SyncStatus : LogBase
+public enum HdcpStatus
+{
+    Unknown,
+    NotSupported,
+    Available,
+    Active,
+}
+
+public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(name)
 {
     private ConnectionStatus _inputConnectionStatus;
     private string _inputResolution = String.Empty;
+    private HdcpStatus _inputHdcpStatus = HdcpStatus.Unknown;
+    public SyncInfoHandler? InputStatusChangedHandlers;
+    
     private ConnectionStatus _outputConnectionStatus;
     private string _outputResolution = String.Empty;
-    public SyncInfoHandler? InputStatusChangedHandlers;
+    private HdcpStatus _outputHdcpStatus = HdcpStatus.Unknown;
     public SyncInfoHandler? OutputStatusChangedHandlers;
-
-    protected SyncStatus(string name) : base(name)
-    {
-    }
+    
+    private string _streamAddress = String.Empty;
+    public AddressChangeHandler? StreamChangeHandlers;
+    
+    public readonly AVEndpointType DeviceType = type;
 
     public ConnectionStatus InputConnectionStatus
     {
@@ -31,7 +51,16 @@ public abstract class SyncStatus : LogBase
             if (_inputConnectionStatus == value)
                 return;
             _inputConnectionStatus = value;
-            InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution);
+            InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution, _inputHdcpStatus);
+        }
+    }
+    
+    public string StreamAddress { 
+        get => _streamAddress;
+        protected set
+        {
+            _streamAddress = value;
+            StreamChangeHandlers?.Invoke(value);
         }
     }
 
@@ -43,7 +72,7 @@ public abstract class SyncStatus : LogBase
             if(_inputResolution == value)
                 return;
             _inputResolution = value;
-            InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution);
+            InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution, _inputHdcpStatus);
         }
     }
 
@@ -55,7 +84,7 @@ public abstract class SyncStatus : LogBase
             if (_outputConnectionStatus == value)
                 return;
             _outputConnectionStatus = value;
-            OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution);
+            OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution, _outputHdcpStatus);
         }
     }
 
@@ -67,7 +96,31 @@ public abstract class SyncStatus : LogBase
             if(_outputResolution == value)
                 return;
             _outputResolution = value;
-            OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution);
+            OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution, _outputHdcpStatus);
+        }
+    }
+    
+    public HdcpStatus InputHdcpStatus
+    {
+        get => _inputHdcpStatus;
+        protected set
+        {
+            if (_inputHdcpStatus == value)
+                return;
+            _inputHdcpStatus = value;
+            InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution, _inputHdcpStatus);
+        }
+    }
+
+    public HdcpStatus OutputHdcpStatus
+    {
+        get => _outputHdcpStatus;
+        protected set
+        {
+            if (_outputHdcpStatus == value)
+                return;
+            _outputHdcpStatus = value;
+            OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution, _outputHdcpStatus);
         }
     }
 }

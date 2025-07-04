@@ -3,7 +3,7 @@
 public class NavEncoder : NavDeviceBase
 {
     public NavEncoder(string name, string ipAddress, Navigator navigator)
-        : base(name, AVoIPDeviceType.Encoder, ipAddress, navigator)
+        : base(name, AVEndpointType.Encoder, ipAddress, navigator)
     {
     }
 

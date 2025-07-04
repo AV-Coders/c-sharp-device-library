@@ -41,7 +41,7 @@ public class NavDecoder : NavDeviceBase
     };
 
     public NavDecoder(string name, string ipAddress, Navigator navigator) 
-        : base(name, AVoIPDeviceType.Decoder, ipAddress, navigator)
+        : base(name, AVEndpointType.Decoder, ipAddress, navigator)
     {
     }
 

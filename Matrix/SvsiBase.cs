@@ -22,7 +22,7 @@ public abstract class SvsiBase : AVoIPEndpoint
         }
     }
 
-    public SvsiBase(string name, TcpClient tcpClient, AVoIPDeviceType deviceType) : base(name, deviceType, tcpClient)
+    public SvsiBase(string name, TcpClient tcpClient, AVEndpointType deviceType) : base(name, deviceType, tcpClient)
     {
         StatusDictionary = new Dictionary<string, string>();
         CommunicationClient.ResponseHandlers += HandleResponse;

@@ -5,10 +5,23 @@ namespace AVCoders.Core;
 
 public abstract class LogBase(string name)
 {
+    private string _name = name;
     public const string MethodProperty = "Method";
-    public readonly string Name = name;
     public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
+    public StringHandler? NameChangedHandlers;
+
+    public string Name
+    {
+        get => _name;
+        protected set
+        {
+            if (value == _name)
+                return;
+            _name = value;
+            NameChangedHandlers?.Invoke(value);
+        }
+    }
 
     public void AddLogProperty(string name, string value)
     {
