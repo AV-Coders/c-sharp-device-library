@@ -17,7 +17,7 @@ public class SvsiEncoder : SvsiBase
             StatusDictionary.TryGetValue("DVIINPUT", out var connected))
         {
             InputConnectionStatus =
-                connected == "connected" ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
+                connected == "connected" ? ConnectionState.Connected : ConnectionState.Disconnected;
             InputResolution = resolution;
         }
     }

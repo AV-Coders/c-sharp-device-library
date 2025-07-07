@@ -27,7 +27,7 @@ public class SvsiDecoder : SvsiBase
             StatusDictionary.TryGetValue("DVISTATUS", out var connected))
         {
             OutputConnectionStatus =
-                connected == "connected" ? ConnectionStatus.Connected : ConnectionStatus.Disconnected;
+                connected == "connected" ? ConnectionState.Connected : ConnectionState.Disconnected;
             OutputResolution = resolution.Replace(".mode", String.Empty);
         }
 

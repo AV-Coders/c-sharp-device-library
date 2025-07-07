@@ -38,7 +38,7 @@ public class SvsiEncoderTest
         Assert.Equal("10.56.78.99", _svsiEncoder.StatusDictionary["IP"]);
         Assert.Equal("00:19:00:11:22:33", _svsiEncoder.StatusDictionary["MAC"]);
         Assert.Equal((uint)2, _svsiEncoder.StreamId);
-        _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionStatus.Disconnected, "0x0", HdcpStatus.Unknown));
+        _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Disconnected, "0x0", HdcpStatus.Unknown));
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class SvsiEncoderTest
         _mockClient.Object.ResponseHandlers!.Invoke("INPUTRES:0x0\r");
         _mockClient.Object.ResponseHandlers!.Invoke("DVIINPUT:disconnected\r");
         
-        _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionStatus.Disconnected, "0x0", HdcpStatus.Unknown));
+        _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Disconnected, "0x0", HdcpStatus.Unknown));
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class SvsiEncoderTest
         _mockClient.Object.ResponseHandlers!.Invoke("INPUTRES:1920x1080\r");
         _mockClient.Object.ResponseHandlers!.Invoke("DVIINPUT:connected\r");
         
-        _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionStatus.Connected, "1920x1080", HdcpStatus.Unknown));
+        _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080", HdcpStatus.Unknown));
     }
     
 }

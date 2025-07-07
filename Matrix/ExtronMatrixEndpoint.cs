@@ -1,4 +1,6 @@
-﻿namespace AVCoders.Matrix;
+﻿using AVCoders.Core;
+
+namespace AVCoders.Matrix;
 
 public class ExtronMatrixInput(string name, int inputNumber)
     : ExtronMatrixEndpoint(name, inputNumber, AVEndpointType.Encoder)
@@ -15,13 +17,13 @@ public class ExtronMatrixEndpoint : SyncStatus
     {
         _number = number;
     }
-    public void SetInputStatus(ConnectionStatus status)
+    public void SetInputStatus(ConnectionState status)
     {
         InUse = true;
         InputConnectionStatus = status;
     }
 
-    public void SetOutputStatus(ConnectionStatus connectionStatus)
+    public void SetOutputStatus(ConnectionState connectionStatus)
     {
         InUse = true;
         OutputConnectionStatus = connectionStatus;

@@ -9,14 +9,7 @@ public enum AVEndpointType
     Decoder
 }
 
-public delegate void SyncInfoHandler(ConnectionStatus status, string resolution, HdcpStatus hdcpStatus);
-
-public enum ConnectionStatus
-{
-    Unknown,
-    Connected,
-    Disconnected,
-}
+public delegate void SyncInfoHandler(ConnectionState status, string resolution, HdcpStatus hdcpStatus);
 
 public enum HdcpStatus
 {
@@ -28,12 +21,12 @@ public enum HdcpStatus
 
 public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(name)
 {
-    private ConnectionStatus _inputConnectionStatus;
+    private ConnectionState _inputConnectionStatus;
     private string _inputResolution = String.Empty;
     private HdcpStatus _inputHdcpStatus = HdcpStatus.Unknown;
     public SyncInfoHandler? InputStatusChangedHandlers;
     
-    private ConnectionStatus _outputConnectionStatus;
+    private ConnectionState _outputConnectionStatus;
     private string _outputResolution = String.Empty;
     private HdcpStatus _outputHdcpStatus = HdcpStatus.Unknown;
     public SyncInfoHandler? OutputStatusChangedHandlers;
@@ -43,7 +36,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
     
     public readonly AVEndpointType DeviceType = type;
 
-    public ConnectionStatus InputConnectionStatus
+    public ConnectionState InputConnectionStatus
     {
         get => _inputConnectionStatus;
         protected set
@@ -76,7 +69,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
         }
     }
 
-    public ConnectionStatus OutputConnectionStatus
+    public ConnectionState OutputConnectionStatus
     {
         get => _outputConnectionStatus;
         protected set

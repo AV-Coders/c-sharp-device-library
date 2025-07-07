@@ -1,4 +1,6 @@
-﻿namespace AVCoders.Matrix;
+﻿using AVCoders.Core;
+
+namespace AVCoders.Matrix;
 
 public class NavEncoder : NavDeviceBase
 {
@@ -32,12 +34,12 @@ public class NavEncoder : NavDeviceBase
             case "Res":
                 if (kvp[1].Contains("NOT DETECTED"))
                 {
-                    InputConnectionStatus = ConnectionStatus.Disconnected;
+                    InputConnectionStatus = ConnectionState.Disconnected;
                     InputResolution = String.Empty;
                 }
                 else
                 {
-                    InputConnectionStatus = ConnectionStatus.Connected;
+                    InputConnectionStatus = ConnectionState.Connected;
                     InputResolution = kvp[1];
                 }
                 break;

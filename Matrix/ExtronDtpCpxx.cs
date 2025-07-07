@@ -7,6 +7,7 @@ public delegate void EndpointArrayChangedHandler(List<ExtronMatrixEndpoint> endp
 
 public class ExtronDtpCpxx : VideoMatrix
 {
+    public static readonly ushort DefaultPort = 22023;
     private readonly CommunicationClient _communicationClient;
     private readonly ThreadWorker _pollWorker;
     public readonly List<ExtronMatrixOutput> ComposedOutputs = new ();
@@ -45,7 +46,7 @@ public class ExtronDtpCpxx : VideoMatrix
 
             if (inputNumber >= 0 && inputNumber < Inputs.Count)
             {
-                var connectionStatus = status == "0" ? ConnectionStatus.Disconnected : ConnectionStatus.Connected;
+                var connectionStatus = status == "0" ? ConnectionState.Disconnected : ConnectionState.Connected;
 
                 Inputs[inputNumber].SetInputStatus(connectionStatus);
             }
@@ -57,20 +58,20 @@ public class ExtronDtpCpxx : VideoMatrix
             if (inputNumber <= 0 || inputNumber > ComposedOutputs.Count)
                 return;
             
-            ConnectionStatus connectionStatus = ConnectionStatus.Unknown;
+            ConnectionState connectionStatus = ConnectionState.Unknown;
             HdcpStatus hdcpStatus = HdcpStatus.Unknown;
             switch (parts[1])
             {
                 case "0":
-                    connectionStatus = ConnectionStatus.Disconnected;
+                    connectionStatus = ConnectionState.Disconnected;
                     hdcpStatus = HdcpStatus.Unknown;
                     break;
                 case "1":
-                    connectionStatus = ConnectionStatus.Connected;
+                    connectionStatus = ConnectionState.Connected;
                     hdcpStatus = HdcpStatus.NotSupported;
                     break;
                 case "2":
-                    connectionStatus = ConnectionStatus.Connected;
+                    connectionStatus = ConnectionState.Connected;
                     hdcpStatus = HdcpStatus.Active;
                     break;
             }
@@ -86,24 +87,24 @@ public class ExtronDtpCpxx : VideoMatrix
             if (outputNumber <= 0 || outputNumber > ComposedOutputs.Count)
                 return;
             
-            ConnectionStatus connectionStatus = ConnectionStatus.Unknown;
+            ConnectionState connectionStatus = ConnectionState.Unknown;
             HdcpStatus hdcpStatus = HdcpStatus.Unknown;
             switch (parts[1])
             {
                 case "0":
-                    connectionStatus = ConnectionStatus.Disconnected;
+                    connectionStatus = ConnectionState.Disconnected;
                     hdcpStatus = HdcpStatus.Unknown;
                     break;
                 case "1":
-                    connectionStatus = ConnectionStatus.Connected;
+                    connectionStatus = ConnectionState.Connected;
                     hdcpStatus = HdcpStatus.NotSupported;
                     break;
                 case "2":
-                    connectionStatus = ConnectionStatus.Connected;
+                    connectionStatus = ConnectionState.Connected;
                     hdcpStatus = HdcpStatus.Available;
                     break;
                 case "3":
-                    connectionStatus = ConnectionStatus.Connected;
+                    connectionStatus = ConnectionState.Connected;
                     hdcpStatus = HdcpStatus.Active;
                     break;
             }

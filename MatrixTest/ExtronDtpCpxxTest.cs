@@ -142,10 +142,10 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("Ityp01*3\r", ConnectionStatus.Connected)]
-    [InlineData("Ityp01*4\r", ConnectionStatus.Connected)]
-    [InlineData("Ityp01*0\r", ConnectionStatus.Disconnected)]
-    public void HandleResponse_UpdatesVideoSyncState(string response, ConnectionStatus expectedConnectionStatus)
+    [InlineData("Ityp01*3\r", ConnectionState.Connected)]
+    [InlineData("Ityp01*4\r", ConnectionState.Connected)]
+    [InlineData("Ityp01*0\r", ConnectionState.Disconnected)]
+    public void HandleResponse_UpdatesVideoSyncState(string response, ConnectionState expectedConnectionStatus)
     {
         Mock<SyncInfoHandler> mockSyncInfoHandler = new Mock<SyncInfoHandler>();
         _mockClient.Object.ResponseHandlers!.Invoke("Frq00 0000000000\r");
@@ -204,15 +204,15 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("HdcpI01*1", 0, ConnectionStatus.Connected, HdcpStatus.Active)]
-    [InlineData("HdcpI01*0", 0, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpI02*2", 1, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpI02*0", 1, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpI03*2", 2, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpI03*0", 2, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpI04*1", 3, ConnectionStatus.Connected, HdcpStatus.Active)]
-    [InlineData("HdcpI04*0", 3, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    public void HandleResponse_SetsInputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionStatus expected, HdcpStatus expectedHdcpStatus)
+    [InlineData("HdcpI01*1", 0, ConnectionState.Connected, HdcpStatus.Active)]
+    [InlineData("HdcpI01*0", 0, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI02*2", 1, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpI02*0", 1, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI03*2", 2, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpI03*0", 2, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI04*1", 3, ConnectionState.Connected, HdcpStatus.Active)]
+    [InlineData("HdcpI04*0", 3, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    public void HandleResponse_SetsInputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.Inputs[arrayIndex].InputConnectionStatus);
@@ -220,15 +220,15 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("HdcpO1*1", 0, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpO1*0", 0, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO2*2", 1, ConnectionStatus.Connected, HdcpStatus.Available)]
-    [InlineData("HdcpO2*0", 1, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO3*3", 2, ConnectionStatus.Connected, HdcpStatus.Active)]
-    [InlineData("HdcpO3*0", 2, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO4*1", 3, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpO4*0", 3, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    public void HandleResponse_SetsOutputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionStatus expected, HdcpStatus expectedHdcpStatus)
+    [InlineData("HdcpO1*1", 0, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpO1*0", 0, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO2*2", 1, ConnectionState.Connected, HdcpStatus.Available)]
+    [InlineData("HdcpO2*0", 1, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO3*3", 2, ConnectionState.Connected, HdcpStatus.Active)]
+    [InlineData("HdcpO3*0", 2, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO4*1", 3, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpO4*0", 3, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    public void HandleResponse_SetsOutputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.ComposedOutputs[arrayIndex].Primary.OutputConnectionStatus);
@@ -237,11 +237,11 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("HdcpO5A*1", 4, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpO5A*0", 4, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO6A*2", 5, ConnectionStatus.Connected, HdcpStatus.Available)]
-    [InlineData("HdcpO6A*0", 5, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    public void HandleResponse_SetsOutputConnectionStatusForSplitOutputs_Primary(string eventResponse, int arrayIndex, ConnectionStatus expected, HdcpStatus expectedHdcpStatus)
+    [InlineData("HdcpO5A*1", 4, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpO5A*0", 4, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO6A*2", 5, ConnectionState.Connected, HdcpStatus.Available)]
+    [InlineData("HdcpO6A*0", 5, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    public void HandleResponse_SetsOutputConnectionStatusForSplitOutputs_Primary(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.ComposedOutputs[arrayIndex].Primary.OutputConnectionStatus);
@@ -250,11 +250,11 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("HdcpO5B*1", 4, ConnectionStatus.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpO5B*0", 4, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO6B*2", 5, ConnectionStatus.Connected, HdcpStatus.Available)]
-    [InlineData("HdcpO6B*0", 5, ConnectionStatus.Disconnected, HdcpStatus.Unknown)]
-    public void HandleResponse_SetsOutputConnectionStatusForSplitOutputs_Secondary(string eventResponse, int arrayIndex, ConnectionStatus expected, HdcpStatus expectedHdcpStatus)
+    [InlineData("HdcpO5B*1", 4, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpO5B*0", 4, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO6B*2", 5, ConnectionState.Connected, HdcpStatus.Available)]
+    [InlineData("HdcpO6B*0", 5, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    public void HandleResponse_SetsOutputConnectionStatusForSplitOutputs_Secondary(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.ComposedOutputs[arrayIndex].Secondary.OutputConnectionStatus);
