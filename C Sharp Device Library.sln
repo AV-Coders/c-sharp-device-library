@@ -47,6 +47,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WirelessPresenter", "Wirele
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WirelessPresenterTest", "WirelessPresenterTest\WirelessPresenterTest.csproj", "{D0A3F810-CA26-4D86-8F1E-4AC9F03F74FA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Annotator", "Annotator\Annotator.csproj", "{6CB6E981-9AF0-4402-A551-D0E62B7572A5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnnotatorTest", "AnnotatorTest\AnnotatorTest.csproj", "{9C17283E-5844-48C6-B6B0-184DE61F8177}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -149,5 +153,13 @@ Global
 		{D0A3F810-CA26-4D86-8F1E-4AC9F03F74FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D0A3F810-CA26-4D86-8F1E-4AC9F03F74FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D0A3F810-CA26-4D86-8F1E-4AC9F03F74FA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6CB6E981-9AF0-4402-A551-D0E62B7572A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6CB6E981-9AF0-4402-A551-D0E62B7572A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6CB6E981-9AF0-4402-A551-D0E62B7572A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6CB6E981-9AF0-4402-A551-D0E62B7572A5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9C17283E-5844-48C6-B6B0-184DE61F8177}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9C17283E-5844-48C6-B6B0-184DE61F8177}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9C17283E-5844-48C6-B6B0-184DE61F8177}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9C17283E-5844-48C6-B6B0-184DE61F8177}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
