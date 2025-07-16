@@ -75,6 +75,11 @@ public class PhilipsSICP : Display
         
     }
 
+    protected override void HandleConnectionState(ConnectionState connectionState)
+    {
+        if(connectionState == ConnectionState.Connected)
+            PollWorker.Restart();
+    }
 
     protected override async Task DoPoll(CancellationToken token)
     {

@@ -31,12 +31,6 @@ public class SonySimpleIPControlTest
     }
 
     [Fact]
-    public void Constructor_SetsPortTo20060()
-    {
-        _mockClient.Verify(x => x.SetPort(20060), Times.Once);
-    }
-
-    [Fact]
     public void SendCommand_DoesNotManipulateInput()
     {
         String input = "Foo";

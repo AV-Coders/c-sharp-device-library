@@ -14,7 +14,6 @@ public record NovastarH5BasePayload(
 public class NovaStarH5 : Display
 {
     public const ushort DefaultPort = 6000;
-    private readonly UdpClient _client;
     private readonly int _deviceId;
     private readonly List<int> _screens;
     private readonly int? _powerOnPreset;
@@ -23,7 +22,6 @@ public class NovaStarH5 : Display
 
     public NovaStarH5(UdpClient client, int deviceId, List<int> screens, string name, int? powerOnPreset, int? powerOffPreset) : base(new List<Input>(), name, null, client)
     {
-        _client = client;
         _deviceId = deviceId;
         _screens = screens;
         _powerOnPreset = powerOnPreset;
@@ -34,7 +32,7 @@ public class NovaStarH5 : Display
     public void RecallPreset(int preset) => _screens.ForEach(x => RecallPreset(preset, x));
 
     private void SendCommand(NovastarH5BasePayload payload) =>
-        _client.Send(JsonConvert.SerializeObject(new List<NovastarH5BasePayload> { payload }));
+        CommunicationClient.Send(JsonConvert.SerializeObject(new List<NovastarH5BasePayload> { payload }));
 
     public void RecallPreset(int preset, int screen)
     {
@@ -77,4 +75,6 @@ public class NovaStarH5 : Display
     protected override void DoSetVolume(int percentage) => Debug("This device does not support volume");
 
     protected override void DoSetAudioMute(MuteState state) => Debug("This device does not support audio mute");
+    
+    protected override void HandleConnectionState(ConnectionState connectionState) { }
 }

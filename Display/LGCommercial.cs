@@ -79,15 +79,13 @@ public class LGCommercial : Display, ISetTopBox
         base(InputDictionary.Keys.ToList(), name, defaultInput, comms, 12)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
-        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         _setId = setId;
         if (mac != null)
             _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
 
-        CommunicationState = CommunicationState.NotAttempted;
     }
 
-    private void HandleConnectionState(ConnectionState connectionState)
+    protected override void HandleConnectionState(ConnectionState connectionState)
     {
         if (connectionState != ConnectionState.Connected) 
             return;

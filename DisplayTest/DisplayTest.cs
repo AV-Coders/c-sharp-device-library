@@ -14,6 +14,7 @@ public class DummyDisplay : Display
     protected override void DoSetInput(Input input) => _client.Send($"Input {input.ToString()}");
     protected override void DoSetVolume(int volume) => _client.Send($"Volume {volume}");
     protected override void DoSetAudioMute(MuteState state) => _client.Send($"Mute {state.ToString()}");
+    protected override void HandleConnectionState(ConnectionState connectionState) { }
 
     public void InvokeLog(string message) => Debug(message);
     public void PowerOffResponse()

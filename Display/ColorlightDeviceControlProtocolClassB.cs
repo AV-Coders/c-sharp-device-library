@@ -94,4 +94,6 @@ public class ColorlightDeviceControlProtocolClassB : Display
         }
         SetBrightness(_brightness - amount);
     }
+    
+    protected override void HandleConnectionState(ConnectionState connectionState) { }
 }

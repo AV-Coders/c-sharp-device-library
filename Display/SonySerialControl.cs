@@ -52,6 +52,8 @@ public class SonySerialControl : Display
         _client = client;
     }
 
+    protected override void HandleConnectionState(ConnectionState connectionState) { }
+
     protected override Task DoPoll(CancellationToken token) => PollWorker.Stop();
 
     private void SendCommand(char [] command) => _client.Send(command);

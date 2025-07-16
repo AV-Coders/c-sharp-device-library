@@ -111,6 +111,12 @@ public class CecDisplay : Display, ISetTopBox
         }
     }
 
+    protected override void HandleConnectionState(ConnectionState connectionState)
+    {
+        if (connectionState == ConnectionState.Connected)
+            PollWorker.Restart();
+    }
+
     protected override Task DoPoll(CancellationToken token)
     {
         Verbose("Polling Power");

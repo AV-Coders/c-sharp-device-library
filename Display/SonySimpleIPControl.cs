@@ -71,11 +71,10 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     public SonySimpleIpControl(TcpClient tcpClient, string name, Input? defaultInput) : base(InputDictionary.Keys.ToList(), name, defaultInput, tcpClient)
     {
-        tcpClient.SetPort(DefaultPort);
         CommunicationClient.ResponseHandlers += HandleResponse;
-
-        CommunicationState = CommunicationState.NotAttempted;
     }
+
+    protected override void HandleConnectionState(ConnectionState connectionState) { }
 
     protected override Task DoPoll(CancellationToken token) => PollWorker.Stop();
 

@@ -33,6 +33,8 @@ public abstract class Display : VolumeControl, IDevice
         SupportedInputs = supportedInputs;
         _defaultInput = defaultInput;
         CommunicationClient = communicationClient;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationState = CommunicationState.NotAttempted;
         InstanceUid = Guid.NewGuid().ToString();
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         new Thread(_ =>
@@ -41,7 +43,9 @@ public abstract class Display : VolumeControl, IDevice
             PollWorker.Restart();
         }).Start();
     }
-    
+
+    protected abstract void HandleConnectionState(ConnectionState connectionState);
+
     public Input Input
     {
         get => _input;

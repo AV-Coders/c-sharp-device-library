@@ -36,8 +36,13 @@ public class PjLink : Display
         DesiredAudioMute = MuteState.Off;
         DesiredVideoMute = MuteState.Off;
         
-        tcpClient.SetPort(DefaultPort);
         CommunicationClient.ResponseHandlers += HandleResponse;
+    }
+
+    protected override void HandleConnectionState(ConnectionState connectionState)
+    {
+        if(connectionState == ConnectionState.Connected)
+            PollWorker.Restart();
     }
 
     protected override Task DoPoll(CancellationToken token)

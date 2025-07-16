@@ -31,13 +31,11 @@ public class NecUhdExternalControl : Display
 
     public NecUhdExternalControl(CommunicationClient comms, string name, Input? defaultInput, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name, defaultInput, comms)
     {
-        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationClient.ResponseByteHandlers += HandleResponse;
-        CommunicationState = CommunicationState.NotAttempted;
         _displayId = displayId;
     }
 
-    private void HandleConnectionState(ConnectionState connectionState)
+    protected override void HandleConnectionState(ConnectionState connectionState)
     {
         if (connectionState != ConnectionState.Connected) 
             return;

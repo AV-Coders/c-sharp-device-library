@@ -36,13 +36,7 @@ public class SamsungMdc : Display
         base(InputDictionary.Keys.ToList(), name, defaultInput, communicationClient)
     {
         _displayId = displayId;
-
         CommunicationClient.ResponseByteHandlers += HandleResponse;
-
-        CommunicationState = CommunicationState.NotAttempted;
-
-        
-
         _muteDictionary = new Dictionary<MuteState, byte>
         {
             { MuteState.On, 0x01 },
@@ -207,8 +201,7 @@ public class SamsungMdc : Display
 
     protected override void DoSetVolume(int volume) => sendCommandWithOneDataLength(VolumeControlCommand, (byte)volume);
 
-    protected override void DoSetAudioMute(MuteState state)
-    {
-        sendCommandWithOneDataLength(MuteControlCommand, _muteDictionary[state]);
-    }
+    protected override void DoSetAudioMute(MuteState state) => sendCommandWithOneDataLength(MuteControlCommand, _muteDictionary[state]);
+    
+    protected override void HandleConnectionState(ConnectionState connectionState) { }
 }

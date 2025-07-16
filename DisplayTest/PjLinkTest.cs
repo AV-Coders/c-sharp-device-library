@@ -15,12 +15,6 @@ public class PjLinkTest
     }
 
     [Fact]
-    public void Constructor_SetsPortToDefaultPjLinkPort()
-    {
-        _mockClient.Verify(x => x.SetPort(4352), Times.Once);
-    }
-
-    [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
         string expectedPowerCommand = "%1POWR 0\r";
