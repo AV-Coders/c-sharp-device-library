@@ -86,13 +86,14 @@ public class BiampTtp : Dsp
     private readonly Regex _subscriptionResponseParser;
 
     private readonly List<Query> _moduleQueries = new();
-    private readonly List<Query> _activeQueries = new();
+    private readonly List<Query> _pendingQueries = new();
+    private Query? _currentQuery = null;
     private readonly List<string> _deviceSubscriptions = new();
     private int _pollCount = 0;
     private bool _lastRequestWasForTheVersion;
 
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 5) : base(name, pollIntervalInSeconds)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 2) : base(name, pollIntervalInSeconds)
     {
         _commsClient = commsClient;
         _commsClient.ResponseHandlers += HandleResponse;
@@ -113,20 +114,16 @@ public class BiampTtp : Dsp
     private void HandleConnectionState(ConnectionState connectionState)
     {
         if (connectionState == ConnectionState.Connected)
-        {
             Resubscribe();
-        }
         else
-        {
             CommunicationState = CommunicationState.Error;
-        }
     }
 
     private void Resubscribe()
     {
         using (PushProperties("Resubscribe"))
         {
-            Verbose($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
+            Log.Verbose($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
             Thread.Sleep(TimeSpan.FromSeconds(5));
             _deviceSubscriptions.ForEach(subscriptionCommand =>
             {
@@ -138,28 +135,32 @@ public class BiampTtp : Dsp
         }
     }
 
-    protected override Task Poll(CancellationToken token)
+    protected override async Task Poll(CancellationToken token)
     {
         using (PushProperties("Poll"))
         {
             if (_commsClient.GetConnectionState() != ConnectionState.Connected)
             {
-                Verbose("IP Comms disconnected, not polling");
-                return Task.CompletedTask;
+                Log.Verbose("IP Comms disconnected, not polling");
+                return;
             }
-            
-            if (_activeQueries.Count > 0)
-                _commsClient.Send(_activeQueries[0].DspCommand);
+
+            if (_pendingQueries.Count > 0)
+            {
+                _currentQuery = _pendingQueries.First();
+                _pendingQueries.Remove(_currentQuery);
+                _commsClient.Send(_currentQuery.DspCommand);
+            }
             else
             {
-                _activeQueries.Clear();
+                _pendingQueries.Clear();
                 _commsClient.Send("DEVICE get version\n");
                 _lastRequestWasForTheVersion = true;
+                await Task.Delay(TimeSpan.FromSeconds(10), token);
                 Reinitialise();
             }
 
             _pollCount++;
-            return Task.CompletedTask;
         }
     }
 
@@ -169,7 +170,7 @@ public class BiampTtp : Dsp
         {
             Log.Verbose("Reinitialising Biamp TTP");
             _pollCount = 0;
-            _moduleQueries.ForEach(x => _activeQueries.Add(x));
+            _moduleQueries.ForEach(x => _pendingQueries.Add(x));
         }
     }
 
@@ -219,39 +220,49 @@ public class BiampTtp : Dsp
 
     private void AllocateValueToBlock(string value)
     {
-        if (_activeQueries.Count == 0)
-            return;
-        var currentPolledBlock = _activeQueries[0].ArrayIndex;
-        
-        if (_gains.ContainsKey(currentPolledBlock))
+        using (PushProperties("AllocateValueToBlock"))
         {
-            switch (_activeQueries[0].BiampQuery)
+            if (_currentQuery == null)
             {
+                Log.Verbose("No current query, ignoring response");
+                return;
+            }
+
+            var currentPolledBlock = _currentQuery.ArrayIndex;
+
+            switch (_currentQuery.BiampQuery)
+            {
+                case BiampQuery.Mute:
+                    if (_mutes.TryGetValue(currentPolledBlock, out var theMute))
+                    {
+                        theMute.MuteState = value == "true" ? MuteState.On : MuteState.Off;
+                        CommunicationState = CommunicationState.Okay;
+                    }
+                    else
+                        Log.Error("Error getting the Mute state, The polled block should be a mute, but it isn't. {blockKey}", _currentQuery.DspCommand);
+                    break;
                 case BiampQuery.Level:
-                    _gains[currentPolledBlock].SetVolumeFromDb(Double.Parse(value));
+                    if (_gains.TryGetValue(currentPolledBlock, out var level))
+                        level.SetVolumeFromDb(double.Parse(value));
+                    else
+                        Log.Error("Error getting the current level, the polled block should be a level, but it isn't. {blockKey}", _currentQuery.DspCommand);
                     break;
                 case BiampQuery.MaxGain:
-                    _gains[currentPolledBlock].SetMaxGain(Double.Parse(value));
+                    if (_gains.TryGetValue(currentPolledBlock, out var max))
+                        max.SetMaxGain(double.Parse(value));
+                    else
+                        Log.Error("Error getting the Max gain, The polled block should be a level, but it isn't. {blockKey}", _currentQuery.DspCommand);
                     break;
                 case BiampQuery.MinGain:
-                    _gains[currentPolledBlock].SetMinGain(Double.Parse(value));
+                    if (_gains.TryGetValue(currentPolledBlock, out var min))
+                        min.SetMinGain(double.Parse(value));
+                    else
+                        Log.Error("Error getting the Min gain, The polled block should be a level, but it isn't. {blockKey}", _currentQuery.DspCommand);
                     break;
             }
-            
-            CommunicationState = CommunicationState.Okay;
-        }
 
-        if (_mutes.ContainsKey(currentPolledBlock) && _activeQueries[0].BiampQuery == BiampQuery.Mute)
-        {
-            _mutes[currentPolledBlock].MuteState = value == "true" ? MuteState.On : MuteState.Off;
-            _mutes[currentPolledBlock].Report();
-            
-            CommunicationState = CommunicationState.Okay;
+            _currentQuery = null;
         }
-
-        _activeQueries.Remove(_activeQueries[0]);
-        if(_activeQueries.Count > 0)
-            _commsClient.Send(_activeQueries[0].DspCommand);
     }
 
     public void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex)
@@ -261,6 +272,7 @@ public class BiampTtp : Dsp
         {
             gain.VolumeLevelHandlers += volumeLevelHandler;
             volumeLevelHandler.Invoke(gain.Volume);
+            Log.Verbose("Adding a handler to the existing gain {gainName}", gain.ControlName);
         }
         else
         {
@@ -268,17 +280,19 @@ public class BiampTtp : Dsp
             _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
             _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
             _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
-            _activeQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
-            _activeQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
-            _activeQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+            _pendingQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
+            _pendingQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
+            _pendingQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
 
             _commsClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
+            Log.Verbose("Created a new gain {gainName}", controlName);
         }
     }
 
     public override void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName)
     {
+        Log.Verbose("The array index was not specified for {controlName} level/gain, using the default of 1.", controlName);
         AddControl(volumeLevelHandler, controlName, 1);
     }
 
@@ -289,6 +303,7 @@ public class BiampTtp : Dsp
         {
             mute.MuteStateHandlers += muteStateHandler;
             muteStateHandler.Invoke(mute.MuteState);
+            Log.Verbose("Adding a handler to the existing mute {muteName}", mute.ControlName);
         }
         else
         {
@@ -296,21 +311,27 @@ public class BiampTtp : Dsp
 
             _commsClient.Send($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
+            Log.Verbose("Created a new mute {muteName}", muteName);
         }
     }
 
     public override void AddControl(MuteStateHandler muteStateHandler, string muteName)
     {
+        Log.Verbose("The array index was not specified for {controlName} mute, using the default of 1.", muteName);       
         AddControl(muteStateHandler, muteName, 1);
     }
 
     public override void AddControl(StringValueHandler stringValueHandler, string controlName)
     {
         if (_strings.TryGetValue(controlName, out var s))
+        {
             s.StringValueHandlers += stringValueHandler;
+            Log.Verbose("Adding a handler to the existing string/value {controlName}", controlName);
+        }
         else
         {
             _strings.Add(controlName, new BiampInt(stringValueHandler));
+            Log.Verbose("Created a new string/value handler {controlName}", controlName);
         }
     }
 
@@ -318,15 +339,26 @@ public class BiampTtp : Dsp
     {
         // DEVICE recallPreset 1001
         // Value must be between 1001 and 9999.
-        if(presetNumber > 1000 && presetNumber < 10000)
+        if (presetNumber > 1000 && presetNumber < 10000)
+        {
             _commsClient.Send($"DEVICE recallPreset {presetNumber}\n");
-        _pollCount = 0;
+            Log.Verbose("Recalled preset {presetNumber}", presetNumber);
+            _pollCount = 0;
+        }
+        else
+        {
+            Log.Error("{presetNumber} is out of range", presetNumber);
+        }
     }
 
     public void RecallPreset(string presetName)
     {
-        if(presetName.Length > 0)
+        // DEVICE recallPresetByName "EWIS_On"
+        if (presetName.Length > 0)
+        {
             _commsClient.Send($"DEVICE recallPresetByName \"{presetName}\"\n");
+            Log.Verbose("Recalled preset \"{presetName}\"", presetName);
+        }
     }
 
     public void SetLevel(string controlName, int controlIndex, int percentage)
