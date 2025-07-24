@@ -1,8 +1,7 @@
-using Annotator;
 using AVCoders.Core;
 using Moq;
 
-namespace AnnotatorTest;
+namespace AVCoders.Annotator.Tests;
 
 public class ExtronAnnotator401Test
 {

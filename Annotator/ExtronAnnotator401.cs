@@ -1,7 +1,7 @@
 ﻿using AVCoders.Core;
 using Serilog;
 
-namespace Annotator;
+namespace AVCoders.Annotator;
 
 public class ExtronAnnotator401 : DeviceBase
 {

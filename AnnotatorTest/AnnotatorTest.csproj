@@ -7,6 +7,8 @@
 
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
+        <AssemblyName>AVCoders.Annotator.Tests</AssemblyName>
+        <RootNamespace>AVCoders.Annotator.Tests</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
