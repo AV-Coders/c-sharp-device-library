@@ -64,7 +64,21 @@ public class CiscoRoomOs : Conference
     public readonly CiscoCE9PhonebookParser PhoneBookParser;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
+    private PowerState _doNotDisturbState = PowerState.Unknown;
+    public PowerStateHandler? DoNotDisturbStateHandlers;
     public StringHandler? OutputVolumeResponseHandlers;
+
+    public PowerState DoNotDisturbState
+    {
+      get => _doNotDisturbState;
+      set
+      {
+        if (_doNotDisturbState == value)
+          return;
+        _doNotDisturbState = value;
+        DoNotDisturbStateHandlers?.Invoke(value);
+      }
+    }
 
     public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, PeripheralType peripheralType = PeripheralType.ControlSystem)
     {
@@ -86,12 +100,14 @@ public class CiscoRoomOs : Conference
       {
         SendCommand($"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: {_peripheralType.ToString()} Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
         SendCommand("xFeedback register /Status/Standby");
+        SendCommand("xFeedback register /Status/Conference/DoNotDisturb");
         SendCommand("xFeedback register /Status/Call");
         SendCommand("xFeedback register /Status/Audio/Volume");
         SendCommand("xStatus Standby");
+        SendCommand("xStatus Conference DoNotDisturb");
         SendCommand("xStatus Call");
-        SendCommand("xStatus SIP Registration URI");
         SendCommand("xStatus Audio Volume");
+        SendCommand("xStatus SIP Registration URI");
         PhoneBookParser.RequestPhonebook();
       }
       catch (Exception ex)
@@ -198,7 +214,7 @@ public class CiscoRoomOs : Conference
             return;
           ActiveCalls.Clear();
           CallStatus = CallStatus.Idle;
-
+          SendCommand("xStatus Call");
         }
         else if (response.Contains("Call"))
         {
@@ -229,6 +245,14 @@ public class CiscoRoomOs : Conference
         else if (response.StartsWith("*r Login successful"))
         {
           Reinitialise();
+        }
+        else if (response.StartsWith("*s Conference DoNotDisturb: Active"))
+        {
+          DoNotDisturbState = PowerState.On;
+        }
+        else if (response.StartsWith("*s Conference DoNotDisturb: Inactive"))
+        {
+          DoNotDisturbState = PowerState.Off;
         }
       }
       catch (Exception e)
@@ -300,5 +324,11 @@ public class CiscoRoomOs : Conference
     {
       SendCommand($"xCommand Audio Microphones {(state == MuteState.On ? "Mute": "Unmute")}");
       MicrophoneMute.MuteState = state;
+    }
+
+    public void SetDoNotDisturbState(PowerState state)
+    {
+      SendCommand($"xCommand Conference DoNotDisturb {(state == PowerState.On ? "Activate": "Deactivate")}");
+      DoNotDisturbState = state;
     }
   }

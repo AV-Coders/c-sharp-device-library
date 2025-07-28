@@ -333,5 +333,25 @@ public class CiscoRoomOsTest
         
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Theory]
+    [InlineData(PowerState.Off, "xCommand Conference DoNotDisturb Deactivate\r\n")]
+    [InlineData(PowerState.On, "xCommand Conference DoNotDisturb Activate\r\n")]
+    public void SetDoNotDisturbState_SendsTheCommand(PowerState state, string expectedCommand)
+    {
+        _codec.SetDoNotDisturbState(state);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Theory]
+    [InlineData("*s Conference DoNotDisturb: Active\n", PowerState.On)]
+    [InlineData("*s Conference DoNotDisturb: Inactive\n", PowerState.Off)]
+    public void DoNotDisturbResponses_UpdateTheState(string response, PowerState expectedState)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+        
+        Assert.Equal(expectedState, _codec.DoNotDisturbState);
+    }
     
 }
