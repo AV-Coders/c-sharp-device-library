@@ -1,4 +1,5 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using AVCoders.Core;
 using Serilog;
 
@@ -86,7 +87,7 @@ public class BiampTtp : Dsp
     private readonly Regex _subscriptionResponseParser;
 
     private readonly List<Query> _moduleQueries = new();
-    private readonly List<Query> _pendingQueries = new();
+    private readonly ConcurrentQueue<Query> _pendingQueries = new();
     private Query? _currentQuery = null;
     private readonly List<string> _deviceSubscriptions = new();
     private int _pollCount = 0;
@@ -145,15 +146,13 @@ public class BiampTtp : Dsp
                 return;
             }
 
-            if (_pendingQueries.Count > 0)
+            if (_pendingQueries.TryDequeue(out var query))
             {
-                _currentQuery = _pendingQueries.First();
-                _pendingQueries.Remove(_currentQuery);
+                _currentQuery = query;
                 _commsClient.Send(_currentQuery.DspCommand);
             }
             else
             {
-                _pendingQueries.Clear();
                 _commsClient.Send("DEVICE get version\n");
                 _lastRequestWasForTheVersion = true;
                 await Task.Delay(TimeSpan.FromSeconds(10), token);
@@ -170,7 +169,7 @@ public class BiampTtp : Dsp
         {
             Log.Verbose("Reinitialising Biamp TTP");
             _pollCount = 0;
-            _moduleQueries.ForEach(x => _pendingQueries.Add(x));
+            _moduleQueries.ForEach(x => _pendingQueries.Enqueue(x));
         }
     }
 
@@ -280,9 +279,9 @@ public class BiampTtp : Dsp
             _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
             _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
             _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
-            _pendingQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
-            _pendingQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
-            _pendingQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+            _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
+            _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
+            _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
 
             _commsClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
