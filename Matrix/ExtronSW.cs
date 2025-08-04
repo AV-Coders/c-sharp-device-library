@@ -1,19 +1,17 @@
-﻿using System.Diagnostics;
-using AVCoders.Core;
+﻿using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Matrix;
 
-public class ExtronIn16Xx : VideoMatrix
+public class ExtronSw : VideoMatrix
 {
     private readonly CommunicationClient _communicationClient;
     private readonly int _numberOfInputs;
 
-    public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name) : base(1, name)
+    public ExtronSw(CommunicationClient communicationClient, int numberOfInputs, string name) : base(1, name)
     {
         _communicationClient = communicationClient;
         _numberOfInputs = numberOfInputs;
-        PowerState = PowerState.Unknown;
-        UpdateCommunicationState(CommunicationState.NotAttempted);
     }
 
     private void SendCommand(string command)
@@ -30,33 +28,23 @@ public class ExtronIn16Xx : VideoMatrix
         }
     }
 
-    public override void RouteAV(int input, int output)
-    {
-        if (input > 0 && input <= _numberOfInputs)
-            SendCommand($"{input}!");
-    }
-
     public override void PowerOn() {    }
 
     public override void PowerOff() {    }
 
     public override void RouteVideo(int input, int output)
     {
-        if (input > 0 && input <= _numberOfInputs)
-            SendCommand($"{input}%");
+        Log.Error("This device doesn't support video breakaway");
     }
 
     public override void RouteAudio(int input, int output)
     {
-        if (input > 0 && input <= _numberOfInputs)
-            SendCommand($"{input}$");
+        Log.Error("This device doesn't support audio breakaway");
     }
 
-    public void SetSyncTimeout(int seconds)
+    public override void RouteAV(int input, int output)
     {
-        if (seconds < 502)
-        {
-            SendCommand($"\u001bT{seconds}SSAV\u0027");
-        }
+        if (input > 0 && input <= _numberOfInputs)
+            SendCommand($"{input}!");
     }
 }
