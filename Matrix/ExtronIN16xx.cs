@@ -7,6 +7,8 @@ public class ExtronIn16Xx : VideoMatrix
 {
     private readonly CommunicationClient _communicationClient;
     private readonly int _numberOfInputs;
+    public static readonly SerialSpec DefaultSerialSpec =
+        new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
 
     public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name) : base(1, name)
     {

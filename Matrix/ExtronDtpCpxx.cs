@@ -12,6 +12,8 @@ public class ExtronDtpCpxx : VideoMatrix
     private readonly ThreadWorker _pollWorker;
     public readonly List<ExtronMatrixOutput> ComposedOutputs = new ();
     public readonly List<ExtronMatrixInput> Inputs = new ();
+    public static readonly SerialSpec DefaultSerialSpec =
+        new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
     public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs
         .SelectMany(output => new[] { output.Primary, output.Secondary })
         .Where(endpoint => endpoint.InUse)
