@@ -20,6 +20,19 @@ public class ExtronDtpCpxx : VideoMatrix
         .ToList();
 
     private readonly string EscapeHeader = "\x1b";
+    
+    public List<SyncStatus> InputsAndOutputs
+    {
+        get
+        {
+            var combined = new List<SyncStatus>((Inputs?.Count ?? 0) + (Outputs?.Count ?? 0));
+            if (Inputs is { Count: > 0 })
+                combined.AddRange(Inputs);
+            if (Outputs is { Count: > 0 })
+                combined.AddRange(Outputs);
+            return combined;
+        }
+    }
 
     public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name) : base(numberOfOutputs, name)
     {
