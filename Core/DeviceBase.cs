@@ -84,7 +84,8 @@ public abstract class DeviceBase : IDevice
         
         disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
         disposables.Add(LogContext.PushProperty("Class", GetType().Name));
-        disposables.Add(LogContext.PushProperty("InstanceName", Name));
+        if(Name != String.Empty)
+            disposables.Add(LogContext.PushProperty("InstanceName", Name));
         if(methodName != null)
             disposables.Add(LogContext.PushProperty(LogBase.MethodProperty, methodName));
 
