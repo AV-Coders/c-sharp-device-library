@@ -94,7 +94,7 @@ public class BiampTtp : Dsp
     private bool _lastRequestWasForTheVersion;
 
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 2) : base(name, pollIntervalInSeconds)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 1) : base(name, pollIntervalInSeconds)
     {
         _commsClient = commsClient;
         _commsClient.ResponseHandlers += HandleResponse;
@@ -129,7 +129,6 @@ public class BiampTtp : Dsp
             _deviceSubscriptions.ForEach(subscriptionCommand =>
             {
                 _commsClient.Send(subscriptionCommand);
-                Verbose($"Sending: {subscriptionCommand}");
             });
             Thread.Sleep(TimeSpan.FromSeconds(1));
             PollWorker.Restart();
@@ -399,6 +398,12 @@ public class BiampTtp : Dsp
     
     public override void SetValue(string controlName, string value)
     {
+        _pollCount = 0;
+    }
+
+    public void SetState(string controlName, int controlIndex, bool state)
+    {
+        _commsClient.Send($"{controlName} set state {controlIndex} {state.ToString().ToLower()}\n");
         _pollCount = 0;
     }
 
