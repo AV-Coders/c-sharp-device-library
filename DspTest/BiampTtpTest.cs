@@ -93,11 +93,10 @@ public class BiampTtpTest
     }
     
     
-
     [Theory]
     [InlineData(true, 5, "mic_press set state 5 true\n")]
     [InlineData(false,3, "mic_press set state 3 false\n")]
-    public void SetState_RecallsThePreset(bool state, int index, string expectedCommand)
+    public void SetState_SendsTheCommand(bool state, int index, string expectedCommand)
     {
         _dsp.SetState("mic_press", index, state);
         _mockClient.Verify(x => x.Send(expectedCommand));
