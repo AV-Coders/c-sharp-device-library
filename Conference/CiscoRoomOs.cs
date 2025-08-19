@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Conference;
 
@@ -64,14 +65,16 @@ public class CiscoRoomOs : Conference
     public readonly CiscoCE9PhonebookParser PhoneBookParser;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
+    private bool _forceDoNotDisturb = true;
     private PowerState _doNotDisturbState = PowerState.Unknown;
+    private PowerState _desiredDoNotDisturbState = PowerState.Unknown;
     public PowerStateHandler? DoNotDisturbStateHandlers;
     public StringHandler? OutputVolumeResponseHandlers;
 
     public PowerState DoNotDisturbState
     {
       get => _doNotDisturbState;
-      set
+      private set
       {
         if (_doNotDisturbState == value)
           return;
@@ -80,7 +83,8 @@ public class CiscoRoomOs : Conference
       }
     }
 
-    public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, PeripheralType peripheralType = PeripheralType.ControlSystem)
+    public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, 
+      PeripheralType peripheralType = PeripheralType.ControlSystem)
     {
       _moduleIdentifier = $"AV-Coders-RoomOS-Module-{DateTime.Now.Ticks:x}";
 
@@ -249,16 +253,37 @@ public class CiscoRoomOs : Conference
         else if (response.StartsWith("*s Conference DoNotDisturb: Active"))
         {
           DoNotDisturbState = PowerState.On;
+          ValidateDoNotDisturbState();
         }
         else if (response.StartsWith("*s Conference DoNotDisturb: Inactive"))
         {
           DoNotDisturbState = PowerState.Off;
+          ValidateDoNotDisturbState();
         }
       }
       catch (Exception e)
       {
         Error(e.Message);
         Error(e.StackTrace ?? "No stack trace available");
+      }
+    }
+    
+    public void ForceDoNotDisturb(bool forceDoNotDisturb) => _forceDoNotDisturb = forceDoNotDisturb;
+
+    private void ValidateDoNotDisturbState()
+    {
+      using (PushProperties("ValidateDoNotDisturbState"))
+      {
+        if (!_forceDoNotDisturb)
+          return;
+        if (_desiredDoNotDisturbState == PowerState.Unknown)
+          return;
+        if (DoNotDisturbState == _desiredDoNotDisturbState)
+          return;
+        Log.Warning(
+          "The current Do Not Disturb state ({incorrectDoNotDisturbState}) is not what's expected ({desiredDoNotDisturbState}), forcing state",
+          DoNotDisturbState.ToString(), _desiredDoNotDisturbState.ToString());
+        SetDoNotDisturbState(_desiredDoNotDisturbState);
       }
     }
 
@@ -330,5 +355,6 @@ public class CiscoRoomOs : Conference
     {
       SendCommand($"xCommand Conference DoNotDisturb {(state == PowerState.On ? "Activate": "Deactivate")}");
       DoNotDisturbState = state;
+      _desiredDoNotDisturbState = state;
     }
   }
