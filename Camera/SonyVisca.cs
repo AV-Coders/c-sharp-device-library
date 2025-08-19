@@ -16,7 +16,7 @@ public class SonyVisca : CameraBase
     private byte _zoomInSpeed;
     private byte _zoomOutSpeed;
     private byte _sequenceNumber;
-    private static readonly byte[] SequenceHeader = { 0xFF, 0xFF, 0xFF };
+    private static readonly byte[] SequenceHeader = [0xFF, 0xFF, 0xFF];
     protected byte _header;
     protected static readonly byte CommandFooter = 0xFF;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
@@ -35,12 +35,12 @@ public class SonyVisca : CameraBase
         CommunicationState = CommunicationState.NotAttempted;
         _sequenceNumber = 0x00;
         _useIpHeaders = useIpHeaders;
-        _ipHeaders.Add(PayloadType.ViscaCommand, new byte[]{ 0x01, 0x00 });
-        _ipHeaders.Add(PayloadType.ViscaInquiry, new byte[]{ 0x01, 0x10 });
-        _ipHeaders.Add(PayloadType.ViscaReply, new byte[]{ 0x01, 0x11 });
-        _ipHeaders.Add(PayloadType.DeviceSetting, new byte[]{ 0x01, 0x10 });
-        _ipHeaders.Add(PayloadType.ControlCommand, new byte[]{ 0x02, 0x00 });
-        _ipHeaders.Add(PayloadType.ControlReply, new byte[]{ 0x02, 0x01 });
+        _ipHeaders.Add(PayloadType.ViscaCommand, [0x01, 0x00]);
+        _ipHeaders.Add(PayloadType.ViscaInquiry, [0x01, 0x10]);
+        _ipHeaders.Add(PayloadType.ViscaReply, [0x01, 0x11]);
+        _ipHeaders.Add(PayloadType.DeviceSetting, [0x01, 0x10]);
+        _ipHeaders.Add(PayloadType.ControlCommand, [0x02, 0x00]);
+        _ipHeaders.Add(PayloadType.ControlReply, [0x02, 0x01]);
     }
 
     protected void SendCommand(byte[] bytes)
@@ -65,7 +65,7 @@ public class SonyVisca : CameraBase
 
     private byte[] PayloadWithIpHeader(PayloadType payloadType, byte[] payload)
     {
-        List<byte> bytes = new List<byte>();
+        List<byte> bytes = [];
         foreach (var theByte in _ipHeaders[payloadType])
         { bytes.Add(theByte); }
         bytes.Add(0x00);
@@ -105,74 +105,74 @@ public class SonyVisca : CameraBase
 
     public override void PowerOff()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x04, 0x00, 0x03, CommandFooter });
+        SendCommand([_header, 0x01, 0x04, 0x00, 0x03, CommandFooter]);
         DesiredPowerState = PowerState.Off;
         Log.Verbose("Power Off");
     }
 
     public override void PowerOn()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x04, 0x00, 0x02, CommandFooter });
+        SendCommand([_header, 0x01, 0x04, 0x00, 0x02, CommandFooter]);
         DesiredPowerState = PowerState.On;
         Log.Verbose("Power On");
     }public override void ZoomStop()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x04, 0x07, 0x00, CommandFooter });
+        SendCommand([_header, 0x01, 0x04, 0x07, 0x00, CommandFooter]);
         Log.Verbose("Zoom Stop");
     }
 
     public override void ZoomIn()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x04, 0x07, _zoomInSpeed, CommandFooter });
+        SendCommand([_header, 0x01, 0x04, 0x07, _zoomInSpeed, CommandFooter]);
         Log.Verbose("Zooming In");
     }
 
     public override void ZoomOut()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x04, 0x07, _zoomOutSpeed, CommandFooter });
+        SendCommand([_header, 0x01, 0x04, 0x07, _zoomOutSpeed, CommandFooter]);
         Log.Verbose("Zooming Out");
     }
 
     public override void PanTiltStop()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x03, CommandFooter });
+        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x03, CommandFooter]);
         Log.Verbose("PTZ Stop");
     }
 
     public override void PanTiltUp()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x01, CommandFooter });
+        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x01, CommandFooter]);
         Log.Verbose("PTZ Up");
     }
 
     public override void PanTiltDown()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x02, CommandFooter });
+        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x02, CommandFooter]);
         Log.Verbose("PTZ Down");
     }
 
     public override void PanTiltLeft()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x01, 0x03, CommandFooter });
+        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x01, 0x03, CommandFooter]);
         Log.Verbose("PTZ Left");
     }
 
     public override void PanTiltRight()
     {
-        SendCommand(new byte[] { _header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x02, 0x03, CommandFooter });
+        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x02, 0x03, CommandFooter]);
         Log.Verbose("PTZ Right");
     }
 
     public override void DoRecallPreset(int presetNumber)
     {
-        SendCommand(new byte[] { _header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter });
-        Log.Verbose($"Recall Preset {presetNumber}");
+        SendCommand([_header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter]);
+        Log.Verbose("Recall Preset {PresetNumber}", presetNumber);
     }
 
     public override void SavePreset(int presetNumber)
     {
-        SendCommand(new byte[] { _header, 0x01, 0x04, 0x3f, 0x01, (byte)presetNumber, CommandFooter });
-        Log.Verbose($"Save Preset {presetNumber}");
+        SendCommand([_header, 0x01, 0x04, 0x3f, 0x01, (byte)presetNumber, CommandFooter]);
+        Log.Verbose("Save Preset {PresetNumber}", presetNumber);
     }
 
     private void HandleResponse(String response)

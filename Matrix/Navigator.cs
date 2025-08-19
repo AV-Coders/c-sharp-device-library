@@ -61,7 +61,7 @@ public class Navigator : DeviceBase
             action.Invoke(response.Substring(hostEndIndex + 1, response.Length - hostEndIndex - 1));
         }
         else
-            Log.Error($"Nav has returned a response for a device that's not registered to this module: {respondant}");
+            Log.Error("Nav has returned a response for a device that's not registered to this module: {Respondant}", respondant);
         _unansweredDeviceForwards++;
         if (_unansweredDeviceForwards > 5)
             CommunicationState = CommunicationState.Error;

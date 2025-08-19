@@ -77,7 +77,7 @@ public class AvCodersTcpServer : Core_TcpClient
             TcpClient client = await _server.AcceptTcpClientAsync(token);
             _clients.Add(client);
             IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? default;
-            Log.Debug($"Added client - {remoteIpEndPoint?.Address}");
+            Log.Debug("Added client - {IpAddress}", remoteIpEndPoint?.Address);
             _ = HandleClientAsync(client, token);
             await Task.Delay(TimeSpan.FromSeconds(1), token);
         }
@@ -87,7 +87,7 @@ public class AvCodersTcpServer : Core_TcpClient
     {
         using (PushProperties("CheckConnectionState"))
         {
-            Log.Debug($"Checking client status for {_clients.Count} clients");
+            Log.Debug("Checking client status for {ClientsCount} clients", _clients.Count);
             foreach (TcpClient client in _clients)
             {
                 if (client.Connected)

@@ -133,7 +133,7 @@ public class BiampTtp : Dsp
         {
             _currentQuery = null;
             PollWorker.Stop();
-            Log.Verbose($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
+            Log.Verbose("Re-establishing subscriptions in 5 seconds, subscription count: {DeviceSubscriptionsCount}", _deviceSubscriptions.Count);
             Thread.Sleep(TimeSpan.FromSeconds(5));
             _deviceSubscriptions.ForEach(subscriptionCommand =>
             {

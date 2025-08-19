@@ -193,7 +193,7 @@ public class PjLink : Display
         {
             if (!PowerStateDictionary.TryGetValue(desiredPowerState, out var value))
             {
-                Log.Error($"Desired PowerState {desiredPowerState} is not appropriate");
+                Log.Error("Desired PowerState {DesiredPowerState} is not appropriate", desiredPowerState);
                 return;
             }
 

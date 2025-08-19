@@ -110,7 +110,7 @@ public class QsysEcp : Dsp
             else if (line.Contains("bad_id"))
             {
                 CommunicationState = CommunicationState.Error;
-                Log.Error($"Invalid named control found: {line}");
+                Log.Error("Invalid named control found: {Line}", line);
             }
         }
         

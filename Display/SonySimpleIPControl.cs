@@ -161,7 +161,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
     {
         if (UnsupportedButtons.Contains(button))
         {
-            Log.Warning($"Unsupported button - {button.ToString()}");
+            Log.Warning("Unsupported button - {UnsupportedButton}", button.ToString());
             return;
         }
 

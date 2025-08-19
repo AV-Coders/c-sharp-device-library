@@ -73,11 +73,11 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                     {
                         case "Offset:":
                             _resultOffset = Parse(responses[4]);
-                            Log.Verbose($"The offset is {_resultOffset}");
+                            Log.Verbose("The offset is {ResultOffset}", _resultOffset);
                             return CommunicationState.Okay;
                         case "TotalRows:":
                             _resultTotalRows = Parse(responses[4]);
-                            Log.Verbose($"Total rows is {_resultTotalRows}");
+                            Log.Verbose("Total rows is {ResultTotalRows}", _resultTotalRows);
                             _currentRow = 1;
                             _currentSubRow = 1;
                             return CommunicationState.Okay;
@@ -85,7 +85,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                             _currentLimit = Parse(responses[4]);
                             return CommunicationState.Okay;
                         default:
-                            Log.Information($"Unhandled ResultInfo key: {responses[3]}");
+                            Log.Information("Unhandled ResultInfo key: {Response}", responses[3]);
                             return CommunicationState.Error;
                     }
                 }
@@ -141,7 +141,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                 }
             }
 
-            Log.Debug($"Unhandled response key: {responses[2]}");
+            Log.Debug("Unhandled response key: {Response}", responses[2]);
             return CommunicationState.Error;
         }
     }
@@ -188,7 +188,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         var responseRow = Parse(responses[3]);
         if (responseRow != _currentRow)
         {
-            Log.Debug($"Ignoring response as it's an invalid row, i'm expecting {_currentRow}");
+            Log.Debug("Ignoring response as it's an invalid row, i'm expecting {CurrentRow}", _currentRow);
             return (responseRow, EntryLoadState.Error);
         }
 
@@ -223,7 +223,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         var responseRow = Parse(responses[3]);
         if (responseRow != _currentRow)
         {
-            Log.Debug($"Ignoring response as it's an invalid row, i'm expecting {_currentRow}");
+            Log.Debug("Ignoring response as it's an invalid row, i'm expecting {CurrentRow}", _currentRow);
             return (responseRow, EntryLoadState.Error);
         }
 

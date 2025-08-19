@@ -127,7 +127,7 @@ public class TybaTurn2 : LogBase
         if (line.Contains("event: "))
         {
             _currentEvent = line.Remove(0, 7);
-            Log.Debug($"Event received: {_currentEvent}");
+            Log.Debug("Event received: {CurrentEvent}", _currentEvent);
         }
         else if (line.Contains("data: "))
         {
@@ -184,7 +184,7 @@ public class TybaTurn2 : LogBase
         }
         else
         {
-            Log.Error($"Unhandled event type: {eventData[0]}");
+            Log.Error("Unhandled event type: {EventType}", eventData[0]);
         }
     }
 
@@ -237,7 +237,7 @@ public class TybaTurn2 : LogBase
         
         try
         {
-            Log.Verbose($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
+            Log.Verbose("Sending payload {Payload} to URI {ChannelUriAbsoluteUri}", payload, channelUri.AbsoluteUri);
             using HttpClient httpClient = new HttpClient();
             foreach (var (key, v) in _headers)
             {
@@ -247,7 +247,7 @@ public class TybaTurn2 : LogBase
             httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
             var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
-            Log.Verbose($"Response {response.StatusCode}: {response.ReasonPhrase}");
+            Log.Verbose("Response {ResponseStatusCode}: {ResponseReasonPhrase}", response.StatusCode, response.ReasonPhrase);
         }
         catch (HttpRequestException e)
         {

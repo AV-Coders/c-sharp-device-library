@@ -194,7 +194,7 @@ public class CiscoRoomOs : Conference
           }
         }
 
-        Log.Error($"No call found for {value}, terminating all");
+        Log.Error("No call found for {callId}, terminating all", value);
         return 0;
       }
     }

@@ -37,7 +37,7 @@ public abstract class Motor : DeviceBase
                 {
                     Task.Delay(TimeSpan.FromSeconds(MoveSeconds), _cancellationTokenSource.Token)
                         .Wait(_cancellationTokenSource.Token);
-                    Log.Verbose($"Move timer event, move id {moveId}, current move: {CurrentMoveId}");
+                    Log.Verbose("Move timer event, move id {MoveId}, current move: {CurrentMoveId}", moveId, CurrentMoveId);
                     CurrentMoveId = Guid.Empty;
                     CurrentMoveAction = RelayAction.None;
                     completeAction?.Invoke();

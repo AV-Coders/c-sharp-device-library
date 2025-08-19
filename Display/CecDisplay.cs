@@ -184,7 +184,7 @@ public class CecDisplay : Display, ISetTopBox
         {
             if (UnsupportedButtons.Contains(button))
             {
-                Log.Error($"Unsupported button - {button.ToString()}");
+                Log.Error("Unsupported button - {UnsupportedButton}", button.ToString());
                 return;
             }
 

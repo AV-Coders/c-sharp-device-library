@@ -119,7 +119,7 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             if (DesiredPowerState == PowerState.Unknown)
                 return;
-            Log.Information($"{Name} has hte incorrect power state - Forcing Power");
+            Log.Information("{Name} has hte incorrect power state - Forcing Power", Name);
             if (DesiredPowerState == PowerState.Off)
                 PowerOff();
             else if (DesiredPowerState == PowerState.On)
@@ -136,7 +136,7 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             if (DesiredInput == Input.Unknown)
                 return;
-            Log.Information($"{Name} has hte incorrect input - Forcing Input");
+            Log.Information("{Name} has hte incorrect input - Forcing Input", Name);
             SetInput(DesiredInput);
         }
     }
@@ -175,11 +175,11 @@ public abstract class Display : VolumeControl, IDevice
     {
         if (!SupportedInputs.Contains(input))
         {
-            Log.Error($"Requested Input {input} is not available");
+            Log.Error("Requested Input {Input} is not available", input);
             return;
         }
         DoSetInput(input);
-        Log.Verbose($"Setting input to {input.ToString()}");
+        Log.Verbose("Setting input to {ToString}", input.ToString());
         DesiredInput = input;
         Input = input;
     }
@@ -190,7 +190,7 @@ public abstract class Display : VolumeControl, IDevice
     {
         if (volume is > 100 or < 0)
         {
-            Log.Error($"Volume needs to be a value between 0 and 100, it's {volume}");
+            Log.Error("Volume needs to be a value between 0 and 100, it's {Volume}", volume);
             return;
         }
         DoSetVolume(volume);
@@ -219,7 +219,7 @@ public abstract class Display : VolumeControl, IDevice
 
     public override void SetAudioMute(MuteState state)
     {
-        Log.Verbose($"Setting audio mute to {state.ToString()}");
+        Log.Verbose("Setting audio mute to {ToString}", state.ToString());
         DesiredAudioMute = state;
         DoSetAudioMute(state);
         AudioMute = state;

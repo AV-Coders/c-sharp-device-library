@@ -81,7 +81,7 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         }
         catch (Exception e)
         {
-            Log.Error($"A Response handler threw an exception when given response:\n\t {response}");
+            Log.Error("A Response handler threw an exception when given response:\n\t {Response}", response);
             LogException(e);
         }
     }
