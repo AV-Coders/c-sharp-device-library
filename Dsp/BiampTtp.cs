@@ -120,10 +120,19 @@ public class BiampTtp : Dsp
             CommunicationState = CommunicationState.Error;
     }
 
+    private void SendNonPollCommand(string command)
+    {
+        _currentQuery = null;
+        PollWorker.Restart();
+        _commsClient.Send(command);
+    }
+
     private void Resubscribe()
     {
         using (PushProperties("Resubscribe"))
         {
+            _currentQuery = null;
+            PollWorker.Stop();
             Log.Verbose($"Re-establishing subscriptions in 5 seconds, subscription count: {_deviceSubscriptions.Count}");
             Thread.Sleep(TimeSpan.FromSeconds(5));
             _deviceSubscriptions.ForEach(subscriptionCommand =>
@@ -154,7 +163,7 @@ public class BiampTtp : Dsp
             {
                 _commsClient.Send("DEVICE get version\n");
                 _lastRequestWasForTheVersion = true;
-                await Task.Delay(TimeSpan.FromSeconds(10), token);
+                await Task.Delay(TimeSpan.FromSeconds(25), token);
                 Reinitialise();
             }
 
@@ -354,7 +363,7 @@ public class BiampTtp : Dsp
         // DEVICE recallPresetByName "EWIS_On"
         if (presetName.Length > 0)
         {
-            _commsClient.Send($"DEVICE recallPresetByName \"{presetName}\"\n");
+            SendNonPollCommand($"DEVICE recallPresetByName \"{presetName}\"\n");
             Log.Verbose("Recalled preset \"{presetName}\"", presetName);
         }
     }
@@ -362,7 +371,7 @@ public class BiampTtp : Dsp
     public void SetLevel(string controlName, int controlIndex, int percentage)
     {
         var index = $"AvCodersLevel-{controlName}-{controlIndex}";
-        _commsClient.Send($"{controlName} set level {controlIndex} {_gains[index].PercentageToDb(percentage)}\n");
+        SendNonPollCommand($"{controlName} set level {controlIndex} {_gains[index].PercentageToDb(percentage)}\n");
         _pollCount = 0;
     }
 
@@ -378,7 +387,7 @@ public class BiampTtp : Dsp
 
     public void SetAudioMute(string controlName, int controlIndex, MuteState muteState)
     {
-        _commsClient.Send($"{controlName} set mute {controlIndex} {_muteStateDictionary[muteState]}\n");
+        SendNonPollCommand($"{controlName} set mute {controlIndex} {_muteStateDictionary[muteState]}\n");
         _pollCount = 0;
     }
 
@@ -403,7 +412,7 @@ public class BiampTtp : Dsp
 
     public void SetState(string controlName, int controlIndex, bool state)
     {
-        _commsClient.Send($"{controlName} set state {controlIndex} {state.ToString().ToLower()}\n");
+        SendNonPollCommand($"{controlName} set state {controlIndex} {state.ToString().ToLower()}\n");
         _pollCount = 0;
     }
 
