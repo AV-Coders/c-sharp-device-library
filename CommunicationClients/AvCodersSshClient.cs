@@ -159,15 +159,15 @@ public class AvCodersSshClient : SshClientBase
                     _stream!.Write(message);
                     InvokeRequestHandlers(message);
                 }
-                catch (ObjectDisposedException)
+                catch (ObjectDisposedException e)
                 {
-                    Log.Debug("Send failed, stream was disposed.  Recreating stream and queueing message");
+                    Log.Debug("Send failed, stream was disposed.  Recreating stream and queueing message. {ExceptionMessage}", e.Message);
                     _ = CreateStream(new CancellationToken());
                     _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
                 }
-                catch (NullReferenceException)
+                catch (NullReferenceException e)
                 {
-                    Log.Debug("Send failed, stream has not yet been created. Waiting for the connection flow to continue");
+                    Log.Debug("Send failed, stream has not yet been created. Waiting for the connection flow to continue. {ExceptionMessage}", e.Message);
                     _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
                 }
             }

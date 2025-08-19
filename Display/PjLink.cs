@@ -208,7 +208,7 @@ public class PjLink : Display
 
     protected override void DoSetInput(Input input) => Send($"INPT {InputDictionary[input]}");
 
-    protected override void DoSetVolume(int volume)
+    protected override void DoSetVolume(int percentage)
     {
         using (PushProperties("DoSetVolume"))
         {

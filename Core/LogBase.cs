@@ -51,11 +51,12 @@ public abstract class LogBase(string name)
     {
         using (PushProperties())
         {
-            Log.Error(e.GetType().Name + ": " + e.Message + Environment.NewLine + e.StackTrace);
+            Log.Error("{ExceptionType} \r\n{ExceptionMessage}\r\n{StackTrace}", 
+                e.GetType().Name, e.Message, e.StackTrace);
             if (e.InnerException == null)
                 return;
-            Log.Error("Caused by: " + e.InnerException.GetType().Name + Environment.NewLine + e.InnerException.Message +
-                  Environment.NewLine + e.InnerException.StackTrace);
+            Log.Error("Caused by: {InnerExceptionType} \r\n{InnerExceptionMessage}\r\n{InnerStackTrace}", 
+                e.InnerException.GetType().Name, e.InnerException.Message, e.InnerException.StackTrace);
         }
     }
 }

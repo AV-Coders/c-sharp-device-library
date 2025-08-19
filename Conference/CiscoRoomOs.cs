@@ -194,7 +194,7 @@ public class CiscoRoomOs : Conference
           }
         }
 
-        Log.Error("No call found for {callId}, terminating all", value);
+        Log.Error("No call found for {CallId}, terminating all", value);
         return 0;
       }
     }
@@ -295,7 +295,7 @@ public class CiscoRoomOs : Conference
         if (DoNotDisturbState == _desiredDoNotDisturbState)
           return;
         Log.Warning(
-          "The current Do Not Disturb state ({incorrectDoNotDisturbState}) is not what's expected ({desiredDoNotDisturbState}), forcing state",
+          "The current Do Not Disturb state ({IncorrectDoNotDisturbState}) is not what's expected ({DesiredDoNotDisturbState}), forcing state",
           DoNotDisturbState.ToString(), _desiredDoNotDisturbState.ToString());
         SetDoNotDisturbState(_desiredDoNotDisturbState);
       }

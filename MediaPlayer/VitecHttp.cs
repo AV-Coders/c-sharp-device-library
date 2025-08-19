@@ -98,7 +98,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     {
         if (UnsupportedButtons.Contains(button))
         {
-            Log.Error("Unsupported button - {unsupportedRemoteButton}", button.ToString());
+            Log.Error("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
             return;
         }
         string command = button switch
