@@ -54,8 +54,8 @@ public class AutomateVX : DeviceBase
 
     public LayoutsChangedHandler? LayoutsChangedHandlers;
     public ScenariosChangedHandler? ScenariosChangedHandlers;
-    public IntHandler ActiveScenarioChangedHandlers;
-    public IntHandler ActiveLayoutChangedHandlers;
+    public IntHandler? ActiveScenarioChangedHandlers;
+    public IntHandler? ActiveLayoutChangedHandlers;
     
     public List<OneBeyondScenario> Scenarios => _scenarios;
     public List<OneBeyondLayout> Layouts => _layouts;

@@ -29,9 +29,9 @@ public class CBusInterface : LogBase
     private readonly CommunicationClient _comms;
     private bool _serialCheck;
     private readonly byte _pointToMultipointHeader = 0x05;
-    private readonly byte _pointToPointHeader = 0x06;
+    // private readonly byte _pointToPointHeader = 0x06;
     private readonly byte _delimiter = 0x0d;
-    private readonly byte _clearBuffer = 63; // ASCII ?
+    // private readonly byte _clearBuffer = 63; // ASCII ?
     private readonly byte _beginPacket = 0x5c; // ASCII /
     public const byte LightingApplication = 0x38;
     public const byte SceneApplication = 0xCA;

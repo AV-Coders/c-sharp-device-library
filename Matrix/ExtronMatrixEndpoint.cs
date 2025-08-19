@@ -4,9 +4,7 @@ namespace AVCoders.Matrix;
 
 public class ExtronMatrixInput(string name, int inputNumber)
     : ExtronMatrixEndpoint(name, inputNumber, AVEndpointType.Encoder)
-{
-    public void SetName(string name) => Name = name;
-}
+{ }
 
 public class ExtronMatrixEndpoint : SyncStatus
 {
