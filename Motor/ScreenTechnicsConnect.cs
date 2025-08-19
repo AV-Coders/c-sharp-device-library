@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Motor;
 
@@ -21,13 +22,11 @@ public class ScreenTechnicsConnect : Motor
 
     private void ConnectionStateHandlers(ConnectionState connectionState)
     {
-        Debug($"Connection State Change - {connectionState.ToString()}");
         if (connectionState != ConnectionState.Connected)
             return;
         if (_queuedMessage != String.Empty)
         {
             Thread.Sleep(500); // You need a slight pause because the device doesn't accept commands when the event is triggered.
-            Debug($"Sending queued message {_queuedMessage}");
             _client.Send(_queuedMessage);
             _queuedMessage = String.Empty;
         }
@@ -42,7 +41,6 @@ public class ScreenTechnicsConnect : Motor
             _client.Send(message);
         else
         {
-            Debug("Queuing Message");
             _queuedMessage = message;
             _client.Connect();
         }
@@ -66,20 +64,20 @@ public class ScreenTechnicsConnect : Motor
     {
         Send($"30 {_moduleId}\r");
         CurrentMoveAction = RelayAction.Raise;
-        Debug("Screen technics will Raise");
+        Log.Verbose("Screen technics will Raise");
     }
 
     public override void Lower()
     {
         Send($"33 {_moduleId}\r");
         CurrentMoveAction = RelayAction.Lower;
-        Debug("Screen technics will Lower");
+        Log.Verbose("Screen technics will Lower");
     }
 
     public override void Stop()
     {
         Send($"36 {_moduleId}\r");
         CurrentMoveAction = RelayAction.None;
-        Debug("Screen technics will Stop");
+        Log.Verbose("Screen technics will Stop");
     }
 }

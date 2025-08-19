@@ -99,27 +99,32 @@ public class CiscoRoomOs : Conference
 
     private void Reinitialise()
     {
-      PollWorker.Stop();
-      try
+      using (PushProperties("Reinitialise"))
       {
-        SendCommand($"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: {_peripheralType.ToString()} Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
-        SendCommand("xFeedback register /Status/Standby");
-        SendCommand("xFeedback register /Status/Conference/DoNotDisturb");
-        SendCommand("xFeedback register /Status/Call");
-        SendCommand("xFeedback register /Status/Audio/Volume");
-        SendCommand("xStatus Standby");
-        SendCommand("xStatus Conference DoNotDisturb");
-        SendCommand("xStatus Call");
-        SendCommand("xStatus Audio Volume");
-        SendCommand("xStatus SIP Registration URI");
-        PhoneBookParser.RequestPhonebook();
+        PollWorker.Stop();
+        try
+        {
+          SendCommand(
+            $"xCommand Peripherals Connect ID: {_moduleIdentifier} Type: {_peripheralType.ToString()} Name: \"{_deviceInfo.Name}\" SoftwareInfo: \"{_deviceInfo.SoftwareInfo}\" HardwareInfo: \"{_deviceInfo.HardwareInfo}\" SerialNumber: \"{_deviceInfo.SerialNumber}\"");
+          SendCommand("xFeedback register /Status/Standby");
+          SendCommand("xFeedback register /Status/Conference/DoNotDisturb");
+          SendCommand("xFeedback register /Status/Call");
+          SendCommand("xFeedback register /Status/Audio/Volume");
+          SendCommand("xStatus Standby");
+          SendCommand("xStatus Conference DoNotDisturb");
+          SendCommand("xStatus Call");
+          SendCommand("xStatus Audio Volume");
+          SendCommand("xStatus SIP Registration URI");
+          PhoneBookParser.RequestPhonebook();
+        }
+        catch (Exception e)
+        {
+          Log.Verbose("Can't initialise Cisco Room OS");
+          LogException(e);
+        }
+
+        PollWorker.Restart();
       }
-      catch (Exception ex)
-      {
-        Verbose("Can't initialise Cisco Room OS");
-        Verbose(ex.Message);
-      }
-      PollWorker.Restart();
     }
 
     private void SendCommand(string command)
@@ -137,9 +142,12 @@ public class CiscoRoomOs : Conference
 
     private Task SendHeartbeat()
     {
-      SendCommand($"xCommand Peripherals HeartBeat ID: {_moduleIdentifier} Timeout: 120");
-      Verbose("Sending Heartbeat");
-      return Task.CompletedTask;
+      using (PushProperties("SendHeartbeat"))
+      {
+        SendCommand($"xCommand Peripherals HeartBeat ID: {_moduleIdentifier} Timeout: 120");
+        Log.Verbose("Sending Heartbeat");
+        return Task.CompletedTask;
+      }
     }
 
     private void SendCallCommand(string commandString) => SendCommand($"xCommand Call {commandString}");
@@ -173,18 +181,22 @@ public class CiscoRoomOs : Conference
     
     public int FindCallId(Call? value)
     {
-      if (value == null)
-        return 0;
-      
-      foreach (var keyValuePair in ActiveCalls)
+      using (PushProperties("FindCallId"))
       {
-        if (keyValuePair.Value.Equals(value))
+        if (value == null)
+          return 0;
+
+        foreach (var keyValuePair in ActiveCalls)
         {
-          return keyValuePair.Key;
+          if (keyValuePair.Value.Equals(value))
+          {
+            return keyValuePair.Key;
+          }
         }
+
+        Log.Error($"No call found for {value}, terminating all");
+        return 0;
       }
-      Verbose($"No call found for {value}, terminating all");
-      return 0;
     }
 
     protected override void DoPowerOff() => SendCommand("xCommand Standby Activate");
@@ -193,78 +205,80 @@ public class CiscoRoomOs : Conference
 
     private void HandleResponse(string response)
     {
-      if(!response.Contains("*s") && !response.Contains("*r"))
-        return;
-      
-      var responses = response.Split(' ');
-      try
+      using (PushProperties("HandleResponse"))
       {
-        if (response.Contains("PhonebookSearchResult"))
-          CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
-        else if (response.Contains("PeripheralsHeartBeatResult"))
+        if (!response.Contains("*s") && !response.Contains("*r"))
+          return;
+
+        var responses = response.Split(' ');
+        try
         {
-          if(response.Contains("status=OK"))
-            CommunicationState = CommunicationState.Okay;
-          else if(response.Contains("status=Error"))
-            CommunicationState = CommunicationState.Error;
+          if (response.Contains("PhonebookSearchResult"))
+            CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
+          else if (response.Contains("PeripheralsHeartBeatResult"))
+          {
+            if (response.Contains("status=OK"))
+              CommunicationState = CommunicationState.Okay;
+            else if (response.Contains("status=Error"))
+              CommunicationState = CommunicationState.Error;
 
 
-          if (CommunicationState == CommunicationState.Error)
+            if (CommunicationState == CommunicationState.Error)
+              Reinitialise();
+          }
+          else if (response.Contains("CallDisconnectResult"))
+          {
+            if (!response.Contains("status=OK"))
+              return;
+            ActiveCalls.Clear();
+            CallStatus = CallStatus.Idle;
+            SendCommand("xStatus Call");
+          }
+          else if (response.Contains("Call"))
+          {
+            if (!response.Contains("Conference"))
+              ProcessCallResponse(responses);
+          }
+          else if (response.Contains("Standby State:"))
+          {
+            PowerState = responses[3].Contains("Off") ? PowerState.On : PowerState.Off;
+            ProcessPowerState();
+          }
+          else if (response.Contains("Audio Volume:"))
+          {
+            OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
+          }
+          else if (response.Contains("Audio VolumeMute:"))
+          {
+            OutputMute.MuteState = responses[3].Contains("On") ? MuteState.On : MuteState.Off;
+          }
+          else if (response.Contains("Audio Microphones Mute:"))
+          {
+            MicrophoneMute.MuteState = responses[4].Contains("On") ? MuteState.On : MuteState.Off;
+          }
+          else if (response.Contains("SIP Registration 1 URI:"))
+          {
+            Uri = responses[5].Trim().Trim('"');
+          }
+          else if (response.StartsWith("*r Login successful"))
+          {
             Reinitialise();
+          }
+          else if (response.StartsWith("*s Conference DoNotDisturb: Active"))
+          {
+            DoNotDisturbState = PowerState.On;
+            ValidateDoNotDisturbState();
+          }
+          else if (response.StartsWith("*s Conference DoNotDisturb: Inactive"))
+          {
+            DoNotDisturbState = PowerState.Off;
+            ValidateDoNotDisturbState();
+          }
         }
-        else if (response.Contains("CallDisconnectResult"))
+        catch (Exception e)
         {
-          if (!response.Contains("status=OK"))
-            return;
-          ActiveCalls.Clear();
-          CallStatus = CallStatus.Idle;
-          SendCommand("xStatus Call");
+          LogException(e);
         }
-        else if (response.Contains("Call"))
-        {
-          if (!response.Contains("Conference"))
-            ProcessCallResponse(responses);
-        }
-        else if (response.Contains("Standby State:"))
-        {
-          PowerState = responses[3].Contains("Off") ? PowerState.On : PowerState.Off;
-          ProcessPowerState();
-        }
-        else if (response.Contains("Audio Volume:"))
-        {
-          OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
-        }
-        else if (response.Contains("Audio VolumeMute:"))
-        {
-          OutputMute.MuteState = responses[3].Contains("On") ? MuteState.On : MuteState.Off;
-        }
-        else if (response.Contains("Audio Microphones Mute:"))
-        {
-          MicrophoneMute.MuteState = responses[4].Contains("On") ? MuteState.On : MuteState.Off;
-        }
-        else if (response.Contains("SIP Registration 1 URI:"))
-        {
-          Uri = responses[5].Trim().Trim('"');
-        }
-        else if (response.StartsWith("*r Login successful"))
-        {
-          Reinitialise();
-        }
-        else if (response.StartsWith("*s Conference DoNotDisturb: Active"))
-        {
-          DoNotDisturbState = PowerState.On;
-          ValidateDoNotDisturbState();
-        }
-        else if (response.StartsWith("*s Conference DoNotDisturb: Inactive"))
-        {
-          DoNotDisturbState = PowerState.Off;
-          ValidateDoNotDisturbState();
-        }
-      }
-      catch (Exception e)
-      {
-        Error(e.Message);
-        Error(e.StackTrace ?? "No stack trace available");
       }
     }
     

@@ -1,5 +1,6 @@
 using AVCoders.Core;
 using Newtonsoft.Json;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -70,11 +71,11 @@ public class NovaStarH5 : Display
             RecallPreset((int)_powerOffPreset);
     }
 
-    protected override void DoSetInput(Input input) => Debug("This module does not support input select");
+    protected override void DoSetInput(Input input) => Log.Error("NovaStarH5 does not support input select");
 
-    protected override void DoSetVolume(int percentage) => Debug("This device does not support volume");
+    protected override void DoSetVolume(int percentage) => Log.Error("NovaStarH5 does not support volume");
 
-    protected override void DoSetAudioMute(MuteState state) => Debug("This device does not support audio mute");
+    protected override void DoSetAudioMute(MuteState state) => Log.Error("NovaStarH5 does not support audio mute");
     
     protected override void HandleConnectionState(ConnectionState connectionState) { }
 }

@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -51,17 +52,17 @@ public class ColorlightDeviceControlProtocolClassB : Display
         CommunicationClient.Send([0x10, 0x10, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
     }
 
-    protected override void DoSetInput(Input input) => Debug("This module does not support input select");
+    protected override void DoSetInput(Input input) => Log.Error("ColorlightDeviceControlProtocolClassB does not support input select");
 
-    protected override void DoSetVolume(int percentage) => Debug("This device does not support volume");
+    protected override void DoSetVolume(int percentage) => Log.Error("ColorlightDeviceControlProtocolClassB does not support volume");
 
-    protected override void DoSetAudioMute(MuteState state) => Debug("This device does not support audio mute");
+    protected override void DoSetAudioMute(MuteState state) => Log.Error("ColorlightDeviceControlProtocolClassB does not support audio mute");
 
     public void SetBrightness(uint percentage)
     {
         if (percentage > 100)
         {
-            Error("The brightness can't go over 100%");
+            Log.Error("The brightness can't go over 100%");
             return;
         }
         _brightness = percentage;

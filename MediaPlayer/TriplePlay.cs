@@ -1,4 +1,6 @@
 ﻿using AVCoders.Core;
+using Serilog;
+
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 
 namespace AVCoders.MediaPlayer;
@@ -21,12 +23,11 @@ public class TriplePlay : MediaPlayer, ISetTopBox
         {
             try
             {
-                Verbose($"Sending request: {uri}");
                 await httpClient.GetAsync(uri);
             }
             catch (Exception e)
             {
-                Verbose(e.Message);
+                LogException(e);
             }
         }
     }
@@ -53,7 +54,7 @@ public class TriplePlay : MediaPlayer, ISetTopBox
         Get(GenerateCommandString("ChannelDown"));
     }
 
-    public void SendIRCode(RemoteButton button) => Verbose("This is not supported");
+    public void SendIRCode(RemoteButton button) => Log.Error("SendIRCode is not supported in TriplePlay");
 
     public void SetChannel(int channel) => GoToChannelNumber((uint) channel);
     public void ToggleSubtitles()

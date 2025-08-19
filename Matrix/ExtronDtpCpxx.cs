@@ -260,7 +260,7 @@ public class ExtronDtpCpxx : VideoMatrix
         }
         catch (Exception e)
         {
-            Error(e.Message);
+            LogException(e);
             UpdateCommunicationState(CommunicationState.Error);
         }
     }

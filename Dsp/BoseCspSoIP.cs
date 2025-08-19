@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Dsp;
 public class BoseGain : Fader
@@ -228,5 +229,5 @@ public class BoseCspSoIP : Dsp
     public override string GetValue(string controlName)
         => !_selects.TryGetValue(controlName, out var select) ? String.Empty : select.Value;
 
-    public override void Reinitialise() => Verbose("This module doesn't pull data from the DSP");
+    public override void Reinitialise() => Log.Verbose("This module doesn't pull data from the DSP");
 }

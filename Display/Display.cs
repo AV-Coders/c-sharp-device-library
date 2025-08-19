@@ -113,26 +113,32 @@ public abstract class Display : VolumeControl, IDevice
 
     protected void ProcessPowerResponse()
     {
-        if (PowerState == DesiredPowerState)
-            return;
-        if (DesiredPowerState == PowerState.Unknown)
-            return;
-        Debug("Forcing Power");
-        if (DesiredPowerState == PowerState.Off)
-            PowerOff();
-        else if (DesiredPowerState == PowerState.On) 
-            PowerOn();
+        using (PushProperties("ProcessPowerResponse"))
+        {
+            if (PowerState == DesiredPowerState)
+                return;
+            if (DesiredPowerState == PowerState.Unknown)
+                return;
+            Log.Information($"{Name} has hte incorrect power state - Forcing Power");
+            if (DesiredPowerState == PowerState.Off)
+                PowerOff();
+            else if (DesiredPowerState == PowerState.On)
+                PowerOn();
+        }
     }
     
     protected void ProcessInputResponse()
     {
-        InputHandlers?.Invoke(Input);
-        if (Input == DesiredInput)
-            return;
-        if (DesiredInput == Input.Unknown)
-            return;
-        Debug("Forcing Input");
-        SetInput(DesiredInput);
+        using (PushProperties("ProcessInputResponse"))
+        {
+            InputHandlers?.Invoke(Input);
+            if (Input == DesiredInput)
+                return;
+            if (DesiredInput == Input.Unknown)
+                return;
+            Log.Information($"{Name} has hte incorrect input - Forcing Input");
+            SetInput(DesiredInput);
+        }
     }
 
     public void TogglePower()
@@ -146,7 +152,7 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOn()
     {
         DoPowerOn();
-        Verbose("Turning On");
+        Log.Verbose("Turning On");
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
         if(_defaultInput != null)
@@ -158,7 +164,7 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOff()
     {
         DoPowerOff();
-        Verbose("Turning Off");
+        Log.Verbose("Turning Off");
         PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
     }
@@ -169,11 +175,11 @@ public abstract class Display : VolumeControl, IDevice
     {
         if (!SupportedInputs.Contains(input))
         {
-            Error($"Requested Input {input} is not available");
+            Log.Error($"Requested Input {input} is not available");
             return;
         }
         DoSetInput(input);
-        Verbose($"Setting input to {input.ToString()}");
+        Log.Verbose($"Setting input to {input.ToString()}");
         DesiredInput = input;
         Input = input;
     }
@@ -184,7 +190,7 @@ public abstract class Display : VolumeControl, IDevice
     {
         if (volume is > 100 or < 0)
         {
-            Error($"Volume needs to be a value between 0 and 100, it's {volume}");
+            Log.Error($"Volume needs to be a value between 0 and 100, it's {volume}");
             return;
         }
         DoSetVolume(volume);
@@ -213,7 +219,7 @@ public abstract class Display : VolumeControl, IDevice
 
     public override void SetAudioMute(MuteState state)
     {
-        Verbose($"Setting audio mute to {state.ToString()}");
+        Log.Verbose($"Setting audio mute to {state.ToString()}");
         DesiredAudioMute = state;
         DoSetAudioMute(state);
         AudioMute = state;
@@ -233,36 +239,12 @@ public abstract class Display : VolumeControl, IDevice
                 break;
         }
     }
-    
-    protected void Debug(string message)
-    {
-        using (PushProperties())
-            Log.Debug(message);
-    }
-
-    protected void Error(string message)
-    {
-        using (PushProperties())
-            Log.Error(message);
-    }
-
-    protected void Information(string message)
-    {
-        using (PushProperties())
-            Log.Information(message);
-    }
-
-    protected void Verbose(string message)
-    {
-        using (PushProperties())
-            Log.Verbose(message);
-    }
 
     public void AddLogProperty(string name, string value)
     {
         _logProperties[name] = value;
     }
-    private IDisposable PushProperties()
+    protected IDisposable PushProperties(string? methodName = null)
     {
         var disposables = new List<IDisposable>();
 
@@ -274,7 +256,17 @@ public abstract class Display : VolumeControl, IDevice
         disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
         disposables.Add(LogContext.PushProperty("Class", GetType().Name));
         disposables.Add(LogContext.PushProperty("InstanceName", Name));
+        if(methodName != null)
+            disposables.Add(LogContext.PushProperty(LogBase.MethodProperty, methodName));
 
         return new DisposableItems(disposables);
+    }
+    
+    protected void LogException(Exception e)
+    {
+        Log.Error(e.GetType().Name + ": " + e.Message + Environment.NewLine + e.StackTrace);
+        if (e.InnerException == null)
+            return;
+        Log.Error("Caused by: " + e.InnerException.GetType().Name + Environment.NewLine + e.InnerException.Message + Environment.NewLine + e.InnerException.StackTrace);
     }
 }

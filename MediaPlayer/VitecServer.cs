@@ -72,17 +72,11 @@ public class VitecServer : LogBase
         using HttpClient httpClient = new HttpClient(handler);
         try
         {
-            Debug($"Sending request: {uri}");
             await httpClient.PostAsync(uri, new StringContent(content, Encoding.Default, "application/json"));
         }
         catch (Exception e)
         {
-            Debug(e.Message);
-            Debug(e.StackTrace?? "No stack trace available");
-            if (e.InnerException == null)
-                return;
-            Debug(e.InnerException.Message);
-            Debug(e.InnerException.StackTrace?? "No stack trace available");
+            LogException(e);
         }
     }
 
@@ -95,35 +89,25 @@ public class VitecServer : LogBase
         using HttpClient httpClient = new HttpClient(handler);
         try
         {
-            Debug($"Sending request: {uri}");
             HttpResponseMessage response = await httpClient.GetAsync(uri);
             await HandleResponse(response);
         }
         catch (Exception e)
         {
-            Debug(e.Message);
-            Debug(e.StackTrace?? "No stack trace available");
-            if (e.InnerException == null)
-                return;
-            Debug(e.InnerException.Message);
-            Debug(e.InnerException.StackTrace?? "No stack trace available");
+            LogException(e);
         }
     }
 
     private async Task HandleResponse(HttpResponseMessage response)
     {
-        Debug($"Response status code: {response.StatusCode.ToString()}");
         if (response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync();
-            Debug(responseBody);
             List<VitecServerChannel>? vitecServerChannels = JsonConvert.DeserializeObject<List<VitecServerChannel>>(responseBody);
             if (vitecServerChannels == null)
             {
-                Debug("Response is not a list of channels");
                 return;
             }
-            Debug("Response is a list of channels");
             _channelMap.Clear();
 
             vitecServerChannels.ForEach(channelInfo =>

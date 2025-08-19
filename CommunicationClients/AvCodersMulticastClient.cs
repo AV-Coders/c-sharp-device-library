@@ -1,7 +1,9 @@
 ﻿using System.Net;
 using System.Text;
+using Serilog;
 using Serilog.Context;
 using UdpClient = System.Net.Sockets.UdpClient;
+
 namespace AVCoders.CommunicationClients;
 
 public class AvCodersMulticastClient : IpComms
@@ -65,15 +67,45 @@ public class AvCodersMulticastClient : IpComms
 
     protected override async Task CheckConnectionState(CancellationToken token) => await ConnectionStateWorker.Stop();
 
-    public override void SetPort(ushort port) => Debug("Set Port not supported");
+    public override void SetPort(ushort port)
+    {
+        using (PushProperties("SetPort"))
+        {
+            Log.Debug("Set Port not supported");
+        }
+    }
 
-    public override void SetHost(string host) => Debug("Set Host not supported");
+    public override void SetHost(string host)
+    {
+        using (PushProperties("SetHost"))
+        {
+            Log.Debug("Set Host not supported");
+        }
+    }
 
-    public override void Connect() => Debug("Connect not supported");
+    public override void Connect()
+    {
+        using (PushProperties("Connect"))
+        {
+            Log.Debug("Connect not supported");
+        }
+    }
 
-    public override void Reconnect() => Debug("Reconnect not supported");
+    public override void Reconnect()
+    {
+        using (PushProperties("Reconnect"))
+        {
+            Log.Debug("Reconnect not supported");
+        }
+    }
 
-    public override void Disconnect() => Debug("Disconnect not supported");
+    public override void Disconnect()
+    {
+        using (PushProperties("Disconnect"))
+        {
+            Log.Debug("Disconnect not supported");
+        }
+    }
 
     public override void Send(String message)
     {

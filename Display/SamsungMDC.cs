@@ -64,8 +64,6 @@ public class SamsungMdc : Display
             return Task.CompletedTask;
         }
         
-        Verbose("Polling Power");
-        
         CommunicationClient.Send(_pollPowerCommand);
         if (PowerState != PowerState.On) 
             return Task.CompletedTask;
@@ -135,57 +133,58 @@ public class SamsungMdc : Display
 
     public void ProcessResponse(byte[] response)
     {
-        // Log($"Response received, bytes: {BitConverter.ToString(response)}");
+        using (PushProperties("ProcessResponse"))
+        {
+            if (response[0] != 0xAA && response[1] != 0xFF)
+            {
+                Log.Debug("The response does not have the correct header");
+                return;
+            }
 
-        if (response[0] != 0xAA && response[1] != 0xFF)
-        {
-            Debug("The response does not have the correct header");
-            return;
-        }
+            if (response[4] == 0x4E)
+            {
+                Log.Debug("NAK Received");
+                CommunicationState = CommunicationState.Error;
+                return;
+            }
 
-        if (response[4] == 0x4E)
-        {
-            Debug("NAK Received");
-            CommunicationState = CommunicationState.Error;
-            return;
-        }
-        
-        CommunicationState = CommunicationState.Okay;
-        
-        switch (response[5])
-        {
-            case PowerControlCommand:
-                PowerState = response[6] switch
-                {
-                    0x00 => PowerState.Off,
-                    0x01 => PowerState.On,
-                    _ => PowerState
-                };
-                ProcessPowerResponse();
-                break;
-            case InputControlCommand:
-                Input = response[6] switch
-                {
-                    0x21 => Input.Hdmi1,
-                    0x23 => Input.Hdmi2,
-                    0x31 => Input.Hdmi3,
-                    0x33 => Input.Hdmi4,
-                    0x60 => Input.DvbtTuner,
-                    _ => Input
-                };
-                ProcessInputResponse();
-                break;
-            case VolumeControlCommand:
-                Volume = response[6];
-                break;
-            case MuteControlCommand:
-                AudioMute = response[6] switch
-                {
-                    0x00 => MuteState.Off,
-                    0x01 => MuteState.On,
-                    _ => MuteState.Unknown
-                };
-                break;
+            CommunicationState = CommunicationState.Okay;
+
+            switch (response[5])
+            {
+                case PowerControlCommand:
+                    PowerState = response[6] switch
+                    {
+                        0x00 => PowerState.Off,
+                        0x01 => PowerState.On,
+                        _ => PowerState
+                    };
+                    ProcessPowerResponse();
+                    break;
+                case InputControlCommand:
+                    Input = response[6] switch
+                    {
+                        0x21 => Input.Hdmi1,
+                        0x23 => Input.Hdmi2,
+                        0x31 => Input.Hdmi3,
+                        0x33 => Input.Hdmi4,
+                        0x60 => Input.DvbtTuner,
+                        _ => Input
+                    };
+                    ProcessInputResponse();
+                    break;
+                case VolumeControlCommand:
+                    Volume = response[6];
+                    break;
+                case MuteControlCommand:
+                    AudioMute = response[6] switch
+                    {
+                        0x00 => MuteState.Off,
+                        0x01 => MuteState.On,
+                        _ => MuteState.Unknown
+                    };
+                    break;
+            }
         }
     }
 

@@ -1,5 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Matrix;
 
@@ -51,7 +52,7 @@ public class Navigator : DeviceBase
         var hostEndIndex = response.IndexOf('}');
         if (hostEndIndex == -1)
         {
-            Error("} was not found");
+            Log.Error("} was not found");
             return;
         }
         var respondant = response.Substring(0, hostEndIndex).Trim('{').Trim('}');
@@ -60,7 +61,7 @@ public class Navigator : DeviceBase
             action.Invoke(response.Substring(hostEndIndex + 1, response.Length - hostEndIndex - 1));
         }
         else
-            Error($"Nav has returned a response for a device that's not registered to this module: {respondant}");
+            Log.Error($"Nav has returned a response for a device that's not registered to this module: {respondant}");
         _unansweredDeviceForwards++;
         if (_unansweredDeviceForwards > 5)
             CommunicationState = CommunicationState.Error;

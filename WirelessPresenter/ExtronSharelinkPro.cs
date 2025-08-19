@@ -115,7 +115,7 @@ public class ExtronSharelinkPro : DeviceBase
         }
         catch (Exception e)
         {
-            Error(e.Message);
+            LogException(e);
             CommunicationState = CommunicationState.Error;
         }
     }

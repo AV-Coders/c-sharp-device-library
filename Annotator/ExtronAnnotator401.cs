@@ -42,10 +42,13 @@ public class ExtronAnnotator401 : DeviceBase
 
     private Task Poll(CancellationToken arg)
     {
-        if(_client.ConnectionState != ConnectionState.Connected)
-            return Task.CompletedTask;
-        
-        WrapAndSendCommand("0TC");
+        using (PushProperties("Poll"))
+        {
+            if (_client.ConnectionState != ConnectionState.Connected)
+                return Task.CompletedTask;
+
+            WrapAndSendCommand("0TC");
+        }
         return Task.CompletedTask;
     }
 
@@ -65,7 +68,7 @@ public class ExtronAnnotator401 : DeviceBase
         }
         catch (Exception e)
         {
-            Error(e.Message);
+            LogException(e);
             CommunicationState = CommunicationState.Error;
         }
     }

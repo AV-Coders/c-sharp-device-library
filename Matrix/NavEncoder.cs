@@ -17,7 +17,6 @@ public class NavEncoder : NavDeviceBase
 
     protected override void HandleResponse(string response)
     {
-        Debug($"Device response - {response}");
         if (response.Contains('*'))
         {
             var responses = response.Split('*');

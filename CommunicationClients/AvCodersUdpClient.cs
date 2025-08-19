@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using Serilog;
 using Serilog.Context;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
@@ -25,11 +26,10 @@ public class AvCodersUdpClient : Core_UdpClient
 
     private UdpClient? CreateClient()
     {
-        using (LogContext.PushProperty(MethodProperty, "CreateClient"))
+        using (PushProperties("CreateClient"))
         {
             try
             {
-                Debug("Creating client");
                 ConnectionState = ConnectionState.Connecting;
                 var client = new UdpClient(Host, Port);
                 if (IPAddress.TryParse(Host, out var remoteIpAddress))
@@ -50,25 +50,23 @@ public class AvCodersUdpClient : Core_UdpClient
 
     protected override async Task Receive(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "Receive"))
+        using (PushProperties("Receive"))
         {
             if (_ipEndPoint == null)
             {
-                Debug("Client disconnected, aborting receive");
+                Log.Debug("Client disconnected, aborting receive");
                 await ReceiveThreadWorker.Stop();
                 return;
             }
 
             if (_client is not { Available: > 0 })
             {
-                Verbose("No incoming data available");
                 await Task.Delay(1100, token);
                 return;
             }
 
             try
             {
-                Verbose("Incoming data is available");
                 var received = _client.Receive(ref _ipEndPoint);
                 InvokeResponseHandlers(ConvertByteArrayToString(received), received);
             }
@@ -84,7 +82,7 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         if (_client == null)
         {
-            Debug("Messages in send queue will not be sent while client is not connected");
+            Log.Debug("Messages in send queue will not be sent while client is not connected");
             await Task.Delay(500, token);
         }
         else
@@ -101,12 +99,10 @@ public class AvCodersUdpClient : Core_UdpClient
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
+        using (PushProperties("CheckConnectionState"))
         {
-            Debug($"Connection state is {ConnectionState}");
             if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
             {
-                Debug("Will recreate client");
                 CreateClient();
             }
             await Task.Delay(TimeSpan.FromSeconds(30), token);
@@ -133,7 +129,6 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Reconnect()
     {
-        Debug($"Reconnecting");
         ConnectionState = ConnectionState.Disconnecting;
         _client?.Close();
         ConnectionState = ConnectionState.Disconnected;
@@ -142,7 +137,6 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Disconnect()
     {
-        Debug($"Disconnecting");
         ConnectionState = ConnectionState.Disconnecting;
         _client = null;
         _ipEndPoint = null;
@@ -153,13 +147,12 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Send(byte[] bytes)
     {
-        using (LogContext.PushProperty(MethodProperty, "Send"))
+        using (PushProperties("Send"))
         {
             try
             {
                 if (_client == null)
                 {
-                    Debug("Queueing Message");
                     _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
                     return;
                 }

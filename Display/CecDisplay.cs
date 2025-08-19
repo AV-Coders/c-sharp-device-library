@@ -1,5 +1,6 @@
 using AVCoders.Core;
 using AVCoders.MediaPlayer;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -99,14 +100,12 @@ public class CecDisplay : Display, ISetTopBox
     {
         if (incoming[0] == _responseHeader && incoming[1] == '\x90')
         {
-            Debug("It's a power response");
             PowerState = incoming[2] switch
             {
                 '\x00' => PowerState.On,
                 '\x01' => PowerState.Off,
                 _ => PowerState
             };
-            Debug($"Power state is {PowerState.ToString()}");
             ProcessPowerResponse();
         }
     }
@@ -119,7 +118,6 @@ public class CecDisplay : Display, ISetTopBox
 
     protected override Task DoPoll(CancellationToken token)
     {
-        Verbose("Polling Power");
         Send(new[] { '\xF0', '\x8F' });
         return Task.CompletedTask;
     }
@@ -157,8 +155,7 @@ public class CecDisplay : Display, ISetTopBox
     {
         // scale to a value between 0-127
         char volume = (char)(percentage * 1.27);
-        Debug("Volume not available");
-        Send(new []{ _commandHeader, '\x7A', volume});
+        Send([_commandHeader, '\x7A', volume]);
         DesiredAudioMute = MuteState.Off;
         AudioMute = MuteState.Off;
     }
@@ -183,12 +180,16 @@ public class CecDisplay : Display, ISetTopBox
 
     public void SendIRCode(RemoteButton button)
     {
-        if (UnsupportedButtons.Contains(button))
+        using (PushProperties("SendIRCode"))
         {
-            Debug($"Unsupported button - {button.ToString()}");
-            return;
+            if (UnsupportedButtons.Contains(button))
+            {
+                Log.Error($"Unsupported button - {button.ToString()}");
+                return;
+            }
+
+            RemoteControlPassthrough(RemoteButtonMap[button]);
         }
-        RemoteControlPassthrough(RemoteButtonMap[button]);
     }
 
     public void SetChannel(int channel)

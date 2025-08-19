@@ -112,11 +112,9 @@ public class LumensLc300 : Recorder
         {
             if (_client.ConnectionState != ConnectionState.Connected)
             {
-                Verbose("Client not connected, Not polling");
                 return Task.CompletedTask;
             }
         
-            Verbose("Polling");
             SendCommand(GetAction, "ST"u8.ToArray()); // Record Status
             SendCommand(GetAction, "LO"u8.ToArray()); // Layout
         

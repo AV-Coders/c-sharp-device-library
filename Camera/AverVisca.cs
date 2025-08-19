@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Camera;
 
@@ -14,24 +15,27 @@ public class AverVisca : SonyVisca
 
     public void SetTracking(CameraTrackingMode mode)
     {
-        switch (mode)
+        using (PushProperties("SetTracking"))
         {
-            case CameraTrackingMode.Auto:
-                SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x02, 0x00, CommandFooter }); 
-                Verbose("Tracking Mode: Auto");
-                break;
-            case CameraTrackingMode.Disabled:
-                SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x01, 0x00, CommandFooter });
-                Verbose("Tracking Mode: Disabled");
-                break;
-            case CameraTrackingMode.TriggerOnce:
-                SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x00, 0x00, CommandFooter });
-                Verbose("Tracking Mode: Trigger Once");
-                break;
-            case CameraTrackingMode.Manual:
-                SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x03, 0x00, CommandFooter });
-                Verbose("Tracking Mode: Manual");
-                break;
+            switch (mode)
+            {
+                case CameraTrackingMode.Auto:
+                    SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x02, 0x00, CommandFooter });
+                    Log.Verbose("Tracking Mode: Auto");
+                    break;
+                case CameraTrackingMode.Disabled:
+                    SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x01, 0x00, CommandFooter });
+                    Log.Verbose("Tracking Mode: Disabled");
+                    break;
+                case CameraTrackingMode.TriggerOnce:
+                    SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x00, 0x00, CommandFooter });
+                    Log.Verbose("Tracking Mode: Trigger Once");
+                    break;
+                case CameraTrackingMode.Manual:
+                    SendCommand(new byte[] { _header, 0x01, 0x04, 0x7D, 0x03, 0x00, CommandFooter });
+                    Log.Verbose("Tracking Mode: Manual");
+                    break;
+            }
         }
     }
 }

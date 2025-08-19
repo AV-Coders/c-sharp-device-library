@@ -54,11 +54,11 @@ public abstract class DeviceBase : IDevice
         switch (DesiredPowerState)
         {
             case PowerState.Off:
-                Verbose("Forcing Power off");
+                Log.Verbose("Forcing Power off");
                 PowerOff();
                 break;
             case PowerState.On:
-                Verbose("Forcing Power on");
+                Log.Verbose("Forcing Power on");
                 PowerOn();
                 break;
         }
@@ -91,50 +91,12 @@ public abstract class DeviceBase : IDevice
 
         return new DisposableItems(disposables);
     }
-
-    protected void Verbose(string message)
-    {
-        using (PushProperties())
-            Log.Verbose(message);
-    }
-    
-    protected void Debug(string message)
-    {
-        using (PushProperties())
-            Log.Debug(message);
-    }
-    
-    protected void Info(string message)
-    {
-        using (PushProperties())
-            Log.Information(message);
-    }
-    
-    protected void Warn(string message)
-    {
-        using (PushProperties())
-            Log.Warning(message);
-    }
-
-    protected void Error(string message)
-    {
-        
-        using (PushProperties())
-            Log.Error(message);
-    }
-
-    protected void Fatal(string message)
-    {
-        
-        using (PushProperties())
-            Log.Fatal(message);
-    }
     
     protected void LogException(Exception e)
     {
-        Error(e.GetType().Name + ": " + e.Message + Environment.NewLine + e.StackTrace);
+        Log.Error(e.GetType().Name + ": " + e.Message + Environment.NewLine + e.StackTrace);
         if (e.InnerException == null)
             return;
-        Error("Caused by: " + e.InnerException.GetType().Name + Environment.NewLine + e.InnerException.Message + Environment.NewLine + e.InnerException.StackTrace);
+        Log.Error("Caused by: " + e.InnerException.GetType().Name + Environment.NewLine + e.InnerException.Message + Environment.NewLine + e.InnerException.StackTrace);
     }
 }

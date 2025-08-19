@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using Serilog;
 using Serilog.Context;
 
 namespace AVCoders.Core;
@@ -37,14 +38,8 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         }
         catch (Exception e)
         {
-            Error("A Request string handler threw an exception");
-            Error(e.Message);
-            Error(e.StackTrace?? "No Stack trace available");
-            if (e.InnerException != null)
-            {
-                Error(e.InnerException.Message);
-                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
-            }
+            Log.Error("A Request string handler threw an exception");
+            LogException(e);
         }
     }
 
@@ -56,14 +51,8 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         }
         catch (Exception e)
         {
-            Error("A Request byte handler threw an exception");
-            Error(e.Message);
-            Error(e.StackTrace?? "No Stack trace available");
-            if (e.InnerException != null)
-            {
-                Error(e.InnerException.Message);
-                Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
-            }
+            Log.Error("A Request byte handler threw an exception");
+            LogException(e);
         }
     }
 
@@ -78,14 +67,8 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         {
             using (LogContext.PushProperty(MethodProperty, "InvokeResponseHandlers"))
             {
-                Error("A Response handler threw an exception");
-                Error(e.Message);
-                Error(e.StackTrace?? "No Stack trace available");
-                if (e.InnerException != null)
-                {
-                    Error(e.InnerException.Message);
-                    Error(e.InnerException.StackTrace?? "No stack trace for inner exception");
-                }
+                Log.Error("A Response handler threw an exception");
+                LogException(e);
             }
         }
     }
@@ -98,7 +81,7 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         }
         catch (Exception e)
         {
-            Error($"A Response handler threw an exception when given response:\n\t {response}");
+            Log.Error($"A Response handler threw an exception when given response:\n\t {response}");
             LogException(e);
         }
     }
@@ -138,10 +121,6 @@ public abstract class RestComms : CommunicationClient
     public abstract Task Get();
 
     public abstract Task Get(Uri? endpoint);
-
-    // ~RestComms()
-    // {
-    // }
 }
 
 public abstract class IpComms : CommunicationClient

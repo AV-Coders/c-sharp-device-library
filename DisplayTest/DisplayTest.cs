@@ -16,7 +16,6 @@ public class DummyDisplay : Display
     protected override void DoSetAudioMute(MuteState state) => _client.Send($"Mute {state.ToString()}");
     protected override void HandleConnectionState(ConnectionState connectionState) { }
 
-    public void InvokeLog(string message) => Debug(message);
     public void PowerOffResponse()
     {
         PowerState = PowerState.Off;
@@ -59,12 +58,6 @@ public class DisplayTest
         _display.InputHdmi2Response();
         
         _mockClient.Verify(x => x.Send("Input Hdmi1"), Times.Exactly(2));
-    }
-
-    [Fact]
-    public void Logging_UsesTheCorrectClassName()
-    {
-        _display.InvokeLog("Hello");
     }
 
     [Fact]

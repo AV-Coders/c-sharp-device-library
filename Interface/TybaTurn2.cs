@@ -65,7 +65,6 @@ public class TybaTurn2 : LogBase
 
     private async Task CreateStream()
     {
-        Debug("Creating stream");
         _streamConnected = true;
         try
         {
@@ -93,29 +92,26 @@ public class TybaTurn2 : LogBase
         }
         catch (SocketException e)
         {
-            Error(e.Message);
-            Error(e.StackTrace?? String.Empty);
+            LogException(e);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (IOException e)
         {
-            Error(e.Message);
+            LogException(e);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (HttpRequestException e)
         {
-            Error(e.Message);
+            LogException(e);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (Exception e)
         {
-            Fatal(e.Message);
-            Fatal(e.StackTrace ?? "No Stack Trace Available");
+            LogException(e);
             throw;
         }
 
         _streamConnected = false;
-        Debug("Stream Closed");
     }
 
     private void ProcessLine(string line)
@@ -123,7 +119,7 @@ public class TybaTurn2 : LogBase
         if (line.Contains(": heartbeat"))
         {
             UpdateCommunicationState(CommunicationState.Okay);
-            Debug($"Heartbeat received");
+            Log.Debug("Heartbeat received");
             // TODO: Heartbeat logic goes here
             return;
         }
@@ -131,7 +127,7 @@ public class TybaTurn2 : LogBase
         if (line.Contains("event: "))
         {
             _currentEvent = line.Remove(0, 7);
-            Debug($"Event received: {_currentEvent}");
+            Log.Debug($"Event received: {_currentEvent}");
         }
         else if (line.Contains("data: "))
         {
@@ -141,7 +137,7 @@ public class TybaTurn2 : LogBase
                 || line.Contains("InternalTemperatureServiceImpl")
                 )
                 return;
-            Verbose(line);
+            Log.Verbose(line);
             ProcessEvent(line.Remove(0, 6));
             _currentEvent = String.Empty;
         }
@@ -174,13 +170,13 @@ public class TybaTurn2 : LogBase
         {
             if (valueAndOnChangeData == null && eventData[0] != "temperature")
             {
-                Debug("Data is invalid");
+                Log.Debug("Data is invalid");
                 return;
             }
 
             if (temperatureChangeData == null && eventData[0] == "temperature")
             {
-                Debug("Data is invalid");
+                Log.Debug("Data is invalid");
                 return;
             }
 
@@ -188,7 +184,7 @@ public class TybaTurn2 : LogBase
         }
         else
         {
-            Warn($"Unhandled event type: {eventData[0]}");
+            Log.Error($"Unhandled event type: {eventData[0]}");
         }
     }
 
@@ -241,7 +237,7 @@ public class TybaTurn2 : LogBase
         
         try
         {
-            Verbose($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
+            Log.Verbose($"Sending payload {payload} to URI {channelUri.AbsoluteUri}");
             using HttpClient httpClient = new HttpClient();
             foreach (var (key, v) in _headers)
             {
@@ -251,11 +247,11 @@ public class TybaTurn2 : LogBase
             httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
             var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
-            Verbose($"Response {response.StatusCode}: {response.ReasonPhrase}");
+            Log.Verbose($"Response {response.StatusCode}: {response.ReasonPhrase}");
         }
         catch (HttpRequestException e)
         {
-            Error(e.Message);
+            LogException(e);
             UpdateCommunicationState(CommunicationState.Error);
         }
         catch (Exception e)

@@ -32,47 +32,49 @@ public class PhilipsSICP : Display
 
     private void HandleResponse(byte[] response)
     {
-        if (response.Length < response[0])
+        using (PushProperties("HandleResponse"))
         {
-            Error("The response was too small");
-            return;
-        }
+            if (response.Length < response[0])
+            {
+                Log.Error("The response was too small");
+                return;
+            }
 
-        switch (response[3])
-        {
-            case 0x19:
-                PowerState = response[4] switch
-                {
-                    0x01 => PowerState.Off,
-                    0x02 => PowerState.On,
-                    _ => PowerState
-                };
-                ProcessPowerResponse();
-                break;
-            case 0xAD:
-                Input = response[4] switch
-                {
-                    0x0d => Input.Hdmi1,
-                    0x06 => Input.Hdmi2,
-                    0x0f => Input.Hdmi3,
-                    0x19 => Input.Hdmi4,
-                    _ => Input
-                };
-                ProcessInputResponse();
-                break;
-            case 0x45:
-                Volume = response[4];
-                break;
-            case 0x46:
-                AudioMute = response[4] switch
-                {
-                    0x00 => MuteState.Off,
-                    0x01 => MuteState.On,
-                    _ => MuteState.Unknown
-                };
-                break;
+            switch (response[3])
+            {
+                case 0x19:
+                    PowerState = response[4] switch
+                    {
+                        0x01 => PowerState.Off,
+                        0x02 => PowerState.On,
+                        _ => PowerState
+                    };
+                    ProcessPowerResponse();
+                    break;
+                case 0xAD:
+                    Input = response[4] switch
+                    {
+                        0x0d => Input.Hdmi1,
+                        0x06 => Input.Hdmi2,
+                        0x0f => Input.Hdmi3,
+                        0x19 => Input.Hdmi4,
+                        _ => Input
+                    };
+                    ProcessInputResponse();
+                    break;
+                case 0x45:
+                    Volume = response[4];
+                    break;
+                case 0x46:
+                    AudioMute = response[4] switch
+                    {
+                        0x00 => MuteState.Off,
+                        0x01 => MuteState.On,
+                        _ => MuteState.Unknown
+                    };
+                    break;
+            }
         }
-        
     }
 
     protected override void HandleConnectionState(ConnectionState connectionState)
@@ -84,21 +86,17 @@ public class PhilipsSICP : Display
     protected override async Task DoPoll(CancellationToken token)
     {
         if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
-        {
-            Log.Warning("Not polling");
-        }
+            return;
         
-        Verbose("Polling Power");
-        
-        Send(new byte[]{ 0x19 }, 0x00);
+        Send([0x19], 0x00);
         if (PowerState == PowerState.On)
         {
             await Task.Delay(3000, token);
-            Send(new byte[] { 0xAD }, 0x00);
+            Send([0xAD], 0x00);
             await Task.Delay(3000, token);
-            Send(new byte[] { 0x45 }, 0x00);
+            Send([0x45], 0x00);
             await Task.Delay(3000, token);
-            Send(new byte[] { 0x46 }, 0x00);
+            Send([0x46], 0x00);
         } 
     }
 

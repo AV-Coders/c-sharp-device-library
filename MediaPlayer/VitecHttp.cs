@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Serilog;
 
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 namespace AVCoders.MediaPlayer;
@@ -39,17 +40,11 @@ public class VitecHttp : MediaPlayer, ISetTopBox
         {
             httpClient.DefaultRequestHeaders.Add("X-API-Version", "7");
             httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", _authInfo);
-            Verbose($"Sending request: {uri}");
             await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, "application/json"));
         }
         catch (Exception e)
         {
-            Verbose(e.Message);
-            Verbose(e.StackTrace?? "No stack trace available");
-            if (e.InnerException == null)
-                return;
-            Verbose(e.InnerException.Message);
-            Verbose(e.InnerException.StackTrace?? "No stack trace available");
+            LogException(e);
         }
     }
 
@@ -103,7 +98,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     {
         if (UnsupportedButtons.Contains(button))
         {
-            Verbose($"Unsupported button - {button.ToString()}");
+            Log.Error("Unsupported button - {unsupportedRemoteButton}", button.ToString());
             return;
         }
         string command = button switch

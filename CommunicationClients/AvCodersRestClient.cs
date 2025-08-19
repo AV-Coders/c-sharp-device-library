@@ -29,11 +29,9 @@ public class AvCodersRestClient : RestComms
     private async Task HandleResponse(HttpResponseMessage response)
     {
         HttpResponseHandlers?.Invoke(response);
-        Debug($"Response status code: {response.StatusCode.ToString()}");
         if (response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync();
-            Debug(responseBody);
             InvokeResponseHandlers(responseBody);
         }
     }
@@ -55,7 +53,6 @@ public class AvCodersRestClient : RestComms
             }
             
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            Debug($"Actioning Post of {payload} to {uri}");
             HttpResponseMessage response = await httpClient.PostAsync(uri, new StringContent(payload, Encoding.Default, contentType));
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
@@ -83,7 +80,6 @@ public class AvCodersRestClient : RestComms
                 httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
             }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            Debug($"Actioning Put to {uri}");
             HttpResponseMessage response = await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, contentType));
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
@@ -111,7 +107,6 @@ public class AvCodersRestClient : RestComms
                 httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
             }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            Debug($"Actioning Put to {uri}");
             HttpResponseMessage response = await httpClient.GetAsync(uri);
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;

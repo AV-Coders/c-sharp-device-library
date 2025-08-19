@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Serilog;
 using Serilog.Context;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
@@ -26,7 +27,7 @@ public class AvCodersTcpServer : Core_TcpClient
 
     public override void Send(byte[] bytes)
     {
-        using (LogContext.PushProperty(MethodProperty, "Send"))
+        using (PushProperties("Send"))
         {
             foreach (TcpClient client in _clients)
             {
@@ -45,7 +46,7 @@ public class AvCodersTcpServer : Core_TcpClient
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "HandleClientAsync"))
+        using (PushProperties("HandleClientAsync"))
         using (client)
         {
             try
@@ -71,12 +72,12 @@ public class AvCodersTcpServer : Core_TcpClient
 
     protected override async Task Receive(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "Receive"))
+        using (PushProperties("Receive"))
         {
             TcpClient client = await _server.AcceptTcpClientAsync(token);
             _clients.Add(client);
             IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? default;
-            Debug($"Added client - {remoteIpEndPoint?.Address}");
+            Log.Debug($"Added client - {remoteIpEndPoint?.Address}");
             _ = HandleClientAsync(client, token);
             await Task.Delay(TimeSpan.FromSeconds(1), token);
         }
@@ -84,15 +85,15 @@ public class AvCodersTcpServer : Core_TcpClient
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
+        using (PushProperties("CheckConnectionState"))
         {
-            Debug($"Checking client status for {_clients.Count} clients");
+            Log.Debug($"Checking client status for {_clients.Count} clients");
             foreach (TcpClient client in _clients)
             {
                 if (client.Connected)
                     continue;
 
-                Debug("Removing a client");
+                Log.Debug("Removing a client");
                 _clients.TryTake(out _);
             }
 
@@ -101,7 +102,13 @@ public class AvCodersTcpServer : Core_TcpClient
         }
     }
 
-    public override void SetHost(string host) => Error("Set Host is not supported");
+    public override void SetHost(string host)
+    {
+        using (PushProperties("SetHost"))
+        {
+            Log.Error("Set Host is not supported");
+        }
+    }
 
     public override void SetPort(ushort port)
     {

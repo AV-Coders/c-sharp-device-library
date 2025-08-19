@@ -53,7 +53,6 @@ public class PjLink : Display
             return Task.CompletedTask;
         }
         
-        Verbose("Polling");
         PollProjector(_pollTask);
         
         _pollTask = _pollTask switch
@@ -68,7 +67,6 @@ public class PjLink : Display
 
     private void PollProjector(PollTask pollTask)
     {
-        Verbose("Polling");
         switch (pollTask)
         {
             case PollTask.Power:
@@ -85,88 +83,91 @@ public class PjLink : Display
 
     private void HandleResponse(string response)
     {
-        if (response.Contains("OK"))
+        using (PushProperties("HandleResponse"))
         {
-            CommunicationState = CommunicationState.Okay;
-            return;
-        }
-
-        if (response.Contains("ERR3")) // It's just not the right time for this command
-        {
-            CommunicationState = CommunicationState.Okay;
-            return;
-        }
-
-        if (response.Contains("ERRA"))
-        {
-            CommunicationState = CommunicationState.Error;
-            Debug("Password not accepted");
-            return;
-        }
-
-        if (response.Contains("ERR")) // ERR2 and ERR4
-        {
-            CommunicationState = CommunicationState.Error;
-            return;
-        }
-
-        if (response.Contains("PJLINK"))
-        {
-            CommunicationState = CommunicationState.Okay;
-            if (!response.Contains('1')) 
-                return;
-            
-            string[] loginParams = response.Split(' ');
-            byte[] answer = GetMd5Hash(loginParams[2] + _password);
-            byte[] poll = { 0x25, 0x31, 0x50, 0x4f, 0x57, 0x52, 0x20, 0x3f, 0x0d };
-            byte[] combined = new byte[answer.Length + poll.Length];
-            
-            Buffer.BlockCopy(answer, 0, combined, 0, answer.Length);
-            Buffer.BlockCopy(poll, 0, combined, answer.Length, poll.Length);
-
-            CommunicationClient.Send(combined);
-            return;
-        }
-
-        var responses = response.Split('=');
-        var value = Int32.Parse(responses[1]);
-
-        if (responses[0].Contains("POWR"))
-        {
-            PowerState = PowerStateDictionary.FirstOrDefault(x => x.Value == value).Key;
-            ProcessPowerResponse();
-        }
-        else if (responses[0].Contains("INPT"))
-        {
-            Input = InputDictionary.FirstOrDefault(x => x.Value == value).Key;
-            ProcessInputResponse();
-        }
-        else if (responses[0].Contains("AVMT"))
-        {
-            switch (value)
+            if (response.Contains("OK"))
             {
-                case 11:
-                    VideoMute = MuteState.On;
-                    AudioMute = MuteState.Off;
-                    break;
-                case 21:
-                    VideoMute = MuteState.Off;
-                    AudioMute = MuteState.On;
-                    break;
-                case 30:
-                    VideoMute = MuteState.Off;
-                    AudioMute = MuteState.Off;
-                    break;
-                case 31:
-                    VideoMute = MuteState.On;
-                    AudioMute = MuteState.On;
-                    break;
+                CommunicationState = CommunicationState.Okay;
+                return;
             }
 
-            SendMuteState();
-        }
+            if (response.Contains("ERR3")) // It's just not the right time for this command
+            {
+                CommunicationState = CommunicationState.Okay;
+                return;
+            }
 
-        CommunicationState = CommunicationState.Okay;
+            if (response.Contains("ERRA"))
+            {
+                CommunicationState = CommunicationState.Error;
+                Log.Error("Password not accepted");
+                return;
+            }
+
+            if (response.Contains("ERR")) // ERR2 and ERR4
+            {
+                CommunicationState = CommunicationState.Error;
+                return;
+            }
+
+            if (response.Contains("PJLINK"))
+            {
+                CommunicationState = CommunicationState.Okay;
+                if (!response.Contains('1'))
+                    return;
+
+                string[] loginParams = response.Split(' ');
+                byte[] answer = GetMd5Hash(loginParams[2] + _password);
+                byte[] poll = { 0x25, 0x31, 0x50, 0x4f, 0x57, 0x52, 0x20, 0x3f, 0x0d };
+                byte[] combined = new byte[answer.Length + poll.Length];
+
+                Buffer.BlockCopy(answer, 0, combined, 0, answer.Length);
+                Buffer.BlockCopy(poll, 0, combined, answer.Length, poll.Length);
+
+                CommunicationClient.Send(combined);
+                return;
+            }
+
+            var responses = response.Split('=');
+            var value = Int32.Parse(responses[1]);
+
+            if (responses[0].Contains("POWR"))
+            {
+                PowerState = PowerStateDictionary.FirstOrDefault(x => x.Value == value).Key;
+                ProcessPowerResponse();
+            }
+            else if (responses[0].Contains("INPT"))
+            {
+                Input = InputDictionary.FirstOrDefault(x => x.Value == value).Key;
+                ProcessInputResponse();
+            }
+            else if (responses[0].Contains("AVMT"))
+            {
+                switch (value)
+                {
+                    case 11:
+                        VideoMute = MuteState.On;
+                        AudioMute = MuteState.Off;
+                        break;
+                    case 21:
+                        VideoMute = MuteState.Off;
+                        AudioMute = MuteState.On;
+                        break;
+                    case 30:
+                        VideoMute = MuteState.Off;
+                        AudioMute = MuteState.Off;
+                        break;
+                    case 31:
+                        VideoMute = MuteState.On;
+                        AudioMute = MuteState.On;
+                        break;
+                }
+
+                SendMuteState();
+            }
+
+            CommunicationState = CommunicationState.Okay;
+        }
     }
     
     public byte[] GetMd5Hash(string input) 
@@ -188,14 +189,17 @@ public class PjLink : Display
 
     private void SetPowerState(PowerState desiredPowerState)
     {
-        if (!PowerStateDictionary.TryGetValue(desiredPowerState, out var value))
+        using (PushProperties("SetPowerState"))
         {
-            Error($"Desired PowerState {desiredPowerState} is not appropriate");
-            return;
-        }
+            if (!PowerStateDictionary.TryGetValue(desiredPowerState, out var value))
+            {
+                Log.Error($"Desired PowerState {desiredPowerState} is not appropriate");
+                return;
+            }
 
-        Send($"POWR {value}");
-        DesiredPowerState = desiredPowerState;
+            Send($"POWR {value}");
+            DesiredPowerState = desiredPowerState;
+        }
     }
 
     protected override void DoPowerOn() => SetPowerState(PowerState.On);
@@ -204,7 +208,13 @@ public class PjLink : Display
 
     protected override void DoSetInput(Input input) => Send($"INPT {InputDictionary[input]}");
 
-    protected override void DoSetVolume(int volume) => Error("Volume control is not supported");
+    protected override void DoSetVolume(int volume)
+    {
+        using (PushProperties("DoSetVolume"))
+        {
+            Log.Error("Volume control is not supported");   
+        }
+    }
 
     protected override void DoSetAudioMute(MuteState state) => SendMuteState();
 

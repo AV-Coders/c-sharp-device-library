@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Motor;
 
@@ -27,19 +28,22 @@ public abstract class Motor : DeviceBase
 
     protected void CreateMoveTimer(Guid moveId, Action? completeAction = null)
     {
-        _cancellationTokenSource.Cancel();
-        _cancellationTokenSource.Dispose();
-        _cancellationTokenSource = new CancellationTokenSource();
-        new Task(() =>
-            {
-                Task.Delay(TimeSpan.FromSeconds(MoveSeconds), _cancellationTokenSource.Token)
-                    .Wait(_cancellationTokenSource.Token);
-                Verbose($"Move timer event, move id {moveId}, current move: {CurrentMoveId}");
-                CurrentMoveId = Guid.Empty;
-                CurrentMoveAction = RelayAction.None;
-                completeAction?.Invoke();
-            }
-        ).Start();
+        using (PushProperties("CreateMoveTimer"))
+        {
+            _cancellationTokenSource.Cancel();
+            _cancellationTokenSource.Dispose();
+            _cancellationTokenSource = new CancellationTokenSource();
+            new Task(() =>
+                {
+                    Task.Delay(TimeSpan.FromSeconds(MoveSeconds), _cancellationTokenSource.Token)
+                        .Wait(_cancellationTokenSource.Token);
+                    Log.Verbose($"Move timer event, move id {moveId}, current move: {CurrentMoveId}");
+                    CurrentMoveId = Guid.Empty;
+                    CurrentMoveAction = RelayAction.None;
+                    completeAction?.Invoke();
+                }
+            ).Start();
+        }
     }
 
     public abstract void Raise();

@@ -1,5 +1,6 @@
 ﻿using System.Net.Sockets;
 using System.Text;
+using Serilog;
 using Serilog.Context;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
@@ -28,7 +29,6 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             if (!_client.Connected)
             {
-                Debug("Client disconnected, waiting 30 seconds");
                 await Task.Delay(TimeSpan.FromSeconds(30), token);
             }
             else
@@ -55,7 +55,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
+        using (PushProperties("CheckConnectionState"))
         {
             if (_client.Connected)
             {
@@ -72,7 +72,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
                     if (!success)
                     {
-                        Info("1 second connection wait failed, marking as disconnected");
+                        Log.Error("1 second connection wait failed, marking as disconnected");
                         ConnectionState = ConnectionState.Disconnected;
                     }
 
@@ -141,7 +141,6 @@ public class AvCodersTcpClient : Core_TcpClient
                 {
                     LogException(e);
                     _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.Now, bytes));
-                    Debug("Reconnecting due to an IOException");
                     Reconnect();
                 }
             }
@@ -152,14 +151,12 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void SetPort(ushort port)
     {
-        Debug($"Setting port to {port}");
         Port = port;
         Reconnect();
     }
 
     public override void SetHost(string host)
     {
-        Debug($"Setting host to {host}");
         Host = host;
         Reconnect();
     }
@@ -172,7 +169,6 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Reconnect()
     {
-        Debug($"Reconnecting");
         ConnectionState = ConnectionState.Disconnecting;
         _client.Close();
         _client = new TcpClient();
@@ -182,7 +178,6 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Disconnect()
     {
-        Debug($"Disconnecting");
         ConnectionStateWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
         _client.Close();
