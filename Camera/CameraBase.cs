@@ -4,7 +4,20 @@ namespace AVCoders.Camera;
 
 public abstract class CameraBase(string name) : DeviceBase(name)
 {
+    private int _lastRecalledPreset = 0;
     public IntHandler? LastRecalledPresetHandlers;
+
+    public int LastRecalledPreset
+    {
+        get => _lastRecalledPreset;
+        set
+        {
+            if (value == _lastRecalledPreset)
+                return;
+            _lastRecalledPreset = value;
+            LastRecalledPresetHandlers?.Invoke(value);
+        }
+    }
 
     public abstract void ZoomStop();
 
@@ -25,7 +38,7 @@ public abstract class CameraBase(string name) : DeviceBase(name)
     public void RecallPreset(int presetNumber)
     {
         DoRecallPreset(presetNumber);
-        LastRecalledPresetHandlers?.Invoke(presetNumber);
+        LastRecalledPreset = presetNumber;
     }
 
     public abstract void DoRecallPreset(int presetNumber);
