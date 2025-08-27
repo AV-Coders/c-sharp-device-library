@@ -27,6 +27,7 @@ public class CiscoRoomOsTest
     private readonly Mock<MuteStateHandler> _outputMuteStateHandler = new ();
     private readonly Mock<MuteStateHandler> _microphoneMuteStateHandler = new ();
     private readonly Mock<CallStatusHandler> _callStatusHandler = new ();
+    private readonly Mock<ActiveCallHandler> _activeCallHandler = new ();
     
     private readonly CiscoRoomOs _codec;
 
@@ -39,6 +40,7 @@ public class CiscoRoomOsTest
         _codec.OutputMute.MuteStateHandlers += _outputMuteStateHandler.Object;
         _codec.MicrophoneMute.MuteStateHandlers += _microphoneMuteStateHandler.Object;
         _codec.CallStatusHandlers += _callStatusHandler.Object;
+        _codec.ActiveCallHandlers += _activeCallHandler.Object;
     }
 
     [Fact]
@@ -199,6 +201,7 @@ public class CiscoRoomOsTest
         Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
         Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
         _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connected));
+        _activeCallHandler.Verify(x => x.Invoke(It.IsAny<List<Call>>()));
     }
 
     [Fact]

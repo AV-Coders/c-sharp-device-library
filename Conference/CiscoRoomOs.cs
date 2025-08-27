@@ -236,6 +236,7 @@ public class CiscoRoomOs : Conference
               return;
             case "Call":
               ProcessCallResponse(responses);
+              ActiveCallHandlers?.Invoke(GetActiveCalls());
               return;
             case "Audio" when responses[2] == "Volume:":
               OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
