@@ -62,7 +62,6 @@ public class ExtronAnnotator401 : DeviceBase
     {
         try
         {
-            Log.Information("Sending {command}", command);
             _client.Send(command);
             CommunicationState = CommunicationState.Okay;
         }
