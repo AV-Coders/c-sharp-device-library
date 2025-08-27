@@ -213,66 +213,52 @@ public class CiscoRoomOs : Conference
         var responses = response.Split(' ');
         try
         {
-          if (response.Contains("PhonebookSearchResult"))
-            CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
-          else if (response.Contains("PeripheralsHeartBeatResult"))
+          switch (responses[1])
           {
-            if (response.Contains("status=OK"))
-              CommunicationState = CommunicationState.Okay;
-            else if (response.Contains("status=Error"))
-              CommunicationState = CommunicationState.Error;
-
-
-            if (CommunicationState == CommunicationState.Error)
-              Reinitialise();
-          }
-          else if (response.Contains("CallDisconnectResult"))
-          {
-            if (!response.Contains("status=OK"))
+            case "PhonebookSearchResult":
+              CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
               return;
-            ActiveCalls.Clear();
-            CallStatus = CallStatus.Idle;
-            SendCommand("xStatus Call");
-          }
-          else if (response.Contains("Call"))
-          {
-            if (!response.Contains("Conference"))
+            case "PeripheralsHeartBeatResult":
+              if (response.Contains("status=OK"))
+                CommunicationState = CommunicationState.Okay;
+              else if (response.Contains("status=Error"))
+              {
+                CommunicationState = CommunicationState.Error;
+                Reinitialise();
+              }
+              return;
+            case "CallDisconnectResult":
+              if (!response.Contains("status=OK"))
+                return;
+              ActiveCalls.Clear();
+              CallStatus = CallStatus.Idle;
+              SendCommand("xStatus Call");
+              return;
+            case "Call":
               ProcessCallResponse(responses);
-          }
-          else if (response.Contains("Standby State:"))
-          {
-            PowerState = responses[3].Contains("Off") ? PowerState.On : PowerState.Off;
-            ProcessPowerState();
-          }
-          else if (response.Contains("Audio Volume:"))
-          {
-            OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
-          }
-          else if (response.Contains("Audio VolumeMute:"))
-          {
-            OutputMute.MuteState = responses[3].Contains("On") ? MuteState.On : MuteState.Off;
-          }
-          else if (response.Contains("Audio Microphones Mute:"))
-          {
-            MicrophoneMute.MuteState = responses[4].Contains("On") ? MuteState.On : MuteState.Off;
-          }
-          else if (response.Contains("SIP Registration 1 URI:"))
-          {
-            Uri = responses[5].Trim().Trim('"');
-          }
-          else if (response.StartsWith("*r Login successful"))
-          {
-            Reinitialise();
-          }
-          else if (response.StartsWith("*s Conference DoNotDisturb: Active"))
-          {
-            DoNotDisturbState = PowerState.On;
-            ValidateDoNotDisturbState();
-          }
-          else if (response.StartsWith("*s Conference DoNotDisturb: Inactive"))
-          {
-            DoNotDisturbState = PowerState.Off;
-            ValidateDoNotDisturbState();
+              return;
+            case "Audio" when responses[2] == "Volume:":
+              OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
+              return;
+            case "Audio" when responses[2] == "VolumeMute:":
+              OutputMute.MuteState = responses[3].Contains("On") ? MuteState.On : MuteState.Off;
+              return;
+            case "Audio" when responses[2] == "Microphones" && responses[3] == "Mute:":
+              MicrophoneMute.MuteState = responses[4].Contains("On") ? MuteState.On : MuteState.Off;
+              return;
+            case "Conference" when responses[2] == "DoNotDisturb:":
+              DoNotDisturbState = responses[3].Contains("Active") ? PowerState.On : PowerState.Off;
+              return;
+            case "SIP" when responses[2] == "Registration" && responses[4] == "URI:":
+              Uri = responses[5].Trim().Trim('"');
+              return;
+            case "Login" when responses[2].Trim()== "successful":
+              Reinitialise();
+              return;
+            case "Standby" when responses[2] == "State:":
+              PowerState = responses[3].Contains("Off") ? PowerState.On : PowerState.Off;
+              ProcessPowerState();
+              return;
           }
         }
         catch (Exception e)
@@ -281,6 +267,7 @@ public class CiscoRoomOs : Conference
           {
             Log.Error("An exception was thrown while processing the string {invalidString}", response);
             LogException(e);
+            throw;
           }
         }
       }
