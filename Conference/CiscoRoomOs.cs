@@ -119,7 +119,7 @@ public class CiscoRoomOs : Conference
         }
         catch (Exception e)
         {
-          Log.Verbose("Can't initialise Cisco Room OS");
+          Log.Error("Can't initialise Cisco Room OS");
           LogException(e);
         }
 
@@ -277,7 +277,11 @@ public class CiscoRoomOs : Conference
         }
         catch (Exception e)
         {
-          LogException(e);
+          using (PushProperties("HandleResponse"))
+          {
+            Log.Error("An exception was thrown while processing the string {invalidString}", response);
+            LogException(e);
+          }
         }
       }
     }
