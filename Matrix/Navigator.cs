@@ -8,7 +8,7 @@ public class Navigator : DeviceBase
 {
     public static readonly ushort DefaultPort = 22023;
     public readonly SshClient SshClient;
-    private Dictionary<string, Action<string>> _callbacks;
+    private readonly Dictionary<string, Action<string>> _callbacks;
     private readonly Regex _deviceResponseParser;
     public const string EscapeHeader = "\x1b";
     private int _unansweredDeviceForwards = 0;

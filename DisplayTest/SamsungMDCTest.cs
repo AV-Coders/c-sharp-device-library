@@ -7,7 +7,7 @@ namespace AVCoders.Display.Tests;
 
 public class SamsungMDCTest
 {
-    private SamsungMdc _samsungMdc;
+    private readonly SamsungMdc _samsungMdc;
     private readonly Mock<TcpClient> _mockClient;
     private readonly byte _displayId = 0x00;
 

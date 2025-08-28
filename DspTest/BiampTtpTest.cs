@@ -6,7 +6,7 @@ namespace AVCoders.Dsp.Tests;
 public class BiampTtpTest
 {
     private readonly ITestOutputHelper _testOutputHelper;
-    private BiampTtp _dsp;
+    private readonly BiampTtp _dsp;
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();

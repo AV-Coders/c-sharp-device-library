@@ -12,7 +12,7 @@ public class TestableFader : Fader
 
 public class FaderTest
 {
-    private Fader _linearFader;
+    private readonly Fader _linearFader;
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new Mock<VolumeLevelHandler>();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new Mock<MuteStateHandler>();
     private readonly Mock<StringValueHandler> _stringValueHandler = new Mock<StringValueHandler>();

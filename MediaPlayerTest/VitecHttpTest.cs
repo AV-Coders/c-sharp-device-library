@@ -3,7 +3,7 @@
 public class VitecHttpTest
 {
     private readonly VitecHttp _vitecHttp;
-    private static RemoteButton[] _excludedButtons = 
+    private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
         RemoteButton.PopupMenu, RemoteButton.TopMenu,

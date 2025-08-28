@@ -8,7 +8,7 @@ public class LgCommercialTest
 {
     private readonly LGCommercial _display;
     private readonly Mock<TcpClient> _client;
-    private static RemoteButton[] _excludedButtons = 
+    private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
         RemoteButton.PopupMenu, RemoteButton.TopMenu,

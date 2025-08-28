@@ -6,7 +6,7 @@ namespace AVCoders.Matrix.Tests;
 
 public class ExtronIn16xxTest
 {
-    private ExtronIn16Xx _switcher;
+    private readonly ExtronIn16Xx _switcher;
     private readonly Mock<CommunicationClient> _mockClient;
 
     public ExtronIn16xxTest()

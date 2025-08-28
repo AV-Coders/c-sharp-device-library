@@ -60,7 +60,7 @@ public class BondBridge
 {
     private readonly RestComms _comms;
     private readonly ThreadWorker _pollWorker;
-    private Uri _versionUri;
+    private readonly Uri _versionUri;
 
     public BondBridge(RestComms comms, string token)
     {

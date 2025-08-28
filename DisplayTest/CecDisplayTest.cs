@@ -8,7 +8,7 @@ public class CecDisplayTest
 {
     private readonly CecDisplay _display;
     private readonly Mock<SerialClient> _mockClient;
-    private static RemoteButton[] _excludedButtons = 
+    private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
         RemoteButton.PopupMenu, RemoteButton.TopMenu,

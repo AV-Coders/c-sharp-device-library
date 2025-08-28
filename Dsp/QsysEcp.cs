@@ -63,9 +63,9 @@ public class QsysVolumeControl : VolumeControl
 public class QsysEcp : Dsp
 {
     public static readonly ushort DefaultPort = 1702;
-    private Dictionary<string, QscGain> _gains = new Dictionary<string, QscGain>();
-    private Dictionary<string, QscMute> _mutes = new Dictionary<string, QscMute>();
-    private Dictionary<string, QscInt> _strings = new Dictionary<string, QscInt>();
+    private readonly Dictionary<string, QscGain> _gains = new Dictionary<string, QscGain>();
+    private readonly Dictionary<string, QscMute> _mutes = new Dictionary<string, QscMute>();
+    private readonly Dictionary<string, QscInt> _strings = new Dictionary<string, QscInt>();
     private readonly Regex _responseParser;
 
     // There is a limit of 4 change groups.

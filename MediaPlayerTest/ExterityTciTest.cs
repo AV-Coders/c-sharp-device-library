@@ -7,7 +7,7 @@ public class ExterityTciTest
     private readonly ExterityTci _interface;
     private readonly Mock<CommunicationClient> _mockClient;
     private readonly string _password = "Password1";
-    private static RemoteButton[] _excludedButtons = 
+    private static readonly RemoteButton[] _excludedButtons = 
         [
             RemoteButton.Display, RemoteButton.Eject, 
             RemoteButton.PopupMenu, RemoteButton.TopMenu

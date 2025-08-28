@@ -8,7 +8,7 @@ namespace AVCoders.Display.Tests;
 public class NecUhdExternalControlTest
 {
     private readonly ITestOutputHelper _testOutputHelper;
-    private NecUhdExternalControl _display;
+    private readonly NecUhdExternalControl _display;
     private readonly Mock<TcpClient> _mockClient;
     private readonly Mock<PowerStateHandler> _mockPowerStateHandler;
     private readonly Mock<InputHandler> _mockInputHandler;

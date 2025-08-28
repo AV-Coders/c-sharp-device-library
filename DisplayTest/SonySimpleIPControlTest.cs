@@ -10,7 +10,7 @@ public class SonySimpleIPControlTest
     private readonly SonySimpleIpControl _sonyTv;
     private readonly Mock<TcpClient> _mockClient;
     readonly Mock<PowerStateHandler> _powerStateHandler = new ();
-    private static RemoteButton[] _excludedButtons = 
+    private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
         RemoteButton.PopupMenu, RemoteButton.TopMenu,

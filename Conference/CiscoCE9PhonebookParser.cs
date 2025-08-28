@@ -29,9 +29,9 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     public CommsClientSend? Comms;
 
     // Phonebook parsing variables
-    private Dictionary<string, string> _injestFolder;
-    private Dictionary<string, string> _injestContact;
-    private List<Dictionary<string, string>> _injestContactMethods;
+    private readonly Dictionary<string, string> _injestFolder;
+    private readonly Dictionary<string, string> _injestContact;
+    private readonly List<Dictionary<string, string>> _injestContactMethods;
     private int _currentRow;
     private int _currentSubRow;
     private int _resultOffset;
