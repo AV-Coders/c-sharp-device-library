@@ -12,7 +12,7 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersTcpServer : Core_TcpClient
 {
     private TcpListener _server;
-    private readonly ConcurrentBag<TcpClient> _clients = new();
+    private readonly ConcurrentBag<TcpClient> _clients = [];
 
     public AvCodersTcpServer(ushort port, string name = "") : base("Any", port, name)
     {

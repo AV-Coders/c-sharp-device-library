@@ -25,10 +25,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { "*SNPOWR0000000000000000", PowerState.Off }
     };
 
-    private static readonly List<RemoteButton> UnsupportedButtons = new()
-    {
-        RemoteButton.Guide
-    };
+    private static readonly List<RemoteButton> UnsupportedButtons = [RemoteButton.Guide];
 
     private static readonly Dictionary<RemoteButton, int> RemoteButtonMap = new()
     {

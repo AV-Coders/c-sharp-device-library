@@ -189,7 +189,7 @@ public class LGCommercial : Display, ISetTopBox
     {
         if (macAddress.Length != 6) throw new ArgumentException();
 
-        List<byte> magic = new List<byte>();
+        List<byte> magic = [];
         for (int i = 0; i < 6; i++)
         {
             magic.Add(0xff);
@@ -207,7 +207,7 @@ public class LGCommercial : Display, ISetTopBox
 
     private static byte[] ParseMacAddress(string text, char[]? separator = null)
     {
-        if (separator == null) separator = new char[] { ':', '-' };
+        if (separator == null) separator = [':', '-'];
         string[] tokens = text.Split(separator);
 
         byte[] bytes = new byte[6];

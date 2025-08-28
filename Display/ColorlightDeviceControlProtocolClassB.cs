@@ -12,7 +12,7 @@ public class ColorlightDeviceControlProtocolClassB : Display
     private uint _brightness;
 
 
-    public ColorlightDeviceControlProtocolClassB(IpComms comms, string name) : base(new List<Input>(), name, Input.Unknown, comms, 1)
+    public ColorlightDeviceControlProtocolClassB(IpComms comms, string name) : base([], name, Input.Unknown, comms, 1)
     {
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         PollWorker.Stop();

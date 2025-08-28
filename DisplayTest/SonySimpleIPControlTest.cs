@@ -38,7 +38,7 @@ public class SonySimpleIPControlTest
 
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        method?.Invoke(_sonyTv, new[] { input });
+        method?.Invoke(_sonyTv, [input]);
         _mockClient.Verify(x => x.Send(input), Times.Once);
     }
 
@@ -49,7 +49,7 @@ public class SonySimpleIPControlTest
 
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        method?.Invoke(_sonyTv, new[] { input });
+        method?.Invoke(_sonyTv, [input]);
         Assert.Equal(CommunicationState.Okay, _sonyTv.CommunicationState);
     }
 
@@ -61,7 +61,7 @@ public class SonySimpleIPControlTest
         _mockClient.Setup(client => client.Send(It.IsAny<String>())).Throws(new IOException("Oh No!"));
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        method?.Invoke(_sonyTv, new[] { input });
+        method?.Invoke(_sonyTv, [input]);
         Assert.Equal(CommunicationState.Error, _sonyTv.CommunicationState);
     }
 

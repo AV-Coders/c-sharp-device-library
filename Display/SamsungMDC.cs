@@ -8,7 +8,7 @@ public class SamsungMdc : Display
 {
     public static readonly ushort DefaultPort = 1515;
     private readonly byte _displayId;
-    private List<byte> _gather = new ();
+    private List<byte> _gather = [];
     private static readonly Dictionary<Input, byte> InputDictionary = new Dictionary<Input, byte>
     {
         { Input.Hdmi1, 0x21 },
@@ -43,17 +43,20 @@ public class SamsungMdc : Display
             { MuteState.Off, 0x00 }
         };
 
-        byte[] pollPowerCommandWithoutChecksum = { 0xAA, PowerControlCommand, _displayId, 0x00 };
-        _pollPowerCommand = new byte[]{ 0xAA, 0x11, _displayId, 0x00, GenerateChecksum(pollPowerCommandWithoutChecksum) };
+        byte[] pollPowerCommandWithoutChecksum = [0xAA, PowerControlCommand, _displayId, 0x00];
+        _pollPowerCommand = [0xAA, 0x11, _displayId, 0x00, GenerateChecksum(pollPowerCommandWithoutChecksum)];
         
-        byte[] pollInputCommandWithoutChecksum =  { 0xAA, InputControlCommand, _displayId, 0x00 };
-        _pollInputCommand = new byte[] { 0xAA, InputControlCommand, _displayId, 0x00,  GenerateChecksum(pollInputCommandWithoutChecksum)};
+        byte[] pollInputCommandWithoutChecksum = [0xAA, InputControlCommand, _displayId, 0x00];
+        _pollInputCommand = [0xAA, InputControlCommand, _displayId, 0x00,  GenerateChecksum(pollInputCommandWithoutChecksum)
+        ];
 
-        byte[] pollVolumeCommandWithoutChecksum = { 0xAA, VolumeControlCommand, _displayId, 0x00 };
-        _pollVolumeCommand = new byte[]{ 0xAA, VolumeControlCommand, _displayId, 0x00, GenerateChecksum(pollVolumeCommandWithoutChecksum) };
+        byte[] pollVolumeCommandWithoutChecksum = [0xAA, VolumeControlCommand, _displayId, 0x00];
+        _pollVolumeCommand = [0xAA, VolumeControlCommand, _displayId, 0x00, GenerateChecksum(pollVolumeCommandWithoutChecksum)
+        ];
         
-        byte[] pollMuteCommandWithoutChecksum =  { 0xAA, MuteControlCommand, _displayId, 0x00 };
-        _pollMuteCommand = new byte[] { 0xAA, MuteControlCommand, _displayId, 0x00,  GenerateChecksum(pollMuteCommandWithoutChecksum)};
+        byte[] pollMuteCommandWithoutChecksum = [0xAA, MuteControlCommand, _displayId, 0x00];
+        _pollMuteCommand = [0xAA, MuteControlCommand, _displayId, 0x00,  GenerateChecksum(pollMuteCommandWithoutChecksum)
+        ];
     }
 
     protected override Task DoPoll(CancellationToken token)
@@ -93,9 +96,9 @@ public class SamsungMdc : Display
 
     private void PowerCommand(byte data)
     {
-        byte[] commandWithoutChecksum = { Header, PowerControlCommand, _displayId, DataLength1, data };
+        byte[] commandWithoutChecksum = [Header, PowerControlCommand, _displayId, DataLength1, data];
         byte[] commandWithChecksum =
-            { Header, PowerControlCommand, _displayId, DataLength1, data, GenerateChecksum(commandWithoutChecksum) };
+            [Header, PowerControlCommand, _displayId, DataLength1, data, GenerateChecksum(commandWithoutChecksum)];
         SendByteArray(commandWithChecksum);
     }
 
@@ -193,9 +196,9 @@ public class SamsungMdc : Display
 
     private void sendCommandWithOneDataLength(byte command, byte data)
     {
-        byte[] commandWithoutChecksum = { Header, command, _displayId, DataLength1, data };
+        byte[] commandWithoutChecksum = [Header, command, _displayId, DataLength1, data];
         byte[] commandWithChecksum =
-            { Header, command, _displayId, DataLength1, data, GenerateChecksum(commandWithoutChecksum) };
+            [Header, command, _displayId, DataLength1, data, GenerateChecksum(commandWithoutChecksum)];
         SendByteArray(commandWithChecksum);
     }
 

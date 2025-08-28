@@ -15,9 +15,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     private readonly string _authInfo;
     private int _subtitleOption = 0;
 
-    private static readonly List<RemoteButton> UnsupportedButtons = new()
-    {
-    };
+    private static readonly List<RemoteButton> UnsupportedButtons = [];
 
     public VitecHttp(string host, string password, string name) : base(name)
     {

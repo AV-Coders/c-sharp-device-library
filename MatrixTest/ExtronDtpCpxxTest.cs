@@ -22,7 +22,7 @@ public class ExtronDtpCpxxTest
         String input = "Foo";
 
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, new[] { input });
+        method?.Invoke(_switcher, [input]);
         
         _mockClient.Verify(x => x.Send(input), Times.Once);
     }
@@ -33,7 +33,7 @@ public class ExtronDtpCpxxTest
         String input = "Foo";
         
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, new[] { input });
+        method?.Invoke(_switcher, [input]);
 
         Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
     }
@@ -46,7 +46,7 @@ public class ExtronDtpCpxxTest
         _mockClient.Setup(client => client.Send(It.IsAny<String>())).Throws(new IOException("Oh No!"));
         
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, new[] { input });
+        method?.Invoke(_switcher, [input]);
 
         Assert.Equal(CommunicationState.Error, _switcher.CommunicationState);
     }

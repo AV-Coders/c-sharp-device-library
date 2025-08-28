@@ -19,12 +19,12 @@ public class CBusInterfaceTest
     [Fact]
     public void GenerateChecksum_AddsAllValues()
     {
-        byte[] input = { 0x05, 0x38, 0x79, 0x20 };  // Turn on Group 32 (0x20
+        byte[] input = [0x05, 0x38, 0x79, 0x20];  // Turn on Group 32 (0x20
 
         var method = _interface.GetType()
             .GetMethod("CalculateChecksum", BindingFlags.Instance | BindingFlags.NonPublic);
 
-        byte result = (byte)(method?.Invoke(_interface, new[] { input }) ?? 0x00);
+        byte result = (byte)(method?.Invoke(_interface, [input]) ?? 0x00);
         Assert.Equal(0x2a, result);
     }
 

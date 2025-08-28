@@ -21,7 +21,7 @@ public class AvCodersWakeOnLan : IWakeOnLan
     {
         if (macAddress.Length != 6) throw new ArgumentException("The MAC is invalid");
 
-        List<byte> magic = new List<byte>{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+        List<byte> magic = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
         for (int i = 0; i < 16; i++)
         {

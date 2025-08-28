@@ -19,7 +19,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Lower();
 
-        char[] expectedPayload = { '\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00EE', '\u00E4' };
+        char[] expectedPayload = ['\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00EE', '\u00E4'];
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -29,7 +29,7 @@ public class MotoluxBlindTransmitterTest
     {
         _device.Raise();
 
-        char[] expectedPayload = { '\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00DD', '\u00d7' };
+        char[] expectedPayload = ['\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00DD', '\u00d7'];
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }
@@ -38,7 +38,7 @@ public class MotoluxBlindTransmitterTest
     public void Stop_SendsTheCommand()
     {
         _device.Stop();
-        char[] expectedPayload = { '\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00CC', '\u00c6' };
+        char[] expectedPayload = ['\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00CC', '\u00c6'];
         
         _mockClient.Verify(x => x.Send(expectedPayload));
     }

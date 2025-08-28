@@ -17,7 +17,7 @@ public class SonySerialControlTest
     [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
-        char[] expectedPowerCommand = { '\u008C', '\u0000', '\u0000', '\u0002', '\u0000', '\u008e'  };
+        char[] expectedPowerCommand = ['\u008C', '\u0000', '\u0000', '\u0002', '\u0000', '\u008e'];
         _display.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedPowerCommand), Times.Once);
@@ -28,7 +28,7 @@ public class SonySerialControlTest
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
-        char[] expectedPowerOnCommand = { '\u008C', '\u0000', '\u0000', '\u0002','\u0001', '\u008f'  };
+        char[] expectedPowerOnCommand = ['\u008C', '\u0000', '\u0000', '\u0002','\u0001', '\u008f'];
         _display.PowerOn();
 
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);

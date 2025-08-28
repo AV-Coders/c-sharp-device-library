@@ -86,10 +86,10 @@ public class BiampTtp : Dsp
     private readonly CommunicationClient _commsClient;
     private readonly Regex _subscriptionResponseParser;
 
-    private readonly List<Query> _moduleQueries = new();
+    private readonly List<Query> _moduleQueries = [];
     private readonly ConcurrentQueue<Query> _pendingQueries = new();
     private Query? _currentQuery = null;
-    private readonly List<string> _deviceSubscriptions = new();
+    private readonly List<string> _deviceSubscriptions = [];
     private int _pollCount = 0;
     private bool _lastRequestWasForTheVersion;
 

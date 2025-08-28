@@ -10,8 +10,8 @@ public class ExtronDtpCpxx : VideoMatrix
     public static readonly ushort DefaultPort = 22023;
     private readonly CommunicationClient _communicationClient;
     private readonly ThreadWorker _pollWorker;
-    public readonly List<ExtronMatrixOutput> ComposedOutputs = new ();
-    public readonly List<ExtronMatrixInput> Inputs = new ();
+    public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
+    public readonly List<ExtronMatrixInput> Inputs = [];
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
     public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs

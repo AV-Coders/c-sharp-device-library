@@ -118,7 +118,7 @@ public class PjLink : Display
 
                 string[] loginParams = response.Split(' ');
                 byte[] answer = GetMd5Hash(loginParams[2] + _password);
-                byte[] poll = { 0x25, 0x31, 0x50, 0x4f, 0x57, 0x52, 0x20, 0x3f, 0x0d };
+                byte[] poll = [0x25, 0x31, 0x50, 0x4f, 0x57, 0x52, 0x20, 0x3f, 0x0d];
                 byte[] combined = new byte[answer.Length + poll.Length];
 
                 Buffer.BlockCopy(answer, 0, combined, 0, answer.Length);
@@ -172,7 +172,7 @@ public class PjLink : Display
     
     public byte[] GetMd5Hash(string input) 
     {
-        List<byte> resultBytes = new List<byte>();
+        List<byte> resultBytes = [];
         byte[] hash = MD5.HashData(Encoding.ASCII.GetBytes(input));
         
         foreach (byte b in hash)

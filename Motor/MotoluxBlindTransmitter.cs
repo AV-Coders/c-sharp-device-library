@@ -25,14 +25,15 @@ public class MotoluxBlindTransmitter : Motor
         _client = client;
         (char blindIdLow, char blindIdHigh) = GetIdBytes(blindId);
 
-        char lowerCommandChecksum = CalculateChecksum(new List<char> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _down });
-        _lowerCommand = new[] { _commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _down, lowerCommandChecksum };
+        char lowerCommandChecksum = CalculateChecksum([deviceId, blindIdLow, blindIdHigh, _controlCommand, _down]);
+        _lowerCommand = [_commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _down, lowerCommandChecksum
+        ];
         
-        char raiseCommandChecksum = CalculateChecksum(new List<char> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _up });
-        _raiseCommand = new[] { _commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _up, raiseCommandChecksum };
+        char raiseCommandChecksum = CalculateChecksum([deviceId, blindIdLow, blindIdHigh, _controlCommand, _up]);
+        _raiseCommand = [_commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _up, raiseCommandChecksum];
         
-        char stopCommandChecksum = CalculateChecksum(new List<char> { deviceId, blindIdLow, blindIdHigh, _controlCommand, _stop });
-        _stopCommand = new[] { _commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _stop, stopCommandChecksum };
+        char stopCommandChecksum = CalculateChecksum([deviceId, blindIdLow, blindIdHigh, _controlCommand, _stop]);
+        _stopCommand = [_commandHeader, deviceId, blindIdLow, blindIdHigh, _controlCommand, _stop, stopCommandChecksum];
     }
     
     public (char, char) GetIdBytes(char value)

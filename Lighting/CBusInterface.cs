@@ -35,7 +35,7 @@ public class CBusInterface : LogBase
     private readonly byte _beginPacket = 0x5c; // ASCII /
     public const byte LightingApplication = 0x38;
     public const byte SceneApplication = 0xCA;
-    private List<byte> _gather = new ();
+    private List<byte> _gather = [];
 
     public CBusInterface(CommunicationClient comms, bool serialCheck = true) : base("Cbus Interface")
     {

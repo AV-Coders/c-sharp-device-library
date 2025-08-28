@@ -17,8 +17,7 @@ public class DyNet
     public void RecallPreset(byte area, byte preset, byte rampTimeIn100thsOfASecond = 0x14)
     {
         
-        Send(new byte[]
-            {
+        Send([
                 _syncByteLogicalAddressingScheme,
                 area,
                 0x00,
@@ -26,7 +25,7 @@ public class DyNet
                 0x00,
                 rampTimeIn100thsOfASecond,
                 0xFF
-            }
+            ]
         );
     }
 

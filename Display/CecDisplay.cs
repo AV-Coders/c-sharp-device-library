@@ -31,12 +31,12 @@ public class CecDisplay : Display, ISetTopBox
         { '9', RemoteButton.Button9},
     };
 
-    private static readonly List<RemoteButton> UnsupportedButtons = new()
-    {
+    private static readonly List<RemoteButton> UnsupportedButtons =
+    [
         RemoteButton.Guide,
         RemoteButton.Home,
         RemoteButton.Menu
-    };
+    ];
 
     private static readonly Dictionary<RemoteButton, char> RemoteButtonMap = new()
     {
@@ -121,17 +121,17 @@ public class CecDisplay : Display, ISetTopBox
 
     protected override Task DoPoll(CancellationToken token)
     {
-        Send(new[] { '\xF0', '\x8F' });
+        Send(['\xF0', '\x8F']);
         return Task.CompletedTask;
     }
 
     private void RemoteControlPassthrough(char command)
     {
         // Press
-        _cecStream.Send(new [] { _commandHeader, '\x44', command });
+        _cecStream.Send([_commandHeader, '\x44', command]);
         Thread.Sleep(75);
         // Release
-        _cecStream.Send(new[] { _commandHeader, '\x45' });
+        _cecStream.Send([_commandHeader, '\x45']);
     }
     
 
@@ -142,7 +142,7 @@ public class CecDisplay : Display, ISetTopBox
         RemoteControlPassthrough('\x6D');
         Thread.Sleep(150);
         // One touch play - Image view on
-        Send(new [] { _commandHeader, '\x04' });
+        Send([_commandHeader, '\x04']);
     }
 
     protected override void DoPowerOff()
@@ -152,7 +152,7 @@ public class CecDisplay : Display, ISetTopBox
         // Send(new [] { _broadcastHeader, '\x36' });
     }
 
-    protected override void DoSetInput(Input input) => Send(new []{ _commandHeader, '\x82', InputMap[input], '\x00'});
+    protected override void DoSetInput(Input input) => Send([_commandHeader, '\x82', InputMap[input], '\x00']);
 
     protected override void DoSetVolume(int percentage)
     {

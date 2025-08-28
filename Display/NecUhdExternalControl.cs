@@ -6,7 +6,7 @@ public class NecUhdExternalControl : Display
 {
     public static readonly ushort DefaultPort = 7142;
     private readonly byte _displayId;
-    private List<byte> _gather = new ();
+    private List<byte> _gather = [];
 
     private const byte StartOfHeader = 0x01;
     private const byte ReservedByte = 0x30;
@@ -22,11 +22,11 @@ public class NecUhdExternalControl : Display
 
     private static readonly Dictionary<Input, byte[]> InputDictionary = new()
     {
-        { Input.Hdmi1, new byte[] { 0x31, 0x31 } },
-        { Input.Hdmi2, new byte[] { 0x31, 0x32 } },
-        { Input.Hdmi3, new byte[] { 0x38, 0x32 } },
-        { Input.Hdmi4, new byte[] { 0x38, 0x33 } },
-        { Input.DisplayPort, new byte[] { 0x30, 0x46 } },
+        { Input.Hdmi1, [0x31, 0x31] },
+        { Input.Hdmi2, [0x31, 0x32] },
+        { Input.Hdmi3, [0x38, 0x32] },
+        { Input.Hdmi4, [0x38, 0x33] },
+        { Input.DisplayPort, [0x30, 0x46] },
     };
 
     public NecUhdExternalControl(CommunicationClient comms, string name, Input? defaultInput, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name, defaultInput, comms)
@@ -118,7 +118,7 @@ public class NecUhdExternalControl : Display
             switch (response[13])
             {
                 case 0x30: // Input response
-                    Input = ConvertAsciiHexToNumber(new[] { response[22], response[23] }) switch
+                    Input = ConvertAsciiHexToNumber([response[22], response[23]]) switch
                     {
                         0x11 => Input.Hdmi1,
                         0x12 => Input.Hdmi2,
@@ -130,7 +130,7 @@ public class NecUhdExternalControl : Display
                     ProcessInputResponse();
                     break;
                 case 0x32: // Volume Response
-                    Volume = ConvertAsciiHexToNumber(new[] { response[22], response[23] });
+                    Volume = ConvertAsciiHexToNumber([response[22], response[23]]);
                     break;
             }
         }
@@ -146,7 +146,7 @@ public class NecUhdExternalControl : Display
 
     private List<byte> GetCommandHeaderWithoutSoh(byte commandType)
     {
-        return new List<byte> { ReservedByte, _displayId, Controller, commandType };
+        return [ReservedByte, _displayId, Controller, commandType];
     }
 
     private void WrapAndSendCommand(List<byte> theCommand)
@@ -180,7 +180,7 @@ public class NecUhdExternalControl : Display
 
     protected override void DoPowerOn()
     {
-        byte[] payload = { Stx, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x31, Etx };
+        byte[] payload = [Stx, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x31, Etx];
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeCommand);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
@@ -190,7 +190,7 @@ public class NecUhdExternalControl : Display
 
     protected override void DoPowerOff()
     {
-        byte[] payload = { Stx, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x34, Etx };
+        byte[] payload = [Stx, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x34, Etx];
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeCommand);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
@@ -201,7 +201,7 @@ public class NecUhdExternalControl : Display
     protected override void DoSetInput(Input input)
     {
         byte[] payload =
-            { Stx, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, InputDictionary[input][0], InputDictionary[input][1], Etx };
+            [Stx, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, InputDictionary[input][0], InputDictionary[input][1], Etx];
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
@@ -212,7 +212,7 @@ public class NecUhdExternalControl : Display
     protected override void DoSetVolume(int percentage)
     {
         byte[] volumeBytes = Bytes.AsciiRepresentationOfHexEquivalentOf(percentage, 2);
-        byte[] payload = { Stx, 0x30, 0x30, 0x36, 0x32, 0x30, 0x30, volumeBytes[0], volumeBytes[1], Etx };
+        byte[] payload = [Stx, 0x30, 0x30, 0x36, 0x32, 0x30, 0x30, volumeBytes[0], volumeBytes[1], Etx];
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);
@@ -223,7 +223,7 @@ public class NecUhdExternalControl : Display
     protected override void DoSetAudioMute(MuteState state)
     {
         byte[] payload =
-            { Stx, 0x30, 0x30, 0x38, 0x44, 0x30, 0x30, 0x30, (byte)(state == MuteState.On ? 0x31 : 0x32), Etx };
+            [Stx, 0x30, 0x30, 0x38, 0x44, 0x30, 0x30, 0x30, (byte)(state == MuteState.On ? 0x31 : 0x32), Etx];
         List<byte> fullCommand = GetCommandHeaderWithoutSoh(MessageTypeSetParameter);
         AddPayloadLengthToCommand(fullCommand, payload.Length);
         AddPayloadToCommand(fullCommand, payload);

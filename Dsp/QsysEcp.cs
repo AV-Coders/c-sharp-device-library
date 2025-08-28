@@ -248,7 +248,7 @@ public class QsysEcp : Dsp
         else
         {
             _gains.Add(levelName, new QscGain(volumeLevelHandler));
-            AddControlsToChangeGroup(ChangeGroupGains, new List<string> { levelName });
+            AddControlsToChangeGroup(ChangeGroupGains, [levelName]);
         }
 
         GetControl(levelName);
@@ -261,7 +261,7 @@ public class QsysEcp : Dsp
         else
         {
             _mutes.Add(muteName, new QscMute(muteStateHandler));
-            AddControlsToChangeGroup(ChangeGroupMutes, new List<string> { muteName });
+            AddControlsToChangeGroup(ChangeGroupMutes, [muteName]);
         }
 
         GetControl(muteName);
@@ -274,7 +274,7 @@ public class QsysEcp : Dsp
         else
         {
             _strings.Add(controlName, new QscInt(stringValueHandler));
-            AddControlsToChangeGroup(ChangeGroupStrings, new List<string> { controlName });
+            AddControlsToChangeGroup(ChangeGroupStrings, [controlName]);
         }
 
         GetControl(controlName);

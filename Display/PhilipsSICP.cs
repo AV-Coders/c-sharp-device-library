@@ -9,7 +9,7 @@ public class PhilipsSICP : Display
     public static readonly SerialSpec DefaultSpec = new (SerialBaud.Rate9600, SerialParity.None,
         SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
     
-    private readonly List<byte> _gather = new();
+    private readonly List<byte> _gather = [];
 
     private readonly byte _monitorId;
     private readonly byte _groupId;
@@ -130,26 +130,26 @@ public class PhilipsSICP : Display
 
     protected override void DoPowerOn()
     {
-        Send(new byte[] { 0x18, 0x02 });
+        Send([0x18, 0x02]);
     }
 
     protected override void DoPowerOff()
     {
-        Send(new byte[] { 0x18, 0x01 });
+        Send([0x18, 0x01]);
     }
 
     protected override void DoSetInput(Input input)
     {
-        Send(new byte[] { 0xAC, _inputMap[input], 0x00, 0x01, 0x00 });
+        Send([0xAC, _inputMap[input], 0x00, 0x01, 0x00]);
     }
 
     protected override void DoSetVolume(int percentage)
     {
-        Send(new byte[] { 0x44, (byte)percentage, (byte)percentage });
+        Send([0x44, (byte)percentage, (byte)percentage]);
     }
 
     protected override void DoSetAudioMute(MuteState state)
     {
-        Send(new byte[] { 0x47, (byte)(state == MuteState.On ? 0x01 : 0x00) });
+        Send([0x47, (byte)(state == MuteState.On ? 0x01 : 0x00)]);
     }
 }

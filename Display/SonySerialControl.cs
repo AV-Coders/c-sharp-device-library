@@ -23,26 +23,32 @@ public class SonySerialControl : Display
     private const char Direct = '\u0001';
 
     // 8c+00+00+02 = 8e
-    private readonly char[] _powerOnCommand = { HeaderControl, Category, FunctionPower, Length2IncludingChecksum, '\u0001', '\u008f' };
-    private readonly char[] _powerOffCommand = { HeaderControl, Category, FunctionPower, Length2IncludingChecksum, '\u0000', '\u008e' };
+    private readonly char[] _powerOnCommand = [HeaderControl, Category, FunctionPower, Length2IncludingChecksum, '\u0001', '\u008f'
+    ];
+    private readonly char[] _powerOffCommand = [HeaderControl, Category, FunctionPower, Length2IncludingChecksum, '\u0000', '\u008e'
+    ];
 
     // 8c + 00+05+03+1 = 95
-    private readonly char[] _volumeHeader = { HeaderControl, Category, FunctionVolume, Length3IncludingChecksum, Direct };
+    private readonly char[] _volumeHeader = [HeaderControl, Category, FunctionVolume, Length3IncludingChecksum, Direct];
     private readonly char _volumeHeaderChecksum = '\u0095';
 
     private static readonly Dictionary<Input, char[]> InputDictionary = new ()
     {
         // 8c+00+02+03+04 = 95
-        { Input.Hdmi1, new []{ HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0001', '\u0096' }},
-        { Input.Hdmi2, new []{ HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0002', '\u0097' }},
-        { Input.Hdmi3, new []{ HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0003', '\u0098' }},
-        { Input.Hdmi4, new []{ HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0004', '\u0099' }},
+        { Input.Hdmi1, [HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0001', '\u0096']
+        },
+        { Input.Hdmi2, [HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0002', '\u0097']
+        },
+        { Input.Hdmi3, [HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0003', '\u0098']
+        },
+        { Input.Hdmi4, [HeaderControl, Category, FunctionInput, Length3IncludingChecksum, '\u0004', '\u0004', '\u0099']
+        },
     };
 
     private static readonly Dictionary<MuteState, char[]> MuteDictionary = new()
     {
-        { MuteState.On , new [] { HeaderControl, Category, FunctionMute, Length3IncludingChecksum, Direct, '\u0001', '\u0097' }},
-        { MuteState.Off, new [] { HeaderControl, Category, FunctionMute, Length3IncludingChecksum, Direct, '\u0000', '\u0096' }}
+        { MuteState.On , [HeaderControl, Category, FunctionMute, Length3IncludingChecksum, Direct, '\u0001', '\u0097'] },
+        { MuteState.Off, [HeaderControl, Category, FunctionMute, Length3IncludingChecksum, Direct, '\u0000', '\u0096'] }
     };
 
     private readonly SerialClient _client;

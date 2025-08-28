@@ -30,8 +30,11 @@ public class NecUhdExternalControlTest
     [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
-        byte[] expectedPowerCommand = { 0x01, 0x30, 0x41, 0x30, 0x41, 0x30, 0x43, 0x02, 
-            (byte)'C', (byte)'2', (byte)'0', (byte)'3', (byte)'D', (byte)'6', (byte)'0', (byte)'0', (byte)'0', (byte)'4', 0x03, 0x76, 0x0d };
+        byte[] expectedPowerCommand =
+        [
+            0x01, 0x30, 0x41, 0x30, 0x41, 0x30, 0x43, 0x02, 
+            (byte)'C', (byte)'2', (byte)'0', (byte)'3', (byte)'D', (byte)'6', (byte)'0', (byte)'0', (byte)'0', (byte)'4', 0x03, 0x76, 0x0d
+        ];
         _display.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedPowerCommand), Times.Once);
@@ -50,7 +53,8 @@ public class NecUhdExternalControlTest
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
-        byte[] expectedPowerOnCommand = { 0x01, 0x30, 0x41, 0x30, 0x41, 0x30, 0x43, 0x02, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x31, 0x03, 0x73, 0x0d };
+        byte[] expectedPowerOnCommand = [0x01, 0x30, 0x41, 0x30, 0x41, 0x30, 0x43, 0x02, 0x43, 0x32, 0x30, 0x33, 0x44, 0x36, 0x30, 0x30, 0x30, 0x31, 0x03, 0x73, 0x0d
+        ];
         _display.PowerOn();
 
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);

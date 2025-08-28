@@ -42,10 +42,10 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     public CiscoCE9PhonebookParser(string phonebookType = "Corporate") : base(phonebookType)
     {
         _phonebookType = phonebookType;
-        PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", String.Empty, String.Empty, new List<PhonebookBase>());
+        PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", String.Empty, String.Empty, []);
         _injestFolder = new Dictionary<string, string>();
         _injestContact = new Dictionary<string, string>();
-        _injestContactMethods = new List<Dictionary<string, string>> { new() };
+        _injestContactMethods = [new()];
     }
 
     public void RequestPhonebook()
@@ -212,7 +212,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
             _injestFolder["Name:"].Trim('"'),
             _injestFolder["FolderId:"].Trim('"'),
             _injestFolder["LocalId:"].Trim('"'),
-            new List<PhonebookBase>()));
+            []));
 
         _injestFolder.Clear();
         return (responseRow, EntryLoadState.Loaded);
@@ -254,7 +254,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
             !AllContactMethodsArePopulated())
             return (responseRow, EntryLoadState.NotLoaded);
 
-        List<PhonebookNumber> contactMethods = new List<PhonebookNumber>();
+        List<PhonebookNumber> contactMethods = [];
 
         _injestContactMethods.ForEach(contactMethod =>
         {

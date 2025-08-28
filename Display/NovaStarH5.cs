@@ -21,7 +21,8 @@ public class NovaStarH5 : Display
     private readonly int? _powerOffPreset;
     private readonly NovastarH5BasePayload _basePayload;
 
-    public NovaStarH5(UdpClient client, int deviceId, List<int> screens, string name, int? powerOnPreset, int? powerOffPreset) : base(new List<Input>(), name, null, client)
+    public NovaStarH5(UdpClient client, int deviceId, List<int> screens, string name, int? powerOnPreset, int? powerOffPreset) : base(
+        [], name, null, client)
     {
         _deviceId = deviceId;
         _screens = screens;

@@ -11,6 +11,6 @@ public abstract class Pdu : DeviceBase
 
     protected Pdu(string name) : base(name)
     {
-        Outlets = new List<Outlet>();
+        Outlets = [];
     }
 }
