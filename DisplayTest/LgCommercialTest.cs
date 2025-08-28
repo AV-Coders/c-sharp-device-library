@@ -31,7 +31,7 @@ public class LgCommercialTest
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
-        String expectedPowerOnCommand = "ka 00 01\r";
+        string expectedPowerOnCommand = "ka 00 01\r";
         _display.PowerOn();
 
         _client.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
@@ -40,7 +40,7 @@ public class LgCommercialTest
     [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
-        String expectedPowerOffCommand = "ka 00 00\r";
+        string expectedPowerOffCommand = "ka 00 00\r";
         _display.PowerOff();
 
         _client.Verify(x => x.Send(expectedPowerOffCommand), Times.Once);

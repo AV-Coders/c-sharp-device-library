@@ -34,7 +34,7 @@ public class SonySimpleIPControlTest
     [Fact]
     public void SendCommand_DoesNotManipulateInput()
     {
-        String input = "Foo";
+        string input = "Foo";
 
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -45,7 +45,7 @@ public class SonySimpleIPControlTest
     [Fact]
     public void SendCommand_ReportsCommunicationIsOkay()
     {
-        String input = "Foo";
+        string input = "Foo";
 
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -56,9 +56,9 @@ public class SonySimpleIPControlTest
     [Fact]
     public void SendCommand_ReportsCommunicationHasFailed()
     {
-        String input = "Foo";
+        string input = "Foo";
 
-        _mockClient.Setup(client => client.Send(It.IsAny<String>())).Throws(new IOException("Oh No!"));
+        _mockClient.Setup(client => client.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
         var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
         method?.Invoke(_sonyTv, [input]);
@@ -68,7 +68,7 @@ public class SonySimpleIPControlTest
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
-        String expectedPowerOnCommand = "*SCPOWR0000000000000001\n";
+        string expectedPowerOnCommand = "*SCPOWR0000000000000001\n";
         _sonyTv.PowerOn();
 
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
@@ -77,7 +77,7 @@ public class SonySimpleIPControlTest
     [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
-        String expectedPowerOffCommand = "*SCPOWR0000000000000000\n";
+        string expectedPowerOffCommand = "*SCPOWR0000000000000000\n";
         _sonyTv.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedPowerOffCommand), Times.Once);
@@ -265,7 +265,7 @@ public class SonySimpleIPControlTest
     [Fact]
     public void SendIrCode_SendsTheCommand()
     {
-        String expectedCommand = "*SCIRCC0000000000000032\n";
+        string expectedCommand = "*SCIRCC0000000000000032\n";
 
         _sonyTv.SendIRCode(RemoteButton.Mute);
         _mockClient.Verify(x => x.Send(expectedCommand));

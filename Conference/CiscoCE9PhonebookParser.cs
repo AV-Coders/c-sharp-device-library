@@ -42,7 +42,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     public CiscoCE9PhonebookParser(string phonebookType = "Corporate") : base(phonebookType)
     {
         _phonebookType = phonebookType;
-        PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", String.Empty, String.Empty, []);
+        PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", string.Empty, string.Empty, []);
         _injestFolder = new Dictionary<string, string>();
         _injestContact = new Dictionary<string, string>();
         _injestContactMethods = [new()];

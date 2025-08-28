@@ -8,7 +8,7 @@ public class ScreenTechnicsConnect : Motor
     public static readonly ushort DefaultPort = 3001;
     private readonly TcpClient _client;
     private readonly int _moduleId;
-    private string _queuedMessage = String.Empty;
+    private string _queuedMessage = string.Empty;
     private Guid _currentConnectionKeepAlive = Guid.Empty;
 
     public ScreenTechnicsConnect(string name, TcpClient client, RelayAction powerOnAction,int moduleId = 1, int moveSeconds = 36)
@@ -24,11 +24,11 @@ public class ScreenTechnicsConnect : Motor
     {
         if (connectionState != ConnectionState.Connected)
             return;
-        if (_queuedMessage != String.Empty)
+        if (_queuedMessage != string.Empty)
         {
             Thread.Sleep(500); // You need a slight pause because the device doesn't accept commands when the event is triggered.
             _client.Send(_queuedMessage);
-            _queuedMessage = String.Empty;
+            _queuedMessage = string.Empty;
         }
     }
 

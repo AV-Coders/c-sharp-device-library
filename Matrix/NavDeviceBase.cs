@@ -24,7 +24,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     protected readonly Navigator Navigator;
     protected readonly string EscapeHeader = "\x1b";
     private uint? _deviceNumber = null;
-    private string _hostname = String.Empty;
+    private string _hostname = string.Empty;
     protected string? SerialNumber = null;
     private int _unansweredRequests = 0;
     
@@ -83,7 +83,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         if (_deviceNumber == null)
             Send($"{EscapeHeader}DNUM\r");
 
-        if (Hostname == String.Empty)
+        if (Hostname == string.Empty)
             Send($"{EscapeHeader}CN\r");
         
         if (SerialNumber == null)
@@ -104,15 +104,15 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     {
         if (payload.StartsWith("Dnum"))
         {
-            DeviceNumber = uint.Parse(payload.Replace("Dnum", String.Empty));
+            DeviceNumber = uint.Parse(payload.Replace("Dnum", string.Empty));
             Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", PreHandleResponse);
         }
 
         else if (payload.StartsWith("Inf98*"))
-            SerialNumber = payload.Replace("Inf98*", String.Empty);
+            SerialNumber = payload.Replace("Inf98*", string.Empty);
 
         else if (payload.StartsWith("Ipn "))
-            Hostname = payload.Replace("Ipn ", String.Empty);
+            Hostname = payload.Replace("Ipn ", string.Empty);
 
         else if (payload.Contains('*') && !payload.Contains("Amt"))
             payload.Split('*').ToList().ForEach(ProcessConcatenatedResponse);

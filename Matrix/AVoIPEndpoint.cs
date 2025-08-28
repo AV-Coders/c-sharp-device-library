@@ -9,7 +9,7 @@ public abstract class AVoIPEndpoint(string name, AVEndpointType deviceType, Comm
 {
     public readonly CommunicationClient CommunicationClient = communicationClient;
     public AddressChangeHandler? PreviewUrlChangeHandlers;
-    private string _previewUrl = String.Empty;
+    private string _previewUrl = string.Empty;
 
     public string PreviewUrl
     {

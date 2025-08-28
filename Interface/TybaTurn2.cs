@@ -35,7 +35,7 @@ public class TybaTurn2 : LogBase
     private readonly Dictionary<string, string> _headers;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
     public CommunicationStateHandler? CommunicationStateHandlers;
-    private string _currentEvent = String.Empty;
+    private string _currentEvent = string.Empty;
     public IntChangeHandler? LightSceneChangeHandlers;
     public IntChangeHandler? LightLevelChangeHandlers;
     public IntChangeHandler? ShadeChangeHandlers;
@@ -139,13 +139,13 @@ public class TybaTurn2 : LogBase
                 return;
             Log.Verbose(line);
             ProcessEvent(line.Remove(0, 6));
-            _currentEvent = String.Empty;
+            _currentEvent = string.Empty;
         }
     }
 
     private void ProcessEvent(string line)
     {
-        if (_currentEvent == String.Empty)
+        if (_currentEvent == string.Empty)
             return;
         
         var eventData = _currentEvent.Split('/');

@@ -77,7 +77,7 @@ public class BiampTtp : Dsp
 {
     public static readonly ushort DefaultPort = 22;
     public static readonly string DefaultUser = "default";
-    public static readonly string DefaultPassword = String.Empty;
+    public static readonly string DefaultPassword = string.Empty;
     private readonly Dictionary<string, BiampGain> _gains = new();
     private readonly Dictionary<string, BiampMute> _mutes = new();
     private readonly Dictionary<string, BiampInt> _strings = new();
@@ -218,7 +218,7 @@ public class BiampTtp : Dsp
         var match = _subscriptionResponseParser.Match(line);
         if (_gains.ContainsKey(match.Groups[1].Value))
         {
-            _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[2].Value));
+            _gains[match.Groups[1].Value].SetVolumeFromDb(double.Parse(match.Groups[2].Value));
             CommunicationState = CommunicationState.Okay;
         }
 

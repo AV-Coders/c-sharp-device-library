@@ -35,7 +35,7 @@ public abstract class Dsp : DeviceBase
 
     public abstract int GetLevel(string controlName);
     public abstract MuteState GetAudioMute(string controlName);
-    public abstract String GetValue(string controlName);
+    public abstract string GetValue(string controlName);
 
     public abstract void Reinitialise();
 }
@@ -150,7 +150,7 @@ public class Mute : AudioBlock
 
 public class StringValue : AudioBlock
 {
-    private string _value = String.Empty;
+    private string _value = string.Empty;
 
     public string Value
     {

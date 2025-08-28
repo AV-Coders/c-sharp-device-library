@@ -43,7 +43,7 @@ public abstract class Conference : DeviceBase
     public List<Call> GetActiveCalls() => ActiveCalls.Values.ToList().FindAll(x => x.Status != CallStatus.Idle);
     public string GetUri() => Uri;
     
-    protected string Uri = String.Empty;
+    protected string Uri = string.Empty;
     protected readonly Dictionary<int, Call> ActiveCalls = new ();
     protected readonly ThreadWorker PollWorker;
 

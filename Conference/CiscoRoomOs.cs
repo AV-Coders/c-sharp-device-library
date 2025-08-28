@@ -298,7 +298,7 @@ public class CiscoRoomOs : Conference
       int callId = int.Parse(responses[2]);
       if (!ActiveCalls.ContainsKey(callId))
       {
-        ActiveCalls[callId] = new Call(CallStatus.Unknown, String.Empty, String.Empty);
+        ActiveCalls[callId] = new Call(CallStatus.Unknown, string.Empty, string.Empty);
       }
 
       if (responses[3] == "Status:")

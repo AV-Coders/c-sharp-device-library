@@ -93,7 +93,7 @@ public class ExtronSmp351Test
     {
         _mockClient.Object.ResponseHandlers!.Invoke("RcdrY0\r\n");
         
-        _timestampHandler.Verify(x => x.Invoke(String.Empty));
+        _timestampHandler.Verify(x => x.Invoke(string.Empty));
     }
 
     [Theory]

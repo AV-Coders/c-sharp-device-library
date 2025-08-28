@@ -28,7 +28,7 @@ public class SvsiDecoder : SvsiBase
         {
             OutputConnectionStatus =
                 connected == "connected" ? ConnectionState.Connected : ConnectionState.Disconnected;
-            OutputResolution = resolution.Replace(".mode", String.Empty);
+            OutputResolution = resolution.Replace(".mode", string.Empty);
         }
 
         if (StatusDictionary.TryGetValue("MUTE", out var muteState))

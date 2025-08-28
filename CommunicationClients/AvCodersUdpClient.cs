@@ -10,7 +10,7 @@ public class AvCodersUdpClient : Core_UdpClient
 {
     private UdpClient? _client;
     private IPEndPoint? _ipEndPoint;
-    private readonly Queue<QueuedPayload<Byte[]>> _sendQueue = new();
+    private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
 
     public AvCodersUdpClient(string ipAddress, ushort port = 0, string name = "") : 
         base(ipAddress, port, name)
@@ -167,7 +167,7 @@ public class AvCodersUdpClient : Core_UdpClient
         }
     }
 
-    public override void Send(String message)
+    public override void Send(string message)
     {
         Send(Bytes.FromString(message));
         InvokeRequestHandlers(message);

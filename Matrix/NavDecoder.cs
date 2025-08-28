@@ -119,7 +119,7 @@ public class NavDecoder : NavDeviceBase
                 if (kvp[1].Contains("NOT DETECTED"))
                 {
                     OutputConnectionStatus = ConnectionState.Disconnected;
-                    OutputResolution = String.Empty;
+                    OutputResolution = string.Empty;
                 }
                 else
                 {

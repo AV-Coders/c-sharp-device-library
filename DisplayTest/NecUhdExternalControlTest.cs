@@ -102,9 +102,9 @@ public class NecUhdExternalControlTest
 
         foreach (IInvocation x in _mockClient.Invocations)
         {
-            foreach (Object xArgument in x.Arguments)
+            foreach (object xArgument in x.Arguments)
             {
-                if (xArgument.GetType() == typeof(Byte[]))
+                if (xArgument.GetType() == typeof(byte[]))
                 {
                     byte[] bytes = (byte[])xArgument;
                     _testOutputHelper.WriteLine(Encoding.ASCII.GetString(bytes));

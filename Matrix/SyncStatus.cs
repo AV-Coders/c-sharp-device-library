@@ -22,16 +22,16 @@ public enum HdcpStatus
 public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(name)
 {
     private ConnectionState _inputConnectionStatus;
-    private string _inputResolution = String.Empty;
+    private string _inputResolution = string.Empty;
     private HdcpStatus _inputHdcpStatus = HdcpStatus.Unknown;
     public SyncInfoHandler? InputStatusChangedHandlers;
     
     private ConnectionState _outputConnectionStatus;
-    private string _outputResolution = String.Empty;
+    private string _outputResolution = string.Empty;
     private HdcpStatus _outputHdcpStatus = HdcpStatus.Unknown;
     public SyncInfoHandler? OutputStatusChangedHandlers;
     
-    private string _streamAddress = String.Empty;
+    private string _streamAddress = string.Empty;
     public AddressChangeHandler? StreamChangeHandlers;
     
     public readonly AVEndpointType DeviceType = type;

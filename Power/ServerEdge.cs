@@ -75,7 +75,7 @@ public class ServerEdgePdu: Pdu
         string responseString = response.Content.ReadAsStringAsync().Result;
         XmlDocument xmlDoc = new XmlDocument();
         xmlDoc.LoadXml(responseString);
-        string namePayload = String.Empty;
+        string namePayload = string.Empty;
 
         foreach (XmlNode childNode in xmlDoc.DocumentElement!.ChildNodes)
         {
@@ -89,7 +89,7 @@ public class ServerEdgePdu: Pdu
             }
         }
         
-        if(namePayload != String.Empty)
+        if(namePayload != string.Empty)
             ProcessOutletNames(namePayload);
     }
 

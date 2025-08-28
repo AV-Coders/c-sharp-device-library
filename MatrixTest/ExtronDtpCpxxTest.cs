@@ -19,7 +19,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void SendCommand_DoesNotManipulateInput()
     {
-        String input = "Foo";
+        string input = "Foo";
 
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
         method?.Invoke(_switcher, [input]);
@@ -30,7 +30,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void SendCommand_ReportsCommunicationIsOkay()
     {
-        String input = "Foo";
+        string input = "Foo";
         
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
         method?.Invoke(_switcher, [input]);
@@ -41,9 +41,9 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void SendCommand_ReportsCommunicationHasFailed()
     {
-        String input = "Foo";
+        string input = "Foo";
 
-        _mockClient.Setup(client => client.Send(It.IsAny<String>())).Throws(new IOException("Oh No!"));
+        _mockClient.Setup(client => client.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
         
         var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
         method?.Invoke(_switcher, [input]);
@@ -54,7 +54,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void RouteVideo_SendsTheCommand()
     {
-        String expectedRouteCommand = "1*3%";
+        string expectedRouteCommand = "1*3%";
         _switcher.RouteVideo(1, 3);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
@@ -63,7 +63,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void RouteVideo_RoutesToAllWithOutput0()
     {
-        String expectedRouteCommand = "3*%";
+        string expectedRouteCommand = "3*%";
         _switcher.RouteVideo(3, 0);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
@@ -72,7 +72,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void RouteAudio_SendsTheCommand()
     {
-        String expectedRouteCommand = "1*3$";
+        string expectedRouteCommand = "1*3$";
         _switcher.RouteAudio(1, 3);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
@@ -81,7 +81,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void RouteAudio_RoutesToAllWithOutput0()
     {
-        String expectedRouteCommand = "1*$";
+        string expectedRouteCommand = "1*$";
         _switcher.RouteAudio(1, 0);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
@@ -90,7 +90,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void RouteAV_SendsTheCommand()
     {
-        String expectedRouteCommand = "1*3!";
+        string expectedRouteCommand = "1*3!";
         _switcher.RouteAV(1, 3);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
@@ -99,7 +99,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void RouteAV_RoutesToAllWithOutput0()
     {
-        String expectedRouteCommand = "1*!";
+        string expectedRouteCommand = "1*!";
         _switcher.RouteAV(1, 0);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
@@ -108,7 +108,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void SetSyncTimeout_SendsTheCommand()
     {
-        String expectedCommand = "\u001bT0*3SSAV\u0027";
+        string expectedCommand = "\u001bT0*3SSAV\u0027";
         _switcher.SetSyncTimeout(0, 3);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
@@ -125,7 +125,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void SetSyncTimeout_SetsToNeverDropSync()
     {
-        String expectedCommand = "\u001bT501*1SSAV\u0027";
+        string expectedCommand = "\u001bT501*1SSAV\u0027";
         _switcher.SetSyncTimeout(501, 1);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
@@ -152,7 +152,7 @@ public class ExtronDtpCpxxTest
         _switcher.Inputs[0].InputStatusChangedHandlers += mockSyncInfoHandler.Object;
         _mockClient.Object.ResponseHandlers!.Invoke(response);
 
-        mockSyncInfoHandler.Verify(x => x.Invoke(expectedConnectionStatus, String.Empty, HdcpStatus.Unknown));
+        mockSyncInfoHandler.Verify(x => x.Invoke(expectedConnectionStatus, string.Empty, HdcpStatus.Unknown));
     }
     
     [Theory]

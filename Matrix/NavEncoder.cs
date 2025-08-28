@@ -34,7 +34,7 @@ public class NavEncoder : NavDeviceBase
                 if (kvp[1].Contains("NOT DETECTED"))
                 {
                     InputConnectionStatus = ConnectionState.Disconnected;
-                    InputResolution = String.Empty;
+                    InputResolution = string.Empty;
                 }
                 else
                 {

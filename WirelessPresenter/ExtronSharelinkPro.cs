@@ -105,7 +105,7 @@ public class ExtronSharelinkPro : DeviceBase
 
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
 
-    private void SendCommand(String command)
+    private void SendCommand(string command)
     {
         try
         {

@@ -9,8 +9,8 @@ public class ExtronSharelinkProTest
     private readonly ExtronSharelinkPro _sharelink;
     private readonly Mock<CommunicationClient> _mockClient = new ("foo");
     private const string EscapeHeader = "\x1b";
-    private readonly ExtronSharelinkUser _user = new ExtronSharelinkUser("421380106", String.Empty, String.Empty,
-        String.Empty, false, String.Empty, String.Empty);
+    private readonly ExtronSharelinkUser _user = new ExtronSharelinkUser("421380106", string.Empty, string.Empty,
+        string.Empty, false, string.Empty, string.Empty);
 
     public ExtronSharelinkProTest()
     {

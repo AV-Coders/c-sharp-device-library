@@ -188,7 +188,7 @@ public class QsysEcp : Dsp
         _tcpClient.Send($"cgsna {changeGroupId} 100\n");
     }
 
-    private void AddControlsToChangeGroup(int groupId, List<String> controlNames)
+    private void AddControlsToChangeGroup(int groupId, List<string> controlNames)
     {
         controlNames.ForEach(controlName => _tcpClient.Send($"cga {groupId} \"{controlName}\"\n"));
     }

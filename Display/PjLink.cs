@@ -129,7 +129,7 @@ public class PjLink : Display
             }
 
             var responses = response.Split('=');
-            var value = Int32.Parse(responses[1]);
+            var value = int.Parse(responses[1]);
 
             if (responses[0].Contains("POWR"))
             {

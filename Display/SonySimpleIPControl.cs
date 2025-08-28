@@ -80,7 +80,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     protected override Task DoPoll(CancellationToken token) => PollWorker.Stop();
 
-    private void SendCommand(String command)
+    private void SendCommand(string command)
     {
         try
         {
@@ -94,7 +94,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         }
     }
 
-    private String WrapMessage(string message)
+    private string WrapMessage(string message)
     {
         StringBuilder builder = new StringBuilder("*S");
         builder.Append(message);
@@ -106,7 +106,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     protected override void DoPowerOn() => SendCommand(WrapMessage($"CPOWR{1:D16}"));
 
-    private void HandleResponse(String response)
+    private void HandleResponse(string response)
     {
         foreach (var singleResponse in response.Split('\n'))
         {
@@ -119,7 +119,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
             }
             else if (trimmedResponse.StartsWith("*SNVOLU"))
             {
-                Volume = Int32.Parse(trimmedResponse.Remove(0, 7));
+                Volume = int.Parse(trimmedResponse.Remove(0, 7));
                 CommunicationState = CommunicationState.Okay;
             }
             else if (trimmedResponse.StartsWith("*SNAMUT"))

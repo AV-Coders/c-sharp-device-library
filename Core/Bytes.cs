@@ -26,7 +26,7 @@ public static class Bytes
         return result;
     }
 
-    public static byte XorAList(List<Byte> bytes)
+    public static byte XorAList(List<byte> bytes)
     {
         byte result = 0x00;
 

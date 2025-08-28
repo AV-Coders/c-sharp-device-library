@@ -39,7 +39,7 @@ public abstract class LogBase(string name)
         
         disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
         disposables.Add(LogContext.PushProperty("Class", GetType().Name));
-        if(Name != String.Empty)
+        if(Name != string.Empty)
             disposables.Add(LogContext.PushProperty("InstanceName", Name));
         if (methodName != null)
             disposables.Add(LogContext.PushProperty("Method", methodName));

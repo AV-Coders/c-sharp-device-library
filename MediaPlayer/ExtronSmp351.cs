@@ -202,7 +202,7 @@ public class ExtronSmp351 : Recorder
             {
                 case 0:
                     TransportState = TransportState.Stopped;
-                    TimestampHandlers?.Invoke(String.Empty);
+                    TimestampHandlers?.Invoke(string.Empty);
                     break;
                 case 1:
                     TransportState = TransportState.Recording;

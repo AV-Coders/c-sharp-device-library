@@ -109,7 +109,7 @@ public class BoseCspSoIP : Dsp
                 var match = _responseParser.Match(line);
 
                 if (match.Groups[2].Value == "1" && _gains.ContainsKey(match.Groups[1].Value))
-                    _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[3].Value));
+                    _gains[match.Groups[1].Value].SetVolumeFromDb(double.Parse(match.Groups[3].Value));
 
                 if (match.Groups[2].Value == "2" && _mutes.ContainsKey(match.Groups[1].Value))
                     _mutes[match.Groups[1].Value].MuteState = match.Groups[3].Value switch
@@ -230,7 +230,7 @@ public class BoseCspSoIP : Dsp
         => !_mutes.TryGetValue(controlName, out var mute) ? MuteState.Unknown : mute.MuteState;
 
     public override string GetValue(string controlName)
-        => !_selects.TryGetValue(controlName, out var select) ? String.Empty : select.Value;
+        => !_selects.TryGetValue(controlName, out var select) ? string.Empty : select.Value;
 
     public override void Reinitialise() => Log.Verbose("This module doesn't pull data from the DSP");
 }

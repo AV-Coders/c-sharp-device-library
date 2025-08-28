@@ -175,7 +175,7 @@ public class SonyVisca : CameraBase
         Log.Verbose("Save Preset {PresetNumber}", presetNumber);
     }
 
-    private void HandleResponse(String response)
+    private void HandleResponse(string response)
     {
         //TODO: Handle responses
     }
