@@ -1,6 +1,5 @@
 ﻿using System.Net;
 using Serilog;
-using Serilog.Context;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
 

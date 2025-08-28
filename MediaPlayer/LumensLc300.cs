@@ -1,6 +1,5 @@
 ﻿using AVCoders.Core;
 using Serilog;
-using Serilog.Context;
 
 namespace AVCoders.MediaPlayer;
 
