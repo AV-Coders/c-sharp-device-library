@@ -6,7 +6,8 @@ public class VitecHttpTest
     private static RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
-        RemoteButton.PopupMenu, RemoteButton.TopMenu
+        RemoteButton.PopupMenu, RemoteButton.TopMenu,
+        RemoteButton.PowerOn, RemoteButton.PowerOff
     ];
     public static IEnumerable<object[]> RemoteButtonValues()
     {

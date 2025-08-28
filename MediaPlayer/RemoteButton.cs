@@ -42,5 +42,7 @@ public enum RemoteButton
     Eject,
     TopMenu,
     PopupMenu,
-    Display
+    Display,
+    PowerOn,
+    PowerOff,
 }
