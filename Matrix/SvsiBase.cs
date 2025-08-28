@@ -45,23 +45,27 @@ public abstract class SvsiBase : AVoIPEndpoint
 
     private void HandleResponse(string response)
     {
-        response.Split('\r').ToList().ForEach(item =>
+        using (PushProperties())
         {
-            if (!item.Contains(':'))
-                return;
-            var keyValuePairs = item.Split(':');
-            var key = keyValuePairs[0].Trim(':');
-            if(key.Length < 1)
-                return;
-
-            if (key == "MAC")
+            response.Split('\r').ToList().ForEach(item =>
             {
-                StatusDictionary[key] = item.Remove(0, 4);
-                return;
-            }
-            StatusDictionary[key] = keyValuePairs[1];
-        });
-        UpdateVariablesBasedOnStatus();
+                if (!item.Contains(':'))
+                    return;
+                var keyValuePairs = item.Split(':');
+                var key = keyValuePairs[0].Trim(':');
+                if (key.Length < 1)
+                    return;
+
+                if (key == "MAC")
+                {
+                    StatusDictionary[key] = item.Remove(0, 4);
+                    return;
+                }
+
+                StatusDictionary[key] = keyValuePairs[1];
+            });
+            UpdateVariablesBasedOnStatus();
+        }
     }
     
     protected abstract void UpdateVariablesBasedOnStatus();

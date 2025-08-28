@@ -34,11 +34,14 @@ public class Navigator : DeviceBase
 
     private void HandleResponse(string response)
     {
-        if (response.StartsWith('{'))
+        using (PushProperties())
         {
-            ForwardDeviceResponse(response);
-            _unansweredDeviceForwards = 0;
-            CommunicationState = CommunicationState.Okay;
+            if (response.StartsWith('{'))
+            {
+                ForwardDeviceResponse(response);
+                _unansweredDeviceForwards = 0;
+                CommunicationState = CommunicationState.Okay;
+            }
         }
     }
     public virtual void RouteAV(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}!\r");

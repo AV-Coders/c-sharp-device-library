@@ -13,14 +13,16 @@ public abstract class Display : VolumeControl, IDevice
     public readonly string InstanceUid;
     private readonly Dictionary<string, string> _logProperties = new ();
     private Input _input = Input.Unknown;
-    protected Input DesiredInput = Input.Unknown;
+    private Input _desiredInput = Input.Unknown;
     private PowerState _powerState = PowerState.Unknown;
-    protected PowerState DesiredPowerState = PowerState.Unknown;
+    private PowerState _desiredPowerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
     private readonly Input? _defaultInput;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
+    public PowerStateHandler? DesiredPowerStateHandlers;
     public InputHandler? InputHandlers;
+    public InputHandler? DesiredInputHandlers;
     private MuteState _audioMute = MuteState.Unknown;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     private MuteState _videoMute = MuteState.Unknown;
@@ -58,6 +60,18 @@ public abstract class Display : VolumeControl, IDevice
         }
     }
 
+    public Input DesiredInput
+    {
+        get => _desiredInput;
+        protected set
+        {
+            if (_desiredInput == value)
+                return;
+            _desiredInput = value;
+            DesiredInputHandlers?.Invoke(value);
+        }
+    }
+
     public PowerState PowerState
     {
         get => _powerState;
@@ -67,6 +81,18 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             _powerState = value;
             PowerStateHandlers?.Invoke(value);
+        }
+    }
+
+    public PowerState DesiredPowerState
+    {
+        get => _desiredPowerState;
+        protected set
+        {
+            if(_desiredPowerState == value)
+                return;
+            _desiredPowerState = value;
+            DesiredPowerStateHandlers?.Invoke(value);
         }
     }
 

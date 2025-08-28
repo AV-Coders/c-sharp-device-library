@@ -83,7 +83,7 @@ public class PjLink : Display
 
     private void HandleResponse(string response)
     {
-        using (PushProperties("HandleResponse"))
+        using (PushProperties())
         {
             if (response.Contains("OK"))
             {
@@ -210,7 +210,7 @@ public class PjLink : Display
 
     protected override void DoSetVolume(int percentage)
     {
-        using (PushProperties("DoSetVolume"))
+        using (PushProperties())
         {
             Log.Error("Volume control is not supported");   
         }

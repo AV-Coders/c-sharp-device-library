@@ -94,46 +94,49 @@ public class LGCommercial : Display, ISetTopBox
 
     private void HandleResponse(string response)
     {
-        if (!response.Contains($" {_setId:d2} OK"))
-            return;
-        var data = response.Split("OK");
-        
-        if (data[0].Contains($"a {_setId:d2} "))
+        using (PushProperties())
         {
-            PowerState = data[1] switch
+            if (!response.Contains($" {_setId:d2} OK"))
+                return;
+            var data = response.Split("OK");
+
+            if (data[0].Contains($"a {_setId:d2} "))
             {
-                "01x" => PowerState.On,
-                "00x" => PowerState.Off,
-                _ => PowerState
-            };
-            ProcessPowerResponse();
-        }
-        else if (data[0].Contains($"b {_setId:d2} "))
-        {
-            Input = data[1] switch
+                PowerState = data[1] switch
+                {
+                    "01x" => PowerState.On,
+                    "00x" => PowerState.Off,
+                    _ => PowerState
+                };
+                ProcessPowerResponse();
+            }
+            else if (data[0].Contains($"b {_setId:d2} "))
             {
-                "90x" => Input.Hdmi1,
-                "91x" => Input.Hdmi2,
-                "92x" => Input.Hdmi3,
-                "93x" => Input.Hdmi4,
-                "00x" => Input.DvbtTuner,
-                _ => Input
-            };
-            ProcessInputResponse();
-        }
-        else if (data[0].Contains($"f {_setId:d2} "))
-        {
-            int.TryParse(data[1].Substring(0, 2), NumberStyles.HexNumber, null, out var volumeLevel);
-            Volume = volumeLevel;
-        }
-        else if (data[0].Contains($"e {_setId:d2} "))
-        {
-            AudioMute = data[1] switch
+                Input = data[1] switch
+                {
+                    "90x" => Input.Hdmi1,
+                    "91x" => Input.Hdmi2,
+                    "92x" => Input.Hdmi3,
+                    "93x" => Input.Hdmi4,
+                    "00x" => Input.DvbtTuner,
+                    _ => Input
+                };
+                ProcessInputResponse();
+            }
+            else if (data[0].Contains($"f {_setId:d2} "))
             {
-                "01x" => MuteState.Off,
-                "00x" => MuteState.On,
-                _ => AudioMute
-            };
+                int.TryParse(data[1].Substring(0, 2), NumberStyles.HexNumber, null, out var volumeLevel);
+                Volume = volumeLevel;
+            }
+            else if (data[0].Contains($"e {_setId:d2} "))
+            {
+                AudioMute = data[1] switch
+                {
+                    "01x" => MuteState.Off,
+                    "00x" => MuteState.On,
+                    _ => AudioMute
+                };
+            }
         }
     }
 

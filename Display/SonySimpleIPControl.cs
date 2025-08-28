@@ -93,7 +93,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         catch (Exception e)
         {
             CommunicationState = CommunicationState.Error;
-            System.Diagnostics.Debug.WriteLine($"Sony Simple IP Control - Communication error: {e.Message}");
+            LogException(e);
         }
     }
 

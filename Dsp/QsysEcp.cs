@@ -97,23 +97,25 @@ public class QsysEcp : Dsp
 
     private void HandleResponse(string response)
     {
-        var lines = response.Split('\n');
-        foreach (string line in lines)
+        using (PushProperties())
         {
-            if (line.StartsWith("cv"))
+            var lines = response.Split('\n');
+            foreach (string line in lines)
             {
-                ProcessValueChange(line);
-                CommunicationState = CommunicationState.Okay;
-            }
-            else if (line.StartsWith("sr"))
-                CommunicationState = CommunicationState.Okay;
-            else if (line.Contains("bad_id"))
-            {
-                CommunicationState = CommunicationState.Error;
-                Log.Error("Invalid named control found: {Line}", line);
+                if (line.StartsWith("cv"))
+                {
+                    ProcessValueChange(line);
+                    CommunicationState = CommunicationState.Okay;
+                }
+                else if (line.StartsWith("sr"))
+                    CommunicationState = CommunicationState.Okay;
+                else if (line.Contains("bad_id"))
+                {
+                    CommunicationState = CommunicationState.Error;
+                    Log.Error("Invalid named control found: {Line}", line);
+                }
             }
         }
-        
     }
 
     private void ProcessValueChange(string response)

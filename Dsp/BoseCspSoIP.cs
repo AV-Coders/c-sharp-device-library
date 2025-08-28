@@ -100,23 +100,26 @@ public class BoseCspSoIP : Dsp
 
     private void HandleResponse(string response)
     {
-        var lines = response.Split('\r').ToList();
-        lines.ForEach(line =>
+        using (PushProperties())
         {
-            _ = line.TrimEnd('\r');
-            var match = _responseParser.Match(line);
-            
-            if (match.Groups[2].Value == "1" && _gains.ContainsKey(match.Groups[1].Value))
-                _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[3].Value));
+            var lines = response.Split('\r').ToList();
+            lines.ForEach(line =>
+            {
+                _ = line.TrimEnd('\r');
+                var match = _responseParser.Match(line);
 
-            if (match.Groups[2].Value == "2" && _mutes.ContainsKey(match.Groups[1].Value))
-                _mutes[match.Groups[1].Value].MuteState = match.Groups[3].Value switch
-                {
-                    "O" => MuteState.On,
-                    "F" => MuteState.Off,
-                    _ => MuteState.Unknown
-                };
-        });
+                if (match.Groups[2].Value == "1" && _gains.ContainsKey(match.Groups[1].Value))
+                    _gains[match.Groups[1].Value].SetVolumeFromDb(Double.Parse(match.Groups[3].Value));
+
+                if (match.Groups[2].Value == "2" && _mutes.ContainsKey(match.Groups[1].Value))
+                    _mutes[match.Groups[1].Value].MuteState = match.Groups[3].Value switch
+                    {
+                        "O" => MuteState.On,
+                        "F" => MuteState.Off,
+                        _ => MuteState.Unknown
+                    };
+            });
+        }
     }
 
     protected override async Task Poll(CancellationToken token)

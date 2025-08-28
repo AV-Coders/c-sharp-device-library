@@ -32,7 +32,7 @@ public class PhilipsSICP : Display
 
     private void HandleResponse(byte[] response)
     {
-        using (PushProperties("HandleResponse"))
+        using (PushProperties())
         {
             if (response.Length < response[0])
             {

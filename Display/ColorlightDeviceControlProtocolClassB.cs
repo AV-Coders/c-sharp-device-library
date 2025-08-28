@@ -20,9 +20,12 @@ public class ColorlightDeviceControlProtocolClassB : Display
 
     private void HandleResponse(byte[] response)
     {
-        if (response.Take(8).ToArray().SequenceEqual(_heartbeatRequest))
+        using (PushProperties())
         {
-            CommunicationClient.Send(_heartbeatResponse);
+            if (response.Take(8).ToArray().SequenceEqual(_heartbeatRequest))
+            {
+                CommunicationClient.Send(_heartbeatResponse);
+            }
         }
     }
 

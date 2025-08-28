@@ -76,15 +76,18 @@ public class NecUhdExternalControl : Display
 
     private void HandleResponse(byte[] response)
     {
-        _gather.AddRange(response);
-
-        while (_gather.Contains(0x0D))
+        using (PushProperties())
         {
-            int endIndex = _gather.IndexOf(0x0D) + 1;
-            byte[] aResponsePayload = _gather.Take(endIndex).ToArray();
-            _gather = _gather.Skip(endIndex).ToList();
+            _gather.AddRange(response);
 
-            ProcessResponse(aResponsePayload);
+            while (_gather.Contains(0x0D))
+            {
+                int endIndex = _gather.IndexOf(0x0D) + 1;
+                byte[] aResponsePayload = _gather.Take(endIndex).ToArray();
+                _gather = _gather.Skip(endIndex).ToList();
+
+                ProcessResponse(aResponsePayload);
+            }
         }
     }
 

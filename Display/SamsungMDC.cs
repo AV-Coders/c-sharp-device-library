@@ -86,7 +86,7 @@ public class SamsungMdc : Display
         }
         catch (Exception e)
         {
-            System.Diagnostics.Debug.WriteLine(e);
+            LogException(e);
             CommunicationState = CommunicationState.Error;
         }
     }
@@ -116,18 +116,21 @@ public class SamsungMdc : Display
 
     public void HandleResponse(byte[] response)
     {
-        _gather.AddRange(response);
-        while (_gather.Count > 0 && _gather[0] != 0xAA)
+        using (PushProperties())
         {
-            _gather.RemoveAt(0);
-        }
+            _gather.AddRange(response);
+            while (_gather.Count > 0 && _gather[0] != 0xAA)
+            {
+                _gather.RemoveAt(0);
+            }
 
-        while (_gather.Count > 4 && _gather.Count >= _gather[3] + 5 )
-        {
-            int endIndex = _gather[3] + 5;
-            byte[] aResponsePayload = _gather.Take(endIndex).ToArray();
-            _gather = _gather.Skip(endIndex).ToList();
-            ProcessResponse(aResponsePayload);
+            while (_gather.Count > 4 && _gather.Count >= _gather[3] + 5)
+            {
+                int endIndex = _gather[3] + 5;
+                byte[] aResponsePayload = _gather.Take(endIndex).ToArray();
+                _gather = _gather.Skip(endIndex).ToList();
+                ProcessResponse(aResponsePayload);
+            }
         }
     }
 

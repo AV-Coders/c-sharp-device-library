@@ -98,15 +98,18 @@ public class CecDisplay : Display, ISetTopBox
 
     private void HandleResponse(string incoming)
     {
-        if (incoming[0] == _responseHeader && incoming[1] == '\x90')
+        using (PushProperties())
         {
-            PowerState = incoming[2] switch
+            if (incoming[0] == _responseHeader && incoming[1] == '\x90')
             {
-                '\x00' => PowerState.On,
-                '\x01' => PowerState.Off,
-                _ => PowerState
-            };
-            ProcessPowerResponse();
+                PowerState = incoming[2] switch
+                {
+                    '\x00' => PowerState.On,
+                    '\x01' => PowerState.Off,
+                    _ => PowerState
+                };
+                ProcessPowerResponse();
+            }
         }
     }
 

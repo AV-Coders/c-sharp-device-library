@@ -183,26 +183,30 @@ public class BiampTtp : Dsp
 
     private void HandleResponse(string response)
     {
-        var lines = response.Split('\n');
-        foreach (string line in lines)
+        using (PushProperties())
         {
-            if (line.StartsWith("+OK \"value\":"))
+            var lines = response.Split('\n');
+            foreach (string line in lines)
             {
-                if (_lastRequestWasForTheVersion)
+                if (line.StartsWith("+OK \"value\":"))
                 {
-                    _lastRequestWasForTheVersion = false;
-                    return;
+                    if (_lastRequestWasForTheVersion)
+                    {
+                        _lastRequestWasForTheVersion = false;
+                        return;
+                    }
+
+                    AllocateValueToBlock(line.Split(':')[1]);
                 }
-                AllocateValueToBlock(line.Split(':')[1]);
-            }
-            else if (line.StartsWith("!"))
-            {   
-                ProcessChangeNotification(line);
-            }
-            else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
-            {
-                Thread.Sleep(5000);
-                Resubscribe();
+                else if (line.StartsWith("!"))
+                {
+                    ProcessChangeNotification(line);
+                }
+                else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
+                {
+                    Thread.Sleep(5000);
+                    Resubscribe();
+                }
             }
         }
     }

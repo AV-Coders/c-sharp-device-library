@@ -69,36 +69,39 @@ public class NavDecoder : NavDeviceBase
 
     protected override void HandleResponse(string response)
     {
-        if (response.StartsWith("In"))
+        using (PushProperties())
         {
-            var streamId = response.Split(' ')[0][2..];
-            StreamAddress = streamId;
-            return;
-        }
-
-        if (response.StartsWith("Vmt"))
-        {
-            switch (int.Parse(response[3..]))
+            if (response.StartsWith("In"))
             {
-                case 0:
-                    VideoMute = MuteState.Off;
-                    return;
-                default:
-                    VideoMute = MuteState.On;
-                    return;
+                var streamId = response.Split(' ')[0][2..];
+                StreamAddress = streamId;
+                return;
             }
-        }
 
-        if (response.StartsWith("Amt"))
-        {
-            switch (int.Parse(response[5..]))
+            if (response.StartsWith("Vmt"))
             {
-                case 0:
-                    AudioMute = MuteState.Off;
-                    break;
-                case 1:
-                    AudioMute = MuteState.On;
-                    break;
+                switch (int.Parse(response[3..]))
+                {
+                    case 0:
+                        VideoMute = MuteState.Off;
+                        return;
+                    default:
+                        VideoMute = MuteState.On;
+                        return;
+                }
+            }
+
+            if (response.StartsWith("Amt"))
+            {
+                switch (int.Parse(response[5..]))
+                {
+                    case 0:
+                        AudioMute = MuteState.Off;
+                        break;
+                    case 1:
+                        AudioMute = MuteState.On;
+                        break;
+                }
             }
         }
     }
