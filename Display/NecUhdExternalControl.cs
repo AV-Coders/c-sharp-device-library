@@ -29,7 +29,8 @@ public class NecUhdExternalControl : Display
         { Input.DisplayPort, [0x30, 0x46] },
     };
 
-    public NecUhdExternalControl(CommunicationClient comms, string name, Input? defaultInput, byte displayId = 0x2A) : base(InputDictionary.Keys.ToList(), name, defaultInput, comms)
+    public NecUhdExternalControl(CommunicationClient comms, string name, Input? defaultInput, byte displayId = 0x2A) 
+        : base(InputDictionary.Keys.ToList(), name, defaultInput, comms, CommandStringFormat.Hex)
     {
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         _displayId = displayId;

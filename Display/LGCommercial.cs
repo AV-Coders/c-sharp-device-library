@@ -76,7 +76,7 @@ public class LGCommercial : Display, ISetTopBox
     };
 
     public LGCommercial(CommunicationClient comms, string name, string? mac, Input? defaultInput, int setId = 1) : 
-        base(InputDictionary.Keys.ToList(), name, defaultInput, comms, 12)
+        base(InputDictionary.Keys.ToList(), name, defaultInput, comms, CommandStringFormat.Ascii, 12)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
         _setId = setId;

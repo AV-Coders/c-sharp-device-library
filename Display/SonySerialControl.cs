@@ -53,7 +53,8 @@ public class SonySerialControl : Display
 
     private readonly SerialClient _client;
 
-    public SonySerialControl(SerialClient client, string name, Input? defaultInput) : base(InputDictionary.Keys.ToList(), name, defaultInput, client)
+    public SonySerialControl(SerialClient client, string name, Input? defaultInput) 
+        : base(InputDictionary.Keys.ToList(), name, defaultInput, client, CommandStringFormat.Hex)
     {
         _client = client;
     }

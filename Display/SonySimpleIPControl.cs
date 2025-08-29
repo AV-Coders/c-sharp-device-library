@@ -68,7 +68,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
     };
 
     public SonySimpleIpControl(TcpClient tcpClient, string name, Input? defaultInput) : base(
-        InputDictionary.Keys.ToList(), name, defaultInput, tcpClient)
+        InputDictionary.Keys.ToList(), name, defaultInput, tcpClient, CommandStringFormat.Ascii)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
     }

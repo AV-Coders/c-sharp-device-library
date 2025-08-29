@@ -10,6 +10,7 @@ public abstract class Display : VolumeControl, IDevice
 {
     public List<Input> SupportedInputs { get; }
     public readonly CommunicationClient CommunicationClient;
+    public readonly CommandStringFormat CommandStringFormat;
     public readonly string InstanceUid;
     private readonly Dictionary<string, string> _logProperties = new ();
     private Input _input = Input.Unknown;
@@ -29,11 +30,13 @@ public abstract class Display : VolumeControl, IDevice
 
     protected readonly ThreadWorker PollWorker;
 
-    protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, int pollTime = 23) : base(name, VolumeType.Speaker)
+    protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, CommandStringFormat commandStringFormat, int pollTime = 23)
+        : base(name, VolumeType.Speaker)
     {
         SupportedInputs = supportedInputs;
         DefaultInput = defaultInput;
         CommunicationClient = communicationClient;
+        CommandStringFormat = commandStringFormat;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationState = CommunicationState.NotAttempted;
         InstanceUid = Guid.NewGuid().ToString();

@@ -21,7 +21,7 @@ public class PhilipsSICP : Display
     };
 
     public PhilipsSICP(CommunicationClient client, byte monitorId, byte groupId, string name, Input? defaultInput, int pollTime = 23) : base(
-        InputMap.Keys.ToList(), name, defaultInput, client, pollTime)
+        InputMap.Keys.ToList(), name, defaultInput, client, CommandStringFormat.Hex, pollTime)
     {
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         _monitorId = monitorId;
