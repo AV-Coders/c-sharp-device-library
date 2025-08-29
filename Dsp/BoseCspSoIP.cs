@@ -34,23 +34,14 @@ public class BoseGain : Fader
     }
 }
 
-public class BoseMute : Mute
+public class BoseMute(MuteStateHandler muteStateHandler, string controlName) : Mute(muteStateHandler)
 {
-    public readonly string ControlName;
-    public BoseMute(MuteStateHandler muteStateHandler, string controlName) : base(muteStateHandler)
-    {
-        ControlName = controlName;
-    }
+    public readonly string ControlName = controlName;
 }
 
-public class BoseSelect : StringValue
+public class BoseSelect(StringValueHandler stringValueHandler, string controlName) : StringValue(stringValueHandler)
 {
-    public readonly string ControlName;
-
-    public BoseSelect(StringValueHandler stringValueHandler, string controlName) : base(stringValueHandler)
-    {
-        ControlName = controlName;
-    }
+    public readonly string ControlName = controlName;
 }
 
 public record BoseAudioBlockInfo(string Name, string ControlName);

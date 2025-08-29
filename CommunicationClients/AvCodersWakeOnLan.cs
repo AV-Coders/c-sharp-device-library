@@ -35,7 +35,7 @@ public class AvCodersWakeOnLan : IWakeOnLan
 
     private static byte[] ParseMacAddress(string text)
     {
-        string[] tokens = text.Split(new char[] { ':', '-' });
+        string[] tokens = text.Split(':', '-');
 
         byte[] bytes = new byte[6];
         for (int i = 0; i < 6; i++)

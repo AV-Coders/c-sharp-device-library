@@ -18,34 +18,21 @@ public record Query(string ArrayIndex, BiampQuery BiampQuery, string DspCommand)
 
 public record BiampAudioBlockInfo(string Name, string InstanceTag, int BlockIndex);
 
-public class BiampGain : Fader
+public class BiampGain(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex)
+    : Fader(volumeLevelHandler, false)
 {
-    public readonly int ControlIndex;
-    public readonly string ControlName;
-    public BiampGain(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex) : base(volumeLevelHandler, false)
-    {
-        ControlName = controlName;
-        ControlIndex = controlIndex;
-    }
+    public readonly int ControlIndex = controlIndex;
+    public readonly string ControlName = controlName;
 }
 
-public class BiampMute : Mute
+public class BiampMute(MuteStateHandler muteStateHandler, string controlName, int controlIndex)
+    : Mute(muteStateHandler)
 {
-    public readonly int ControlIndex;
-    public readonly string ControlName;
-    public BiampMute(MuteStateHandler muteStateHandler, string controlName, int controlIndex) : base(muteStateHandler)
-    {
-        ControlName = controlName;
-        ControlIndex = controlIndex;
-    }
+    public readonly int ControlIndex = controlIndex;
+    public readonly string ControlName = controlName;
 }
 
-public class BiampInt : StringValue
-{
-    public BiampInt(StringValueHandler stringValueHandler) : base(stringValueHandler)
-    {
-    }
-}
+public class BiampInt(StringValueHandler stringValueHandler) : StringValue(stringValueHandler);
 
 public class BiampVolumeControl : VolumeControl
 {
@@ -350,7 +337,7 @@ public class BiampTtp : Dsp
     {
         // DEVICE recallPreset 1001
         // Value must be between 1001 and 9999.
-        if (presetNumber > 1000 && presetNumber < 10000)
+        if (presetNumber is > 1000 and < 10000)
         {
             _commsClient.Send($"DEVICE recallPreset {presetNumber}\n");
             Log.Verbose("Recalled preset {presetNumber}", presetNumber);

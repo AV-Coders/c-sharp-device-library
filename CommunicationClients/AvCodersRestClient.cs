@@ -22,8 +22,7 @@ public class AvCodersRestClient : RestComms
 
     public override void RemoveDefaultHeader(string key)
     {
-        if (_headers.ContainsKey(key))
-            _headers.Remove(key);
+        _headers.Remove(key);
     }
     
     private async Task HandleResponse(HttpResponseMessage response)

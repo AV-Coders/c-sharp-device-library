@@ -162,7 +162,7 @@ public class AvCodersSshClient : SshClientBase
                 catch (ObjectDisposedException e)
                 {
                     Log.Debug("Send failed, stream was disposed.  Recreating stream and queueing message. {ExceptionMessage}", e.Message);
-                    _ = CreateStream(new CancellationToken());
+                    _ = CreateStream(CancellationToken.None);
                     _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
                 }
                 catch (NullReferenceException e)

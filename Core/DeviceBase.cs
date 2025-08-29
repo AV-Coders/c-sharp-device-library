@@ -3,24 +3,18 @@ using Serilog.Context;
 
 namespace AVCoders.Core;
 
-public abstract class DeviceBase : IDevice
+public abstract class DeviceBase(string name) : IDevice
 {
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
-    public readonly string InstanceUid;
+    public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
-    public string Name { get; protected set; }
+    public string Name { get; protected set; } = name;
 
     protected PowerState DesiredPowerState = PowerState.Unknown;
     
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
-
-    protected DeviceBase(string name)
-    {
-        Name = name;
-        InstanceUid = Guid.NewGuid().ToString();
-    }
 
     public PowerState PowerState
     {

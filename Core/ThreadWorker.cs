@@ -1,21 +1,11 @@
 ﻿namespace AVCoders.Core;
 
-public class ThreadWorker
+public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false)
 {
-    private readonly Func<CancellationToken, Task> _action;
-    private readonly TimeSpan _sleepTime;
-    private CancellationTokenSource? _cancellationTokenSource;
+    private CancellationTokenSource? _cancellationTokenSource = null;
     private Task? _task;
-    private bool _waitFirst;
+    private bool _waitFirst = waitFirst;
 
-    public ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false)
-    {
-        _action = action;
-        _sleepTime = sleepTime;
-        _waitFirst = waitFirst;
-        _cancellationTokenSource = null;
-    }
-    
     public void Restart()
     {
         Stop();
@@ -58,10 +48,10 @@ public class ThreadWorker
                 while (!token.IsCancellationRequested)
                 {
                     if(_waitFirst)
-                        await Task.Delay(_sleepTime, token);
-                    await _action.Invoke(token);
+                        await Task.Delay(sleepTime, token);
+                    await action.Invoke(token);
                     if(!_waitFirst)
-                        await Task.Delay(_sleepTime, token);
+                        await Task.Delay(sleepTime, token);
                 }
             }
             catch (OperationCanceledException)

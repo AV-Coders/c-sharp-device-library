@@ -25,7 +25,6 @@ public abstract class Display : VolumeControl, IDevice
     public InputHandler? DesiredInputHandlers;
     private MuteState _audioMute = MuteState.Unknown;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
-    private MuteState _videoMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
 
     protected readonly ThreadWorker PollWorker;
@@ -110,12 +109,8 @@ public abstract class Display : VolumeControl, IDevice
         }
     }
 
-    public MuteState VideoMute
-    {
-        get => _videoMute;
-        protected set => _videoMute = value;
-    }
-    
+    public MuteState VideoMute { get; protected set; } = MuteState.Unknown;
+
     public CommunicationState CommunicationState
     {
         get => _communicationState;

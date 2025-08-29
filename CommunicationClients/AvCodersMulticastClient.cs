@@ -10,7 +10,6 @@ public class AvCodersMulticastClient : IpComms
 {
     private readonly UdpClient _client;
     private readonly IPEndPoint _remoteEndPoint;
-    private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
 
     public AvCodersMulticastClient(string ipAddress, ushort port, string name) : base(ipAddress, port, name)
     {

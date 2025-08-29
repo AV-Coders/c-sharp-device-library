@@ -207,7 +207,7 @@ public class LGCommercial : Display, ISetTopBox
 
     private static byte[] ParseMacAddress(string text, char[]? separator = null)
     {
-        if (separator == null) separator = [':', '-'];
+        separator ??= [':', '-'];
         string[] tokens = text.Split(separator);
 
         byte[] bytes = new byte[6];

@@ -75,7 +75,7 @@ public class AvCodersTcpServer : Core_TcpClient
         {
             TcpClient client = await _server.AcceptTcpClientAsync(token);
             _clients.Add(client);
-            IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? default;
+            IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? null;
             Log.Debug("Added client - {IpAddress}", remoteIpEndPoint?.Address);
             _ = HandleClientAsync(client, token);
             await Task.Delay(TimeSpan.FromSeconds(1), token);

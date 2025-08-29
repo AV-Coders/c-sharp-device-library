@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using AVCoders.Core;
+﻿using AVCoders.Core;
 using Serilog;
 
 namespace AVCoders.Display;

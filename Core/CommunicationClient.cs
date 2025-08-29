@@ -6,8 +6,8 @@ namespace AVCoders.Core;
 
 public abstract class CommunicationClient(string name) : LogBase(name)
 {
-    public StringHandler? Requesthandlers;
-    public ByteHandler? RequestBytehandlers;
+    public StringHandler? RequestHandlers;
+    public ByteHandler? RequestByteHandlers;
     public StringHandler? ResponseHandlers;
     public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
@@ -34,7 +34,7 @@ public abstract class CommunicationClient(string name) : LogBase(name)
     {
         try
         {
-            Requesthandlers?.Invoke(request);
+            RequestHandlers?.Invoke(request);
         }
         catch (Exception e)
         {
@@ -47,7 +47,7 @@ public abstract class CommunicationClient(string name) : LogBase(name)
     {
         try
         {
-            RequestBytehandlers?.Invoke(request);
+            RequestByteHandlers?.Invoke(request);
         }
         catch (Exception e)
         {
@@ -87,27 +87,18 @@ public abstract class CommunicationClient(string name) : LogBase(name)
     }
 }
 
-public abstract class SerialClient : CommunicationClient
+public abstract class SerialClient(string name) : CommunicationClient(name)
 {
-    protected SerialClient(string name) : base(name)
-    { }
-
     public abstract void ConfigurePort(SerialSpec serialSpec);
 
     public abstract void Send(char[] chars);
 }
 
-public abstract class RestComms : CommunicationClient
+public abstract class RestComms(string host, ushort port, string name) : CommunicationClient(name)
 {
-    protected string Host;
-    protected ushort Port;
+    protected string Host = host;
+    protected ushort Port = port;
     public HttpResponseHandler? HttpResponseHandlers;
-
-    protected RestComms(string host, ushort port, string name) : base(name)
-    {
-        Host = host;
-        Port = port;
-    }
 
     public abstract void AddDefaultHeader(string key, string value);
 
@@ -189,27 +180,11 @@ public abstract class IpComms : CommunicationClient
     }
 }
 
-public abstract class SshClient : IpComms
-{
-    protected SshClient(string host, ushort port, string name) : base(host, port, name)
-    {
-    }
-}
+public abstract class SshClient(string host, ushort port, string name) : IpComms(host, port, name);
 
-public abstract class TcpClient : IpComms
-{
-    protected TcpClient(string host, ushort port, string name) : base(host, port, name)
-    {
-    }
-}
+public abstract class TcpClient(string host, ushort port, string name) : IpComms(host, port, name);
 
-public abstract class UdpClient : IpComms
-{
-
-    protected UdpClient(string host, ushort port, string name) : base(host, port, name)
-    {
-    }
-}
+public abstract class UdpClient(string host, ushort port, string name) : IpComms(host, port, name);
 
 public interface IWakeOnLan
 {

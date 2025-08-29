@@ -7,11 +7,11 @@ namespace AVCoders.Display;
 public class CecDisplay : Display, ISetTopBox
 {
     private readonly SerialClient _cecStream;
-    
-    public const char SourcePlayBack1 = '\x40';
-    public const char SourceUnregistered = '\xF0';
-    public const char DestinationTv = '\x00';
-    public const char DestinationBroadcast = '\x0F';
+
+    private const char SourcePlayBack1 = '\x40';
+    private const char SourceUnregistered = '\xF0';
+    private const char DestinationTv = '\x00';
+    private const char DestinationBroadcast = '\x0F';
 
     private readonly char _commandHeader;
     private readonly char _broadcastHeader;

@@ -8,13 +8,11 @@ public class PhilipsSICP : Display
     public const ushort DefaultPort = 5000;
     public static readonly SerialSpec DefaultSpec = new (SerialBaud.Rate9600, SerialParity.None,
         SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
-    
-    private readonly List<byte> _gather = [];
 
     private readonly byte _monitorId;
     private readonly byte _groupId;
 
-    private static readonly Dictionary<Input, byte> _inputMap = new Dictionary<Input, byte>
+    private static readonly Dictionary<Input, byte> InputMap = new Dictionary<Input, byte>
     {
         { Input.Hdmi1, 0x0d},
         { Input.Hdmi2, 0x06},
@@ -23,7 +21,7 @@ public class PhilipsSICP : Display
     };
 
     public PhilipsSICP(CommunicationClient client, byte monitorId, byte groupId, string name, Input? defaultInput, int pollTime = 23) : base(
-        _inputMap.Keys.ToList(), name, defaultInput, client, pollTime)
+        InputMap.Keys.ToList(), name, defaultInput, client, pollTime)
     {
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         _monitorId = monitorId;
@@ -140,7 +138,7 @@ public class PhilipsSICP : Display
 
     protected override void DoSetInput(Input input)
     {
-        Send([0xAC, _inputMap[input], 0x00, 0x01, 0x00]);
+        Send([0xAC, InputMap[input], 0x00, 0x01, 0x00]);
     }
 
     protected override void DoSetVolume(int percentage)
