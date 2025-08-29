@@ -70,7 +70,6 @@ public class BiampTtp : Dsp
     private readonly Dictionary<string, BiampInt> _strings = new();
     
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
-    private readonly CommunicationClient _commsClient;
     private readonly Regex _subscriptionResponseParser;
 
     private readonly List<Query> _moduleQueries = [];
@@ -81,11 +80,10 @@ public class BiampTtp : Dsp
     private bool _lastRequestWasForTheVersion;
 
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 1) : base(name, pollIntervalInSeconds)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 1) : base(name, commsClient, pollIntervalInSeconds)
     {
-        _commsClient = commsClient;
-        _commsClient.ResponseHandlers += HandleResponse;
-        _commsClient.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -111,7 +109,7 @@ public class BiampTtp : Dsp
     {
         _currentQuery = null;
         PollWorker.Restart();
-        _commsClient.Send(command);
+        CommunicationClient.Send(command);
     }
 
     private void Resubscribe()
@@ -124,7 +122,7 @@ public class BiampTtp : Dsp
             Thread.Sleep(TimeSpan.FromSeconds(5));
             _deviceSubscriptions.ForEach(subscriptionCommand =>
             {
-                _commsClient.Send(subscriptionCommand);
+                CommunicationClient.Send(subscriptionCommand);
             });
             Thread.Sleep(TimeSpan.FromSeconds(1));
             PollWorker.Restart();
@@ -135,7 +133,7 @@ public class BiampTtp : Dsp
     {
         using (PushProperties("Poll"))
         {
-            if (_commsClient.GetConnectionState() != ConnectionState.Connected)
+            if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
             {
                 Log.Verbose("IP Comms disconnected, not polling");
                 return;
@@ -144,11 +142,11 @@ public class BiampTtp : Dsp
             if (_pendingQueries.TryDequeue(out var query))
             {
                 _currentQuery = query;
-                _commsClient.Send(_currentQuery.DspCommand);
+                CommunicationClient.Send(_currentQuery.DspCommand);
             }
             else
             {
-                _commsClient.Send("DEVICE get version\n");
+                CommunicationClient.Send("DEVICE get version\n");
                 _lastRequestWasForTheVersion = true;
                 await Task.Delay(TimeSpan.FromSeconds(25), token);
                 Reinitialise();
@@ -282,7 +280,7 @@ public class BiampTtp : Dsp
             _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
             _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
 
-            _commsClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
+            CommunicationClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
             Log.Verbose("Created a new gain {gainName}", controlName);
         }
@@ -307,7 +305,7 @@ public class BiampTtp : Dsp
         {
             _mutes.Add(arrayIndex, new BiampMute(muteStateHandler, muteName, controlIndex));
 
-            _commsClient.Send($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
+            CommunicationClient.Send($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
             _deviceSubscriptions.Add($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
             Log.Verbose("Created a new mute {muteName}", muteName);
         }
@@ -339,7 +337,7 @@ public class BiampTtp : Dsp
         // Value must be between 1001 and 9999.
         if (presetNumber is > 1000 and < 10000)
         {
-            _commsClient.Send($"DEVICE recallPreset {presetNumber}\n");
+            CommunicationClient.Send($"DEVICE recallPreset {presetNumber}\n");
             Log.Verbose("Recalled preset {presetNumber}", presetNumber);
             _pollCount = 0;
         }

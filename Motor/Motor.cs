@@ -12,7 +12,7 @@ public abstract class Motor : DeviceBase
     protected RelayAction CurrentMoveAction = RelayAction.None;
     private CancellationTokenSource _cancellationTokenSource = new ();
 
-    protected Motor(string name, RelayAction powerOnAction, int moveSeconds) : base(name)
+    protected Motor(string name, RelayAction powerOnAction, int moveSeconds) : base(name, CommunicationClient.None)
     {
         MoveSeconds = moveSeconds;
         CurrentMoveId = Guid.Empty;

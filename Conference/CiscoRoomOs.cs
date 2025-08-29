@@ -60,7 +60,6 @@ public enum PeripheralType
 
 public class CiscoRoomOs : Conference
   {
-    private readonly CommunicationClient _communicationClient;
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
     public readonly CiscoCE9PhonebookParser PhoneBookParser;
     private readonly string _moduleIdentifier;
@@ -84,17 +83,16 @@ public class CiscoRoomOs : Conference
     }
 
     public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, 
-      PeripheralType peripheralType = PeripheralType.ControlSystem)
+      PeripheralType peripheralType = PeripheralType.ControlSystem) : base(communicationClient)
     {
       _moduleIdentifier = $"AV-Coders-RoomOS-Module-{DateTime.Now.Ticks:x}";
 
-      _communicationClient = communicationClient;
       _deviceInfo = deviceInfo;
       _peripheralType = peripheralType;
-      _communicationClient.ResponseHandlers += HandleResponse;
+      CommunicationClient.ResponseHandlers += HandleResponse;
 
       PhoneBookParser = new CiscoCE9PhonebookParser();
-      PhoneBookParser.Comms += _communicationClient.Send;
+      PhoneBookParser.Comms += CommunicationClient.Send;
     }
 
     private void Reinitialise()
@@ -131,7 +129,7 @@ public class CiscoRoomOs : Conference
     {
       try
       {
-        _communicationClient.Send(command + "\r\n");
+        CommunicationClient.Send(command + "\r\n");
         CommunicationState = CommunicationState.Okay;
       }
       catch (Exception)

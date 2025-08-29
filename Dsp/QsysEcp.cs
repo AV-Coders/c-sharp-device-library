@@ -64,14 +64,12 @@ public class QsysEcp : Dsp
     private const int ChangeGroupStrings = 3;
 
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
-    private readonly TcpClient _tcpClient;
 
-    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInSeconds = 50) : base(name, pollIntervalInSeconds)
+    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInSeconds = 50) : base(name, tcpClient, pollIntervalInSeconds)
     {
-        _tcpClient = tcpClient;
-        _tcpClient.SetPort(DefaultPort);
-        _tcpClient.ResponseHandlers += HandleResponse;
-        _tcpClient.ConnectionStateHandlers += HandleConnectionState;
+        tcpClient.SetPort(DefaultPort);
+        tcpClient.ResponseHandlers += HandleResponse;
+        tcpClient.ConnectionStateHandlers += HandleConnectionState;
 
         string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]+)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
@@ -146,9 +144,9 @@ public class QsysEcp : Dsp
         {
             new Thread(_ =>
             {
-                _tcpClient.Send($"cgc {ChangeGroupGains}\n");
-                _tcpClient.Send($"cgc {ChangeGroupMutes}\n");
-                _tcpClient.Send($"cgc {ChangeGroupStrings}\n");
+                CommunicationClient.Send($"cgc {ChangeGroupGains}\n");
+                CommunicationClient.Send($"cgc {ChangeGroupMutes}\n");
+                CommunicationClient.Send($"cgc {ChangeGroupStrings}\n");
                 Thread.Sleep(500);
 
                 AddControlsToChangeGroup(ChangeGroupGains, _gains.Keys.ToList());
@@ -175,18 +173,18 @@ public class QsysEcp : Dsp
     private void ScheduleChangeGroupPoll(int changeGroupId)
     {
         // The device only reports on a change
-        _tcpClient.Send($"cgsna {changeGroupId} 100\n");
+        CommunicationClient.Send($"cgsna {changeGroupId} 100\n");
     }
 
     private void AddControlsToChangeGroup(int groupId, List<string> controlNames)
     {
-        controlNames.ForEach(controlName => _tcpClient.Send($"cga {groupId} \"{controlName}\"\n"));
+        controlNames.ForEach(controlName => CommunicationClient.Send($"cga {groupId} \"{controlName}\"\n"));
     }
 
     protected override Task Poll(CancellationToken token)
     {
-        if(_tcpClient.GetConnectionState() == ConnectionState.Connected)
-            _tcpClient.Send("sg\n"); 
+        if(CommunicationClient.GetConnectionState() == ConnectionState.Connected)
+            CommunicationClient.Send("sg\n"); 
         return Task.CompletedTask;
     }
 
@@ -228,7 +226,7 @@ public class QsysEcp : Dsp
 
     private void GetControl(string controlName)
     {
-        _tcpClient.Send($"cg \"{controlName}\"\n");
+        CommunicationClient.Send($"cg \"{controlName}\"\n");
     }
 
     public override void AddControl(VolumeLevelHandler volumeLevelHandler, string levelName)
@@ -276,7 +274,7 @@ public class QsysEcp : Dsp
 
     public override void SetLevel(string gainName, int percentage)
     {
-        _tcpClient.Send($"csp \"{gainName}\" {Math.Round((double)percentage / 100, 2)}\n");
+        CommunicationClient.Send($"csp \"{gainName}\" {Math.Round((double)percentage / 100, 2)}\n");
     }
 
     public override void LevelUp(string controlName, int amount = 1)
@@ -298,7 +296,7 @@ public class QsysEcp : Dsp
 
     public override void SetAudioMute(string muteName, MuteState state)
     {
-        _tcpClient.Send($"css \"{muteName}\" {_muteStateDictionary[state]}\n");
+        CommunicationClient.Send($"css \"{muteName}\" {_muteStateDictionary[state]}\n");
     }
 
     public override void ToggleAudioMute(string muteName)
@@ -324,7 +322,7 @@ public class QsysEcp : Dsp
 
     public override void SetValue(string stringName, string value)
     {
-        _tcpClient.Send($"css \"{stringName}\" {value}\n");
+        CommunicationClient.Send($"css \"{stringName}\" {value}\n");
     }
 
     public override string GetValue(string intName)
@@ -337,12 +335,12 @@ public class QsysEcp : Dsp
     public override void Reinitialise() => GetAllControlStates();
 
     [Obsolete("This method is deprecated in favor of TriggerPreset")]
-    public void RecallPreset(string controlName) =>_tcpClient.Send($"csv \"{controlName}\" 1 \n");
+    public void RecallPreset(string controlName) =>CommunicationClient.Send($"csv \"{controlName}\" 1 \n");
     
-    public void TriggerPreset(string controlName) => _tcpClient.Send($"ct \"{controlName}\"\n");
+    public void TriggerPreset(string controlName) => CommunicationClient.Send($"ct \"{controlName}\"\n");
     
     public void RecallPreset(string controlName, int value, double rampTime = 0) 
-        => _tcpClient.Send($"ssl \"{controlName}\" {value} {rampTime}\n");
+        => CommunicationClient.Send($"ssl \"{controlName}\" {value} {rampTime}\n");
     
     public void RecallSnapshot(string controlName, int value, double rampTime = 0) => RecallPreset(controlName, value, rampTime);
 }

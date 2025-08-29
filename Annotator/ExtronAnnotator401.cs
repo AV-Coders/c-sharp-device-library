@@ -5,17 +5,15 @@ namespace AVCoders.Annotator;
 public class ExtronAnnotator401 : DeviceBase
 {
     public static readonly ushort DefaultPort = 22023;
-    private readonly CommunicationClient _client;
     private readonly ThreadWorker _pollWorker;
     private const string EscapeHeader = "\x1b";
 
-    public ExtronAnnotator401(CommunicationClient client, string name) : base(name)
+    public ExtronAnnotator401(CommunicationClient client, string name) : base(name, client)
     {
-        _client = client;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
-        _client.ConnectionStateHandlers += HandleConnectionState;
-        _client.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationClient.ResponseHandlers += HandleResponse;
     }
 
     private void HandleResponse(string value)
@@ -43,7 +41,7 @@ public class ExtronAnnotator401 : DeviceBase
     {
         using (PushProperties("Poll"))
         {
-            if (_client.ConnectionState != ConnectionState.Connected)
+            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
                 return Task.CompletedTask;
 
             WrapAndSendCommand("0TC");
@@ -61,7 +59,7 @@ public class ExtronAnnotator401 : DeviceBase
     {
         try
         {
-            _client.Send(command);
+            CommunicationClient.Send(command);
             CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)

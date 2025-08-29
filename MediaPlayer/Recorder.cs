@@ -6,7 +6,7 @@ public abstract class Recorder : MediaPlayer
 {
     public StringHandler? TimestampHandlers;
 
-    protected Recorder(string name) : base(name)
+    protected Recorder(string name, CommunicationClient comms) : base(name, comms)
     {
     }
 

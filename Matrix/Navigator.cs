@@ -14,11 +14,11 @@ public class Navigator : DeviceBase
     private int _unansweredDeviceForwards = 0;
     
 
-    public Navigator(string name, SshClient sshClient) : base(name)
+    public Navigator(string name, SshClient sshClient) : base(name, sshClient)
     {
         SshClient = sshClient;
-        SshClient.ResponseHandlers += HandleResponse;
-        SshClient.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         _callbacks = new Dictionary<string, Action<string>>();
         
         string responsePattern = @"\{(?<device>.*?)\}(?<response>.*?)";
@@ -29,7 +29,7 @@ public class Navigator : DeviceBase
     {
         if (connectionState != ConnectionState.Connected)
             return;
-        SshClient.Send($"{EscapeHeader}3CV\r");
+        CommunicationClient.Send($"{EscapeHeader}3CV\r");
     }
 
     private void HandleResponse(string response)
@@ -44,11 +44,11 @@ public class Navigator : DeviceBase
             }
         }
     }
-    public virtual void RouteAV(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}!\r");
-    public void RouteAudio(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}$\r");
-    public void RouteVideo(uint input, uint output) => SshClient.Send($"{EscapeHeader}{input}*{output}%\r");
+    public virtual void RouteAV(uint input, uint output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}!\r");
+    public void RouteAudio(uint input, uint output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}$\r");
+    public void RouteVideo(uint input, uint output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}%\r");
 
-    public void SendCommandToDevice(string deviceId, string command) => SshClient.Send($"{{{deviceId}:{command}}}\r");
+    public void SendCommandToDevice(string deviceId, string command) => CommunicationClient.Send($"{{{deviceId}:{command}}}\r");
 
     private void ForwardDeviceResponse(string response)
     {

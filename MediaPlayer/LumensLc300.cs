@@ -21,7 +21,6 @@ public class LumensLc300 : Recorder
 
     public IntHandler? LayoutChanged;
     
-    private readonly CommunicationClient _client;
     private readonly ThreadWorker _pollWorker;
     private int _currentLayout = 0;
 
@@ -47,10 +46,9 @@ public class LumensLc300 : Recorder
         }
     }
 
-    public LumensLc300(string name, CommunicationClient client) : base(name)
+    public LumensLc300(string name, CommunicationClient client) : base(name, client)
     {
-        _client = client;
-        _client.ResponseByteHandlers += HandleResponse;
+        CommunicationClient.ResponseByteHandlers += HandleResponse;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(10));
         _pollWorker.Restart();
     }
@@ -109,7 +107,7 @@ public class LumensLc300 : Recorder
     {
         using (PushProperties("Poll"))
         {
-            if (_client.ConnectionState != ConnectionState.Connected)
+            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             {
                 return Task.CompletedTask;
             }
@@ -129,7 +127,7 @@ public class LumensLc300 : Recorder
         if (parameters != null)
             bytes.Add(parameters.Value);
         bytes.Add(End);
-        _client.Send(bytes.ToArray());
+        CommunicationClient.Send(bytes.ToArray());
     }
 
     /// <summary>

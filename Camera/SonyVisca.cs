@@ -9,7 +9,6 @@ public class SonyVisca : CameraBase
     {
         ViscaCommand, ViscaInquiry, ViscaReply, DeviceSetting, ControlCommand, ControlReply
     }
-    private readonly CommunicationClient _communicationClient;
     private readonly bool _useIpHeaders;
     private byte _panSpeed;
     private byte _tiltSpeed;
@@ -21,13 +20,12 @@ public class SonyVisca : CameraBase
     protected static readonly byte CommandFooter = 0xFF;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
 
-    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, byte cameraId = 0x01) : base(name)
+    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, byte cameraId = 0x01) : base(name, client)
     {
-        _communicationClient = client;
         _useIpHeaders = useIpHeaders;
         SetCameraId(cameraId);
         SetCameraId(cameraId);
-        _communicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ResponseHandlers += HandleResponse;
         _panSpeed = 0x04;
         _tiltSpeed = 0x04;
         _zoomInSpeed = 0x23;
@@ -50,10 +48,10 @@ public class SonyVisca : CameraBase
             CommunicationState = CommunicationState.Okay;
             if (_useIpHeaders)
             {
-                _communicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaCommand, bytes));
+                CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaCommand, bytes));
                 return;
             }
-            _communicationClient.Send(bytes);
+            CommunicationClient.Send(bytes);
         }
         catch (Exception e)
         {

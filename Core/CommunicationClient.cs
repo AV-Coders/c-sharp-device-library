@@ -26,6 +26,27 @@ public abstract class CommunicationClient(string name) : LogBase(name)
         }
     }
 
+    /// <summary>
+    /// A no-op CommunicationClient used to indicate that there is no real communication backend.
+    /// </summary>
+    public static CommunicationClient None { get; } = new NoneCommunicationClient();
+
+    /// <summary>
+    /// Internal no-op implementation. All operations are ignored.
+    /// </summary>
+    private sealed class NoneCommunicationClient() : CommunicationClient("None")
+    {
+        public override void Send(string message)
+        {
+            // intentionally no-op
+        }
+
+        public override void Send(byte[] bytes)
+        {
+            // intentionally no-op
+        }
+    }
+
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
     public ConnectionState GetConnectionState() => ConnectionState;
@@ -189,4 +210,4 @@ public abstract class UdpClient(string host, ushort port, string name) : IpComms
 public interface IWakeOnLan
 {
     public void Wake(string mac);
-} 
+}
