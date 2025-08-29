@@ -17,7 +17,7 @@ public abstract class Display : VolumeControl, IDevice
     private PowerState _powerState = PowerState.Unknown;
     private PowerState _desiredPowerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
-    private readonly Input? _defaultInput;
+    public readonly Input? DefaultInput;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public PowerStateHandler? DesiredPowerStateHandlers;
@@ -32,7 +32,7 @@ public abstract class Display : VolumeControl, IDevice
     protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, int pollTime = 23) : base(name, VolumeType.Speaker)
     {
         SupportedInputs = supportedInputs;
-        _defaultInput = defaultInput;
+        DefaultInput = defaultInput;
         CommunicationClient = communicationClient;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationState = CommunicationState.NotAttempted;
@@ -176,8 +176,8 @@ public abstract class Display : VolumeControl, IDevice
         Log.Verbose("Turning On");
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
-        if(_defaultInput != null)
-            DesiredInput = _defaultInput.Value;
+        if(DefaultInput != null)
+            DesiredInput = DefaultInput.Value;
     }
 
     protected abstract void DoPowerOn();
