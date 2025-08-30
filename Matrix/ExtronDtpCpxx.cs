@@ -8,7 +8,6 @@ public delegate void EndpointArrayChangedHandler(List<ExtronMatrixEndpoint> endp
 public class ExtronDtpCpxx : VideoMatrix
 {
     public static readonly ushort DefaultPort = 22023;
-    private readonly CommunicationClient _communicationClient;
     private readonly ThreadWorker _pollWorker;
     public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
     public readonly List<ExtronMatrixInput> Inputs = [];
@@ -34,14 +33,13 @@ public class ExtronDtpCpxx : VideoMatrix
         }
     }
 
-    public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name) : base(numberOfOutputs, name)
+    public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name) : base(numberOfOutputs, communicationClient, name)
     {
-        _communicationClient = communicationClient;
-        _communicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ResponseHandlers += HandleResponse;
         PowerState = PowerState.Unknown;
         UpdateCommunicationState(CommunicationState.NotAttempted);
-        _communicationClient.ConnectionStateHandlers += HandleConnectionState;
-        HandleConnectionState(_communicationClient.ConnectionState);
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
+        HandleConnectionState(CommunicationClient.ConnectionState);
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
     }
@@ -240,7 +238,7 @@ public class ExtronDtpCpxx : VideoMatrix
 
     private Task Poll(CancellationToken arg)
     {
-        if(_communicationClient.ConnectionState == ConnectionState.Connected)
+        if(CommunicationClient.ConnectionState == ConnectionState.Connected)
             WrapAndSendCommand("0TC");
         return Task.CompletedTask;
     }
@@ -261,7 +259,7 @@ public class ExtronDtpCpxx : VideoMatrix
     {
         try
         {
-            _communicationClient.Send(command);
+            CommunicationClient.Send(command);
             UpdateCommunicationState(CommunicationState.Okay);
         }
         catch (Exception e)

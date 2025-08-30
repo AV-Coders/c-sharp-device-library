@@ -32,7 +32,7 @@ public class SamsungMdc : Display
 
 
     public SamsungMdc(CommunicationClient communicationClient, byte displayId, string name, Input? defaultInput) : 
-        base(InputDictionary.Keys.ToList(), name, defaultInput, communicationClient)
+        base(InputDictionary.Keys.ToList(), name, defaultInput, communicationClient, CommandStringFormat.Hex)
     {
         _displayId = displayId;
         CommunicationClient.ResponseByteHandlers += HandleResponse;

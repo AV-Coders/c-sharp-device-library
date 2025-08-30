@@ -13,7 +13,6 @@ public enum ExtronSmp351UsbPort
 
 public class ExtronSmp351 : Recorder
 {
-    private readonly CommunicationClient _communicationClient;
     public static readonly ushort DefaultPort = 22023;
     private readonly ThreadWorker _pollWorker;
     private readonly Regex _responseParser;
@@ -106,13 +105,12 @@ public class ExtronSmp351 : Recorder
         }
     }
 
-    public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, string name, int pollTime = 1000) : base(name)
+    public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, string name, int pollTime = 1000) : base(name, communicationClient)
     {
-        _communicationClient = communicationClient;
         _memoryLowKBytes = memoryLowKBytes;
         _memoryFullKBytes = memoryFullKBytes;
-        _communicationClient.ResponseHandlers += HandleResponse;
-        _communicationClient.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollTime));
         _pollWorker.Restart();
 
@@ -125,14 +123,14 @@ public class ExtronSmp351 : Recorder
         // This is required so all responses have a prefix.
         // Changing this will result in the device not returning the expected strings below
         Thread.Sleep(500);
-        _communicationClient.Send($"{EscapeHeader}3CV\r");
+        CommunicationClient.Send($"{EscapeHeader}3CV\r");
     }
 
-    protected override void DoRecord() => _communicationClient.Send($"{EscapeHeader}Y1RCDR\r");
+    protected override void DoRecord() => CommunicationClient.Send($"{EscapeHeader}Y1RCDR\r");
 
-    protected override void DoStop() => _communicationClient.Send($"{EscapeHeader}Y0RCDR\r");
+    protected override void DoStop() => CommunicationClient.Send($"{EscapeHeader}Y0RCDR\r");
     
-    protected override void DoPause() => _communicationClient.Send($"{EscapeHeader}Y2RCDR\r");
+    protected override void DoPause() => CommunicationClient.Send($"{EscapeHeader}Y2RCDR\r");
 
     private void HandleResponse(string response)
     {
@@ -267,19 +265,19 @@ public class ExtronSmp351 : Recorder
 
     private Task Poll( CancellationToken token)
     {
-        if(_communicationClient.GetConnectionState() == ConnectionState.Connected)
+        if(CommunicationClient.GetConnectionState() == ConnectionState.Connected)
         {
-            _communicationClient.Send("I");
+            CommunicationClient.Send("I");
             _counter++;
             if (_counter > 60)
             {
                 _counter = 0;
                 Thread.Sleep(90);
-                _communicationClient.Send("56I");
+                CommunicationClient.Send("56I");
                 Thread.Sleep(90);
-                _communicationClient.Send("57I");
+                CommunicationClient.Send("57I");
                 Thread.Sleep(90);
-                _communicationClient.Send("58I");   
+                CommunicationClient.Send("58I");   
             }
 
         }

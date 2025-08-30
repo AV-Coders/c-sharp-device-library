@@ -2,6 +2,7 @@
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using AVCoders.Core;
 using Serilog;
 
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
@@ -16,7 +17,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
 
     private static readonly List<RemoteButton> UnsupportedButtons = [];
 
-    public VitecHttp(string host, string password, string name) : base(name)
+    public VitecHttp(string host, string password, string name) : base(name, CommunicationClient.None)
     {
         _remoteKeyUri = new Uri($"https://{host}:8080/irremote/key", UriKind.Absolute);
         _deviceStateUri = new Uri($"https://{host}:8080/devicestate", UriKind.Absolute);

@@ -1,5 +1,12 @@
 ﻿namespace AVCoders.Core;
 
+public enum CommandStringFormat
+{
+    Unknown,
+    Ascii,
+    Hex,
+}
+
 public enum CommunicationState
 {
     Unknown,

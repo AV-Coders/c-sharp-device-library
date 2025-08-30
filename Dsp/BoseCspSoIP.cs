@@ -76,13 +76,11 @@ public class BoseCspSoIP : Dsp
     private readonly Dictionary<string, BoseGain> _gains = new();
     private readonly Dictionary<string, BoseMute> _mutes = new();
     private readonly Dictionary<string, BoseSelect> _selects = new();
-    private readonly TcpClient _tcpClient;
     private readonly Regex _responseParser;
     
-    public BoseCspSoIP(TcpClient tcpClient, string name = "Bose", int pollIntervalInSeconds = 50) : base(name, pollIntervalInSeconds)
+    public BoseCspSoIP(TcpClient tcpClient, string name = "Bose", int pollIntervalInSeconds = 50) : base(name, tcpClient, pollIntervalInSeconds)
     {
-        _tcpClient = tcpClient;
-        _tcpClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ResponseHandlers += HandleResponse;
         
         string responsePattern = "GA\\\"([^\\\"]+)\\\"\\>(\\d+)=([a-zA-Z0-9.-]+)";
         _responseParser = new(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(250));
@@ -115,25 +113,25 @@ public class BoseCspSoIP : Dsp
 
     protected override async Task Poll(CancellationToken token)
     {
-        if (_tcpClient.GetConnectionState() != ConnectionState.Connected)
+        if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
             return;
         
         foreach (string key in _gains.Keys)
         {
             await Task.Delay(30, token);
-            _tcpClient.Send($"GA\"{key}\">1\r");
+            CommunicationClient.Send($"GA\"{key}\">1\r");
             
         }
         foreach (string key in _mutes.Keys)
         {
             await Task.Delay(30, token);
-            _tcpClient.Send($"GA\"{key}>2\r");
+            CommunicationClient.Send($"GA\"{key}>2\r");
         }
 
         foreach (string key in _selects.Keys)
         {
             await Task.Delay(30, token);
-            _tcpClient.Send($"GA\"{key}>1\r");
+            CommunicationClient.Send($"GA\"{key}>1\r");
         }
     }
 
@@ -154,7 +152,7 @@ public class BoseCspSoIP : Dsp
         {
             _gains.Add(controlName, new BoseGain(volumeLevelHandler, controlName, minGain, maxGain));
             // GA"Fitness Gain">1\r 
-            _tcpClient.Send($"GA\"{controlName} Gain\">1\r");
+            CommunicationClient.Send($"GA\"{controlName} Gain\">1\r");
         }
     }
 
@@ -169,7 +167,7 @@ public class BoseCspSoIP : Dsp
         {
             _mutes.Add(muteName, new BoseMute(muteStateHandler, muteName));
 
-            _tcpClient.Send($"GA\"{muteName} Gain\">2\r");
+            CommunicationClient.Send($"GA\"{muteName} Gain\">2\r");
         }
     }
 
@@ -183,20 +181,20 @@ public class BoseCspSoIP : Dsp
         else
         {
             _selects.Add(controlName, new BoseSelect(stringValueHandler, controlName));
-            _tcpClient.Send($"GA\"{controlName} Selector\">1\r");
+            CommunicationClient.Send($"GA\"{controlName} Selector\">1\r");
         }
     }
 
     public override void SetLevel(string controlName, int percentage)
     {
-        _tcpClient.Send($"SA\"{controlName} Gain\">1={_gains[controlName].PercentageToDb(percentage)}\r");
+        CommunicationClient.Send($"SA\"{controlName} Gain\">1={_gains[controlName].PercentageToDb(percentage)}\r");
     }
 
     public override void LevelUp(string controlName, int amount = 1) 
-        => _tcpClient.Send($"SA\"{controlName} Gain\">3={amount}\r");
+        => CommunicationClient.Send($"SA\"{controlName} Gain\">3={amount}\r");
 
     public override void LevelDown(string controlName, int amount = 1) 
-        => _tcpClient.Send($"SA\"{controlName} Gain\">3=-{amount}\r");
+        => CommunicationClient.Send($"SA\"{controlName} Gain\">3=-{amount}\r");
 
     public override void SetAudioMute(string controlName, MuteState muteState)
     {
@@ -205,14 +203,14 @@ public class BoseCspSoIP : Dsp
             MuteState.On => "O",
             _ => "F",
         };
-        _tcpClient.Send($"SA\"{controlName} Gain\">2={muteCommand}\r");
+        CommunicationClient.Send($"SA\"{controlName} Gain\">2={muteCommand}\r");
     }
 
     public override void ToggleAudioMute(string controlName)
-        => _tcpClient.Send($"SA\"{controlName} Gain\">2=T\r");
+        => CommunicationClient.Send($"SA\"{controlName} Gain\">2=T\r");
 
     public override void SetValue(string controlName, string value)
-        => _tcpClient.Send($"SA\"{controlName} Selector\">1={value}\r");
+        => CommunicationClient.Send($"SA\"{controlName} Selector\">1={value}\r");
 
     public override int GetLevel(string controlName)
         => !_gains.TryGetValue(controlName, out var gain) ? 0 : gain.Volume;

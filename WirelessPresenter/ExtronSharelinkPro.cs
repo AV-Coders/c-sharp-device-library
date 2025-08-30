@@ -16,7 +16,7 @@ public class ExtronSharelinkPro : DeviceBase
     public readonly List<ExtronSharelinkUser> ConnectedUsers = [];
     public IntHandler? ConnectedUsersHandlers;
 
-    public ExtronSharelinkPro(CommunicationClient client, string name) : base(name)
+    public ExtronSharelinkPro(CommunicationClient client, string name) : base(name, client)
     {
         _client = client;
         _connectedUserNotifier = new ThreadWorker(NotifyOfConnectedUsers, TimeSpan.FromSeconds(2), true);

@@ -4,7 +4,6 @@ namespace AVCoders.MediaPlayer;
 
 public class ExterityTci : MediaPlayer, ISetTopBox
 {
-    private readonly CommunicationClient _communicationClient;
     private readonly string _password;
     private readonly Dictionary<MuteState, string> _muteDictionary = new()
     {
@@ -12,24 +11,23 @@ public class ExterityTci : MediaPlayer, ISetTopBox
         { MuteState.Off, "off"}
     };
     
-    public ExterityTci(CommunicationClient communicationClient, string password, string name) : base(name)
+    public ExterityTci(CommunicationClient communicationClient, string password, string name) : base(name, communicationClient)
     {
-        _communicationClient = communicationClient;
         _password = password;
-        _communicationClient.ResponseHandlers += HandleResponse;
-        _communicationClient.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         PowerState = PowerState.Unknown;
         CommunicationState = CommunicationState.Unknown;
     }
 
     private void WriteParameter(string parameter, string value)
     {
-        _communicationClient.Send($"^set:{parameter}:{value}!\n");
+        CommunicationClient.Send($"^set:{parameter}:{value}!\n");
     }
 
     private void SimulateRemoteKeypress(string key)
     {
-        _communicationClient.Send($"^send:rm_{key}!\n");
+        CommunicationClient.Send($"^send:rm_{key}!\n");
     }
 
     public override void PowerOn()
@@ -48,11 +46,11 @@ public class ExterityTci : MediaPlayer, ISetTopBox
     {
         if (response.Contains("login as:"))
         {
-            _communicationClient.Send("ctrl\n");
+            CommunicationClient.Send("ctrl\n");
         }
         else if (response.Contains("'s password:"))
         {
-            _communicationClient.Send($"{_password}\n");
+            CommunicationClient.Send($"{_password}\n");
         }
     }
 
