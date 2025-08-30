@@ -53,6 +53,7 @@ public class AvCodersRestClient : RestComms
             
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             HttpResponseMessage response = await httpClient.PostAsync(uri, new StringContent(payload, Encoding.Default, contentType));
+            RequestHandlers?.Invoke(payload);
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
         }
@@ -80,6 +81,7 @@ public class AvCodersRestClient : RestComms
             }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             HttpResponseMessage response = await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, contentType));
+            RequestHandlers?.Invoke(content);
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
         }
@@ -107,6 +109,7 @@ public class AvCodersRestClient : RestComms
             }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             HttpResponseMessage response = await httpClient.GetAsync(uri);
+            RequestHandlers?.Invoke($"HTTP Get to {uri.AbsolutePath}");
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
         }
