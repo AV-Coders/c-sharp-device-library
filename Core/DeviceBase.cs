@@ -10,7 +10,7 @@ public abstract class DeviceBase(string name, CommunicationClient client) : IDev
     public PowerStateHandler? PowerStateHandlers;
     public readonly string InstanceUid = Guid.NewGuid().ToString();
     
-    protected readonly CommunicationClient CommunicationClient = client;
+    public readonly CommunicationClient CommunicationClient = client;
     protected PowerState DesiredPowerState = PowerState.Unknown;
     
     private readonly Dictionary<string, string> _logProperties = new ();
