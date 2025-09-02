@@ -7,11 +7,10 @@ namespace AVCoders.Lighting.Tests;
 public class CBusInterfaceTest
 {
     private readonly CBusInterface _interface;
-    private readonly Mock<CommunicationClient> _mockClient;
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
 
     public CBusInterfaceTest()
     {
-        _mockClient = new Mock<CommunicationClient>("foo");
         _interface = new CBusInterface(_mockClient.Object, true);
     }
     

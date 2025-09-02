@@ -5,7 +5,7 @@ namespace AVCoders.MediaPlayer.Tests;
 public class ExterityTciTest
 {
     private readonly ExterityTci _interface;
-    private readonly Mock<CommunicationClient> _mockClient;
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
     private readonly string _password = "Password1";
     private static readonly RemoteButton[] _excludedButtons = 
         [
@@ -23,8 +23,6 @@ public class ExterityTciTest
 
     public ExterityTciTest()
     {
-        _mockClient = new Mock<CommunicationClient>("foo");
-        
         _interface = new ExterityTci(_mockClient.Object, _password, "test device");
     }
 

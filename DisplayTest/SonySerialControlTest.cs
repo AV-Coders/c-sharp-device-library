@@ -6,11 +6,10 @@ namespace AVCoders.Display.Tests;
 public class SonySerialControlTest
 {
     private readonly SonySerialControl _display;
-    private readonly Mock<SerialClient> _mockClient;
+    private readonly Mock<SerialClient> _mockClient = new ("foo", "bar", (ushort)1);
 
     public SonySerialControlTest()
     {
-        _mockClient = new Mock<SerialClient>("foo");
         _display = new SonySerialControl(_mockClient.Object, "Test display", Input.Hdmi1);
     }
     

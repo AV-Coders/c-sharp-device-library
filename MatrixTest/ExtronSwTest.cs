@@ -6,11 +6,10 @@ namespace AVCoders.Matrix.Tests;
 public class ExtronSwTest
 {
     private readonly ExtronSw _switcher;
-    private readonly Mock<CommunicationClient> _mockClient;
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
 
     public ExtronSwTest()
     {
-        _mockClient = new Mock<CommunicationClient>("foo");
         _switcher = new ExtronSw(_mockClient.Object, 4, "Test switch");
     }
 

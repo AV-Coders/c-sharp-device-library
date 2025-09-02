@@ -7,11 +7,10 @@ public class CBusLightTest
 {
     private readonly CBusLight _light;
     private readonly Mock<CBusInterface> _mockInterface;
-    private readonly Mock<CommunicationClient> _mockClient;
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
 
     public CBusLightTest()
     {
-        _mockClient = new Mock<CommunicationClient>("foo");
         _mockInterface = new Mock<CBusInterface>(_mockClient.Object, true);
         _light = new CBusLight("Test Light", _mockInterface.Object, 3, CBusRampTime.Instant);
     }

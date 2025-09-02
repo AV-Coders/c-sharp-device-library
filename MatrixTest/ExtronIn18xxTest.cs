@@ -7,11 +7,10 @@ namespace AVCoders.Matrix.Tests;
 public class ExtronIn18xxTest
 {
     private readonly ExtronIn18Xx _switcher;
-    private readonly Mock<CommunicationClient> _mockClient;
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
 
     public ExtronIn18xxTest()
     {
-        _mockClient = new Mock<CommunicationClient>("foo");
         _switcher = new ExtronIn18Xx(_mockClient.Object, 6, "test matrix");
     }
 

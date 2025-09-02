@@ -7,7 +7,7 @@ namespace AVCoders.Display.Tests;
 public class CecDisplayTest
 {
     private readonly CecDisplay _display;
-    private readonly Mock<SerialClient> _mockClient;
+    private readonly Mock<SerialClient> _mockClient = new ("foo", "bar", (ushort)1);
     private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
@@ -24,7 +24,6 @@ public class CecDisplayTest
     
     public CecDisplayTest()
     {
-        _mockClient = new Mock<SerialClient>("foo");
         _display = new CecDisplay(_mockClient.Object, "Test display");
     }
 

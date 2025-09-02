@@ -5,12 +5,11 @@ namespace AVCoders.Motor.Tests;
 
 public class MotoluxBlindTransmitterTest
 {
-    private readonly Mock<SerialClient> _mockClient;
+    private readonly Mock<SerialClient> _mockClient = new ("foo", "bar", (ushort)1);
     private readonly MotoluxBlindTransmitter _device;
 
     public MotoluxBlindTransmitterTest()
     {
-        _mockClient = new Mock<SerialClient>("foo");
         _device = new MotoluxBlindTransmitter("Blind", '\u0002', '\u0010', RelayAction.Lower, 30, _mockClient.Object);
     }
 

@@ -5,11 +5,10 @@ namespace AVCoders.Camera.Tests;
 public class SonyViscaSerialTest
 {
     private readonly SonyVisca _viscaCamera;
-    private readonly Mock<CommunicationClient> _mockClient;
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
 
     public SonyViscaSerialTest()
     {
-        _mockClient = new Mock<CommunicationClient>("foo");
         _viscaCamera = new SonyVisca(_mockClient.Object, false, "Test Cam");
     }
 
@@ -143,11 +142,10 @@ public class SonyViscaSerialTest
 public class SonyViscaIpTest
 {
     private readonly SonyVisca _viscaCamera;
-    private readonly Mock<CommunicationClient> _mockClient;
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
 
     public SonyViscaIpTest()
     {
-        _mockClient = new Mock<CommunicationClient>("foo");
         _viscaCamera = new SonyVisca(_mockClient.Object, true, "Test Camera");
     }
 

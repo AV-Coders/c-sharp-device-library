@@ -7,7 +7,7 @@ namespace AVCoders.Matrix.Tests;
 public class ExtronDtpCpxxTest
 {
     private readonly ExtronDtpCpxx _switcher;
-    private readonly Mock<CommunicationClient> _mockClient = new Mock<CommunicationClient>("foo");
+    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
     private readonly string EscapeHeader = "\x1b";
 
     public ExtronDtpCpxxTest()
