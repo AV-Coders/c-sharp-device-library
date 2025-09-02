@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using Serilog;
 using Serilog.Context;
@@ -16,10 +17,15 @@ public class AvCodersMulticastClient : IpComms
         using (LogContext.PushProperty(MethodProperty, "Constructor"))
         {
             ConnectionState = ConnectionState.Connecting;
-            IPEndPoint localEndPoint = new IPEndPoint(IPAddress.Any, 0);
-            _client = new UdpClient(localEndPoint);
 
             var multicastIp = IPAddress.Parse(ipAddress);
+            var af = multicastIp.AddressFamily;
+            _client = new UdpClient(af);
+
+            _client.Client.ExclusiveAddressUse = false;
+            _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            _client.Client.Bind(new IPEndPoint(IPAddress.Any, port));
+
             _remoteEndPoint = new IPEndPoint(multicastIp, port);
             _client.JoinMulticastGroup(multicastIp);
 
@@ -32,7 +38,7 @@ public class AvCodersMulticastClient : IpComms
 
     protected override async Task Receive(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "Receive"))
+        using (PushProperties("Receive"))
         {
             try
             {
@@ -63,7 +69,6 @@ public class AvCodersMulticastClient : IpComms
     }
 
     protected override async Task ProcessSendQueue(CancellationToken token) => await SendQueueWorker.Stop();
-
     protected override async Task CheckConnectionState(CancellationToken token) => await ConnectionStateWorker.Stop();
 
     public override void SetPort(ushort port)
