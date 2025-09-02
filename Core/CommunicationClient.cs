@@ -4,13 +4,16 @@ using Serilog.Context;
 
 namespace AVCoders.Core;
 
-public abstract class CommunicationClient(string name) : LogBase(name)
+public abstract class CommunicationClient(string name, string host, ushort port) : LogBase(name)
 {
     public StringHandler? RequestHandlers;
     public ByteHandler? RequestByteHandlers;
     public StringHandler? ResponseHandlers;
     public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
+    
+    protected string Host = host;
+    protected ushort Port = port;
 
     private ConnectionState _connectionState = ConnectionState.Unknown;
 
@@ -34,7 +37,7 @@ public abstract class CommunicationClient(string name) : LogBase(name)
     /// <summary>
     /// Internal no-op implementation. All operations are ignored.
     /// </summary>
-    private sealed class NoneCommunicationClient() : CommunicationClient("None")
+    private sealed class NoneCommunicationClient() : CommunicationClient("None", "None", 0)
     {
         public override void Send(string message)
         {
@@ -106,19 +109,21 @@ public abstract class CommunicationClient(string name) : LogBase(name)
             LogException(e);
         }
     }
+
+    public string GetHost() => Host;
+
+    public ushort GetPort() => Port;
 }
 
-public abstract class SerialClient(string name) : CommunicationClient(name)
+public abstract class SerialClient(string name, string host, ushort port) : CommunicationClient(name, host, port)
 {
     public abstract void ConfigurePort(SerialSpec serialSpec);
 
     public abstract void Send(char[] chars);
 }
 
-public abstract class RestComms(string host, ushort port, string name) : CommunicationClient(name)
+public abstract class RestComms(string host, ushort port, string name) : CommunicationClient(name, host, port)
 {
-    protected string Host = host;
-    protected ushort Port = port;
     public HttpResponseHandler? HttpResponseHandlers;
 
     public abstract void AddDefaultHeader(string key, string value);
@@ -137,15 +142,13 @@ public abstract class RestComms(string host, ushort port, string name) : Communi
 
 public abstract class IpComms : CommunicationClient
 {
-    protected string Host;
-    protected ushort Port;
     protected int QueueTimeout = 5;
     
     protected readonly ThreadWorker ReceiveThreadWorker;
     protected readonly ThreadWorker ConnectionStateWorker;
     protected readonly ThreadWorker SendQueueWorker;
 
-    protected IpComms(string host, ushort port, string name) : base(name)
+    protected IpComms(string host, ushort port, string name) : base(name, host, port)
     {
         Host = host;
         Port = port;
@@ -169,12 +172,8 @@ public abstract class IpComms : CommunicationClient
     protected abstract Task CheckConnectionState(CancellationToken token);
 
     public void SetQueueTimeout(int seconds) => QueueTimeout = seconds;
-
-    public string GetHost() => Host;
     
     public abstract void SetHost(string host);
-
-    public ushort GetPort() => Port;
 
     public abstract void SetPort(ushort port);
 
