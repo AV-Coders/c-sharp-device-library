@@ -13,13 +13,17 @@ public enum Annotator401Outputs : int
 public class ExtronAnnotator401 : DeviceBase
 {
     private readonly string _fileprefix;
+    private const string EscapeHeader = "\x1b";
     public static readonly ushort DefaultPort = 22023;
     private readonly ThreadWorker _pollWorker;
-    private const string EscapeHeader = "\x1b";
+    private readonly Annotator401Outputs _annotationOutputs;
+    private readonly Annotator401Outputs _cursorOutputs;
 
-    public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix) : base(name, client)
+    public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs = Annotator401Outputs.All, Annotator401Outputs cursorOutputs = Annotator401Outputs.All) : base(name, client)
     {
         _fileprefix = fileprefix;
+        _annotationOutputs = annotationOutputs;
+        _cursorOutputs = cursorOutputs;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
@@ -59,9 +63,17 @@ public class ExtronAnnotator401 : DeviceBase
         return Task.CompletedTask;
     }
 
-    public override void PowerOn() { }
+    public override void PowerOn()
+    {
+        SetAnnotationOutput(_annotationOutputs);
+        SetCursorOutput(_cursorOutputs);
+    }
 
-    public override void PowerOff() { }
+    public override void PowerOff()
+    {
+        SetAnnotationOutput(Annotator401Outputs.None);
+        SetCursorOutput(Annotator401Outputs.None);
+    }
     
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
 
