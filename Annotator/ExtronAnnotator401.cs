@@ -2,6 +2,14 @@
 
 namespace AVCoders.Annotator;
 
+public enum Annotator401Outputs : int
+{
+    All = 0,
+    Output1 = 1,
+    Output2 = 2,
+    None = 3
+}
+
 public class ExtronAnnotator401 : DeviceBase
 {
     private readonly string _fileprefix;
@@ -74,4 +82,8 @@ public class ExtronAnnotator401 : DeviceBase
     public void SaveToInternalMemory() => WrapAndSendCommand($"0*/graphics/{_fileprefix}-{DateTime.Now}.jpgMF");
 
     public void SaveToUSB() => WrapAndSendCommand($"1*/graphics/{_fileprefix}-{DateTime.Now}.jpgMF");
+    
+    public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
+    
+    public void SetCursorOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}CSHW");
 }

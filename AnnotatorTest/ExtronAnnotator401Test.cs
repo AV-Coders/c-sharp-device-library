@@ -34,4 +34,26 @@ public class ExtronAnnotator401Test
         _annotator.StopCalibration();
         _mockClient.Verify(x => x.Send($"{EscapeHeader}0PCAL\r"));
     }
+
+    [Theory]
+    [InlineData(Annotator401Outputs.All, $"{EscapeHeader}0ASHW\r")]
+    [InlineData(Annotator401Outputs.Output1, $"{EscapeHeader}1ASHW\r")]
+    [InlineData(Annotator401Outputs.Output2, $"{EscapeHeader}2ASHW\r")]
+    [InlineData(Annotator401Outputs.None, $"{EscapeHeader}3ASHW\r")]
+    public void SetAnnotationOutput_SendsTheCommand(Annotator401Outputs output, string expectedCommand)
+    {
+        _annotator.SetAnnotationOutput(output);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Theory]
+    [InlineData(Annotator401Outputs.All, $"{EscapeHeader}0CSHW\r")]
+    [InlineData(Annotator401Outputs.Output1, $"{EscapeHeader}1CSHW\r")]
+    [InlineData(Annotator401Outputs.Output2, $"{EscapeHeader}2CSHW\r")]
+    [InlineData(Annotator401Outputs.None, $"{EscapeHeader}3CSHW\r")]
+    public void SetCursorOutput_SendsTheCommand(Annotator401Outputs output, string expectedCommand)
+    {
+        _annotator.SetCursorOutput(output);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
 }
