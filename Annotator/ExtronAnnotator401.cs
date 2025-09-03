@@ -4,12 +4,14 @@ namespace AVCoders.Annotator;
 
 public class ExtronAnnotator401 : DeviceBase
 {
+    private readonly string _fileprefix;
     public static readonly ushort DefaultPort = 22023;
     private readonly ThreadWorker _pollWorker;
     private const string EscapeHeader = "\x1b";
 
-    public ExtronAnnotator401(CommunicationClient client, string name) : base(name, client)
+    public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix) : base(name, client)
     {
+        _fileprefix = fileprefix;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
@@ -68,12 +70,8 @@ public class ExtronAnnotator401 : DeviceBase
             CommunicationState = CommunicationState.Error;
         }
     }
+    
+    public void SaveToInternalMemory() => WrapAndSendCommand($"0*/graphics/{_fileprefix}-{DateTime.Now}.jpgMF");
 
-    public void SaveToNetworkDrive() => WrapAndSendCommand("3MCAP");
-
-    public void SaveToInternalMemory() => WrapAndSendCommand("0MCAP");
-
-    public void SaveToIQC() => WrapAndSendCommand("1MCAP");
-
-    public void SaveToUSB() => WrapAndSendCommand("2MCAP");
+    public void SaveToUSB() => WrapAndSendCommand($"1*/graphics/{_fileprefix}-{DateTime.Now}.jpgMF");
 }

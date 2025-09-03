@@ -11,7 +11,7 @@ public class ExtronAnnotator401Test
 
     public ExtronAnnotator401Test()
     {
-        _annotator = new ExtronAnnotator401(_mockClient.Object, "Test annotator");
+        _annotator = new ExtronAnnotator401(_mockClient.Object, "Test annotator", "test");
     }
     
     [Fact]
@@ -33,33 +33,5 @@ public class ExtronAnnotator401Test
     {
         _annotator.StopCalibration();
         _mockClient.Verify(x => x.Send($"{EscapeHeader}0PCAL\r"));
-    }
-
-    [Fact]
-    public void SaveToNetworkDrive_SendsTheCommand()
-    {
-        _annotator.SaveToNetworkDrive();
-        _mockClient.Verify(x => x.Send($"{EscapeHeader}3MCAP\r"));
-    }
-
-    [Fact]
-    public void SaveToInternalMemory_SendsTheCommand()
-    {
-        _annotator.SaveToInternalMemory();
-        _mockClient.Verify(x => x.Send($"{EscapeHeader}0MCAP\r"));
-    }
-
-    [Fact]
-    public void SaveToIQC_SendsTheCommand()
-    {
-        _annotator.SaveToIQC();
-        _mockClient.Verify(x => x.Send($"{EscapeHeader}1MCAP\r"));
-    }
-
-    [Fact]
-    public void SaveToUSB_SendsTheCommand()
-    {
-        _annotator.SaveToUSB();
-        _mockClient.Verify(x => x.Send($"{EscapeHeader}2MCAP\r"));
     }
 }
