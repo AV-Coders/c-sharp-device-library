@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.Text;
+using AVCoders.Core;
 using Serilog;
 
 namespace AVCoders.Matrix;
@@ -269,16 +270,17 @@ public class ExtronDtpCpxx : VideoMatrix
         }
     }
 
-    public override void RouteAV(int input, int output)
+    public override void RouteAV(int input, int output) => SendCommand(output == 0 ? $"{input}*!" : $"{input}*{output}!");
+    
+    public void RouteAV(int input, List<int> outputs)
     {
-        if (output == 0)
-        {
-            SendCommand($"{input}*!");
-        }
-        else
-        {
-            SendCommand($"{input}*{output}!");
-        }
+        if (outputs.Count == 0)
+            return;
+        var sb = new StringBuilder(EscapeHeader);
+        sb.Append("+Q");
+        outputs.ForEach(o => sb.Append($"{input}*{o}!"));
+        sb.Append('\r');
+        SendCommand(sb.ToString());
     }
 
     public override void PowerOn() { }
@@ -286,8 +288,32 @@ public class ExtronDtpCpxx : VideoMatrix
     public override void PowerOff() { }
 
     public override void RouteVideo(int input, int output) => SendCommand(output == 0 ? $"{input}*%" : $"{input}*{output}%");
+    
+    public void RouteVideo(int input, List<int> outputs)
+    {
+        if (outputs.Count == 0)
+            return;
+        var sb = new StringBuilder(EscapeHeader);
+        sb.Append("+Q");
+        outputs.ForEach(o => sb.Append($"{input}*{o}%"));
+        sb.Append('\r');
+        SendCommand(sb.ToString());
+    }
 
     public override void RouteAudio(int input, int output) => SendCommand(output == 0 ? $"{input}*$" : $"{input}*{output}$");
+    
+    public void RouteAudio(int input, List<int> outputs)
+    {
+        if (input <= 0)
+            return;
+        if (outputs.Count == 0)
+            return;
+        var sb = new StringBuilder(EscapeHeader);
+        sb.Append("+Q");
+        outputs.ForEach(o => sb.Append($"{input}*{o}$"));
+        sb.Append('\r');
+        SendCommand(sb.ToString());
+    }
 
     public void SetSyncTimeout(int seconds, int output)
     {

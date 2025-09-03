@@ -68,6 +68,15 @@ public class ExtronDtpCpxxTest
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
+    
+    [Fact]
+    public void RouteVideo_HandlesAListOfOutputs()
+    {
+        string expectedRouteCommand = $"{EscapeHeader}+Q1*1%1*2%1*8%\r";
+        _switcher.RouteVideo(1, [1, 2, 8]);
+        
+        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
+    }
 
     [Fact]
     public void RouteAudio_SendsTheCommand()
@@ -86,6 +95,15 @@ public class ExtronDtpCpxxTest
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
+    
+    [Fact]
+    public void RouteAudio_HandlesAListOfOutputs()
+    {
+        string expectedRouteCommand = $"{EscapeHeader}+Q1*1$1*2$1*8$\r";
+        _switcher.RouteAudio(1, [1, 2, 8]);
+        
+        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
+    }
 
     [Fact]
     public void RouteAV_SendsTheCommand()
@@ -102,6 +120,15 @@ public class ExtronDtpCpxxTest
         string expectedRouteCommand = "1*!";
         _switcher.RouteAV(1, 0);
 
+        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
+    }
+    
+    [Fact]
+    public void RouteAV_HandlesAListOfOutputs()
+    {
+        string expectedRouteCommand = $"{EscapeHeader}+Q1*1!1*2!1*8!\r";
+        _switcher.RouteAV(1, [1, 2, 8]);
+        
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
