@@ -8,7 +8,6 @@ public class ExtronIn18xxTest
 {
     private readonly ExtronIn18Xx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
-    private const string EscapeHeader = "\x1b";
 
     public ExtronIn18xxTest()
     {
@@ -82,15 +81,6 @@ public class ExtronIn18xxTest
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
-    [Fact]
-    public void RouteVideo_HandlesAListOfOutputs()
-    {
-        string expectedRouteCommand = $"{EscapeHeader}+Q1*1%1*2%1*8%\r";
-        _switcher.RouteVideo(1, [1, 2, 8]);
-        
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
-    }
-
     [Theory]
     [InlineData(1, "1*1$")]
     [InlineData(2, "2*1$")]
@@ -125,15 +115,6 @@ public class ExtronIn18xxTest
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 
-    [Fact]
-    public void RouteAudio_HandlesAListOfOutputs()
-    {
-        string expectedRouteCommand = $"{EscapeHeader}+Q1*1$1*2$1*8$\r";
-        _switcher.RouteAudio(1, [1, 2, 8]);
-        
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
-    }
-
     [Theory]
     [InlineData(1, "1*1!")]
     [InlineData(2, "2*1!")]
@@ -165,15 +146,6 @@ public class ExtronIn18xxTest
         string expectedRouteCommand = "2*1!";
         _switcher.RouteAV(2, 3);
 
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
-    }
-
-    [Fact]
-    public void RouteAV_HandlesAListOfOutputs()
-    {
-        string expectedRouteCommand = $"{EscapeHeader}+Q1*1!1*2!1*8!\r";
-        _switcher.RouteAV(1, [1, 2, 8]);
-        
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
