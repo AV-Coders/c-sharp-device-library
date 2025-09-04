@@ -50,6 +50,7 @@ public class ExtronAnnotator401 : DeviceBase
         Thread.Sleep(TimeSpan.FromSeconds(1));
         WrapAndSendCommand("ASHW");
         Thread.Sleep(TimeSpan.FromSeconds(1));
+        WrapAndSendCommand($"P{_fileprefix}CFMT");
     }
 
     private Task Poll(CancellationToken arg)
@@ -92,9 +93,9 @@ public class ExtronAnnotator401 : DeviceBase
         }
     }
     
-    public void SaveToInternalMemory() => WrapAndSendCommand($"0*/graphics/{_fileprefix}-{DateTime.Now.ToString(CultureInfo.InvariantCulture).Replace('/', '-')}.jpgMF");
+    public void SaveToInternalMemory() => WrapAndSendCommand("0*MF");
 
-    public void SaveToUSB() => WrapAndSendCommand($"1*/graphics/{_fileprefix}-{DateTime.Now.ToString(CultureInfo.InvariantCulture).Replace('/', '-')}.jpgMF");
+    public void SaveToUSB() => WrapAndSendCommand("1*MF");
     
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
