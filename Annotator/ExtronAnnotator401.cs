@@ -94,7 +94,7 @@ public class ExtronAnnotator401 : DeviceBase
     
     public void SaveToInternalMemory() => WrapAndSendCommand($"0*/graphics/{_fileprefix}-{DateTime.Now.ToString(CultureInfo.InvariantCulture).Replace('/', '-')}.jpgMF");
 
-    public void SaveToUSB() => WrapAndSendCommand($"1*/graphics/{_fileprefix}-{DateTime.Now}.jpgMF");
+    public void SaveToUSB() => WrapAndSendCommand($"1*/graphics/{_fileprefix}-{DateTime.Now.ToString(CultureInfo.InvariantCulture).Replace('/', '-')}.jpgMF");
     
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
