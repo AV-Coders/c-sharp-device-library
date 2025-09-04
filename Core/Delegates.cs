@@ -1,5 +1,9 @@
 ﻿namespace AVCoders.Core;
 
+public delegate void ActionHandler();
+
+public delegate void BoolHandler(bool value);
+
 public delegate void ByteHandler(byte[] response);
 
 public delegate void CommunicationStateHandler(CommunicationState communicationState);

@@ -19,6 +19,10 @@ public class ExtronAnnotator401 : DeviceBase
     private readonly ThreadWorker _pollWorker;
     private readonly Annotator401Outputs _annotationOutputs;
     private readonly Annotator401Outputs _cursorOutputs;
+    public ActionHandler? UsbSavedHandlers;
+    public ActionHandler? InternalMemorySavedHandlers;
+    public StringHandler? UsbFileSavedHandlers;
+    public StringHandler? InternalMemoryFileSavedHandlers;
 
     public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs = Annotator401Outputs.All, Annotator401Outputs cursorOutputs = Annotator401Outputs.All) : base(name, client)
     {
@@ -31,9 +35,18 @@ public class ExtronAnnotator401 : DeviceBase
         CommunicationClient.ResponseHandlers += HandleResponse;
     }
 
-    private void HandleResponse(string value)
+    private void HandleResponse(string response)
     {
-        
+        if (response.StartsWith("Ims1*"))
+        {
+            UsbSavedHandlers?.Invoke();
+            UsbFileSavedHandlers?.Invoke(response.Substring(5));
+        }
+        if (response.StartsWith("Ims0*"))
+        {
+            InternalMemorySavedHandlers?.Invoke();
+            InternalMemoryFileSavedHandlers?.Invoke(response.Substring(5));
+        }
     }
 
     public void Clear() => WrapAndSendCommand("0EDIT");
@@ -93,7 +106,7 @@ public class ExtronAnnotator401 : DeviceBase
         }
     }
     
-    public void SaveToInternalMemory() => SendCommand("W0*/graphics/MF");
+    public void SaveToInternalMemory() => SendCommand("W0*/graphics/MF!");
     public void SaveToUSB() => SendCommand($"W1*/graphics/{_fileprefix}-{DateTime.Now:MMMM-dd-yyyy-HH-mm-ss}.pngMF|");
     
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
