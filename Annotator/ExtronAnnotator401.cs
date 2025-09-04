@@ -93,9 +93,9 @@ public class ExtronAnnotator401 : DeviceBase
         }
     }
     
-    public void SaveToInternalMemory() => WrapAndSendCommand("0*/annotated/MF");
+    public void SaveToInternalMemory() => WrapAndSendCommand("0*/graphics/MF");
 
-    public void SaveToUSB() => WrapAndSendCommand("1*/annotated/MF");
+    public void SaveToUSB() => WrapAndSendCommand("1*/graphics/MF");
     
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
