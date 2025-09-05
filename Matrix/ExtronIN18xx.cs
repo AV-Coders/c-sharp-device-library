@@ -58,4 +58,13 @@ public class ExtronIn18Xx : VideoMatrix
             SendCommand($"\u001bT{seconds}SSAV\u0027");
         }
     }
+
+    public void SetVideoMute(MuteState state)
+    {
+        SendCommand(state == MuteState.On ? "1*2B" : "1*0B");
+        Thread.Sleep(TimeSpan.FromMilliseconds(300));
+        SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
+        Thread.Sleep(TimeSpan.FromMilliseconds(300));
+        SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
+    }
 }
