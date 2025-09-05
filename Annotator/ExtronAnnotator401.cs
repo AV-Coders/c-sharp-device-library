@@ -112,4 +112,11 @@ public class ExtronAnnotator401 : AnnotatorBase
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
     public void SetCursorOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}CSHW");
+    
+    
+
+    public void SetVideoMute(MuteState state)
+    {
+        SendCommand(state == MuteState.On ? "0*2B" : "0*0B");
+    }
 }

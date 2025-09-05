@@ -74,4 +74,14 @@ public class ExtronAnnotator401Test
         _mockClient.Object.ResponseHandlers!.Invoke("Ims1*/Graphics/filename.png");
         saveHandler.Verify(x => x.Invoke("/Graphics/filename.png"));
     }
+    
+    [Theory]
+    [InlineData(MuteState.On, "0*2B")]
+    [InlineData(MuteState.Off, "0*0B")]
+    public void SetVideoMute_SendsTheCommand(MuteState state, string expectedCommand)
+    {
+        _annotator.SetVideoMute(state);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
 }
