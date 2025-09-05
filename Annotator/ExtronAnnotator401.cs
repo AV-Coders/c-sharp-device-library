@@ -11,7 +11,7 @@ public enum Annotator401Outputs : int
     None = 3
 }
 
-public class ExtronAnnotator401 : DeviceBase
+public class ExtronAnnotator401 : AnnotatorBase
 {
     private readonly string _fileprefix;
     private const string EscapeHeader = "\x1b";
@@ -49,7 +49,7 @@ public class ExtronAnnotator401 : DeviceBase
         }
     }
 
-    public void Clear() => WrapAndSendCommand("0EDIT");
+    public override void Clear() => WrapAndSendCommand("0EDIT");
 
     public void StartCalibration() => WrapAndSendCommand("1PCAL");
 
@@ -106,8 +106,8 @@ public class ExtronAnnotator401 : DeviceBase
         }
     }
     
-    public void SaveToInternalMemory() => SendCommand("W0*/graphics/MF!");
-    public void SaveToUSB() => SendCommand($"W1*/graphics/{_fileprefix}-{DateTime.Now:MMMM-dd-yyyy-HH-mm-ss}.pngMF|");
+    public override void SaveToInternalMemory() => SendCommand("W0*/graphics/MF!");
+    public override void SaveToUsb() => SendCommand($"W1*/graphics/{_fileprefix}-{DateTime.Now:MMMM-dd-yyyy-HH-mm-ss}.pngMF|");
     
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
