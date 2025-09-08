@@ -19,10 +19,6 @@ public class ExtronAnnotator401 : AnnotatorBase
     private readonly ThreadWorker _pollWorker;
     private readonly Annotator401Outputs _annotationOutputs;
     private readonly Annotator401Outputs _cursorOutputs;
-    public ActionHandler? UsbSavedHandlers;
-    public ActionHandler? InternalMemorySavedHandlers;
-    public StringHandler? UsbFileSavedHandlers;
-    public StringHandler? InternalMemoryFileSavedHandlers;
 
     public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs = Annotator401Outputs.All, Annotator401Outputs cursorOutputs = Annotator401Outputs.All) : base(name, client)
     {
@@ -115,7 +111,7 @@ public class ExtronAnnotator401 : AnnotatorBase
     
     
 
-    public void SetVideoMute(MuteState state)
+    public override void SetVideoMute(MuteState state)
     {
         SendCommand(state == MuteState.On ? "0*2B" : "0*0B");
     }
