@@ -7,12 +7,26 @@ public class ExtronIn18Xx : VideoMatrix
     private readonly int _numberOfInputs;
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
+    
+    private readonly ThreadWorker _pollWorker;
+    private const string EscapeHeader = "\x1b";
 
     public ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name) : base(1, communicationClient, name)
     {
         _numberOfInputs = numberOfInputs;
         PowerState = PowerState.Unknown;
         UpdateCommunicationState(CommunicationState.NotAttempted);
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
+        _pollWorker.Restart();
+    }
+    
+    private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
+
+    private Task Poll(CancellationToken arg)
+    {
+        if(CommunicationClient.ConnectionState == ConnectionState.Connected)
+            WrapAndSendCommand("CV");
+        return Task.CompletedTask;
     }
 
     private void SendCommand(string command)
