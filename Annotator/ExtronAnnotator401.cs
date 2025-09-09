@@ -103,7 +103,7 @@ public class ExtronAnnotator401 : AnnotatorBase
     }
     
     public override void SaveToInternalMemory() => SendCommand("W0*/graphics/MF!");
-    public override void SaveToUsb() => SendCommand($"W1*/graphics/{_fileprefix}-{DateTime.Now:MMMM-dd-yyyy-HH-mm-ss}.pngMF|");
+    public override void SaveToUsb() => SendCommand($"W1*/graphics/{_fileprefix}-{DateTime.Now:yyyy-MM-dd-HH-mm-ss}.pngMF|");
     
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
