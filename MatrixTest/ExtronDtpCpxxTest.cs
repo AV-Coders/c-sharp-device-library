@@ -208,8 +208,10 @@ public class ExtronDtpCpxxTest
     [Theory]
     [InlineData("Inf00*DTPCP82", 8, 2)]
     [InlineData("Inf00*DTPCP84", 8, 4)]
+    [InlineData("Inf00*DTPCP84 4K", 8, 4)]
     [InlineData("Inf00*DTPCP86", 8, 6)]
     [InlineData("Inf00*DTPCP108", 10, 8)]
+    [InlineData("Inf00*DTPCP108 4K", 10, 8)]
     public void HandleResponse_SetsInputsAndOutputsFromModel(string response, int inputs, int outputs)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(response);

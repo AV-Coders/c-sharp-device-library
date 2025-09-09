@@ -188,6 +188,8 @@ public class ExtronDtpCpxx : VideoMatrix
             else if (response.StartsWith("Inf00*DTPCP"))
             {
                 var digits = response.Remove(0, 11).TrimEnd('\r');
+                if(digits.EndsWith(" 4K"))
+                    digits = digits.Remove(digits.Length - 3);
                 int inputCount = 0;
                 int outputCount = 0;
                 switch (digits.Length)
