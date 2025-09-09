@@ -76,7 +76,8 @@ public class BiampTtp : Dsp
     private readonly ConcurrentQueue<Query> _pendingQueries = new();
     private Query? _currentQuery = null;
     private readonly List<string> _deviceSubscriptions = [];
-    private int _pollCount = 0;
+    private int _loopsSinceLastFetch = 0;
+    private int _loopsSinceLastRequest = 0;
     private bool _lastRequestWasForTheVersion;
 
 
@@ -139,6 +140,18 @@ public class BiampTtp : Dsp
                 return;
             }
 
+            if (_currentQuery != null)
+            {
+                _loopsSinceLastRequest++;
+                if (_loopsSinceLastRequest > 10)
+                {
+                    Log.Error("Unable to get a response for the last query {query}", _currentQuery.DspCommand);
+                    _currentQuery = null;
+                    _loopsSinceLastRequest = 0;
+                }
+                return;
+            }
+
             if (_pendingQueries.TryDequeue(out var query))
             {
                 _currentQuery = query;
@@ -149,10 +162,13 @@ public class BiampTtp : Dsp
                 CommunicationClient.Send("DEVICE get version\n");
                 _lastRequestWasForTheVersion = true;
                 await Task.Delay(TimeSpan.FromSeconds(25), token);
-                Reinitialise();
+                _loopsSinceLastFetch++;
+                if (_loopsSinceLastFetch > 50)
+                {
+                    Reinitialise();
+                    _loopsSinceLastFetch = 0;
+                }
             }
-
-            _pollCount++;
         }
     }
 
@@ -161,7 +177,6 @@ public class BiampTtp : Dsp
         using (PushProperties("Reinitialise"))
         {
             Log.Verbose("Reinitialising Biamp TTP");
-            _pollCount = 0;
             _moduleQueries.ForEach(x => _pendingQueries.Enqueue(x));
         }
     }
@@ -339,7 +354,6 @@ public class BiampTtp : Dsp
         {
             CommunicationClient.Send($"DEVICE recallPreset {presetNumber}\n");
             Log.Verbose("Recalled preset {presetNumber}", presetNumber);
-            _pollCount = 0;
         }
         else
         {
@@ -361,7 +375,6 @@ public class BiampTtp : Dsp
     {
         var index = $"AvCodersLevel-{controlName}-{controlIndex}";
         SendNonPollCommand($"{controlName} set level {controlIndex} {_gains[index].PercentageToDb(percentage)}\n");
-        _pollCount = 0;
     }
 
     public void LevelUp(string controlName, int index, int amount)
@@ -377,7 +390,6 @@ public class BiampTtp : Dsp
     public void SetAudioMute(string controlName, int controlIndex, MuteState muteState)
     {
         SendNonPollCommand($"{controlName} set mute {controlIndex} {_muteStateDictionary[muteState]}\n");
-        _pollCount = 0;
     }
 
     public void ToggleAudioMute(string controlName, int controlIndex)
@@ -396,13 +408,11 @@ public class BiampTtp : Dsp
     
     public override void SetValue(string controlName, string value)
     {
-        _pollCount = 0;
     }
 
     public void SetState(string controlName, int controlIndex, bool state)
     {
         SendNonPollCommand($"{controlName} set state {controlIndex} {state.ToString().ToLower()}\n");
-        _pollCount = 0;
     }
 
     public int GetLevel(string controlName, int controlIndex)
