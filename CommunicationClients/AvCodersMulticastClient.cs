@@ -12,7 +12,7 @@ public class AvCodersMulticastClient : IpComms
     private readonly UdpClient _client;
     private readonly IPEndPoint _remoteEndPoint;
 
-    public AvCodersMulticastClient(string ipAddress, ushort port, string name) : base(ipAddress, port, name)
+    public AvCodersMulticastClient(string ipAddress, ushort port, string name, int ttl = 1) : base(ipAddress, port, name)
     {
         using (LogContext.PushProperty(MethodProperty, "Constructor"))
         {
@@ -21,6 +21,15 @@ public class AvCodersMulticastClient : IpComms
             var multicastIp = IPAddress.Parse(ipAddress);
             var af = multicastIp.AddressFamily;
             _client = new UdpClient(af);
+
+            if (af == AddressFamily.InterNetwork)
+            {
+                _client.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, ttl);
+            }
+            else if (af == AddressFamily.InterNetworkV6)
+            {
+                _client.Client.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.HopLimit, ttl);
+            }
 
             _client.Client.ExclusiveAddressUse = false;
             _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
