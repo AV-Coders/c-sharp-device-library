@@ -77,9 +77,7 @@ public class BiampTtp : Dsp
     private Query? _currentQuery = null;
     private readonly List<string> _deviceSubscriptions = [];
     private int _loopsSinceLastFetch = 0;
-    private int _loopsSinceLastRequest = 0;
     private bool _lastRequestWasForTheVersion;
-
 
     public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200) : base(name, commsClient, pollIntervalInMilliseconds)
     {
@@ -142,13 +140,9 @@ public class BiampTtp : Dsp
 
             if (_currentQuery != null)
             {
-                _loopsSinceLastRequest++;
-                if (_loopsSinceLastRequest > 10)
-                {
-                    Log.Error("Unable to get a response for the last query {query}", _currentQuery.DspCommand);
-                    _currentQuery = null;
-                    _loopsSinceLastRequest = 0;
-                }
+                Log.Error("The query {query} was not answered, momentarily slowing down", _currentQuery.DspCommand);
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                _currentQuery = null;
                 return;
             }
 
