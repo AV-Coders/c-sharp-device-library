@@ -81,7 +81,7 @@ public class BiampTtp : Dsp
     private bool _lastRequestWasForTheVersion;
 
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInSeconds = 1) : base(name, commsClient, pollIntervalInSeconds)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 150) : base(name, commsClient, pollIntervalInMilliseconds)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;

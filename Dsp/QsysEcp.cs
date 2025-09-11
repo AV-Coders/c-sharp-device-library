@@ -65,7 +65,7 @@ public class QsysEcp : Dsp
 
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
 
-    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInSeconds = 50) : base(name, tcpClient, pollIntervalInSeconds)
+    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = 50000) : base(name, tcpClient, pollIntervalInMilliseconds)
     {
         tcpClient.SetPort(DefaultPort);
         tcpClient.ResponseHandlers += HandleResponse;
