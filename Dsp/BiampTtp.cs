@@ -78,6 +78,7 @@ public class BiampTtp : Dsp
     private readonly List<string> _deviceSubscriptions = [];
     private int _loopsSinceLastFetch = 0;
     private bool _lastRequestWasForTheVersion;
+    private bool _connectionStateChangedSinceLastVersionRequest;
 
     public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200) : base(name, commsClient, pollIntervalInMilliseconds)
     {
@@ -102,6 +103,7 @@ public class BiampTtp : Dsp
         {
             if (connectionState == ConnectionState.Connected)
             {
+                _connectionStateChangedSinceLastVersionRequest = true;
                 Resubscribe();
             }
             else
@@ -146,6 +148,13 @@ public class BiampTtp : Dsp
                 return;
             }
 
+            if (_connectionStateChangedSinceLastVersionRequest)
+            {
+                await GetTheVersion(token);
+                _connectionStateChangedSinceLastVersionRequest = false;
+                return;
+            }
+
             if (_currentQuery != null)
             {
                 Log.Error("The query {query} was not answered, momentarily slowing down", _currentQuery.DspCommand);
@@ -162,9 +171,7 @@ public class BiampTtp : Dsp
             }
             else
             {
-                CommunicationClient.Send("DEVICE get version\n");
-                _lastRequestWasForTheVersion = true;
-                await Task.Delay(TimeSpan.FromSeconds(10), token);
+                await GetTheVersion(token);
                 _loopsSinceLastFetch++;
                 if (_loopsSinceLastFetch > 18)
                 {
@@ -173,6 +180,13 @@ public class BiampTtp : Dsp
                 }
             }
         }
+    }
+
+    private async Task GetTheVersion(CancellationToken token)
+    {
+        CommunicationClient.Send("DEVICE get version\n");
+        _lastRequestWasForTheVersion = true;
+        await Task.Delay(TimeSpan.FromSeconds(10), token);
     }
 
     public override void Reinitialise()
@@ -207,6 +221,7 @@ public class BiampTtp : Dsp
                 }
                 else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
                 {
+                    _connectionStateChangedSinceLastVersionRequest = true;
                     Resubscribe();
                 }
             }
