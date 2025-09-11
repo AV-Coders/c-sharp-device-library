@@ -109,7 +109,6 @@ public class BiampTtp : Dsp
     private void SendNonPollCommand(string command)
     {
         _currentQuery = null;
-        PollWorker.Restart();
         CommunicationClient.Send(command);
     }
 
@@ -161,9 +160,9 @@ public class BiampTtp : Dsp
             {
                 CommunicationClient.Send("DEVICE get version\n");
                 _lastRequestWasForTheVersion = true;
-                await Task.Delay(TimeSpan.FromSeconds(25), token);
+                await Task.Delay(TimeSpan.FromSeconds(10), token);
                 _loopsSinceLastFetch++;
-                if (_loopsSinceLastFetch > 50)
+                if (_loopsSinceLastFetch > 60)
                 {
                     Reinitialise();
                     _loopsSinceLastFetch = 0;
