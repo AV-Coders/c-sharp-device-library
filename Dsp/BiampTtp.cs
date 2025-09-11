@@ -117,7 +117,6 @@ public class BiampTtp : Dsp
         using (PushProperties("Resubscribe"))
         {
             _currentQuery = null;
-            PollWorker.Stop();
             Log.Verbose("Re-establishing subscriptions in 5 seconds, subscription count: {DeviceSubscriptionsCount}", _deviceSubscriptions.Count);
             Thread.Sleep(TimeSpan.FromSeconds(5));
             _deviceSubscriptions.ForEach(subscriptionCommand =>
@@ -125,7 +124,6 @@ public class BiampTtp : Dsp
                 CommunicationClient.Send(subscriptionCommand);
             });
             Thread.Sleep(TimeSpan.FromSeconds(1));
-            PollWorker.Restart();
         }
     }
 
