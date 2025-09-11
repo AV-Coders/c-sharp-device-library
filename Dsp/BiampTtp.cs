@@ -98,10 +98,16 @@ public class BiampTtp : Dsp
     
     private void HandleConnectionState(ConnectionState connectionState)
     {
-        if (connectionState == ConnectionState.Connected)
-            Resubscribe();
-        else
-            CommunicationState = CommunicationState.Error;
+        using (PushProperties("HandleConnectionState"))
+        {
+            if (connectionState == ConnectionState.Connected)
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(10)); 
+                Resubscribe();
+            }
+            else
+                CommunicationState = CommunicationState.Error;
+        }
     }
 
     private void SendNonPollCommand(string command)
