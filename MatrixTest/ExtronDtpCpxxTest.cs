@@ -1,5 +1,6 @@
 ﻿using System.Reflection;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
@@ -7,7 +8,7 @@ namespace AVCoders.Matrix.Tests;
 public class ExtronDtpCpxxTest
 {
     private readonly ExtronDtpCpxx _switcher;
-    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
+    private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private readonly string EscapeHeader = "\x1b";
 
     public ExtronDtpCpxxTest()

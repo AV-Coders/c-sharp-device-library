@@ -60,7 +60,7 @@ public class SamsungMdc : Display
 
     protected override Task DoPoll(CancellationToken token)
     {
-        if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
             Log.Warning("Not polling");
             return Task.CompletedTask;

@@ -113,7 +113,7 @@ public class BoseCspSoIP : Dsp
 
     protected override async Task Poll(CancellationToken token)
     {
-        if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
         
         foreach (string key in _gains.Keys)

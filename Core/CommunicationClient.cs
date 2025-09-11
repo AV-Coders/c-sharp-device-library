@@ -4,13 +4,14 @@ using Serilog.Context;
 
 namespace AVCoders.Core;
 
-public abstract class CommunicationClient(string name, string host, ushort port) : LogBase(name)
+public abstract class CommunicationClient(string name, string host, ushort port, CommandStringFormat commandStringFormat) : LogBase(name)
 {
     public StringHandler? RequestHandlers;
     public ByteHandler? RequestByteHandlers;
     public StringHandler? ResponseHandlers;
     public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
+    public readonly CommandStringFormat CommandStringFormat = commandStringFormat;
     
     protected string Host = host;
     protected ushort Port = port;
@@ -45,7 +46,7 @@ public abstract class CommunicationClient(string name, string host, ushort port)
     /// <summary>
     /// Internal no-op implementation. All operations are ignored.
     /// </summary>
-    private sealed class NoneCommunicationClient() : CommunicationClient("None", "None", 0)
+    private sealed class NoneCommunicationClient() : CommunicationClient("None", "None", 0, CommandStringFormat.Ascii)
     {
         public override void Send(string message)
         {
@@ -60,7 +61,6 @@ public abstract class CommunicationClient(string name, string host, ushort port)
 
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
-    public ConnectionState GetConnectionState() => ConnectionState;
 
     protected void InvokeRequestHandlers(string request)
     {
@@ -123,14 +123,16 @@ public abstract class CommunicationClient(string name, string host, ushort port)
     public ushort GetPort() => Port;
 }
 
-public abstract class SerialClient(string name, string host, ushort port) : CommunicationClient(name, host, port)
+public abstract class SerialClient(string name, string host, ushort port, CommandStringFormat commandStringFormat)
+    : CommunicationClient(name, host, port, commandStringFormat)
 {
     public abstract void ConfigurePort(SerialSpec serialSpec);
 
     public abstract void Send(char[] chars);
 }
 
-public abstract class RestComms(string host, ushort port, string name) : CommunicationClient(name, host, port)
+public abstract class RestComms(string host, ushort port, string name) 
+    : CommunicationClient(name, host, port, CommandStringFormat.Ascii)
 {
     public HttpResponseHandler? HttpResponseHandlers;
 
@@ -156,7 +158,8 @@ public abstract class IpComms : CommunicationClient
     protected readonly ThreadWorker ConnectionStateWorker;
     protected readonly ThreadWorker SendQueueWorker;
 
-    protected IpComms(string host, ushort port, string name) : base(name, host, port)
+    protected IpComms(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+        : base(name, host, port, commandStringFormat)
     {
         Host = host;
         Port = port;
@@ -208,11 +211,14 @@ public abstract class IpComms : CommunicationClient
     }
 }
 
-public abstract class SshClient(string host, ushort port, string name) : IpComms(host, port, name);
+public abstract class SshClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+    : IpComms(host, port, name, commandStringFormat);
 
-public abstract class TcpClient(string host, ushort port, string name) : IpComms(host, port, name);
+public abstract class TcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+    : IpComms(host, port, name, commandStringFormat);
 
-public abstract class UdpClient(string host, ushort port, string name) : IpComms(host, port, name);
+public abstract class UdpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+    : IpComms(host, port, name, commandStringFormat);
 
 public interface IWakeOnLan
 {

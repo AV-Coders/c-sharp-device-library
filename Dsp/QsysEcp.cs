@@ -80,7 +80,7 @@ public class QsysEcp : Dsp
             { MuteState.Off, "unmuted" }
         };
 
-        HandleConnectionState(tcpClient.GetConnectionState());
+        HandleConnectionState(tcpClient.ConnectionState);
     }
 
     private void HandleResponse(string response)
@@ -183,7 +183,7 @@ public class QsysEcp : Dsp
 
     protected override Task Poll(CancellationToken token)
     {
-        if(CommunicationClient.GetConnectionState() == ConnectionState.Connected)
+        if(CommunicationClient.ConnectionState == ConnectionState.Connected)
             CommunicationClient.Send("sg\n"); 
         return Task.CompletedTask;
     }

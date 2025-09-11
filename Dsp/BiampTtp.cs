@@ -94,7 +94,7 @@ public class BiampTtp : Dsp
         string subscriptionResponsePattern = "\":\"(.+)\" \"value\":(.+)";
         _subscriptionResponseParser = new Regex(subscriptionResponsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(200));
 
-        HandleConnectionState(commsClient.GetConnectionState());
+        HandleConnectionState(commsClient.ConnectionState);
     }
     
     private void HandleConnectionState(ConnectionState connectionState)
@@ -142,7 +142,7 @@ public class BiampTtp : Dsp
     {
         using (PushProperties("Poll"))
         {
-            if (CommunicationClient.GetConnectionState() != ConnectionState.Connected)
+            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             {
                 Log.Verbose("IP Comms disconnected, not polling");
                 return;

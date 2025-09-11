@@ -1,11 +1,12 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Motor.Tests;
 
 public class MotoluxBlindTransmitterTest
 {
-    private readonly Mock<SerialClient> _mockClient = new ("foo", "bar", (ushort)1);
+    private readonly Mock<SerialClient> _mockClient = TestFactory.CreateSerialClient();
     private readonly MotoluxBlindTransmitter _device;
 
     public MotoluxBlindTransmitterTest()

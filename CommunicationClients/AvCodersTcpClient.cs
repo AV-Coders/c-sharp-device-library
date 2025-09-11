@@ -12,8 +12,8 @@ public class AvCodersTcpClient : Core_TcpClient
     private TcpClient _client;
     private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
 
-    public AvCodersTcpClient(string host, ushort port = 23, string name = "") :
-        base(host, port, name)
+    public AvCodersTcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat) :
+        base(host, port, name, commandStringFormat)
     {
         ConnectionState = ConnectionState.Unknown;
         _client = new TcpClient();

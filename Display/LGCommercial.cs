@@ -144,7 +144,7 @@ public class LGCommercial : Display, ISetTopBox
 
     protected override Task DoPoll(CancellationToken token)
     {
-        PowerState = CommunicationClient.GetConnectionState() switch
+        PowerState = CommunicationClient.ConnectionState switch
         {
             ConnectionState.Connected => PowerState.On,
             _ => PowerState.Off

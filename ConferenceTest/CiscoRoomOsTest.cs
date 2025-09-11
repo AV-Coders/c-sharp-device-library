@@ -1,26 +1,13 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Conference.Tests;
 
 public class CiscoRoomOsTest
 {
-    
-    public abstract class StubbedClient : IpComms
-    {
-        protected StubbedClient(string host, ushort port) : base(host, port, "StubbedClient"){}
 
-        public override void Send(string message){}
-
-        public override void Send(byte[] bytes){}
-
-        public override void SetPort(ushort port){}
-
-        public override void SetHost(string host){}
-        public new ConnectionState GetConnectionState() => ConnectionState.Connected;
-    }
-    
-    private readonly Mock<StubbedClient> _mockClient = new("foo", (ushort)1);
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly Mock<CommunicationStateHandler> _communicationStateHandlers = new ();
     private readonly Mock<PowerStateHandler> _powerStateHandlers = new ();
     private readonly Mock<VolumeLevelHandler> _outputVolumeLevelHandler = new ();

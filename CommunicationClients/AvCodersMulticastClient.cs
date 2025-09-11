@@ -12,7 +12,8 @@ public class AvCodersMulticastClient : IpComms
     private readonly UdpClient _client;
     private readonly IPEndPoint _remoteEndPoint;
 
-    public AvCodersMulticastClient(string ipAddress, ushort port, string name, int ttl = 1) : base(ipAddress, port, name)
+    public AvCodersMulticastClient(string ipAddress, ushort port, string name, int ttl = 1, CommandStringFormat commandStringFormat = CommandStringFormat.Ascii)
+        : base(ipAddress, port, name, commandStringFormat)
     {
         using (LogContext.PushProperty(MethodProperty, "Constructor"))
         {

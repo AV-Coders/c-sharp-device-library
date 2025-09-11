@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Lighting.Tests;
@@ -6,11 +7,10 @@ namespace AVCoders.Lighting.Tests;
 public class DyNetTest
 {
     private readonly DyNet _dyNet;
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
 
     public DyNetTest()
     {
-        _mockClient = new("foo", (ushort)1, "bar");
         _dyNet = new DyNet(_mockClient.Object);
     }
     

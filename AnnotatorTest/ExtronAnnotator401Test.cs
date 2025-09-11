@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Annotator.Tests;
@@ -6,7 +7,7 @@ namespace AVCoders.Annotator.Tests;
 public class ExtronAnnotator401Test
 {
     private readonly ExtronAnnotator401 _annotator;
-    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
+    private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private const string EscapeHeader = "\x1b";
 
     public ExtronAnnotator401Test()

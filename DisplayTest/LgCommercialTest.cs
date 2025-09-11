@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using AVCoders.MediaPlayer;
 using Moq;
 
@@ -7,7 +8,7 @@ namespace AVCoders.Display.Tests;
 public class LgCommercialTest
 {
     private readonly LGCommercial _display;
-    private readonly Mock<TcpClient> _client;
+    private readonly Mock<TcpClient> _client = TestFactory.CreateTcpClient();
     private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
@@ -24,7 +25,6 @@ public class LgCommercialTest
 
     public LgCommercialTest()
     {
-        _client = new Mock<TcpClient>("foo", LGCommercial.DefaultPort, "bar");
         _display = new LGCommercial(_client.Object, "Test display", "00-00-00-00-00-00",null, 0);
     }
     

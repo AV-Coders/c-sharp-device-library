@@ -1,5 +1,6 @@
 using System.Reflection;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using AVCoders.MediaPlayer;
 using Moq;
 
@@ -8,7 +9,7 @@ namespace AVCoders.Display.Tests;
 public class SonySimpleIPControlTest
 {
     private readonly SonySimpleIpControl _sonyTv;
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     readonly Mock<PowerStateHandler> _powerStateHandler = new ();
     private static readonly RemoteButton[] _excludedButtons = 
     [
@@ -26,7 +27,6 @@ public class SonySimpleIPControlTest
 
     public SonySimpleIPControlTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", SonySimpleIpControl.DefaultPort, "bar");
         _sonyTv = new SonySimpleIpControl(_mockClient.Object, "Test display", Input.Hdmi1);
         _sonyTv.PowerStateHandlers += _powerStateHandler.Object;
     }

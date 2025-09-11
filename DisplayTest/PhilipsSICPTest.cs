@@ -1,18 +1,18 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Display.Tests;
 
 public class PhilipsSICPTest
 {
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly PhilipsSICP _display;
     private readonly byte _displayId = 0x00;
     private readonly byte _groupId = 0x00;
 
     public PhilipsSICPTest()
     {
-        _mockClient = new("foo", PhilipsSICP.DefaultPort, "Test");
         _display = new PhilipsSICP(_mockClient.Object, _displayId, _groupId, "Test", Input.Hdmi1);
     }
     

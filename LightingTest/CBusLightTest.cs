@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Lighting.Tests;
@@ -7,7 +8,7 @@ public class CBusLightTest
 {
     private readonly CBusLight _light;
     private readonly Mock<CBusInterface> _mockInterface;
-    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
+    private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public CBusLightTest()
     {

@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -33,11 +34,10 @@ public class DummyDisplay : Display
 public class DisplayTest
 {
     private readonly DummyDisplay _display;
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
 
     public DisplayTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", (ushort) 1, "bar");
         _display = new DummyDisplay(_mockClient.Object, [Input.Hdmi1]);
     }
 

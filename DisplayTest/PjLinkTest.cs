@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -6,11 +7,10 @@ namespace AVCoders.Display.Tests;
 public class PjLinkTest
 {
     private readonly PjLink _display;
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
 
     public PjLinkTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", PjLink.DefaultPort, "bar");
         _display = new PjLink(_mockClient.Object, "Test display", null);
     }
 

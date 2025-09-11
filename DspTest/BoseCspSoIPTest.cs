@@ -1,11 +1,12 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.Dsp.Tests;
 
 public class BoseCspSoIPTest
 {
     private readonly BoseCspSoIP _dsp;
-    private readonly Mock<TcpClient> _mockClient = new("foo", BoseCspSoIP.DefaultPort, "bar");
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();

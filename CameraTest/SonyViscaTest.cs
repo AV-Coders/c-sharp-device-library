@@ -1,11 +1,12 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.Camera.Tests;
 
 public class SonyViscaSerialTest
 {
     private readonly SonyVisca _viscaCamera;
-    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
+    private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public SonyViscaSerialTest()
     {
@@ -142,7 +143,7 @@ public class SonyViscaSerialTest
 public class SonyViscaIpTest
 {
     private readonly SonyVisca _viscaCamera;
-    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
+    private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public SonyViscaIpTest()
     {

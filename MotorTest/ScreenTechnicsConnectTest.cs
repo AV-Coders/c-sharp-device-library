@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Motor.Tests;
@@ -6,11 +7,10 @@ namespace AVCoders.Motor.Tests;
 public class ScreenTechnicsConnectTest
 {
     private readonly ScreenTechnicsConnect _motor;
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient(ScreenTechnicsConnect.DefaultPort);
 
     public ScreenTechnicsConnectTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", ScreenTechnicsConnect.DefaultPort, "bar");
         _motor = new ScreenTechnicsConnect("Projector Screen", _mockClient.Object, RelayAction.Lower, 1, 2);
     }
     

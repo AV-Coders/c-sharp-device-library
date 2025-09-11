@@ -1,11 +1,13 @@
-﻿using AVCoders.Core;
+﻿using System.Text;
+using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
 public class NavDecoderTest
 {
-    private readonly Mock<SshClient> _mockSshClient;
+    private readonly Mock<SshClient> _mockSshClient = TestFactory.CreateSshClient();
     private readonly NavDecoder _navDecoder;
     private readonly Mock<Navigator> _navigatorMock;
     private readonly Mock<SyncInfoHandler> _outputSyncInfoHandlerMock;
@@ -13,7 +15,6 @@ public class NavDecoderTest
 
     public NavDecoderTest()
     {
-        _mockSshClient = new("foo", Navigator.DefaultPort, "Test");
         _navigatorMock = new Mock<Navigator>("NAV!", _mockSshClient.Object);
         _navDecoder = new NavDecoder("Decoder", "1.1.1.1", _navigatorMock.Object);
         _outputSyncInfoHandlerMock = new Mock<SyncInfoHandler>();

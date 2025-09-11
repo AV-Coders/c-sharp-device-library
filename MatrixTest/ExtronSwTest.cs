@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
@@ -6,7 +7,7 @@ namespace AVCoders.Matrix.Tests;
 public class ExtronSwTest
 {
     private readonly ExtronSw _switcher;
-    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
+    private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public ExtronSwTest()
     {

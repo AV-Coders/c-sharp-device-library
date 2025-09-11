@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
@@ -6,7 +7,7 @@ namespace AVCoders.Matrix.Tests;
 public class BlustreamAmf41WTest
 {
     private readonly BlustreamAmf41W _matrix;
-    private readonly Mock<TcpClient> _mockClient = new Mock<TcpClient>("foo", BlustreamAmf41W.DefaultPort, "bar");
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
 
     public BlustreamAmf41WTest()
     {

@@ -26,6 +26,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Conference\Conference.csproj" />
+      <ProjectReference Include="..\CoreTest\CoreTest.csproj" />
       <ProjectReference Include="..\Core\Core.csproj" />
     </ItemGroup>
 

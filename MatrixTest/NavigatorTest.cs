@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
@@ -6,12 +7,11 @@ namespace AVCoders.Matrix.Tests;
 public class NavigatorTest
 {
     private readonly Navigator _navigator;
-    private readonly Mock<SshClient> _mockSshClient;
+    private readonly Mock<SshClient> _mockSshClient = TestFactory.CreateSshClient();
     public const string EscapeHeader = "\x1b";
 
     public NavigatorTest()
     {
-        _mockSshClient = new("foo", Navigator.DefaultPort, "Test");
         _navigator = new Navigator("Foo", _mockSshClient.Object);
     }
 

@@ -13,7 +13,8 @@ public class AvCodersTcpServer : Core_TcpClient
     private TcpListener _server;
     private readonly ConcurrentBag<TcpClient> _clients = [];
 
-    public AvCodersTcpServer(ushort port, string name = "") : base("Any", port, name)
+    public AvCodersTcpServer(ushort port, string name, CommandStringFormat commandStringFormat)
+        : base("Any", port, name, commandStringFormat)
     {
         _server = new TcpListener(IPAddress.Any, port);
         _server.Start();

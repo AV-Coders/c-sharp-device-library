@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 using Xunit.Abstractions;
 
@@ -9,7 +10,7 @@ public class NecUhdExternalControlTest
 {
     private readonly ITestOutputHelper _testOutputHelper;
     private readonly NecUhdExternalControl _display;
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly Mock<PowerStateHandler> _mockPowerStateHandler;
     private readonly Mock<InputHandler> _mockInputHandler;
     private readonly Mock<VolumeLevelHandler> _mockVolumeLevelHandler;
@@ -17,7 +18,6 @@ public class NecUhdExternalControlTest
     public NecUhdExternalControlTest(ITestOutputHelper testOutputHelper)
     {
         _testOutputHelper = testOutputHelper;
-        _mockClient = new Mock<TcpClient>("foo", NecUhdExternalControl.DefaultPort, "bar");
         _display = new NecUhdExternalControl(_mockClient.Object, "Test display", Input.Hdmi1, (byte)'A');
         _mockPowerStateHandler = new Mock<PowerStateHandler>();
         _display.PowerStateHandlers += _mockPowerStateHandler.Object;

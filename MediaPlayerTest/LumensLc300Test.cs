@@ -1,16 +1,16 @@
 ﻿using AVCoders.CommunicationClients;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.MediaPlayer.Tests;
 
 public class LumensLc300Test
 {
     private readonly LumensLc300 _recorder;
-    private readonly Mock<AvCodersTcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
 
     public LumensLc300Test()
     {
-        _mockClient = new Mock<AvCodersTcpClient>("Foo", (ushort)1, "A");
         _recorder = new LumensLc300("Main Rec", _mockClient.Object);
     }
 

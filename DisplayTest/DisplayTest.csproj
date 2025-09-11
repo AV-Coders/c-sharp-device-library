@@ -28,6 +28,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\CommunicationClients\CommunicationClients.csproj" />
+      <ProjectReference Include="..\CoreTest\CoreTest.csproj" />
       <ProjectReference Include="..\Display\Display.csproj" />
     </ItemGroup>
 

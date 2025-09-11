@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Xunit.Abstractions;
 
 namespace AVCoders.Dsp.Tests;
@@ -10,7 +11,7 @@ public class BiampTtpTest
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();
-    private readonly Mock<TcpClient> _mockClient = new("foo", BiampTtp.DefaultPort, "bar");
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private const string GainName = "Gain";
     private const string MuteName = "Mute";
     private const string StringName = "String";

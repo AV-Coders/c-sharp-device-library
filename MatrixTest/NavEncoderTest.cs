@@ -1,18 +1,19 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
 public class NavEncoderTest
 {
+    private readonly Mock<SshClient> _mockSshClient = TestFactory.CreateSshClient();
     private readonly NavEncoder _navEncoder;
     private readonly Mock<Navigator> _navigatorMock;
     private readonly Mock<SyncInfoHandler> _inputSyncInfoHandlerMock;
 
     public NavEncoderTest()
     {
-        Mock<SshClient> mockSshClient = new("foo", Navigator.DefaultPort, "Test");
-        _navigatorMock = new Mock<Navigator>("NAV!", mockSshClient.Object);
+        _navigatorMock = new Mock<Navigator>("NAV!", _mockSshClient.Object);
         _navEncoder = new NavEncoder("Encoder", "1.1.1.1", _navigatorMock.Object);
         _inputSyncInfoHandlerMock = new Mock<SyncInfoHandler>();
         _navEncoder.InputStatusChangedHandlers += _inputSyncInfoHandlerMock.Object;

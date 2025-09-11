@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
 
@@ -11,7 +12,7 @@ public class QsysEcpTest
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();
     private readonly Mock<CommunicationStateHandler> _communicationStateHandler = new();
-    private readonly Mock<TcpClient> _mockClient = new("foo", QsysEcp.DefaultPort, "bar");
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private const string GainName = "Gain";
     private const string MuteName = "Mute";
     private const string StringName = "String";

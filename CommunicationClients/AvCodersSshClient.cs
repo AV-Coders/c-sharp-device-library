@@ -19,8 +19,8 @@ public class AvCodersSshClient : SshClientBase
     private readonly Dictionary<TerminalModes, uint> _modes;
     private ShellStream? _stream;
 
-    public AvCodersSshClient(string host, ushort port, string username, string password, string name = "")
-        : base(host, port, name)
+    public AvCodersSshClient(string host, ushort port, string username, string password, string name = "", CommandStringFormat commandStringFormat = CommandStringFormat.Ascii)
+        : base(host, port, name, commandStringFormat)
     {
         ConnectionState = ConnectionState.Unknown;
         _username = username;

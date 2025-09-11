@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -6,11 +7,10 @@ namespace AVCoders.Display.Tests;
 public class NovastarH5Test
 {
     private readonly NovaStarH5 _display;
-    private readonly Mock<UdpClient> _mockClient;
+    private readonly Mock<UdpClient> _mockClient = TestFactory.CreateUdpClient();
     
     public NovastarH5Test()
     {
-        _mockClient = new Mock<UdpClient>("foo", NovaStarH5.DefaultPort, "bar");
         _display = new NovaStarH5(_mockClient.Object, 0, [0], "Test display", 0, 1);
     }
     

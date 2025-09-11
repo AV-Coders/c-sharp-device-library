@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 using WirelessPresenter;
 
@@ -7,7 +8,7 @@ namespace WirelessPresenterTest;
 public class ExtronSharelinkProTest
 {
     private readonly ExtronSharelinkPro _sharelink;
-    private readonly Mock<CommunicationClient> _mockClient = new("foo", "bar", (ushort)1);
+    private readonly Mock<SshClient> _mockClient = TestFactory.CreateSshClient();
     private const string EscapeHeader = "\x1b";
     private readonly ExtronSharelinkUser _user = new ExtronSharelinkUser("421380106", string.Empty, string.Empty,
         string.Empty, false, string.Empty, string.Empty);

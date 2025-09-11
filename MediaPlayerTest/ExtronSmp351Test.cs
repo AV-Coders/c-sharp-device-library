@@ -1,25 +1,12 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.MediaPlayer.Tests;
 
 public class ExtronSmp351Test
 {
-    public abstract class StubbedClient : IpComms
-    {
-        protected StubbedClient(string host, ushort port) : base(host, port, "StubbedClient"){}
-
-        public override void Send(string message){}
-
-        public override void Send(byte[] bytes){}
-
-        public override void SetPort(ushort port){}
-
-        public override void SetHost(string host){}
-        public new ConnectionState GetConnectionState() => ConnectionState.Connected;
-    }
-    
     private readonly ExtronSmp351 _recorder;
-    private readonly Mock<StubbedClient> _mockClient = new("foo", (ushort)1);
+    private readonly Mock<SshClient> _mockClient = TestFactory.CreateSshClient();
     private readonly Mock<TransportStateHandler> _recordStateHandler = new();
     private readonly Mock<StringHandler> _timestampHandler = new ();
     private readonly Mock<ConnectionStateHandler> _mockFrontUsbConnectionStateHandler = new();

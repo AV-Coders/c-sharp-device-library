@@ -4,7 +4,7 @@ namespace AVCoders.Matrix;
 
 public class NavCommunicationEmulator : CommunicationClient
 {
-    public NavCommunicationEmulator(string name) : base(name, "via Navigator", 0)
+    public NavCommunicationEmulator(string name) : base(name, "via Navigator", 0, CommandStringFormat.Ascii)
     {
         ConnectionState = ConnectionState.Disconnected;
     }

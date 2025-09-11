@@ -37,7 +37,7 @@ public class ScreenTechnicsConnect : Motor
         Guid thisConnectionKeepAlive = Guid.NewGuid();
         _currentConnectionKeepAlive = thisConnectionKeepAlive;
         
-        if(_client.GetConnectionState() == ConnectionState.Connected)
+        if(_client.ConnectionState == ConnectionState.Connected)
             _client.Send(message);
         else
         {

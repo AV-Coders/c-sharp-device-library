@@ -265,7 +265,7 @@ public class ExtronSmp351 : Recorder
 
     private Task Poll( CancellationToken token)
     {
-        if(CommunicationClient.GetConnectionState() == ConnectionState.Connected)
+        if(CommunicationClient.ConnectionState == ConnectionState.Connected)
         {
             CommunicationClient.Send("I");
             _counter++;

@@ -1,5 +1,6 @@
 ﻿using System.Reflection;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -7,12 +8,11 @@ namespace AVCoders.Display.Tests;
 public class SamsungMDCTest
 {
     private readonly SamsungMdc _samsungMdc;
-    private readonly Mock<TcpClient> _mockClient;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly byte _displayId = 0x00;
 
     public SamsungMDCTest()
     {
-        _mockClient = new Mock<TcpClient>("foo", SamsungMdc.DefaultPort, "bar");
         _samsungMdc = new SamsungMdc(_mockClient.Object, _displayId, "Test display", Input.Hdmi2);
     }
 

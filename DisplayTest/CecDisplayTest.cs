@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using AVCoders.MediaPlayer;
 using Moq;
 
@@ -7,7 +8,7 @@ namespace AVCoders.Display.Tests;
 public class CecDisplayTest
 {
     private readonly CecDisplay _display;
-    private readonly Mock<SerialClient> _mockClient = new ("foo", "bar", (ushort)1);
+    private readonly Mock<SerialClient> _mockClient = TestFactory.CreateSerialClient();
     private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 

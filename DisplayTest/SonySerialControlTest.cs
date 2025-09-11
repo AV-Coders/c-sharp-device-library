@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Display.Tests;
@@ -6,7 +7,7 @@ namespace AVCoders.Display.Tests;
 public class SonySerialControlTest
 {
     private readonly SonySerialControl _display;
-    private readonly Mock<SerialClient> _mockClient = new ("foo", "bar", (ushort)1);
+    private readonly Mock<SerialClient> _mockClient = TestFactory.CreateSerialClient();
 
     public SonySerialControlTest()
     {
