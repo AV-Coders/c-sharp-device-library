@@ -9,7 +9,7 @@ public abstract class Dsp : DeviceBase
 
     protected readonly ThreadWorker PollWorker;
 
-    protected Dsp(string name, CommunicationClient client, int pollIntervalInMilliseconds) : base(name, client, CommandStringFormat.Ascii)
+    protected Dsp(string name, CommunicationClient client, int pollIntervalInMilliseconds) : base(name, client)
     {
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollIntervalInMilliseconds), true);
         Task.Run(async () =>

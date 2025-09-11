@@ -2,8 +2,8 @@ using AVCoders.Core;
 
 namespace AVCoders.Camera;
 
-public abstract class CameraBase(string name, CommunicationClient client, CommandStringFormat commandStringFormat)
-    : DeviceBase(name, client, commandStringFormat)
+public abstract class CameraBase(string name, CommunicationClient client)
+    : DeviceBase(name, client)
 {
     private int _lastRecalledPreset = 0;
     public IntHandler? LastRecalledPresetHandlers;

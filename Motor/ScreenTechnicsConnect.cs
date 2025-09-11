@@ -12,7 +12,7 @@ public class ScreenTechnicsConnect : Motor
     private Guid _currentConnectionKeepAlive = Guid.Empty;
 
     public ScreenTechnicsConnect(string name, TcpClient client, RelayAction powerOnAction,int moduleId = 1, int moveSeconds = 36)
-        : base(name, powerOnAction, moveSeconds, CommandStringFormat.Ascii)
+        : base(name, powerOnAction, moveSeconds)
     {
         _client = client;
         _moduleId = moduleId;

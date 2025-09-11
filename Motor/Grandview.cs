@@ -7,7 +7,7 @@ public class Grandview : Motor
     private readonly RestComms _comms;
 
     public Grandview(string name, RestComms comms, RelayAction powerOnAction, int moveSeconds) 
-        : base(name, powerOnAction, moveSeconds, CommandStringFormat.Ascii)
+        : base(name, powerOnAction, moveSeconds)
     {
         _comms = comms;
     }

@@ -17,7 +17,7 @@ public class ExtronSharelinkPro : DeviceBase
     public IntHandler? ConnectedUsersHandlers;
 
     public ExtronSharelinkPro(CommunicationClient client, string name) 
-        : base(name, client, CommandStringFormat.Ascii)
+        : base(name, client)
     {
         _client = client;
         _connectedUserNotifier = new ThreadWorker(NotifyOfConnectedUsers, TimeSpan.FromSeconds(2), true);

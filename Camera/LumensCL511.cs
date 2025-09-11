@@ -3,7 +3,7 @@ using Serilog;
 
 namespace AVCoders.Camera;
 
-public class LumensCL511(string name, CommunicationClient client) : CameraBase(name, client, CommandStringFormat.Hex)
+public class LumensCL511(string name, CommunicationClient client) : CameraBase(name, client)
 {
     public static readonly SerialSpec DefaultSpec = new SerialSpec(SerialBaud.Rate9600, SerialParity.None,
         SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);

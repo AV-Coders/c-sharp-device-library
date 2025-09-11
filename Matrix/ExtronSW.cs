@@ -10,7 +10,7 @@ public class ExtronSw : VideoMatrix
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
 
     public ExtronSw(CommunicationClient communicationClient, int numberOfInputs, string name) 
-        : base(1, communicationClient, name, CommandStringFormat.Ascii)
+        : base(1, communicationClient, name)
     {
         _numberOfInputs = numberOfInputs;
     }

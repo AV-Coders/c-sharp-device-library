@@ -20,7 +20,7 @@ public class MotoluxBlindTransmitter : Motor
     private readonly char[] _stopCommand;
 
     public MotoluxBlindTransmitter(string name, char deviceId, char blindId, RelayAction powerOnAction, int moveSeconds, SerialClient client)
-        : base(name, powerOnAction, moveSeconds, CommandStringFormat.Hex)
+        : base(name, powerOnAction, moveSeconds)
     {
         _client = client;
         (char blindIdLow, char blindIdHigh) = GetIdBytes(blindId);

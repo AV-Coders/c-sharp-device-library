@@ -85,7 +85,7 @@ public class AutomateVX : DeviceBase
     }
 
     public AutomateVX(RestComms client, string username = "admin", string password = "1beyond") :
-        base("1Beyond", client, CommandStringFormat.Ascii)
+        base("1Beyond", client)
     {
         _client = client;
 

@@ -14,7 +14,7 @@ public class Navigator : DeviceBase
     private int _unansweredDeviceForwards = 0;
     
 
-    public Navigator(string name, SshClient sshClient) : base(name, sshClient, CommandStringFormat.Ascii)
+    public Navigator(string name, SshClient sshClient) : base(name, sshClient)
     {
         SshClient = sshClient;
         CommunicationClient.ResponseHandlers += HandleResponse;

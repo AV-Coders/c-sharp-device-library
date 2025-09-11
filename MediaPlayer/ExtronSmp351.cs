@@ -106,7 +106,7 @@ public class ExtronSmp351 : Recorder
     }
 
     public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, string name, int pollTime = 1000) 
-        : base(name, communicationClient, CommandStringFormat.Ascii)
+        : base(name, communicationClient)
     {
         _memoryLowKBytes = memoryLowKBytes;
         _memoryFullKBytes = memoryFullKBytes;

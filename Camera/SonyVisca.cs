@@ -21,7 +21,7 @@ public class SonyVisca : CameraBase
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
 
     public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, byte cameraId = 0x01) 
-        : base(name, client, CommandStringFormat.Hex)
+        : base(name, client)
     {
         _useIpHeaders = useIpHeaders;
         SetCameraId(cameraId);

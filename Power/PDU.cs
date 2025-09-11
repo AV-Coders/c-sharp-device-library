@@ -9,8 +9,8 @@ public abstract class Pdu : DeviceBase
     protected List<Outlet> Outlets;
     public OutletDefinitionHandler? OutletDefinitionHandlers;
 
-    protected Pdu(string name, CommunicationClient comms, CommandStringFormat commandStringFormat) 
-        : base(name, comms, commandStringFormat)
+    protected Pdu(string name, CommunicationClient comms) 
+        : base(name, comms)
     {
         Outlets = [];
     }

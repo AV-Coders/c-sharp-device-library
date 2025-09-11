@@ -12,7 +12,7 @@ public class ExterityTci : MediaPlayer, ISetTopBox
     };
     
     public ExterityTci(CommunicationClient communicationClient, string password, string name) 
-        : base(name, communicationClient, CommandStringFormat.Ascii)
+        : base(name, communicationClient)
     {
         _password = password;
         CommunicationClient.ResponseHandlers += HandleResponse;

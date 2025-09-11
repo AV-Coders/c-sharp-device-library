@@ -12,7 +12,7 @@ public class ExtronIn18Xx : VideoMatrix
     private const string EscapeHeader = "\x1b";
 
     public ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name) 
-        : base(1, communicationClient, name, CommandStringFormat.Ascii)
+        : base(1, communicationClient, name)
     {
         _numberOfInputs = numberOfInputs;
         PowerState = PowerState.Unknown;

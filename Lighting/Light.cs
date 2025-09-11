@@ -8,7 +8,7 @@ public abstract class Light : DeviceBase
     public IntHandler? LevelChangeHandlers;
 
     protected Light(string name) 
-        : base(name, CommunicationClient.None, CommandStringFormat.Unknown)
+        : base(name, CommunicationClient.None)
     {
     }
 

@@ -13,8 +13,8 @@ public abstract class MediaPlayer : DeviceBase
     private MediaState _mediaState = MediaState.Unknown;
     private TransportState _transportState = TransportState.Unknown;
 
-    protected MediaPlayer(string name, CommunicationClient comms, CommandStringFormat commandStringFormat) 
-        : base(name, comms, commandStringFormat)
+    protected MediaPlayer(string name, CommunicationClient comms) 
+        : base(name, comms)
     {
     }
 

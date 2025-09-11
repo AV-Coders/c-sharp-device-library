@@ -48,7 +48,7 @@ public class ServerEdgePdu: Pdu
     private readonly ThreadWorker _pollWorker;
 
     public ServerEdgePdu(RestComms restClient, string name, string username, string password, int numberOfOutlets) 
-        : base(name, restClient, CommandStringFormat.Ascii)
+        : base(name, restClient)
     {
         _restClient = restClient;
         string credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"));

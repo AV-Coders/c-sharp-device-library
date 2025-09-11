@@ -46,7 +46,7 @@ public class LumensLc300 : Recorder
         }
     }
 
-    public LumensLc300(string name, CommunicationClient client) : base(name, client, CommandStringFormat.Hex)
+    public LumensLc300(string name, CommunicationClient client) : base(name, client)
     {
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(10));
