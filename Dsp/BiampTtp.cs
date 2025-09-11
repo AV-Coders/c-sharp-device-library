@@ -102,7 +102,6 @@ public class BiampTtp : Dsp
         {
             if (connectionState == ConnectionState.Connected)
             {
-                Thread.Sleep(TimeSpan.FromSeconds(10)); 
                 Resubscribe();
             }
             else
@@ -118,6 +117,8 @@ public class BiampTtp : Dsp
 
     private void Resubscribe()
     {
+        Thread.Sleep(TimeSpan.FromSeconds(20));
+        
         using (PushProperties("Resubscribe"))
         {
             _currentQuery = null;
@@ -130,6 +131,7 @@ public class BiampTtp : Dsp
             _deviceSubscriptions.ForEach(subscriptionCommand =>
             {
                 CommunicationClient.Send(subscriptionCommand);
+                Thread.Sleep(TimeSpan.FromMilliseconds(50));
             });
         }
     }
