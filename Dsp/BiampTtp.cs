@@ -81,7 +81,7 @@ public class BiampTtp : Dsp
     private bool _lastRequestWasForTheVersion;
 
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 150) : base(name, commsClient, pollIntervalInMilliseconds)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200) : base(name, commsClient, pollIntervalInMilliseconds)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
@@ -117,13 +117,16 @@ public class BiampTtp : Dsp
         using (PushProperties("Resubscribe"))
         {
             _currentQuery = null;
-            Log.Verbose("Re-establishing subscriptions in 5 seconds, subscription count: {DeviceSubscriptionsCount}", _deviceSubscriptions.Count);
-            Thread.Sleep(TimeSpan.FromSeconds(5));
+            while (_currentQuery != null)
+            {
+                Thread.Sleep(TimeSpan.FromSeconds(5));
+            }
+            
+            Log.Verbose("Re-establishing subscriptions, subscription count: {DeviceSubscriptionsCount}", _deviceSubscriptions.Count);
             _deviceSubscriptions.ForEach(subscriptionCommand =>
             {
                 CommunicationClient.Send(subscriptionCommand);
             });
-            Thread.Sleep(TimeSpan.FromSeconds(1));
         }
     }
 
@@ -160,7 +163,7 @@ public class BiampTtp : Dsp
                 _lastRequestWasForTheVersion = true;
                 await Task.Delay(TimeSpan.FromSeconds(10), token);
                 _loopsSinceLastFetch++;
-                if (_loopsSinceLastFetch > 60)
+                if (_loopsSinceLastFetch > 18)
                 {
                     Reinitialise();
                     _loopsSinceLastFetch = 0;
@@ -201,7 +204,6 @@ public class BiampTtp : Dsp
                 }
                 else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
                 {
-                    Thread.Sleep(5000);
                     Resubscribe();
                 }
             }
