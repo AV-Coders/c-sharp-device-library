@@ -8,7 +8,7 @@ namespace AVCoders.Display.Tests;
 public class LgCommercialTest
 {
     private readonly LGCommercial _display;
-    private readonly Mock<TcpClient> _client = TestFactory.CreateTcpClient();
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private static readonly RemoteButton[] _excludedButtons = 
     [
         RemoteButton.Display, RemoteButton.Eject, 
@@ -25,7 +25,7 @@ public class LgCommercialTest
 
     public LgCommercialTest()
     {
-        _display = new LGCommercial(_client.Object, "Test display", "00-00-00-00-00-00",null, 0);
+        _display = new LGCommercial(_mockClient.Object, "Test display", "00-00-00-00-00-00",null, 0);
     }
     
     [Fact]
@@ -34,7 +34,7 @@ public class LgCommercialTest
         string expectedPowerOnCommand = "ka 00 01\r";
         _display.PowerOn();
 
-        _client.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
+        _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class LgCommercialTest
         string expectedPowerOffCommand = "ka 00 00\r";
         _display.PowerOff();
 
-        _client.Verify(x => x.Send(expectedPowerOffCommand), Times.Once);
+        _mockClient.Verify(x => x.Send(expectedPowerOffCommand), Times.Once);
     }
     
     [Theory]
@@ -56,7 +56,7 @@ public class LgCommercialTest
     {
         _display.SetInput(input);
 
-        _client.Verify(x => x.Send(expectedInputCommand), Times.Once);
+        _mockClient.Verify(x => x.Send(expectedInputCommand), Times.Once);
     }
 
     [Theory]
@@ -67,7 +67,7 @@ public class LgCommercialTest
     {
         _display.SetVolume(volume);
 
-        _client.Verify(x => x.Send(expectedVolumeCommand), Times.Once);
+        _mockClient.Verify(x => x.Send(expectedVolumeCommand), Times.Once);
     }
     
     [Theory]
@@ -77,7 +77,7 @@ public class LgCommercialTest
     {
         _display.SetAudioMute(state);
 
-        _client.Verify(x => x.Send(expectedMuteCommand), Times.Once);
+        _mockClient.Verify(x => x.Send(expectedMuteCommand), Times.Once);
     }
 
     [Theory]
@@ -89,7 +89,7 @@ public class LgCommercialTest
     {
         _display.SetChannel(channel);
         
-        _client.Verify(x => x.Send(expectedCommand), Times.Once);
+        _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
 
     [Theory]
@@ -101,7 +101,7 @@ public class LgCommercialTest
         Mock<PowerStateHandler> handler = new Mock<PowerStateHandler>();
         _display.PowerStateHandlers += handler.Object;
         
-        _client.Object.ResponseHandlers!.Invoke(response);
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         handler.Verify(x => x.Invoke(expectedState));
     }
@@ -118,7 +118,7 @@ public class LgCommercialTest
         Mock<InputHandler> handler = new Mock<InputHandler>();
         _display.InputHandlers += handler.Object;
         
-        _client.Object.ResponseHandlers!.Invoke(response);
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         handler.Verify(x => x.Invoke(expectedInput));
     }
@@ -132,7 +132,7 @@ public class LgCommercialTest
         Mock<MuteStateHandler> handler = new Mock<MuteStateHandler>();
         _display.MuteStateHandlers += handler.Object;
         
-        _client.Object.ResponseHandlers!.Invoke(response);
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         handler.Verify(x => x.Invoke(expectedState));
     }
@@ -147,7 +147,7 @@ public class LgCommercialTest
         Mock<VolumeLevelHandler> handler = new Mock<VolumeLevelHandler>();
         _display.VolumeLevelHandlers += handler.Object;
         
-        _client.Object.ResponseHandlers!.Invoke(response);
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         handler.Verify(x => x.Invoke(expectedVolume));
     }
