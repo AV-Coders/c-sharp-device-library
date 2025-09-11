@@ -147,8 +147,8 @@ public class BiampTtp : Dsp
             if (_currentQuery != null)
             {
                 Log.Error("The query {query} was not answered, momentarily slowing down", _currentQuery.DspCommand);
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
                 _pendingQueries.Enqueue(_currentQuery);
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
                 _currentQuery = null;
                 return;
             }
