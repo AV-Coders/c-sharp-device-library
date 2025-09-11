@@ -9,7 +9,8 @@ public class ExtronSw : VideoMatrix
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
 
-    public ExtronSw(CommunicationClient communicationClient, int numberOfInputs, string name) : base(1, communicationClient, name)
+    public ExtronSw(CommunicationClient communicationClient, int numberOfInputs, string name) 
+        : base(1, communicationClient, name, CommandStringFormat.Ascii)
     {
         _numberOfInputs = numberOfInputs;
     }

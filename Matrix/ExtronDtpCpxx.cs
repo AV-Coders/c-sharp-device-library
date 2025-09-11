@@ -34,7 +34,8 @@ public class ExtronDtpCpxx : VideoMatrix
         }
     }
 
-    public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name) : base(numberOfOutputs, communicationClient, name)
+    public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name) 
+        : base(numberOfOutputs, communicationClient, name, CommandStringFormat.Ascii)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
         PowerState = PowerState.Unknown;

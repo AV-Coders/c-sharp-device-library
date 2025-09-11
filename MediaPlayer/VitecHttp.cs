@@ -17,7 +17,8 @@ public class VitecHttp : MediaPlayer, ISetTopBox
 
     private static readonly List<RemoteButton> UnsupportedButtons = [];
 
-    public VitecHttp(string host, string password, string name) : base(name, CommunicationClient.None)
+    public VitecHttp(string host, string password, string name) 
+        : base(name, CommunicationClient.None, CommandStringFormat.Ascii)
     {
         _remoteKeyUri = new Uri($"https://{host}:8080/irremote/key", UriKind.Absolute);
         _deviceStateUri = new Uri($"https://{host}:8080/devicestate", UriKind.Absolute);

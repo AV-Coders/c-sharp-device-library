@@ -20,7 +20,8 @@ public class ExtronAnnotator401 : AnnotatorBase
     private readonly Annotator401Outputs _annotationOutputs;
     private readonly Annotator401Outputs _cursorOutputs;
 
-    public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs = Annotator401Outputs.All, Annotator401Outputs cursorOutputs = Annotator401Outputs.All) : base(name, client)
+    public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs = Annotator401Outputs.All, Annotator401Outputs cursorOutputs = Annotator401Outputs.All)
+        : base(name, client, CommandStringFormat.Ascii)
     {
         _fileprefix = fileprefix;
         _annotationOutputs = annotationOutputs;

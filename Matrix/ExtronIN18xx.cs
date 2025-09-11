@@ -11,7 +11,8 @@ public class ExtronIn18Xx : VideoMatrix
     private readonly ThreadWorker _pollWorker;
     private const string EscapeHeader = "\x1b";
 
-    public ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name) : base(1, communicationClient, name)
+    public ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name) 
+        : base(1, communicationClient, name, CommandStringFormat.Ascii)
     {
         _numberOfInputs = numberOfInputs;
         PowerState = PowerState.Unknown;

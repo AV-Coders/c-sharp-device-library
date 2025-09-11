@@ -2,7 +2,8 @@
 
 namespace AVCoders.Matrix;
 
-public abstract class VideoMatrix(int numberOfOutputs, CommunicationClient client, string name) : DeviceBase(name, client)
+public abstract class VideoMatrix(int numberOfOutputs, CommunicationClient client, string name, CommandStringFormat commandStringFormat)
+    : DeviceBase(name, client, commandStringFormat)
 {
     protected List<int> Sources = new(numberOfOutputs);
 

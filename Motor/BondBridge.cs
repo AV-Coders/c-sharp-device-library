@@ -7,7 +7,8 @@ public class BondGroup : Motor
     private readonly string _deviceId;
     private readonly BondBridge _bridge;
 
-    public BondGroup(string name, string groupId, RelayAction powerOnAction, int moveSeconds, BondBridge bridge) : base(name, powerOnAction, moveSeconds)
+    public BondGroup(string name, string groupId, RelayAction powerOnAction, int moveSeconds, BondBridge bridge) 
+        : base(name, powerOnAction, moveSeconds, CommandStringFormat.Ascii)
     {
         _deviceId = groupId;
         _bridge = bridge;
@@ -34,7 +35,8 @@ public class BondDevice : Motor
     private readonly string _deviceId;
     private readonly BondBridge _bridge;
 
-    public BondDevice(string name, string deviceId, RelayAction powerOnAction, int moveSeconds, BondBridge bridge) : base(name, powerOnAction, moveSeconds)
+    public BondDevice(string name, string deviceId, RelayAction powerOnAction, int moveSeconds, BondBridge bridge) 
+        : base(name, powerOnAction, moveSeconds, CommandStringFormat.Ascii)
     {
         _deviceId = deviceId;
         _bridge = bridge;

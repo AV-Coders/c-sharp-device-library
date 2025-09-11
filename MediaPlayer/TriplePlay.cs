@@ -10,7 +10,8 @@ public class TriplePlay : MediaPlayer, ISetTopBox
     private readonly int _deviceId;
     private readonly string _host;
         
-    public TriplePlay(int deviceId, string host, string name) : base(name, CommunicationClient.None)
+    public TriplePlay(int deviceId, string host, string name) 
+        : base(name, CommunicationClient.None, CommandStringFormat.Ascii)
     {
         _deviceId = deviceId;
         _host = host;
