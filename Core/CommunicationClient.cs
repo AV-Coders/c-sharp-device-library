@@ -25,7 +25,15 @@ public abstract class CommunicationClient(string name, string host, ushort port)
             if(_connectionState == value)
                 return;
             _connectionState = value;
-            ConnectionStateHandlers?.Invoke(value);
+            try
+            {
+                ConnectionStateHandlers?.Invoke(value);
+            }
+            catch (Exception e)
+            {
+                Log.Error("A ConnectionState handler threw an exception");
+                LogException(e);
+            }
         }
     }
 
