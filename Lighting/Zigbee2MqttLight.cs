@@ -57,7 +57,11 @@ public class Zigbee2MqttLight : Light
 
     protected override void DoPowerOff() => _client.Send($"{TopicPrefix}/{_topic}/set", "{\"state\": \"Off\"}");
 
-    protected override void DoSetLevel(int level) => _client.Send($"{TopicPrefix}/{_topic}/set", $"{{\"state\": \"On\", \"brightness\": {level}}}");
+    protected override void DoSetLevel(int level)
+    {
+        byte scaled = (byte)Math.Clamp((int)Math.Round(level * 255.0 / 100.0), 0, 255);
+        _client.Send($"{TopicPrefix}/{_topic}/set", $"{{\"state\": \"On\", \"brightness\": {scaled}}}");
+    }
 
     private uint ScaleByteToPercentage(int value)
     {
