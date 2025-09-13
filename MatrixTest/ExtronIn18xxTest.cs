@@ -5,12 +5,12 @@ using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
-public class ExtronIn18xxTest
+public class ExtronIn18XxTest
 {
     private readonly ExtronIn18Xx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
-    public ExtronIn18xxTest()
+    public ExtronIn18XxTest()
     {
         _switcher = new ExtronIn18Xx(_mockClient.Object, 6, "test matrix");
     }
@@ -174,5 +174,28 @@ public class ExtronIn18xxTest
         _switcher.SetSyncTimeout(501);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("IN1808\r", 8)]
+    [InlineData("IN1806\r", 6)]
+    public void ResponseHandler_HandlesModelNumber(string response, int expectedInputs)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+        
+        Assert.Equal(expectedInputs, _switcher.Inputs.Count);
+    }
+    
+    [Theory]
+    [InlineData("VnamI3*BluRay\r", 2, "BluRay")]
+    [InlineData("VnamI1*Doc Cam\r", 0, "Doc Cam")]
+    [InlineData("VnamI7*Left Laptop\r", 6, "Left Laptop")]
+    [InlineData("VnamI7*\r", 6, "")]
+    public void HandleResponse_UpdatesInputName(string response, int index, string expectedName)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("IN1808\r");
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+        
+        Assert.Equal(expectedName, _switcher.Inputs[index].Name);
     }
 }

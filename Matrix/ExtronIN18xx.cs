@@ -7,6 +7,8 @@ public class ExtronIn18Xx : VideoMatrix
     private readonly int _numberOfInputs;
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
+    public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
+    public readonly List<ExtronMatrixInput> Inputs = [];
     
     private readonly ThreadWorker _pollWorker;
     private const string EscapeHeader = "\x1b";
@@ -19,6 +21,49 @@ public class ExtronIn18Xx : VideoMatrix
         UpdateCommunicationState(CommunicationState.NotAttempted);
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
+        communicationClient.ConnectionStateHandlers += HandleConnectionState;
+        communicationClient.ResponseHandlers += HandleResponse;
+    }
+
+    private void HandleResponse(string value)
+    {
+        if (value.StartsWith("Vnam"))
+        {
+            var trimmed = value.TrimEnd('\r');
+            if (trimmed.Length <= 5)
+                return;
+            var afterI = trimmed.Substring(5);
+            var parts = afterI.Split('*');
+            if (parts.Length != 2) 
+                return;
+
+            if (!int.TryParse(parts[0], out var inputNumber))
+                return;
+            var index = inputNumber - 1;
+            if (index >= 0 && index < Inputs.Count)
+            {
+                Inputs[index].SetName(parts[1]);
+            }
+        }
+        else if (value.StartsWith("IN18"))
+        {
+            Inputs.Clear();
+            for (int i = 0; i < int.Parse(value[4..]); i++)
+            {
+                Inputs.Add(new ExtronMatrixInput("TBC", i));
+                // WrapAndSendCommand($"I{i+1}VNAM");
+            }
+        }
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        if(connectionState != ConnectionState.Connected)
+            return;
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
+        WrapAndSendCommand("3CV");
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
+        SendCommand("1I"); // To get the input and output count, resets the lists and all data
     }
     
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");

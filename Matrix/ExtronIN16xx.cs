@@ -4,12 +4,14 @@ namespace AVCoders.Matrix;
 
 public class ExtronIn16Xx : VideoMatrix
 {
-    private readonly int _numberOfInputs;
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
-    
-    private readonly ThreadWorker _pollWorker;
+    public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
+    public readonly List<ExtronMatrixInput> Inputs = [];
+
     private const string EscapeHeader = "\x1b";
+    private readonly int _numberOfInputs;
+    private readonly ThreadWorker _pollWorker;
 
     public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name) 
         : base(1, communicationClient, name)
@@ -19,6 +21,17 @@ public class ExtronIn16Xx : VideoMatrix
         UpdateCommunicationState(CommunicationState.NotAttempted);
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
+        communicationClient.ConnectionStateHandlers += HandleConnectionState;
+    }
+    
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        if(connectionState != ConnectionState.Connected)
+            return;
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
+        WrapAndSendCommand("3CV");
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
+        SendCommand("I"); // To get the input and output count, resets the lists and all data
     }
     
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
