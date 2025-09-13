@@ -39,7 +39,7 @@ public class CBusLight : Light
 
     public void SetLevel(int level, CBusRampTime rampTime)
     {
-        Level = level;
+        Brightness = (uint) level;
         byte levelValue = (byte)(level * 2.55);
         _interface.SendPointToMultipointPayload(
             CBusInterface.LightingApplication,

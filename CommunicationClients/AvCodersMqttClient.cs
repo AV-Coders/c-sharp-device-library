@@ -34,10 +34,11 @@ public class AvCodersMqttClient : MqttClient
             foreach (var handler in handlers)
                 handler(rawPayload);
         
+        InvokeResponseHandlers($"{topic} - {rawPayload}");
         return Task.CompletedTask;
     }
 
-    public void SubscribeToTopic(string topic, Action<string> handler)
+    public override void SubscribeToTopic(string topic, Action<string> handler)
     {
         if (!_handlers.ContainsKey(topic))
         {
@@ -47,10 +48,16 @@ public class AvCodersMqttClient : MqttClient
         _handlers[topic].Add(handler);
     }
 
-    private Task HandleMqttDisconnection(MqttClientDisconnectedEventArgs arg)
+    private async Task HandleMqttDisconnection(MqttClientDisconnectedEventArgs arg)
     {
-        ConnectionState = ConnectionState.Disconnected;
-        return Task.CompletedTask;
+        while (!_mqttClient.IsConnected)
+        {
+            ConnectionState = ConnectionState.Disconnected;
+            Task.Delay(TimeSpan.FromSeconds(3)).Wait();
+            ConnectionState = ConnectionState.Connecting;
+            Log.Debug("Reconnecting to MQTT server");
+            await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
+        }
     }
 
     private Task RegisterDevicesToMqttServer(MqttClientConnectedEventArgs arg)
@@ -60,13 +67,14 @@ public class AvCodersMqttClient : MqttClient
         return Task.CompletedTask;
     }
 
-    public void Send(string topic, string payload)
+    public override void Send(string topic, string payload)
     {
         MqttApplicationMessage message = new MqttApplicationMessageBuilder()
             .WithTopic(topic)
             .WithPayload(payload)
             .Build();
         PublishMqttMessage(message);
+        InvokeRequestHandlers($"{topic} - {payload}");
     }
 
     private void PublishMqttMessage(MqttApplicationMessage message)

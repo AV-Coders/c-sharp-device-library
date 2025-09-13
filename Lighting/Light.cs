@@ -4,23 +4,23 @@ namespace AVCoders.Lighting;
 
 public abstract class Light : DeviceBase
 {
-    private int _level;
-    public IntHandler? LevelChangeHandlers;
+    private uint _brightness;
+    public UintHandler? BrightnessChangeHandlers;
 
     protected Light(string name) 
         : base(name, CommunicationClient.None)
     {
     }
-
-    public int Level
+    
+    public uint Brightness
     {
-        get => _level;
+        get => _brightness;
         protected set
         {
-            if(_level == value) 
+            if (_brightness == value)
                 return;
-            _level = value;
-            LevelChangeHandlers?.Invoke(value);
+            _brightness = value;
+            BrightnessChangeHandlers?.Invoke(value);
         }
     }
     

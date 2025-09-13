@@ -200,8 +200,12 @@ public abstract class IpComms : CommunicationClient
     }
 }
 
-public abstract class MqttClient(string host, ushort port, string name) 
-    : CommunicationClient(name, host, port, CommandStringFormat.Ascii);
+public abstract class MqttClient(string host, ushort port, string name)
+    : CommunicationClient(name, host, port, CommandStringFormat.Ascii)
+{
+    public abstract void Send(string topic, string payload);
+    public abstract void SubscribeToTopic(string topic, Action<string> handler);
+}
 
 public abstract class SshClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
     : IpComms(host, port, name, commandStringFormat);
