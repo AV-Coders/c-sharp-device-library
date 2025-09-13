@@ -25,6 +25,7 @@ jobs:
       uses: actions/setup-dotnet@v3
       with:
         dotnet-version: | 
+          6.0.x
           8.0.x
     
     - name: Restore dependencies
@@ -59,9 +60,6 @@ jobs:
 
     - name: Create Dsp Nuget Package
       run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Dsp/Dsp.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
-
-    - name: Create Light Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Light/Light.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create Matrix Nuget Package
       run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Matrix/Matrix.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
