@@ -13,8 +13,8 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     public ConnectionStateHandler? ConnectionStateHandlers;
     public readonly CommandStringFormat CommandStringFormat = commandStringFormat;
     
-    protected string Host = host;
-    protected ushort Port = port;
+    public readonly string Host = host;
+    public readonly ushort Port = port;
 
     private ConnectionState _connectionState = ConnectionState.Unknown;
 
@@ -157,9 +157,6 @@ public abstract class IpComms : CommunicationClient
     protected IpComms(string host, ushort port, string name, CommandStringFormat commandStringFormat)
         : base(name, host, port, commandStringFormat)
     {
-        Host = host;
-        Port = port;
-        
         ReceiveThreadWorker = new ThreadWorker(Receive, TimeSpan.Zero);
         SendQueueWorker = new ThreadWorker(ProcessSendQueue, TimeSpan.Zero);
         ConnectionStateWorker = new ThreadWorker(CheckConnectionState, TimeSpan.Zero);
@@ -179,10 +176,6 @@ public abstract class IpComms : CommunicationClient
     protected abstract Task CheckConnectionState(CancellationToken token);
 
     public void SetQueueTimeout(int seconds) => QueueTimeout = seconds;
-    
-    public abstract void SetHost(string host);
-
-    public abstract void SetPort(ushort port);
 
     public abstract void Connect();
 

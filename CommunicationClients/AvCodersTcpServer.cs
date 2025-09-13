@@ -102,22 +102,6 @@ public class AvCodersTcpServer : Core_TcpClient
         }
     }
 
-    public override void SetHost(string host)
-    {
-        using (PushProperties("SetHost"))
-        {
-            Log.Error("Set Host is not supported");
-        }
-    }
-
-    public override void SetPort(ushort port)
-    {
-        ReceiveThreadWorker.Stop();
-        Port = port;
-        _server = new TcpListener(IPAddress.Any, Port);
-        ReceiveThreadWorker.Restart();
-    }
-
     public override void Connect() => ReceiveThreadWorker.Restart();
 
     public override void Reconnect() => ReceiveThreadWorker.Restart();

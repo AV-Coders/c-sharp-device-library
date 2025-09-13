@@ -184,22 +184,6 @@ public class AvCodersSshClient : SshClientBase
             Send(message);
     }
 
-    public override void SetPort(ushort port)
-    {
-        Port = port;
-        Disconnect();
-        _client = new SshClient(CreateConnectionInfo());
-        Connect();
-    }
-
-    public override void SetHost(string host)
-    {
-        Host = host;
-        Disconnect();
-        _client = new SshClient(CreateConnectionInfo());
-        Connect();
-    }
-
     public override void Connect() => ConnectionStateWorker.Restart();
 
     public override void Reconnect()

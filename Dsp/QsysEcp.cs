@@ -67,7 +67,6 @@ public class QsysEcp : Dsp
 
     public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = 50000) : base(name, tcpClient, pollIntervalInMilliseconds)
     {
-        tcpClient.SetPort(DefaultPort);
         tcpClient.ResponseHandlers += HandleResponse;
         tcpClient.ConnectionStateHandlers += HandleConnectionState;
 

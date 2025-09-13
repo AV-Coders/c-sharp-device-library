@@ -61,12 +61,6 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void Constructor_SetsPortTo1702()
-    {
-        _mockClient.Verify(x => x.SetPort(1702), Times.Once);
-    }
-
-    [Fact]
     public void SetLevel_SendsTheCommand()
     {
         _dsp.SetLevel(GainName, 34);

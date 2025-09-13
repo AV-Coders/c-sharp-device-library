@@ -81,22 +81,6 @@ public class AvCodersMulticastClient : IpComms
     protected override async Task ProcessSendQueue(CancellationToken token) => await SendQueueWorker.Stop();
     protected override async Task CheckConnectionState(CancellationToken token) => await ConnectionStateWorker.Stop();
 
-    public override void SetPort(ushort port)
-    {
-        using (PushProperties("SetPort"))
-        {
-            Log.Debug("Set Port not supported");
-        }
-    }
-
-    public override void SetHost(string host)
-    {
-        using (PushProperties("SetHost"))
-        {
-            Log.Debug("Set Host not supported");
-        }
-    }
-
     public override void Connect()
     {
         using (PushProperties("Connect"))

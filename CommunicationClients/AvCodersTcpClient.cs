@@ -149,18 +149,6 @@ public class AvCodersTcpClient : Core_TcpClient
         }
     }
 
-    public override void SetPort(ushort port)
-    {
-        Port = port;
-        Reconnect();
-    }
-
-    public override void SetHost(string host)
-    {
-        Host = host;
-        Reconnect();
-    }
-
     public override void Connect()
     {
         _sendQueue.Clear();

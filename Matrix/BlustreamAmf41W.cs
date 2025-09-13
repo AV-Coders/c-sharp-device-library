@@ -10,7 +10,6 @@ public class BlustreamAmf41W : VideoMatrix
     public BlustreamAmf41W(TcpClient tcpClient, string name) 
         : base(1, tcpClient, name)
     {
-        tcpClient.SetPort(DefaultPort);
         tcpClient.ResponseHandlers += HandleResponse;
 
         PowerState = PowerState.Unknown;

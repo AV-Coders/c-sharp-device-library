@@ -15,12 +15,6 @@ public class BlustreamAmf41WTest
     }
 
     [Fact]
-    public void Constructor_SetsPortTo23()
-    {
-        _mockClient.Verify(x => x.SetPort(23), Times.Once);
-    }
-
-    [Fact]
     public void HandleResponse_ReportsOkayOnSuccess()
     {
         _mockClient.Object.ResponseHandlers?.Invoke("[SUCCESS] Start Showing HDMI1");
