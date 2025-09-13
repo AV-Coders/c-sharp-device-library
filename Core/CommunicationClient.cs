@@ -117,10 +117,6 @@ public abstract class CommunicationClient(string name, string host, ushort port,
             LogException(e);
         }
     }
-
-    public string GetHost() => Host;
-
-    public ushort GetPort() => Port;
 }
 
 public abstract class SerialClient(string name, string host, ushort port, CommandStringFormat commandStringFormat)
@@ -210,6 +206,9 @@ public abstract class IpComms : CommunicationClient
         return sb.ToString();
     }
 }
+
+public abstract class MqttClient(string host, ushort port, string name) 
+    : CommunicationClient(name, host, port, CommandStringFormat.Ascii);
 
 public abstract class SshClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
     : IpComms(host, port, name, commandStringFormat);
