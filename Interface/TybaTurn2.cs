@@ -108,7 +108,7 @@ public class TybaTurn2 : LogBase
         catch (Exception e)
         {
             LogException(e);
-            throw;
+            UpdateCommunicationState(CommunicationState.Error);
         }
 
         _streamConnected = false;
@@ -168,13 +168,7 @@ public class TybaTurn2 : LogBase
         
         if (handlers.TryGetValue(eventData[0], out var handler))
         {
-            if (valueAndOnChangeData == null && eventData[0] != "temperature")
-            {
-                Log.Debug("Data is invalid");
-                return;
-            }
-
-            if (temperatureChangeData == null && eventData[0] == "temperature")
+            if (valueAndOnChangeData == null && eventData[0] != "temperature" || temperatureChangeData == null && eventData[0] == "temperature")
             {
                 Log.Debug("Data is invalid");
                 return;
@@ -200,17 +194,17 @@ public class TybaTurn2 : LogBase
         }
     }
 
-    public void SetShadeLevel(int shade, int level) => _ = SetLevel("shade", shade, level);
+    public void ShadeFeedback(int shade, int level) => _ = SetLevel("shade", shade, level);
 
-    public void SetLightLevel(int light, int level) => _ = SetLevel("light", light, level);
+    public void LightLevelFeedback(int light, int level) => _ = SetLevel("light", light, level);
 
-    public void SetLightScene(int scene) => _ = SetLevel("light_scenes", 1, scene);
+    public void LightSceneFeedback(int scene) => _ = SetLevel("light_scenes", 1, scene);
 
-    public void SetClimateMode(int level) => _ = SetLevel("modes", 1, level);
+    public void ClimateModeFeedback(int level) => _ = SetLevel("modes", 1, level);
 
-    public void SetClimateFanSpeed(int level) => _ = SetLevel("fan", 1, level);
-    public void SetClimateTargetTemperature(double level) => _ = SetLevel("temperature", 1, level);
-    public void SetClimateCurrentTemperature(double level) => _ = SetLevel("temperature", 2, level);
+    public void ClimateFanFeedback(int level) => _ = SetLevel("fan", 1, level);
+    public void ClimateTargetFeedback(double level) => _ = SetLevel("temperature", 1, level);
+    public void ClimateAmbientFeedback(double level) => _ = SetLevel("temperature", 2, level);
 
     private async Task SetLevel(string type, int index, int value)
     {
