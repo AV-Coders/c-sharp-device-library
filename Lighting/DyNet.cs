@@ -5,7 +5,7 @@ namespace AVCoders.Lighting;
 public class DyNet
 {
     public static readonly ushort DefaultPort = 50000;
-    private readonly TcpClient _tcpClient;
+    private readonly CommunicationClient _tcpClient;
     private readonly byte _syncByteLogicalAddressingScheme = 0x1c;
     private const byte Broadcast = 0xFF;
     //From https://docs.dynalite.com/system-builder/latest/quick_start/dynet_opcodes.html
