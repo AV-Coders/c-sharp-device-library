@@ -7,12 +7,12 @@ namespace AVCoders.Lighting.Tests;
 public class CBusLightTest
 {
     private readonly CBusLight _light;
-    private readonly Mock<CBusInterface> _mockInterface;
+    private readonly Mock<CBusSerialInterface> _mockInterface;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public CBusLightTest()
     {
-        _mockInterface = new Mock<CBusInterface>(_mockClient.Object, true);
+        _mockInterface = new Mock<CBusSerialInterface>(_mockClient.Object, true);
         _light = new CBusLight("Test Light", _mockInterface.Object, 3, CBusRampTime.Instant);
     }
 
@@ -21,7 +21,7 @@ public class CBusLightTest
     {
         _light.PowerOn();
         
-        _mockClient.Verify(x => x.Send(new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x79, 0x03, 0x47, 0x0d }));
+        _mockClient.Verify(x => x.Send("\\053800790347\r"));
     }
 
     [Fact]
@@ -33,11 +33,11 @@ public class CBusLightTest
     }
 
     [Theory]
-    [InlineData(0, new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x02, 0x03, 0x00, 0xBE, 0x0d })]
-    [InlineData(25, new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x02, 0x03, 0x3f, 0x7F, 0x0d })]
-    [InlineData(50, new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x02, 0x03, 0x7F, 0x3F, 0x0d })]
-    [InlineData(100, new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x02, 0x03, 0xFE, 0xC0, 0x0d })]
-    public void SetLevel_SendsTheCommand(int level, byte[] expected)
+    [InlineData(0, "\\053800020300BE\r")]
+    [InlineData(25, "\\05380002033F7F\r")]
+    [InlineData(50, "\\05380002037F3F\r")]
+    [InlineData(100, "\\0538000203FEC0\r")]
+    public void SetLevel_SendsTheCommand(int level, string expected)
     {
         _light.SetLevel(level);
         _mockClient.Verify(x => x.Send(expected));

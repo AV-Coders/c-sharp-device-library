@@ -4,11 +4,11 @@ public class CBusLight : Light
 {
     private readonly byte _group;
     private readonly CBusRampTime _defaultRampTime;
-    private readonly CBusInterface _interface;
+    private readonly CBusSerialInterface _interface;
     private readonly byte _powerOff = 0x01;
     private readonly byte _powerOn = 0x79;
 
-    public CBusLight(string name, CBusInterface @interface, byte group, CBusRampTime defaultRampTime) : base(name)
+    public CBusLight(string name, CBusSerialInterface @interface, byte group, CBusRampTime defaultRampTime) : base(name)
     {
         _group = group;
         _defaultRampTime = defaultRampTime;
@@ -18,14 +18,14 @@ public class CBusLight : Light
     protected override void DoPowerOn()
     {
         _interface.SendPointToMultipointPayload(
-            CBusInterface.LightingApplication,
+            CBusSerialInterface.LightingApplication,
             [_powerOn, _group]);
     }
 
     protected override void DoPowerOff()
     {
         _interface.SendPointToMultipointPayload(
-            CBusInterface.LightingApplication,
+            CBusSerialInterface.LightingApplication,
             [_powerOff, _group]);
     }
 
@@ -33,7 +33,7 @@ public class CBusLight : Light
     {
         byte levelValue = (byte)(level * 2.55);
         _interface.SendPointToMultipointPayload(
-            CBusInterface.LightingApplication,
+            CBusSerialInterface.LightingApplication,
             [(byte)_defaultRampTime, _group, levelValue]);
     }
 
@@ -42,14 +42,14 @@ public class CBusLight : Light
         Brightness = (uint) level;
         byte levelValue = (byte)(level * 2.55);
         _interface.SendPointToMultipointPayload(
-            CBusInterface.LightingApplication,
+            CBusSerialInterface.LightingApplication,
             [(byte)rampTime, _group, levelValue]);
     }
 
     public void StopRamping()
     {
         _interface.SendPointToMultipointPayload(
-            CBusInterface.LightingApplication,
+            CBusSerialInterface.LightingApplication,
             [0x09, _group]);
     }
 }

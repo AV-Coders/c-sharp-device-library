@@ -1,6 +1,7 @@
 ﻿using AVCoders.Core;
 using Serilog;
 using Serilog.Context;
+using System.Text;
 
 namespace AVCoders.Lighting;
 
@@ -24,20 +25,20 @@ public enum CBusRampTime : byte
     SeventeenMinutes = 0x7A,
 }
 
-public class CBusInterface : LogBase
+public class CBusSerialInterface : LogBase
 {
     private readonly CommunicationClient _comms;
     private bool _serialCheck;
-    private readonly byte _pointToMultipointHeader = 0x05;
-    // private readonly byte _pointToPointHeader = 0x06;
-    private readonly byte _delimiter = 0x0d;
-    // private readonly byte _clearBuffer = 63; // ASCII ?
-    private readonly byte _beginPacket = 0x5c; // ASCII /
+    private const byte PointToMultipointHeader = 0x05;
+    // private const byte PointToPointHeader = 0x06;
+    private const byte Delimiter = 0x0d;
+    // private const byte ClearBuffer = 63; // ASCII ?
+    private const byte BeginPacket = 0x5c; // ASCII '\'
     public const byte LightingApplication = 0x38;
     public const byte SceneApplication = 0xCA;
     private List<byte> _gather = [];
 
-    public CBusInterface(CommunicationClient comms, bool serialCheck = true) : base("Cbus Interface")
+    public CBusSerialInterface(CommunicationClient comms, bool serialCheck = true) : base("Cbus Interface")
     {
         _comms = comms;
         _comms.ResponseByteHandlers += GatherResponse;
@@ -81,20 +82,30 @@ public class CBusInterface : LogBase
         return (byte)twosComplement;
     }
 
+    private static string ToAsciiHexString(byte[] bytes, bool uppercase = true)
+    {
+        var hex = Convert.ToHexString(bytes); // uppercase by default
+        return uppercase ? hex : hex.ToLowerInvariant();
+    }
+
+    private string BuildWireString(byte[] data, bool uppercase = true)
+    {
+        byte checksum = CalculateChecksum(data);
+        string body = ToAsciiHexString(data, uppercase);
+        string cs = ToAsciiHexString(new[] { checksum }, uppercase);
+        return $"{(char)BeginPacket}{body}{cs}{(char)Delimiter}";
+    }
+
     private void Send(byte[] data)
     {
-        byte[] payload = new byte[3 + data.Length];
-        payload[0] = _beginPacket;
-        Array.Copy(data, 0, payload, 1, data.Length);
-        payload[data.Length + 1] = CalculateChecksum(data);
-        payload[data.Length + 2] = _delimiter;
-        _comms.Send(payload);
+        string wire = BuildWireString(data, uppercase: true);
+        _comms.Send(wire);
     }
 
     public void SendPointToMultipointPayload(byte application, byte[] data)
     {
         byte[] payload = new byte[3 + data.Length];
-        payload[0] = _pointToMultipointHeader;
+        payload[0] = PointToMultipointHeader;
         payload[1] = application;
         payload[2] = 0x00;
         Array.Copy(data, 0, payload, 3, data.Length);

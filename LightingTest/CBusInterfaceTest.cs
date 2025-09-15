@@ -7,12 +7,12 @@ namespace AVCoders.Lighting.Tests;
 
 public class CBusInterfaceTest
 {
-    private readonly CBusInterface _interface;
+    private readonly CBusSerialInterface _interface;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public CBusInterfaceTest()
     {
-        _interface = new CBusInterface(_mockClient.Object, true);
+        _interface = new CBusSerialInterface(_mockClient.Object, true);
     }
     
 
@@ -25,7 +25,7 @@ public class CBusInterfaceTest
             .GetMethod("CalculateChecksum", BindingFlags.Instance | BindingFlags.NonPublic);
 
         byte result = (byte)(method?.Invoke(_interface, [input]) ?? 0x00);
-        Assert.Equal(0x2a, result);
+        Assert.Equal(42, result);
     }
 
     [Fact]
@@ -33,6 +33,6 @@ public class CBusInterfaceTest
     {
         _interface.SendPointToMultipointPayload(0x38, [0x01, 0x08]);
         
-        _mockClient.Verify(x => x.Send(new byte[]{ 0x5c, 0x05, 0x38, 0x00, 0x01, 0x08, 0xba, 0x0d }));
+        _mockClient.Verify(x => x.Send("\\0538000108BA\r"));
     }
 }
