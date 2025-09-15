@@ -29,7 +29,7 @@ public class CBusLightTest
     {
         _light.PowerOff();
         
-        _mockClient.Verify(x => x.Send(new byte[] { 0x5c, 0x05, 0x38, 0x00, 0x01, 0x03, 0xbf, 0x0d }));
+        _mockClient.Verify(x => x.Send("\\0538000103BF\r"));
     }
 
     [Theory]
