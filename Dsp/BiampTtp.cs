@@ -175,6 +175,7 @@ public class BiampTtp : Dsp
                 _loopsSinceLastFetch++;
                 if (_loopsSinceLastFetch > 18)
                 {
+                    Resubscribe();
                     Reinitialise();
                     _loopsSinceLastFetch = 0;
                 }
