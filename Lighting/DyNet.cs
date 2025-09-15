@@ -7,6 +7,8 @@ public class DyNet
     public static readonly ushort DefaultPort = 50000;
     private readonly TcpClient _tcpClient;
     private readonly byte _syncByteLogicalAddressingScheme = 0x1c;
+    private const byte Broadcast = 0xFF;
+    //From https://docs.dynalite.com/system-builder/latest/quick_start/dynet_opcodes.html
     
     public DyNet(TcpClient tcpClient)
     {
@@ -27,18 +29,86 @@ public class DyNet
         byte fadeLow = rampTimeIn100thsOfASecond;
         byte fadeHigh = 0x00;
 
-        // Join: broadcast
-        const byte join = 0xFF;
+        Send([
+            _syncByteLogicalAddressingScheme,
+            area,
+            fadeLow,
+            presetInBank,
+            fadeHigh,
+            bank,
+            Broadcast
+        ]);
+    }
+
+    public void RecallPresetLinear(byte area, int preset, byte rampTimeIn20Ms = 0x64)
+    {
+        if (preset < 1 || preset > 256)
+            throw new ArgumentOutOfRangeException(nameof(preset), "Preset must be between 1 and 255.");
+
+        byte zeroBased = (byte)(preset - 1);
+
+        // Fade time as 16-bit little-endian (here high byte is 0 because parameter is a byte)
+        byte fadeLow = rampTimeIn20Ms;
+        byte fadeHigh = 0x00;
 
         Send([
-            _syncByteLogicalAddressingScheme, // 0x1C
-            area,                             // Area
-            fadeLow,                          // Fade low byte
-            presetInBank,                     // Preset within bank (0..7 => P1..P8)
-            fadeHigh,                         // Fade high byte
-            bank,                             // Preset bank (0 => P1-8, 1 => P9-16, ...)
-            join                              // Join (0xFF broadcast)
+            _syncByteLogicalAddressingScheme,
+            area,
+            zeroBased,
+            0x65,
+            fadeLow,
+            fadeHigh,
+            Broadcast
         ]);
+    }
+
+    public void PowerOffArea(byte area, byte rampTimeIn100thsOfASecond = 0x64)
+    {
+        byte fadeLow = rampTimeIn100thsOfASecond;
+        Send([
+            _syncByteLogicalAddressingScheme,
+            area,
+            Broadcast,                        // All Channels in area
+            0x68,
+            0x00,
+            fadeLow,
+            Broadcast
+        ]);
+        
+    }
+
+    public void PowerOnArea(byte area, byte rampTimeIn100thsOfASecond = 0x64)
+    {
+        byte fadeLow = rampTimeIn100thsOfASecond;
+        Send([
+            _syncByteLogicalAddressingScheme,
+            area,
+            Broadcast,                        // All Channels in area
+            0x69,
+            0x00,
+            fadeLow,
+            Broadcast
+        ]);
+    }
+
+    public void RampAreaToLevel(byte area, int level, byte rampTimeIn100thsOfASecond = 0x64)
+    {
+        Send([
+            _syncByteLogicalAddressingScheme,
+            area,
+            Broadcast,                        // All Channels in area
+            0x71,
+            GetLevelFromPercentage(level),
+            rampTimeIn100thsOfASecond,
+            Broadcast
+        ]);
+    }
+
+    private byte GetLevelFromPercentage(int level)
+    {
+        if(level > 100)
+            throw new ArgumentOutOfRangeException(nameof(level), "Level must be between 0 and 100.");
+        return (byte)(level * 2.55);
     }
 
     private byte GetByteForPreset(int preset)
