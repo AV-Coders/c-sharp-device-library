@@ -14,16 +14,16 @@ public class DyNet
         _tcpClient = tcpClient;
     }
 
-    public void RecallPreset(byte area, byte preset, byte rampTimeIn100thsOfASecond = 0x14)
+    public void RecallPreset(byte area, int preset, byte rampTimeIn100thsOfASecond = 0x14)
     {
         
         Send([
                 _syncByteLogicalAddressingScheme,
                 area,
+                0x64,
+                (byte)preset,
                 0x00,
-                preset,
                 0x00,
-                rampTimeIn100thsOfASecond,
                 0xFF
             ]
         );
