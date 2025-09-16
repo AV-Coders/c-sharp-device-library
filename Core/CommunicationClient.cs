@@ -69,8 +69,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         }
         catch (Exception e)
         {
-            Log.Error("A Request string handler threw an exception");
-            LogException(e);
+            LogException(e, "A Request string handler threw an exception");
         }
     }
 
@@ -82,8 +81,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         }
         catch (Exception e)
         {
-            Log.Error("A Request byte handler threw an exception");
-            LogException(e);
+            LogException(e, "A Request byte handler threw an exception");
         }
     }
 
@@ -98,8 +96,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         {
             using (LogContext.PushProperty(MethodProperty, "InvokeResponseHandlers"))
             {
-                Log.Error("A Response handler threw an exception");
-                LogException(e);
+                LogException(e, "A Response handler threw an exception");
             }
         }
     }
@@ -112,8 +109,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         }
         catch (Exception e)
         {
-            Log.Error("A Response handler threw an exception when given response:\n\t {Response}", response);
-            LogException(e);
+            LogException(e, $"A Response handler threw an exception when given response:\n\t {response}");
         }
     }
 }

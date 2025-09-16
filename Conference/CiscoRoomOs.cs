@@ -117,8 +117,7 @@ public class CiscoRoomOs : Conference
         }
         catch (Exception e)
         {
-          Log.Error("Can't initialise Cisco Room OS");
-          LogException(e);
+          LogException(e, "Can't initialise Cisco Room OS");
         }
 
         PollWorker.Restart();
@@ -264,8 +263,7 @@ public class CiscoRoomOs : Conference
         {
           using (PushProperties("HandleResponse"))
           {
-            Log.Error("An exception was thrown while processing the string {invalidString}", response);
-            LogException(e);
+            LogException(e, $"An exception was thrown while processing the string {response}");
             throw;
           }
         }
