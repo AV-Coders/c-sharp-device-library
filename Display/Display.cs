@@ -11,7 +11,6 @@ public abstract class Display : VolumeControl, IDevice
     public List<Input> SupportedInputs { get; }
     public readonly CommunicationClient CommunicationClient;
     public readonly CommandStringFormat CommandStringFormat;
-    public readonly string InstanceUid;
     private readonly Dictionary<string, string> _logProperties = new ();
     private Input _input = Input.Unknown;
     private Input _desiredInput = Input.Unknown;
@@ -39,7 +38,6 @@ public abstract class Display : VolumeControl, IDevice
         CommandStringFormat = commandStringFormat;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationState = CommunicationState.NotAttempted;
-        InstanceUid = Guid.NewGuid().ToString();
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         new Thread(_ =>
         {
@@ -261,41 +259,6 @@ public abstract class Display : VolumeControl, IDevice
             default:
                 SetAudioMute(MuteState.On);
                 break;
-        }
-    }
-
-    public void AddLogProperty(string name, string value)
-    {
-        _logProperties[name] = value;
-    }
-    protected IDisposable PushProperties(string? methodName = null)
-    {
-        var disposables = new List<IDisposable>();
-
-        foreach (var property in _logProperties)
-        {
-            disposables.Add(LogContext.PushProperty(property.Key, property.Value));
-        }
-        
-        disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
-        disposables.Add(LogContext.PushProperty("Class", GetType().Name));
-        disposables.Add(LogContext.PushProperty("InstanceName", Name));
-        if(methodName != null)
-            disposables.Add(LogContext.PushProperty(LogBase.MethodProperty, methodName));
-
-        return new DisposableItems(disposables);
-    }
-    
-    protected void LogException(Exception e)
-    {
-        using (PushProperties())
-        {
-            Log.Error("{ExceptionType} \r\n{ExceptionMessage}\r\n{StackTrace}",
-                e.GetType().Name, e.Message, e.StackTrace);
-            if (e.InnerException == null)
-                return;
-            Log.Error("Caused by: {InnerExceptionType} \r\n{InnerExceptionMessage}\r\n{InnerStackTrace}",
-                e.InnerException.GetType().Name, e.InnerException.Message, e.InnerException.StackTrace);
         }
     }
 }

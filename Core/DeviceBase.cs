@@ -12,7 +12,6 @@ public abstract class DeviceBase(string name, CommunicationClient client) : LogB
     public readonly CommunicationClient CommunicationClient = client;
     protected PowerState DesiredPowerState = PowerState.Unknown;
     
-    private readonly Dictionary<string, string> _logProperties = new ();
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
 

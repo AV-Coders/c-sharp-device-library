@@ -10,7 +10,7 @@ public abstract class LogBase
     public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
     public StringHandler? NameChangedHandlers;
-    private List<Error> _errors = []; 
+    private readonly List<Error> _errors = []; 
     public ActionHandler ErrorsChangedHandlers;
 
     public string Name
@@ -24,6 +24,8 @@ public abstract class LogBase
             NameChangedHandlers?.Invoke(value);
         }
     }
+    
+    public List<Error> Errors => _errors;
 
     protected LogBase(string name)
     {
