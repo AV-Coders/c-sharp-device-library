@@ -7,9 +7,8 @@ public enum VolumeType : ushort
     LineIn = 2
 }
 
-public abstract class VolumeControl
+public abstract class VolumeControl : LogBase
 {
-    public readonly string Name;
     public readonly VolumeType Type;
     public VolumeLevelHandler? VolumeLevelHandlers;
     public MuteStateHandler? MuteStateHandlers;
@@ -42,9 +41,8 @@ public abstract class VolumeControl
         }
     }
 
-    protected VolumeControl(string name, VolumeType type)
+    protected VolumeControl(string name, VolumeType type) : base(name)
     {
-        Name = name;
         Type = type;
         
         VolumeLevelHandlers += x => _volume = x;

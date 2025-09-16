@@ -32,8 +32,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
             }
             catch (Exception e)
             {
-                Log.Error("A ConnectionState handler threw an exception");
-                LogException(e);
+                LogException(e, "A ConnectionState handler threw an exception");
             }
         }
     }

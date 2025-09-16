@@ -3,13 +3,15 @@ using Serilog.Context;
 
 namespace AVCoders.Core;
 
-public abstract class LogBase(string name)
+public abstract class LogBase
 {
-    private string _name = name;
+    private string _name;
     public const string MethodProperty = "Method";
     public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
     public StringHandler? NameChangedHandlers;
+    private List<Error> _errors = []; 
+    public ActionHandler ErrorsChangedHandlers;
 
     public string Name
     {
@@ -21,6 +23,18 @@ public abstract class LogBase(string name)
             _name = value;
             NameChangedHandlers?.Invoke(value);
         }
+    }
+
+    protected LogBase(string name)
+    {
+        _name = name;
+        ErrorsChangedHandlers += HandleErrorListChange;
+    }
+
+    private void HandleErrorListChange()
+    {
+        if(_errors.Count > 100)
+            _errors.RemoveRange(0, 75);
     }
 
     public void AddLogProperty(string name, string value)
@@ -47,16 +61,20 @@ public abstract class LogBase(string name)
         return new DisposableItems(disposables);
     }
 
-    protected void LogException(Exception e)
+    protected void LogException(Exception e, string? message = null)
     {
         using (PushProperties())
         {
+            if(message != null)
+                Log.Error(message);
             Log.Error("{ExceptionType} \r\n{ExceptionMessage}\r\n{StackTrace}", 
                 e.GetType().Name, e.Message, e.StackTrace);
+            _errors.Add(new Error(DateTime.Now, message ?? e.Message, e));
             if (e.InnerException == null)
                 return;
             Log.Error("Caused by: {InnerExceptionType} \r\n{InnerExceptionMessage}\r\n{InnerStackTrace}", 
                 e.InnerException.GetType().Name, e.InnerException.Message, e.InnerException.StackTrace);
+            _errors.Add(new Error(DateTime.Now, e.InnerException.Message, e.InnerException));
         }
     }
 }

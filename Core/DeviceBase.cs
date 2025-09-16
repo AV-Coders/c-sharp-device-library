@@ -3,12 +3,11 @@ using Serilog.Context;
 
 namespace AVCoders.Core;
 
-public abstract class DeviceBase(string name, CommunicationClient client) : IDevice
+public abstract class DeviceBase(string name, CommunicationClient client) : LogBase(name), IDevice
 {
     public string Name { get; protected set; } = name;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
-    public readonly string InstanceUid = Guid.NewGuid().ToString();
     
     public readonly CommunicationClient CommunicationClient = client;
     protected PowerState DesiredPowerState = PowerState.Unknown;
@@ -62,41 +61,4 @@ public abstract class DeviceBase(string name, CommunicationClient client) : IDev
     public abstract void PowerOn();
 
     public abstract void PowerOff();
-
-    public void AddLogProperty(string name, string value)
-    {
-        _logProperties[name] = value;
-    }
-    
-    protected IDisposable PushProperties(string? methodName = null)
-    {
-        var disposables = new List<IDisposable>();
-
-        foreach (var property in _logProperties)
-        {
-            disposables.Add(LogContext.PushProperty(property.Key, property.Value));
-        }
-        
-        disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
-        disposables.Add(LogContext.PushProperty("Class", GetType().Name));
-        if(Name != string.Empty)
-            disposables.Add(LogContext.PushProperty("InstanceName", Name));
-        if(methodName != null)
-            disposables.Add(LogContext.PushProperty(LogBase.MethodProperty, methodName));
-
-        return new DisposableItems(disposables);
-    }
-    
-    protected void LogException(Exception e)
-    {
-        using (PushProperties())
-        {
-            Log.Error("{ExceptionType} \r\n{ExceptionMessage}\r\n{StackTrace}",
-                e.GetType().Name, e.Message, e.StackTrace);
-            if (e.InnerException == null)
-                return;
-            Log.Error("Caused by: {InnerExceptionType} \r\n{InnerExceptionMessage}\r\n{InnerStackTrace}",
-                e.InnerException.GetType().Name, e.InnerException.Message, e.InnerException.StackTrace);
-        }
-    }
 }
