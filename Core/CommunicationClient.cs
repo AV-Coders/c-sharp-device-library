@@ -94,7 +94,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         }
         catch (Exception e)
         {
-            using (LogContext.PushProperty(MethodProperty, "InvokeResponseHandlers"))
+            using (PushProperties("InvokeResponseHandlers"))
             {
                 LogException(e, "A Response handler threw an exception");
             }

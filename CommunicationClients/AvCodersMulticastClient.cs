@@ -15,7 +15,7 @@ public class AvCodersMulticastClient : IpComms
     public AvCodersMulticastClient(string ipAddress, ushort port, string name, int ttl = 1, CommandStringFormat commandStringFormat = CommandStringFormat.Ascii)
         : base(ipAddress, port, name, commandStringFormat)
     {
-        using (LogContext.PushProperty(MethodProperty, "Constructor"))
+        using (PushProperties("Constructor"))
         {
             ConnectionState = ConnectionState.Connecting;
 
@@ -64,7 +64,7 @@ public class AvCodersMulticastClient : IpComms
 
     public override void Send(byte[] bytes)
     {
-        using (LogContext.PushProperty(MethodProperty, "Send"))
+        using (PushProperties("Send"))
         {
             try
             {

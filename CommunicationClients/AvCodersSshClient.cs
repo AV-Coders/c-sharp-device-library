@@ -45,7 +45,7 @@ public class AvCodersSshClient : SshClientBase
 
     protected override async Task Receive(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "Receive"))
+        using (PushProperties("Receive"))
         {
             if (_client.IsConnected)
             {
@@ -66,7 +66,7 @@ public class AvCodersSshClient : SshClientBase
 
     protected override async Task CheckConnectionState(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "CheckConnectionState"))
+        using (PushProperties("CheckConnectionState"))
         {
             if (!_client.IsConnected)
             {
@@ -150,7 +150,7 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Send(string message)
     {
-        using (LogContext.PushProperty(MethodProperty, "Send"))
+        using (PushProperties("Send"))
         {
             if (_client.IsConnected)
             {

@@ -61,7 +61,7 @@ public class CBusSerialInterface : LogBase
 
     private void ProcessResponse(byte[] aResponsePayload)
     {
-        using (LogContext.PushProperty(MethodProperty, "ProcessResponse"))
+        using (PushProperties("ProcessResponse"))
         {
             Log.Information(BitConverter.ToString(aResponsePayload));
         }

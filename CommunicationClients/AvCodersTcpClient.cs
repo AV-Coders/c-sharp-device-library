@@ -25,7 +25,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
     protected override async Task Receive(CancellationToken token)
     {
-        using (LogContext.PushProperty(MethodProperty, "Receive"))
+        using (PushProperties("Receive"))
         {
             if (!_client.Connected)
             {
@@ -128,7 +128,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Send(byte[] bytes)
     {
-        using (LogContext.PushProperty(MethodProperty, "Send"))
+        using (PushProperties("Send"))
         {
             if (_client.Connected)
             {

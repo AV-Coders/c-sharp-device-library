@@ -250,8 +250,7 @@ public class TybaTurn2 : LogBase
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
-            throw;
+            LogException(e);
         }
     }
 

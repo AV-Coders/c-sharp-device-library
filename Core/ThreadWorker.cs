@@ -1,6 +1,6 @@
 ﻿namespace AVCoders.Core;
 
-public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false)
+public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false) : LogBase("ThreadWorker")
 {
     private CancellationTokenSource? _cancellationTokenSource = null;
     private Task? _task;
@@ -60,13 +60,7 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
             }
             catch (Exception e)
             {
-                Console.WriteLine("ThreadWorker has encountered an exception while running a task:");
-                Console.WriteLine(e.Message);
-                Console.WriteLine(e.StackTrace ?? "No stack trace available");
-                if (e.InnerException == null)
-                    return;
-                Console.WriteLine(e.InnerException.Message);
-                Console.WriteLine(e.InnerException.StackTrace?? "No stack trace available");
+                LogException(e, "ThreadWorker has encountered an exception while running a task:");
             }
         }, token);
     }
