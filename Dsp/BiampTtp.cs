@@ -145,6 +145,7 @@ public class BiampTtp : Dsp
             if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             {
                 Log.Verbose("IP Comms disconnected, not polling");
+                await Task.Delay(TimeSpan.FromSeconds(10), token);
                 return;
             }
 
