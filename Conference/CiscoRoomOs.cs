@@ -246,6 +246,7 @@ public class CiscoRoomOs : Conference
               return;
             case "Conference" when responses[2] == "DoNotDisturb:":
               DoNotDisturbState = responses[3].Contains("Active") ? PowerState.On : PowerState.Off;
+              ValidateDoNotDisturbState();
               return;
             case "SIP" when responses[2] == "Registration" && responses[4] == "URI:":
               Uri = responses[5].Trim().Trim('"');
@@ -282,7 +283,7 @@ public class CiscoRoomOs : Conference
           return;
         if (DoNotDisturbState == _desiredDoNotDisturbState)
           return;
-        Log.Warning(
+        Log.Information(
           "The current Do Not Disturb state ({IncorrectDoNotDisturbState}) is not what's expected ({DesiredDoNotDisturbState}), forcing state",
           DoNotDisturbState.ToString(), _desiredDoNotDisturbState.ToString());
         SetDoNotDisturbState(_desiredDoNotDisturbState);
