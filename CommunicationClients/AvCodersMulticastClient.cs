@@ -7,7 +7,7 @@ using UdpClient = System.Net.Sockets.UdpClient;
 
 namespace AVCoders.CommunicationClients;
 
-public class AvCodersMulticastClient : IpComms
+public class AvCodersMulticastClient : IMulticastClient
 {
     private readonly UdpClient _client;
     private readonly IPEndPoint _remoteEndPoint;

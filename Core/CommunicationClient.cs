@@ -195,6 +195,14 @@ public abstract class IpComms : CommunicationClient
     }
 }
 
+public abstract class IMulticastClient : IpComms
+{
+    protected IMulticastClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+        : base(host, port, name, commandStringFormat)
+    {
+    }
+}
+
 public abstract class MqttClient(string host, ushort port, string name)
     : CommunicationClient(name, host, port, CommandStringFormat.Ascii)
 {
