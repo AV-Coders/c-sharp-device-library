@@ -56,6 +56,14 @@ public class ExtronSmp351Test
         _mockClient.Verify(x => x.Send($"{EscapeHeader}Y0RCDR\r"));
     }
 
+    [Fact]
+    public void AddMarker_SendsTheCommand()
+    {
+        _recorder.AddMarker();
+        
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}BRCDR\r"));
+    }
+
     [Theory]
     [InlineData("Inf*<ChA1*ChB3>*<stopped>*<internal*auto>*<116606760*N/A>*<00:00:00>*<41:28:03*00:00:00>\r\n", TransportState.Stopped)]
     [InlineData("Inf*<ChA1*ChB3>*<recording>*<internal*N/A>*<116606580*N/A>*<00:00:06>*<824:27:00*00:00:00>\r\n", TransportState.Recording)]

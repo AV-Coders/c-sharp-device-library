@@ -132,6 +132,8 @@ public class ExtronSmp351 : Recorder
     protected override void DoStop() => CommunicationClient.Send($"{EscapeHeader}Y0RCDR\r");
     
     protected override void DoPause() => CommunicationClient.Send($"{EscapeHeader}Y2RCDR\r");
+    
+    public override void AddMarker() => CommunicationClient.Send($"{EscapeHeader}BRCDR\r");
 
     private void HandleResponse(string response)
     {

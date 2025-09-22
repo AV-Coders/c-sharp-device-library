@@ -154,6 +154,11 @@ public class LumensLc300 : Recorder
         PowerState = PowerState.Off;
     }
 
+    public override void AddMarker()
+    {
+        throw new NotImplementedException();
+    }
+
     protected override void DoRecord()
     {
         SendCommand(SetAction, "RC"u8.ToArray());
