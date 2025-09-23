@@ -53,15 +53,17 @@ public class QsysVolumeControl : VolumeControl
 public class QsysEcp : Dsp
 {
     public static readonly ushort DefaultPort = 1702;
-    private readonly Dictionary<string, QscGain> _gains = new Dictionary<string, QscGain>();
-    private readonly Dictionary<string, QscMute> _mutes = new Dictionary<string, QscMute>();
-    private readonly Dictionary<string, QscInt> _strings = new Dictionary<string, QscInt>();
+    private readonly Dictionary<string, QscGain> _gains = new();
+    private readonly Dictionary<string, QscMute> _mutes = new();
+    private readonly Dictionary<string, QscInt> _strings = new();
+    private readonly Dictionary<string, QscGain> _meters = new();
     private readonly Regex _responseParser;
 
     // There is a limit of 4 change groups.
     private const int ChangeGroupGains = 1;
     private const int ChangeGroupMutes = 2;
     private const int ChangeGroupStrings = 3;
+    private const int ChangeGroupMeters = 4;
 
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
 
@@ -123,6 +125,9 @@ public class QsysEcp : Dsp
 
             if (_strings.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
                 _strings[controlName].Value = matches[0].Groups[2].Value;
+            
+            if (_meters.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
+                _meters[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
         }
         catch (Exception e)
         {
@@ -146,6 +151,7 @@ public class QsysEcp : Dsp
                 CommunicationClient.Send($"cgc {ChangeGroupGains}\n");
                 CommunicationClient.Send($"cgc {ChangeGroupMutes}\n");
                 CommunicationClient.Send($"cgc {ChangeGroupStrings}\n");
+                CommunicationClient.Send($"cgc {ChangeGroupMeters}\n");
                 Thread.Sleep(500);
 
                 AddControlsToChangeGroup(ChangeGroupGains, _gains.Keys.ToList());
@@ -154,12 +160,14 @@ public class QsysEcp : Dsp
                 Thread.Sleep(500);
                 AddControlsToChangeGroup(ChangeGroupStrings, _strings.Keys.ToList());
                 Thread.Sleep(500);
+                AddControlsToChangeGroup(ChangeGroupMeters, _meters.Keys.ToList());
+                Thread.Sleep(500);
 
                 ScheduleChangeGroupPoll(ChangeGroupGains);
                 ScheduleChangeGroupPoll(ChangeGroupMutes);
                 ScheduleChangeGroupPoll(ChangeGroupStrings);
+                ScheduleChangeGroupPoll(ChangeGroupMeters, 500);
             }).Start();
-
 
             GetAllControlStates();
         }
@@ -169,10 +177,10 @@ public class QsysEcp : Dsp
         }
     }
 
-    private void ScheduleChangeGroupPoll(int changeGroupId)
+    private void ScheduleChangeGroupPoll(int changeGroupId, uint pollPeriodInMs = 100)
     {
         // The device only reports on a change
-        CommunicationClient.Send($"cgsna {changeGroupId} 100\n");
+        CommunicationClient.Send($"cgsna {changeGroupId} {pollPeriodInMs}\n");
     }
 
     private void AddControlsToChangeGroup(int groupId, List<string> controlNames)
@@ -208,6 +216,12 @@ public class QsysEcp : Dsp
                     }
 
                     foreach (string key in _strings.Keys)
+                    {
+                        GetControl(key);
+                        Thread.Sleep(100);
+                    }
+                    
+                    foreach (string key in _meters.Keys)
                     {
                         GetControl(key);
                         Thread.Sleep(100);
@@ -265,6 +279,19 @@ public class QsysEcp : Dsp
         }
 
         GetControl(controlName);
+    }
+
+    public void AddMonitor(VolumeLevelHandler volumeLevelHandler, string levelName)
+    {
+        if (_meters.TryGetValue(levelName, out var meter))
+            meter.VolumeLevelHandlers += volumeLevelHandler;
+        else
+        {
+            _meters.Add(levelName, new QscGain(volumeLevelHandler));
+            AddControlsToChangeGroup(ChangeGroupMeters, [levelName]);
+        }
+
+        GetControl(levelName);
     }
 
     public override void PowerOn() { }
