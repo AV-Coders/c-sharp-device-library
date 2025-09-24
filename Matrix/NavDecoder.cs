@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Matrix;
 
@@ -45,8 +46,31 @@ public class NavDecoder : NavDeviceBase
     {
     }
 
-    public void SetInput(uint deviceId) => Navigator.RouteAV(deviceId, DeviceNumber);
-    public void SetVideo(uint deviceId) => Navigator.RouteVideo(deviceId, DeviceNumber);
+    public void SetInput(uint deviceId)
+    {
+        using (PushProperties())
+        {
+            if (DeviceNumber == 0)
+            {
+                Log.Error("Not requesting a route as my device number is 0");
+            }
+            Navigator.RouteAV(deviceId, DeviceNumber);
+            
+        }
+    }
+
+    public void SetVideo(uint deviceId)
+    {
+        using (PushProperties())
+        {
+            if (DeviceNumber == 0)
+            {
+                Log.Error("Not requesting a video route as my device number is 0");
+            }
+
+            Navigator.RouteVideo(deviceId, DeviceNumber);
+        }
+    }
 
     public void SetInput(NavEncoder encoder) => Navigator.RouteAV(encoder.DeviceNumber, DeviceNumber);
     
