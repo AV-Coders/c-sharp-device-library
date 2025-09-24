@@ -29,4 +29,27 @@ public class NavEncoderTest
         _inputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080@60", HdcpStatus.Unknown));
     }
     
+    [Theory]
+    [InlineData("In00 0", ConnectionState.Disconnected)]
+    [InlineData("In00 1", ConnectionState.Connected)]
+    public void ResponseHandler_ProcessesInputStatus(string response, ConnectionState expectedState)
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke(response);
+        
+        Assert.Equal(expectedState, _inputSyncInfoHandlerMock.Invocations[0].Arguments[0]);
+    }
+    
+    [Theory]
+    [InlineData("HdcpI0", HdcpStatus.NotSupported)]
+    [InlineData("HdcpI1", HdcpStatus.Active)]
+    public void ResponseHandler_ProcessesHDCPStatus(string response, HdcpStatus expectedState)
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke(response);
+        
+        Assert.Equal(expectedState, _inputSyncInfoHandlerMock.Invocations[0].Arguments[2]);
+    }
+    
+    
 }

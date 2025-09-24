@@ -127,6 +127,25 @@ public class NavDecoder : NavDeviceBase
                         break;
                 }
             }
+            else if (response.StartsWith("HplgO"))
+            {
+                OutputConnectionStatus = response.Remove(0, 5) == "1" ? ConnectionState.Connected : ConnectionState.Disconnected;
+
+                switch (OutputConnectionStatus)
+                {
+                    case ConnectionState.Connected:
+                        Poll(CancellationToken.None);
+                        break;
+                    case ConnectionState.Disconnected:
+                        OutputHdcpStatus = HdcpStatus.Unknown;
+                        OutputResolution = string.Empty;
+                        break;
+                }
+            }
+            else if (response.StartsWith("HdcpO"))
+            {
+                OutputHdcpStatus = response.Remove(0, 5) == "1" ? HdcpStatus.Active : HdcpStatus.NotSupported;
+            }
         }
     }
 

@@ -96,4 +96,28 @@ public class NavDecoderTest
         _navDecoder.SetInput(0);
         _navigatorMock.Verify(x => x.RouteAV(0, 101));
     }
+    
+    
+    
+    [Theory]
+    [InlineData("HplgO0", ConnectionState.Disconnected)]
+    [InlineData("HplgO1", ConnectionState.Connected)]
+    public void ResponseHandler_ProcessesInputStatus(string response, ConnectionState expectedState)
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke(response);
+        
+        Assert.Equal(expectedState, _outputSyncInfoHandlerMock.Invocations[0].Arguments[0]);
+    }
+    
+    [Theory]
+    [InlineData("HdcpO0", HdcpStatus.NotSupported)]
+    [InlineData("HdcpO1", HdcpStatus.Active)]
+    public void ResponseHandler_ProcessesHDCPStatus(string response, HdcpStatus expectedState)
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke(response);
+        
+        Assert.Equal(expectedState, _outputSyncInfoHandlerMock.Invocations[0].Arguments[2]);
+    }
 }

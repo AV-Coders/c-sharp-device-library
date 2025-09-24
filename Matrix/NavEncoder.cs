@@ -17,10 +17,28 @@ public class NavEncoder : NavDeviceBase
 
     protected override void HandleResponse(string response)
     {
-        if (response.Contains('*'))
+        if (response.StartsWith("In00"))
         {
-            var responses = response.Split('*');
+            InputConnectionStatus = response.Split(' ')[1] == "1" ? ConnectionState.Connected : ConnectionState.Disconnected;
+
+            switch (InputConnectionStatus)
+            {
+                case ConnectionState.Connected:
+                    Poll(CancellationToken.None);
+                    break;
+                case ConnectionState.Disconnected:
+                    InputHdcpStatus = HdcpStatus.Unknown;
+                    InputResolution = string.Empty;
+                    break;
+            }
         }
+        else if (response.StartsWith("HdcpI"))
+        {
+            // HdcpI0
+            // HdcpI1
+            InputHdcpStatus = response.Remove(0, 5) == "1" ? HdcpStatus.Active : HdcpStatus.NotSupported;
+        }
+        
     }
 
     protected override void ProcessConcatenatedResponse(string response)
