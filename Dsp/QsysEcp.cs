@@ -91,10 +91,15 @@ public class QsysEcp : Dsp
             var lines = response.Split('\n');
             foreach (string line in lines)
             {
-                if (line.StartsWith("cv"))
+                if (line.StartsWith("cv "))
                 {
                     ProcessValueChange(line);
                     CommunicationState = CommunicationState.Okay;
+                }
+
+                if (line.StartsWith("cvv "))
+                {
+                    ProcessMeterChange(line);
                 }
                 else if (line.StartsWith("sr"))
                     CommunicationState = CommunicationState.Okay;
@@ -104,6 +109,16 @@ public class QsysEcp : Dsp
                     Log.Error("Invalid named control found: {Line}", line);
                 }
             }
+        }
+    }
+
+    private void ProcessMeterChange(string line)
+    {
+        var values = line.Split(' ');
+        string controlName = values[1].TrimStart('"').TrimEnd('"');
+        if (_meters.ContainsKey(controlName)) // Eg:cvv "rec_meter" 2 "-45.3dB" "-11.8dB" 2 -45.2769 -11.759 2 0.0736156 0.764821
+        {
+            _meters[controlName].SetVolumeFromPercentage(double.Parse(values[10]) * 100);
         }
     }
 
@@ -125,9 +140,6 @@ public class QsysEcp : Dsp
 
             if (_strings.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
                 _strings[controlName].Value = matches[0].Groups[2].Value;
-            
-            if (_meters.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
-                _meters[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
         }
         catch (Exception e)
         {

@@ -9,6 +9,7 @@ public class QsysEcpTest
 {
     private readonly QsysEcp _dsp;
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
+    private readonly Mock<VolumeLevelHandler> _monitorHandler = new();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
     private readonly Mock<StringValueHandler> _stringValueHandler = new();
     private readonly Mock<CommunicationStateHandler> _communicationStateHandler = new();
@@ -231,6 +232,16 @@ public class QsysEcpTest
         _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"5\" 5 0.571429");
 
         _stringValueHandler.Verify(x => x.Invoke("5"));
+    }
+
+    [Theory]
+    [InlineData("cvv \"rec_meter\" 2 \"-45.3dB\" \"-11.8dB\" 2 -45.2769 -11.759 2 0.0736156 0.764821", 76)]
+    public void HandleResponse_GivenAMeterResponse_UpdatesTheLevel(string response, int expectedLevel)
+    {
+        _dsp.AddMonitor(_monitorHandler.Object, "rec_meter");
+        _mockClient.Object.ResponseHandlers.Invoke(response);
+        
+        _monitorHandler.Verify(x => x.Invoke(expectedLevel));
     }
 
     [Fact]
