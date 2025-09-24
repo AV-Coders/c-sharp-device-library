@@ -235,7 +235,10 @@ public class QsysEcpTest
     }
 
     [Theory]
-    [InlineData("cvv \"rec_meter\" 2 \"-45.3dB\" \"-11.8dB\" 2 -45.2769 -11.759 2 0.0736156 0.764821", 76)]
+    [InlineData("cvv \"rec_meter\" 2 \"-45.3dB\" \"-11.8dB\" 2 -45.2769 -11.759 2 0.0736156 0.764821", 7)]
+    [InlineData("cvv \"rec_meter\" 2 \"-52.0dB\" \"-38.0dB\" 2 -51.9812 -38.039 2 0.0400942 0.11961", 4)]
+    [InlineData("cvv \"rec_meter\" 2 \"-2.17dB\" \"2.81dB\" 2 -2.17039 2.80927 2 0.878296 0.914046", 87)]
+    [InlineData("cvv \"rec_meter\" 2 \"-31.1dB\" \"1.21dB\" 2 -31.1223 1.20927 2 0.188777 0.906046", 18)]
     public void HandleResponse_GivenAMeterResponse_UpdatesTheLevel(string response, int expectedLevel)
     {
         _dsp.AddMonitor(_monitorHandler.Object, "rec_meter");

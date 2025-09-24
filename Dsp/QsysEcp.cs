@@ -118,7 +118,7 @@ public class QsysEcp : Dsp
         string controlName = values[1].TrimStart('"').TrimEnd('"');
         if (_meters.ContainsKey(controlName)) // Eg:cvv "rec_meter" 2 "-45.3dB" "-11.8dB" 2 -45.2769 -11.759 2 0.0736156 0.764821
         {
-            _meters[controlName].SetVolumeFromPercentage(double.Parse(values[10]) * 100);
+            _meters[controlName].SetVolumeFromPercentage(double.Parse(values[9]) * 100);
         }
     }
 
