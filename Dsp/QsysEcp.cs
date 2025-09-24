@@ -166,7 +166,7 @@ public class QsysEcp : Dsp
                 ScheduleChangeGroupPoll(ChangeGroupGains);
                 ScheduleChangeGroupPoll(ChangeGroupMutes);
                 ScheduleChangeGroupPoll(ChangeGroupStrings);
-                ScheduleChangeGroupPoll(ChangeGroupMeters, 500);
+                ScheduleChangeGroupPoll(ChangeGroupMeters, 1000);
             }).Start();
 
             GetAllControlStates();
