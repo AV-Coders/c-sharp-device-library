@@ -17,6 +17,7 @@ public class CiscoRoomOsRecentCalls
         _client = client;
         _client.ResponseHandlers += HandleResponse;
         _client.ConnectionStateHandlers += HandleConnectionState;
+        HandleConnectionState(_client.ConnectionState);
     }
 
     private void HandleConnectionState(ConnectionState connectionState)
