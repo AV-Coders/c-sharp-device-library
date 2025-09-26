@@ -1,7 +1,6 @@
 ﻿using System.Net.Sockets;
 using System.Text;
 using Serilog;
-using Serilog.Context;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
 
@@ -9,15 +8,17 @@ namespace AVCoders.CommunicationClients;
 
 public class AvCodersTcpClient : Core_TcpClient
 {
+    private readonly bool _useKeepAlive;
     private TcpClient _client;
     private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
 
-    public AvCodersTcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat) :
+    public AvCodersTcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat, bool useKeepAlive = false) :
         base(host, port, name, commandStringFormat)
     {
+        _useKeepAlive = useKeepAlive;
         ConnectionState = ConnectionState.Unknown;
         _client = new TcpClient();
-        
+        ConfigureKeepAlive(_client);
         ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
         SendQueueWorker.Restart();
@@ -77,6 +78,7 @@ public class AvCodersTcpClient : Core_TcpClient
                     }
 
                     _client.EndConnect(connectResult);
+                    ConfigureKeepAlive(_client);
 
                     ConnectionState = ConnectionState.Connected;
                     ReceiveThreadWorker.Restart();
@@ -91,6 +93,7 @@ public class AvCodersTcpClient : Core_TcpClient
                     LogException(e);
                     _client.Close();
                     _client = new TcpClient();
+                    ConfigureKeepAlive(_client);
                     ConnectionState = ConnectionState.Disconnected;
                 }
                 catch (Exception e)
@@ -103,6 +106,7 @@ public class AvCodersTcpClient : Core_TcpClient
             }
         }
     }
+    
 
     protected override async Task ProcessSendQueue(CancellationToken token)
     {
@@ -160,9 +164,11 @@ public class AvCodersTcpClient : Core_TcpClient
         ConnectionState = ConnectionState.Disconnecting;
         _client.Close();
         _client = new TcpClient();
+        ConfigureKeepAlive(_client);
         ConnectionState = ConnectionState.Disconnected;
         // The worker will handle reconnection
     }
+    
 
     public override void Disconnect()
     {
@@ -171,5 +177,30 @@ public class AvCodersTcpClient : Core_TcpClient
         _client.Close();
         _client = new TcpClient();
         ConnectionState = ConnectionState.Disconnected;
+    }
+
+    private void ConfigureKeepAlive(TcpClient client)
+    {
+        if (!_useKeepAlive)
+            return;
+        try
+        {
+            Socket socket = client.Client;
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 10);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 3);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+        }
+        catch (SocketException e)
+        {
+            // On some platforms one or more options may not be supported; ignore and proceed with what worked.
+            LogException(e, "There was an error setting keepalive options");
+            
+        }
+        catch (PlatformNotSupportedException e)
+        {
+            // Ignore on platforms that don't support tuning keepalive values.
+            LogException(e, "This platform doesn't support keepalive options");
+        }
     }
 }
