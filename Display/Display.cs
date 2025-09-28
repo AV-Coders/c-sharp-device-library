@@ -24,7 +24,6 @@ public abstract class Display : VolumeControl, IDevice
     public PowerStateHandler DesiredPowerStateHandlers;
     public InputHandler InputHandlers;
     public InputHandler DesiredInputHandlers;
-    private MuteState _audioMute = MuteState.Unknown;
     private readonly List<Event> _events = [];
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
@@ -107,19 +106,11 @@ public abstract class Display : VolumeControl, IDevice
             DesiredPowerStateHandlers.Invoke(value);
         }
     }
-
-
+    
     public MuteState AudioMute
     {
-        get => _audioMute;
-        protected set
-        {
-            if (_audioMute == value)
-                return;
-            _audioMute = value;
-            MuteState = value;
-            MuteStateHandlers?.Invoke(AudioMute);
-        }
+        get => MuteState;
+        protected set => MuteState = value;
     }
 
     public MuteState VideoMute { get; protected set; } = MuteState.Unknown;
@@ -166,7 +157,6 @@ public abstract class Display : VolumeControl, IDevice
     {
         using (PushProperties("ProcessInputResponse"))
         {
-            InputHandlers.Invoke(Input);
             if (Input == DesiredInput)
                 return;
             if (DesiredInput == Input.Unknown)
