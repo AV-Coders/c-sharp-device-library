@@ -274,6 +274,12 @@ public abstract class Display : VolumeControl, IDevice
         }
     }
 
+    public void ClearEvents()
+    {
+        _events.Clear();
+        EventsUpdated?.Invoke();
+    }
+
     protected void AddEvent(EventType type, string info)
     {
         Log.Verbose(info);

@@ -82,6 +82,12 @@ public abstract class DeviceBase : LogBase, IDevice
 
     public abstract void PowerOff();
 
+    public void ClearEvents()
+    {
+        _events.Clear();
+        EventsUpdated?.Invoke();
+    }
+
     protected void AddEvent(EventType type, string info)
     {
         Log.Verbose(info);
