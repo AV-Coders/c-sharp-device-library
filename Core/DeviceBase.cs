@@ -23,7 +23,7 @@ public abstract class DeviceBase : LogBase, IDevice
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
     
-    protected event ActionHandler? EventsUpdated;
+    public event ActionHandler? EventsUpdated;
 
     public PowerState PowerState
     {

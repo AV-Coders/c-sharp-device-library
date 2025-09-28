@@ -28,7 +28,7 @@ public abstract class Display : VolumeControl, IDevice
     private readonly List<Event> _events = [];
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
-    protected event ActionHandler? EventsUpdated;
+    public event ActionHandler? EventsUpdated;
 
     protected readonly ThreadWorker PollWorker;
 
