@@ -5,7 +5,7 @@ using Serilog.Core;
 namespace AVCoders.Core;
 
 public record Event(
-    DateTime Timestamp,
+    DateTimeOffset Timestamp,
     EventType Type,
     string Info,
     ILogEventEnricher LogContext);
@@ -85,7 +85,7 @@ public abstract class DeviceBase : LogBase, IDevice
     protected void AddEvent(EventType type, string info)
     {
         Log.Verbose(info);
-        _events.Add(new Event(DateTime.UtcNow, type, info, LogContext.Clone()));
+        _events.Add(new Event(DateTimeOffset.Now, type, info, LogContext.Clone()));
         LimitEvents();
         EventsUpdated?.Invoke();
     }
