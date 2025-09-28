@@ -1,19 +1,29 @@
 using Serilog;
 using Serilog.Context;
+using Serilog.Core;
 
 namespace AVCoders.Core;
 
-public abstract class DeviceBase(string name, CommunicationClient client) : LogBase(name), IDevice
+public record Event(
+    DateTime Timestamp,
+    EventType Type,
+    string Info,
+    ILogEventEnricher LogContext);
+
+public abstract class DeviceBase : LogBase, IDevice
 {
-    public string Name { get; protected set; } = name;
-    public CommunicationStateHandler? CommunicationStateHandlers;
-    public PowerStateHandler? PowerStateHandlers;
+    public IReadOnlyList<Event> Events => _events;
+    public CommunicationStateHandler CommunicationStateHandlers;
+    public PowerStateHandler PowerStateHandlers;
+    private readonly List<Event> _events = [];
     
-    public readonly CommunicationClient CommunicationClient = client;
+    public readonly CommunicationClient CommunicationClient;
     protected PowerState DesiredPowerState = PowerState.Unknown;
     
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
+    
+    protected event ActionHandler? EventsUpdated;
 
     public PowerState PowerState
     {
@@ -36,28 +46,55 @@ public abstract class DeviceBase(string name, CommunicationClient client) : LogB
                 return;
             
             _communicationState = value;
-            CommunicationStateHandlers?.Invoke(CommunicationState);
+            CommunicationStateHandlers.Invoke(CommunicationState);
         }
+    }
+    
+    protected DeviceBase(string name, CommunicationClient client) : base(name)
+    {
+        CommunicationClient = client;
+        CommunicationStateHandlers = x => AddEvent(EventType.DriverState, x.ToString());
+        PowerStateHandlers = x => AddEvent(EventType.Power, x.ToString());
     }
 
     protected void ProcessPowerState()
     {
         if (PowerState == DesiredPowerState)
             return;
-        switch (DesiredPowerState)
+        
+        using (PushProperties("ProcessPowerState"))
         {
-            case PowerState.Off:
-                Log.Verbose("Forcing Power off");
-                PowerOff();
-                break;
-            case PowerState.On:
-                Log.Verbose("Forcing Power on");
-                PowerOn();
-                break;
+            switch (DesiredPowerState)
+            {
+                case PowerState.Off:
+                    AddEvent(EventType.Power, "Power state not desired, forcing power Off");
+                    PowerOff();
+                    break;
+                case PowerState.On:
+                    AddEvent(EventType.Power, "Power state not desired, forcing power On");
+                    PowerOn();
+                    break;
+            }
         }
     }
 
     public abstract void PowerOn();
 
     public abstract void PowerOff();
+
+    protected void AddEvent(EventType type, string info)
+    {
+        Log.Verbose(info);
+        _events.Add(new Event(DateTime.UtcNow, type, info, LogContext.Clone()));
+        LimitEvents();
+        EventsUpdated?.Invoke();
+    }
+
+    private void LimitEvents()
+    {
+        if (_events.Count > 300)
+        {
+            _events.RemoveRange(0, _events.Count - 300);
+        }
+    }
 }

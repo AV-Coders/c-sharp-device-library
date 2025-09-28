@@ -158,6 +158,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         if (UnsupportedButtons.Contains(button))
         {
             Log.Error("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
+            AddEvent(EventType.Error, $"Unsupported button - {button.ToString()}");
             return;
         }
 

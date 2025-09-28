@@ -8,6 +8,7 @@ public delegate void InputHandler(Input input);
 
 public abstract class Display : VolumeControl, IDevice
 {
+    public IReadOnlyList<Event> Events => _events;
     public List<Input> SupportedInputs { get; }
     public readonly CommunicationClient CommunicationClient;
     public readonly CommandStringFormat CommandStringFormat;
@@ -18,24 +19,35 @@ public abstract class Display : VolumeControl, IDevice
     private PowerState _desiredPowerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
     public readonly Input? DefaultInput;
-    public CommunicationStateHandler? CommunicationStateHandlers;
-    public PowerStateHandler? PowerStateHandlers;
-    public PowerStateHandler? DesiredPowerStateHandlers;
-    public InputHandler? InputHandlers;
-    public InputHandler? DesiredInputHandlers;
+    public CommunicationStateHandler CommunicationStateHandlers;
+    public PowerStateHandler PowerStateHandlers;
+    public PowerStateHandler DesiredPowerStateHandlers;
+    public InputHandler InputHandlers;
+    public InputHandler DesiredInputHandlers;
     private MuteState _audioMute = MuteState.Unknown;
+    private readonly List<Event> _events = [];
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
+    protected event ActionHandler? EventsUpdated;
 
     protected readonly ThreadWorker PollWorker;
 
     protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, CommandStringFormat commandStringFormat, int pollTime = 23)
         : base(name, VolumeType.Speaker)
     {
+        CommunicationStateHandlers = x => AddEvent(EventType.DriverState,  x.ToString());
+        PowerStateHandlers = x => AddEvent(EventType.Power, x.ToString());
+        DesiredPowerStateHandlers = x => AddEvent(EventType.Power, $"Desired power state is now {x.ToString()}");
+        InputHandlers = x => AddEvent(EventType.Input, x.ToString());
+        DesiredInputHandlers = x => AddEvent(EventType.Input, $"Desired input is now {x.ToString()}");
+        VolumeLevelHandlers = x => AddEvent(EventType.Volume,  x.ToString());
+        MuteStateHandlers = x => AddEvent(EventType.Volume, $"Mute: {x.ToString()}");
+        
         SupportedInputs = supportedInputs;
         DefaultInput = defaultInput;
         CommunicationClient = communicationClient;
         CommandStringFormat = commandStringFormat;
+        CommunicationClient.ConnectionStateHandlers += x => AddEvent(EventType.Connection, x.ToString());
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationState = CommunicationState.NotAttempted;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
@@ -56,7 +68,7 @@ public abstract class Display : VolumeControl, IDevice
             if (_input == value) 
                 return;
             _input = value;
-            InputHandlers?.Invoke(value);
+            InputHandlers.Invoke(value);
         }
     }
 
@@ -68,7 +80,7 @@ public abstract class Display : VolumeControl, IDevice
             if (_desiredInput == value)
                 return;
             _desiredInput = value;
-            DesiredInputHandlers?.Invoke(value);
+            DesiredInputHandlers.Invoke(value);
         }
     }
 
@@ -80,7 +92,7 @@ public abstract class Display : VolumeControl, IDevice
             if(_powerState == value)
                 return;
             _powerState = value;
-            PowerStateHandlers?.Invoke(value);
+            PowerStateHandlers.Invoke(value);
         }
     }
 
@@ -92,7 +104,7 @@ public abstract class Display : VolumeControl, IDevice
             if(_desiredPowerState == value)
                 return;
             _desiredPowerState = value;
-            DesiredPowerStateHandlers?.Invoke(value);
+            DesiredPowerStateHandlers.Invoke(value);
         }
     }
 
@@ -120,7 +132,7 @@ public abstract class Display : VolumeControl, IDevice
             if(_communicationState == value)
                 return;
             _communicationState = value;
-            CommunicationStateHandlers?.Invoke(value);
+            CommunicationStateHandlers.Invoke(value);
         }
     }
 
@@ -141,7 +153,8 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             if (DesiredPowerState == PowerState.Unknown)
                 return;
-            Log.Information("{Name} has hte incorrect power state - Forcing Power", Name);
+            Log.Information("{Name} has the incorrect power state - Forcing Power", Name);
+            AddEvent(EventType.Power, $"The power state is incorrect, setting to desired power state {_desiredPowerState.ToString()}");
             if (DesiredPowerState == PowerState.Off)
                 PowerOff();
             else if (DesiredPowerState == PowerState.On)
@@ -153,12 +166,13 @@ public abstract class Display : VolumeControl, IDevice
     {
         using (PushProperties("ProcessInputResponse"))
         {
-            InputHandlers?.Invoke(Input);
+            InputHandlers.Invoke(Input);
             if (Input == DesiredInput)
                 return;
             if (DesiredInput == Input.Unknown)
                 return;
-            Log.Information("{Name} has hte incorrect input - Forcing Input", Name);
+            Log.Information("{Name} has the incorrect input - Forcing Input", Name);
+            AddEvent(EventType.Input, $"The input is incorrect, setting to desired input {_desiredInput.ToString()}");
             SetInput(DesiredInput);
         }
     }
@@ -174,7 +188,6 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOn()
     {
         DoPowerOn();
-        Log.Verbose("Turning On");
         PowerState = PowerState.On;
         DesiredPowerState = PowerState.On;
         if(DefaultInput != null)
@@ -186,7 +199,6 @@ public abstract class Display : VolumeControl, IDevice
     public void PowerOff()
     {
         DoPowerOff();
-        Log.Verbose("Turning Off");
         PowerState = PowerState.Off;
         DesiredPowerState = PowerState.Off;
     }
@@ -198,10 +210,10 @@ public abstract class Display : VolumeControl, IDevice
         if (!SupportedInputs.Contains(input))
         {
             Log.Error("Requested Input {Input} is not available", input);
+            AddEvent(EventType.Error, $"Requested Input {input.ToString()} is not available");
             return;
         }
         DoSetInput(input);
-        Log.Verbose("Setting input to {ToString}", input.ToString());
         DesiredInput = input;
         Input = input;
     }
@@ -213,6 +225,7 @@ public abstract class Display : VolumeControl, IDevice
         if (volume is > 100 or < 0)
         {
             Log.Error("Volume needs to be a value between 0 and 100, it's {Volume}", volume);
+            AddEvent(EventType.Error, $"Volume needs to be a value between 0 and 100, it's {volume}");
             return;
         }
         DoSetVolume(volume);
@@ -241,7 +254,6 @@ public abstract class Display : VolumeControl, IDevice
 
     public override void SetAudioMute(MuteState state)
     {
-        Log.Verbose("Setting audio mute to {ToString}", state.ToString());
         DesiredAudioMute = state;
         DoSetAudioMute(state);
         AudioMute = state;
@@ -259,6 +271,22 @@ public abstract class Display : VolumeControl, IDevice
             default:
                 SetAudioMute(MuteState.On);
                 break;
+        }
+    }
+
+    protected void AddEvent(EventType type, string info)
+    {
+        Log.Verbose(info);
+        _events.Add(new Event(DateTime.UtcNow, type, info, LogContext.Clone()));
+        LimitEvents();
+        EventsUpdated?.Invoke();
+    }
+
+    private void LimitEvents()
+    {
+        if (_events.Count > 300)
+        {
+            _events.RemoveRange(0, _events.Count - 300);
         }
     }
 }

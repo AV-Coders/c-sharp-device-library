@@ -67,6 +67,7 @@ public class ColorlightDeviceControlProtocolClassB : Display
         if (percentage > 100)
         {
             Log.Error("The brightness can't go over 100%");
+            AddEvent(EventType.Error, $"The brightness can't go over 100%, you've requested {percentage}");
             return;
         }
         _brightness = percentage;

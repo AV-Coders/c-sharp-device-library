@@ -143,6 +143,7 @@ public class SamsungMdc : Display
             if (response[0] != 0xAA && response[1] != 0xFF)
             {
                 Log.Debug("The response does not have the correct header");
+                AddEvent(EventType.Error, "The response does not have the correct header");
                 return;
             }
 

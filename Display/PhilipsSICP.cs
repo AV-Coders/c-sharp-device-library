@@ -35,6 +35,7 @@ public class PhilipsSICP : Display
             if (response.Length < response[0])
             {
                 Log.Error("The response was too small");
+                AddEvent(EventType.Error, "The response was too small");
                 return;
             }
 

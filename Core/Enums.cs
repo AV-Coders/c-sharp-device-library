@@ -127,3 +127,16 @@ public enum SerialStopBits
     Bits1,
     Bits2,
 }
+
+public enum EventType
+{
+    Other,
+    Power,
+    Input,
+    VideoMute,
+    Transport,
+    Connection,
+    DriverState,
+    Volume,
+    Error
+}
