@@ -23,7 +23,11 @@ public class AvCodersTcpServer : Core_TcpClient
         ConnectionStateWorker.Restart();
     }
 
-    public override void Send(string message) => Send(Bytes.FromString(message));
+    public override void Send(string message)
+    {
+        Send(Bytes.FromString(message));
+        InvokeRequestHandlers(message);
+    }
 
     public override void Send(byte[] bytes)
     {
@@ -41,6 +45,7 @@ public class AvCodersTcpServer : Core_TcpClient
                     LogException(e);
                 }
             }
+            InvokeRequestHandlers(bytes);
         }
     }
 
@@ -56,7 +61,10 @@ public class AvCodersTcpServer : Core_TcpClient
                 int bytesRead;
                 while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, token)) != 0)
                 {
-                    string response = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+                    // Ignore probe bytes sent by TCP Client
+                    if (bytesRead == 1 && buffer[0] == 0)
+                        continue;
+                    string response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                     InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
                 }
             }
@@ -78,6 +86,7 @@ public class AvCodersTcpServer : Core_TcpClient
             _clients.Add(client);
             IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? null;
             Log.Debug("Added client - {IpAddress}", remoteIpEndPoint?.Address);
+            ConnectionState = ConnectionState.Connected;
             _ = HandleClientAsync(client, token);
             await Task.Delay(TimeSpan.FromSeconds(1), token);
         }
@@ -87,7 +96,6 @@ public class AvCodersTcpServer : Core_TcpClient
     {
         using (PushProperties("CheckConnectionState"))
         {
-            Log.Debug("Checking client status for {ClientsCount} clients", _clients.Count);
             foreach (TcpClient client in _clients)
             {
                 if (client.Connected)
