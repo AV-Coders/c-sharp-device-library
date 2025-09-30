@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Matrix;
 
@@ -18,7 +19,7 @@ public class ExtronIn16Xx : VideoMatrix
     {
         _numberOfInputs = numberOfInputs;
         PowerState = PowerState.Unknown;
-        UpdateCommunicationState(CommunicationState.NotAttempted);
+        CommunicationState = CommunicationState.NotAttempted;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
         communicationClient.ConnectionStateHandlers += HandleConnectionState;
@@ -48,19 +49,28 @@ public class ExtronIn16Xx : VideoMatrix
         try
         {
             CommunicationClient.Send(command);
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
         {
             LogException(e);
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
         }
     }
 
     public override void RouteAV(int input, int output)
     {
         if (input > 0 && input <= _numberOfInputs)
+        {
             SendCommand($"{input}!");
+            AddEvent(EventType.Input, $"Switched output {output} to input {input}");
+        }
+        else
+        {
+            AddEvent(EventType.Error, $"Not switching output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
+            Log.Error("Not switching output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+        }
+        
     }
 
     public override void PowerOn() {    }
@@ -70,13 +80,29 @@ public class ExtronIn16Xx : VideoMatrix
     public override void RouteVideo(int input, int output)
     {
         if (input > 0 && input <= _numberOfInputs)
+        {
             SendCommand($"{input}%");
+            AddEvent(EventType.Input, $"Switched video output {output} to input {input}");
+        }
+        else
+        {
+            AddEvent(EventType.Error, $"Not switching video output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
+            Log.Error("Not switching video output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+        }
     }
 
     public override void RouteAudio(int input, int output)
     {
         if (input > 0 && input <= _numberOfInputs)
+        {
             SendCommand($"{input}$");
+            AddEvent(EventType.Input, $"Switched audio output {output} to input {input}");
+        }
+        else
+        {
+            AddEvent(EventType.Error, $"Not switching audio output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
+            Log.Error("Not switching audio output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+        }
     }
 
     public void SetSyncTimeout(int seconds)
@@ -84,6 +110,12 @@ public class ExtronIn16Xx : VideoMatrix
         if (seconds < 502)
         {
             SendCommand($"\u001bT{seconds}SSAV\u0027");
+            AddEvent(EventType.VideoMute, $"Set sync timeout to {seconds} seconds");
+        }
+        else
+        {
+            AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
+            Log.Error("The sync timeout can't be longer than 502 seconds");
         }
     }
 
@@ -94,5 +126,6 @@ public class ExtronIn16Xx : VideoMatrix
         SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
         Thread.Sleep(TimeSpan.FromMilliseconds(300));
         SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
+        AddEvent(EventType.VideoMute, $"Switched video mute to {state}");
     }
 }

@@ -39,7 +39,7 @@ public class ExtronDtpCpxx : VideoMatrix
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
         PowerState = PowerState.Unknown;
-        UpdateCommunicationState(CommunicationState.NotAttempted);
+        CommunicationState = CommunicationState.NotAttempted;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         HandleConnectionState(CommunicationClient.ConnectionState);
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
@@ -264,17 +264,21 @@ public class ExtronDtpCpxx : VideoMatrix
         try
         {
             CommunicationClient.Send(command);
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
         {
             LogException(e);
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
         }
     }
 
-    public override void RouteAV(int input, int output) => SendCommand(output == 0 ? $"{input}*!" : $"{input}*{output}!");
-    
+    public override void RouteAV(int input, int output)
+    {
+        SendCommand(output == 0 ? $"{input}*!" : $"{input}*{output}!");
+        AddEvent(EventType.Input, $"Switched output {output} to input {input}");
+    }
+
     public void RouteAV(int input, List<int> outputs)
     {
         if (outputs.Count == 0)
@@ -284,14 +288,20 @@ public class ExtronDtpCpxx : VideoMatrix
         outputs.ForEach(o => sb.Append($"{input}*{o}!"));
         sb.Append('\r');
         SendCommand(sb.ToString());
+        
+        AddEvent(EventType.Input, $"Switched outputs {outputs} to input {input}");
     }
 
     public override void PowerOn() { }
 
     public override void PowerOff() { }
 
-    public override void RouteVideo(int input, int output) => SendCommand(output == 0 ? $"{input}*%" : $"{input}*{output}%");
-    
+    public override void RouteVideo(int input, int output)
+    {
+        SendCommand(output == 0 ? $"{input}*%" : $"{input}*{output}%");
+        AddEvent(EventType.Input, $"Switched video output {output} to input {input}");
+    }
+
     public void RouteVideo(int input, List<int> outputs)
     {
         if (outputs.Count == 0)
@@ -301,10 +311,16 @@ public class ExtronDtpCpxx : VideoMatrix
         outputs.ForEach(o => sb.Append($"{input}*{o}%"));
         sb.Append('\r');
         SendCommand(sb.ToString());
+        
+        AddEvent(EventType.Input, $"Switched video outputs {outputs} to input {input}");
     }
 
-    public override void RouteAudio(int input, int output) => SendCommand(output == 0 ? $"{input}*$" : $"{input}*{output}$");
-    
+    public override void RouteAudio(int input, int output)
+    {
+        SendCommand(output == 0 ? $"{input}*$" : $"{input}*{output}$");
+        AddEvent(EventType.Input, $"Switched audio output {output} to input {input}");
+    }
+
     public void RouteAudio(int input, List<int> outputs)
     {
         if (input <= 0)
@@ -316,6 +332,8 @@ public class ExtronDtpCpxx : VideoMatrix
         outputs.ForEach(o => sb.Append($"{input}*{o}$"));
         sb.Append('\r');
         SendCommand(sb.ToString());
+        
+        AddEvent(EventType.Input, $"Switched audio output {outputs} to input {input}");
     }
 
     public void SetSyncTimeout(int seconds, int output)
@@ -323,6 +341,11 @@ public class ExtronDtpCpxx : VideoMatrix
         if (seconds < 502)
         {
             SendCommand($"\u001bT{seconds}*{output}SSAV\u0027");
+        }
+        else
+        {
+            AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
+            Log.Error("The sync timeout can't be longer than 502 seconds");
         }
     }
 }

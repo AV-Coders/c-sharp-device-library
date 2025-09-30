@@ -20,12 +20,12 @@ public class ExtronSw : VideoMatrix
         try
         {
             CommunicationClient.Send(command);
-            UpdateCommunicationState(CommunicationState.Okay);
+            CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
         {
             LogException(e);
-            UpdateCommunicationState(CommunicationState.Error);
+            CommunicationState = CommunicationState.Error;
         }
     }
 
@@ -46,6 +46,14 @@ public class ExtronSw : VideoMatrix
     public override void RouteAV(int input, int output)
     {
         if (input > 0 && input <= _numberOfInputs)
+        {
             SendCommand($"{input}!");
+            AddEvent(EventType.Input, $"Switched to input {input}");
+        }
+        else
+        {
+            AddEvent(EventType.Input, $"Not switching to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
+            Log.Error("Not switching to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", input, _numberOfInputs);
+        }
     }
 }
