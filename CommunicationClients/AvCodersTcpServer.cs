@@ -11,7 +11,7 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersTcpServer : Core_TcpClient
 {
     private TcpListener _server;
-    private readonly ConcurrentBag<TcpClient> _clients = [];
+    private readonly ConcurrentDictionary<Guid, TcpClient> _clients = new();
 
     public AvCodersTcpServer(ushort port, string name, CommandStringFormat commandStringFormat)
         : base("Any", port, name, commandStringFormat)
@@ -33,14 +33,19 @@ public class AvCodersTcpServer : Core_TcpClient
     {
         using (PushProperties("Send"))
         {
-            foreach (TcpClient client in _clients)
+            foreach (var kvp in _clients)
             {
+                TcpClient client = kvp.Value;
                 try
                 {
-                    if (client.Connected)
+                    if (client.Connected && client.GetStream().CanWrite)
                         client.GetStream().Write(bytes);
                 }
                 catch (IOException e)
+                {
+                    LogException(e);
+                }
+                catch (ObjectDisposedException e)
                 {
                     LogException(e);
                 }
@@ -49,10 +54,9 @@ public class AvCodersTcpServer : Core_TcpClient
         }
     }
 
-    private async Task HandleClientAsync(TcpClient client, CancellationToken token)
+    private async Task HandleClientAsync(TcpClient client, Guid clientId, CancellationToken token)
     {
         using (PushProperties("HandleClientAsync"))
-        using (client)
         {
             try
             {
@@ -71,7 +75,13 @@ public class AvCodersTcpServer : Core_TcpClient
             catch (Exception e)
             {
                 LogException(e);
-                Reconnect();
+            }
+            finally
+            {
+                // Clean up this specific client when HandleClientAsync exits
+                _clients.TryRemove(clientId, out _);
+                client.Dispose();
+                Log.Debug("Client {ClientId} disconnected and removed", clientId);
             }
         }
     }
@@ -83,11 +93,12 @@ public class AvCodersTcpServer : Core_TcpClient
         using (PushProperties("Receive"))
         {
             TcpClient client = await _server.AcceptTcpClientAsync(token);
-            _clients.Add(client);
+            Guid clientId = Guid.NewGuid();
+            _clients.TryAdd(clientId, client);
             IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? null;
-            Log.Debug("Added client - {IpAddress}", remoteIpEndPoint?.Address);
+            Log.Debug("Added client {ClientId} - {IpAddress}", clientId, remoteIpEndPoint?.Address);
             ConnectionState = ConnectionState.Connected;
-            _ = HandleClientAsync(client, token);
+            _ = HandleClientAsync(client, clientId, token);
             await Task.Delay(TimeSpan.FromSeconds(1), token);
         }
     }
@@ -96,13 +107,14 @@ public class AvCodersTcpServer : Core_TcpClient
     {
         using (PushProperties("CheckConnectionState"))
         {
-            foreach (TcpClient client in _clients)
+            var disconnectedClients = _clients.Where(kvp => !kvp.Value.Connected).ToList();
+            foreach (var kvp in disconnectedClients)
             {
-                if (client.Connected)
-                    continue;
-
-                Log.Debug("Removing a client");
-                _clients.TryTake(out _);
+                if (_clients.TryRemove(kvp.Key, out var client))
+                {
+                    Log.Debug("Removing disconnected client {ClientId}", kvp.Key);
+                    client.Dispose();
+                }
             }
 
             ConnectionState = _clients.IsEmpty ? ConnectionState.Disconnected : ConnectionState.Connected;
