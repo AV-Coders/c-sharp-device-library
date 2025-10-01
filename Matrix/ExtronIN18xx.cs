@@ -111,6 +111,11 @@ public class ExtronIn18Xx : VideoMatrix
 
     public override void PowerOff() {    }
 
+    public override int NumberOfOutputs => 1;
+    public override int NumberOfInputs => Inputs.Count;
+    public override bool RequiresOutputSpecification => false;
+    public override bool SupportsVideoBreakaway => false;
+
     public override void RouteVideo(int input, int output)
     {
         if (input > 0 && input <= _numberOfInputs)
@@ -124,6 +129,8 @@ public class ExtronIn18Xx : VideoMatrix
             Log.Error("Not switching video output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
         }
     }
+
+    public override bool SupportsAudioBreakaway => false;
 
     public override void RouteAudio(int input, int output)
     {

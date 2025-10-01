@@ -296,11 +296,19 @@ public class ExtronDtpCpxx : VideoMatrix
 
     public override void PowerOff() { }
 
+    public override int NumberOfOutputs => ComposedOutputs.Count;
+
+    public override int NumberOfInputs => Inputs.Count;
+    public override bool RequiresOutputSpecification => true;
+    public override bool SupportsVideoBreakaway => true;
+
     public override void RouteVideo(int input, int output)
     {
         SendCommand(output == 0 ? $"{input}*%" : $"{input}*{output}%");
         AddEvent(EventType.Input, $"Switched video output {output} to input {input}");
     }
+
+    public override bool SupportsAudioBreakaway { get; }
 
     public void RouteVideo(int input, List<int> outputs)
     {

@@ -33,6 +33,12 @@ public class ExtronSw : VideoMatrix
 
     public override void PowerOff() {    }
 
+    public override int NumberOfOutputs { get => 1; }
+    public override int NumberOfInputs { get => _numberOfInputs; }
+    public override bool RequiresOutputSpecification => false;
+    public override bool SupportsVideoBreakaway => false;
+    public override bool SupportsAudioBreakaway => false;
+
     public override void RouteVideo(int input, int output)
     {
         Log.Error("This device doesn't support video breakaway");

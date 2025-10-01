@@ -41,18 +41,16 @@ public class BlustreamAmf41W : VideoMatrix
     {
     }
 
-    public override void RouteVideo(int input, int output)
-    {
-        SourceSelect(input, output);
-    }
+    public override int NumberOfOutputs => 1;
+    public override int NumberOfInputs => 4;
+    public override bool RequiresOutputSpecification => false;
+    public override bool SupportsVideoBreakaway => false;
 
-    public override void RouteAudio(int input, int output)
-    {
-        SourceSelect(input, output);
-    }
+    public override void RouteVideo(int input, int output) => SourceSelect(input, output);
 
-    public override void RouteAV(int input, int output)
-    {
-        SourceSelect(input, output);
-    }
+    public override bool SupportsAudioBreakaway => false;
+
+    public override void RouteAudio(int input, int output) => SourceSelect(input, output);
+
+    public override void RouteAV(int input, int output) => SourceSelect(input, output);
 }
