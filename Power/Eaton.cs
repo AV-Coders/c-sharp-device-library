@@ -113,19 +113,19 @@ public class EatonPdu : Pdu
 
     public void PowerOn(EatonOutlet outlet)
     {
-        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", "2");
+        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", 2);
         AddEvent(EventType.Power, $"Outlet {outlet.Name} turned on");
     }
 
     public void PowerOff(EatonOutlet outlet)
     {
-        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", "1");
+        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", 1);
         AddEvent(EventType.Power, $"Outlet {outlet.Name} turned off");   
     }
 
     public void Cycle(EatonOutlet outlet)
     {
-        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", "3");
+        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", 3);
         AddEvent(EventType.Power, $"Outlet {outlet.Name} cycled");  
     }
     

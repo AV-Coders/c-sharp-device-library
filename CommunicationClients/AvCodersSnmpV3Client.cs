@@ -47,6 +47,31 @@ public class AvCodersSnmpV3Client : CommunicationClient
         ConnectionState = ConnectionState.Connected;
         return reply.Pdu().Variables.ToList();
     }
+    
+    public List<Variable> Set(string oid, int value)
+    {
+        Discovery discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
+        ReportMessage reportMessage = discovery.GetResponse(100, _host);
+        SetRequestMessage request = new SetRequestMessage(
+            VersionCode.V3,
+            Messenger.NextMessageId, 
+            Messenger.NextRequestId,
+            _username,
+            OctetString.Empty,
+            [new Variable(new ObjectIdentifier(oid), new Integer32(value))],
+            _priv, 
+            Messenger.MaxMessageSize,
+            reportMessage);
+        var reply = request.GetResponse(100, _host);
+        if (reply.Pdu().ErrorStatus != Integer32.Zero)
+        {
+            Log.Error("Error in response {status}, {index}", reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
+            ConnectionState = ConnectionState.Error;
+            return [];
+        }
+        ConnectionState = ConnectionState.Connected;
+        return reply.Pdu().Variables.ToList();
+    }
 
     public List<Variable> Get(string oid)
     {
