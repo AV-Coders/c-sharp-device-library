@@ -26,7 +26,10 @@ public class EatonOutlet : Outlet
 
     private Task PollPowerState(CancellationToken arg)
     {
-        PowerState = _pdu.GetPowerState(this);
+        var currentState = _pdu.GetPowerState(this);
+        if(PowerState != currentState)
+            AddEvent(EventType.Power, currentState.ToString());
+        PowerState = currentState;
         return Task.CompletedTask;   
     }
 
@@ -35,6 +38,7 @@ public class EatonOutlet : Outlet
         _pdu.PowerOn(this);
         Thread.Sleep(1000);
         PowerState = _pdu.GetPowerState(this);
+        AddEvent(EventType.Power, nameof(PowerState.On));
     }
 
     public override void PowerOff()
@@ -42,6 +46,7 @@ public class EatonOutlet : Outlet
         _pdu.PowerOff(this);
         Thread.Sleep(1000);
         PowerState = _pdu.GetPowerState(this);
+        AddEvent(EventType.Power, nameof(PowerState.Off));
     }
 
     public override void Reboot()
@@ -63,6 +68,8 @@ public class EatonPdu : Pdu
     {
         _client = client;
         _waitForConnectionWorker = new ThreadWorker(Initialise, TimeSpan.FromSeconds(12));
+        _waitForConnectionWorker.Restart();
+        CommunicationState = CommunicationState.Unknown;
     }
 
     private Task Initialise(CancellationToken arg)
@@ -70,15 +77,18 @@ public class EatonPdu : Pdu
         var agent = _client.Get(".1.3.6.1.4.1.850.1.2.1.1.1.0");
         if (agent.Count == 0)
         {
-            Log.Error("Could not get agent");
+            AddEvent(EventType.Error, "Could not find Eaton PDU");
+            CommunicationState = CommunicationState.Error;
             return Task.CompletedTask;
         }
 
+        AddEvent(EventType.Connection, "Connected to Eaton PDU, creating outlets");
         ClearOutlets();
         for (int i = 1; i < 9; i++)
         {
             string name = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.2.1.{i}")[0].Data.ToString();
             AddOutlet(new EatonOutlet(name, this, i, 1));
+            AddEvent(EventType.DriverState, $"Outlet {name} created");
         }
         _waitForConnectionWorker.Stop();
         OutletDefinitionHandlers?.Invoke(Outlets);
@@ -104,16 +114,19 @@ public class EatonPdu : Pdu
     public void PowerOn(EatonOutlet outlet)
     {
         _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", "2");
+        AddEvent(EventType.Power, $"Outlet {outlet.Name} turned on");
     }
 
     public void PowerOff(EatonOutlet outlet)
     {
         _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", "1");
+        AddEvent(EventType.Power, $"Outlet {outlet.Name} turned off");   
     }
 
     public void Cycle(EatonOutlet outlet)
     {
         _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", "3");
+        AddEvent(EventType.Power, $"Outlet {outlet.Name} cycled");  
     }
     
     public PowerState GetPowerState(EatonOutlet outlet)
