@@ -138,6 +138,16 @@ public class SonyViscaSerialTest
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
+
+    [Theory]
+    [InlineData(PowerState.On, new byte [] {0x81, 0x01, 0x04, 0x38, 0x02, 0xFF})]
+    [InlineData(PowerState.Off, new byte [] {0x81, 0x01, 0x04, 0x38, 0x03, 0xFF})]
+    public void AutoFocus_SendsTheCommand(PowerState state, byte[] expectedCommand)
+    {
+        _viscaCamera.SetAutoFocus(state);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
+    }
 }
 
 public class SonyViscaIpTest
