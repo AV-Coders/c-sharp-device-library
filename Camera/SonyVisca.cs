@@ -106,14 +106,14 @@ public class SonyVisca : CameraBase
     {
         SendCommand([_header, 0x01, 0x04, 0x00, 0x03, CommandFooter]);
         DesiredPowerState = PowerState.Off;
-        Log.Verbose("Power Off");
+        AddEvent(EventType.Power, nameof(PowerState.Off));
     }
 
     public override void PowerOn()
     {
         SendCommand([_header, 0x01, 0x04, 0x00, 0x02, CommandFooter]);
         DesiredPowerState = PowerState.On;
-        Log.Verbose("Power On");
+        AddEvent(EventType.Power, nameof(PowerState.On));
     }public override void ZoomStop()
     {
         SendCommand([_header, 0x01, 0x04, 0x07, 0x00, CommandFooter]);
@@ -165,13 +165,13 @@ public class SonyVisca : CameraBase
     public override void DoRecallPreset(int presetNumber)
     {
         SendCommand([_header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter]);
-        Log.Verbose("Recall Preset {PresetNumber}", presetNumber);
+        AddEvent(EventType.Preset, $"Preset {presetNumber} recalled");
     }
 
     public override void SavePreset(int presetNumber)
     {
         SendCommand([_header, 0x01, 0x04, 0x3f, 0x01, (byte)presetNumber, CommandFooter]);
-        Log.Verbose("Save Preset {PresetNumber}", presetNumber);
+        AddEvent(EventType.Preset, $"Preset {presetNumber} saved");
     }
 
     private void HandleResponse(string response)
@@ -182,5 +182,6 @@ public class SonyVisca : CameraBase
     public override void SetAutoFocus(PowerState state)
     {
         SendCommand([_header, 0x01, 0x04, 0x38, (byte)(state == PowerState.On? 0x02 : 0x03), CommandFooter]);
+        AddEvent(EventType.Other, $"Auto Focus: {state}");
     }
 }
