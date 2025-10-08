@@ -59,6 +59,10 @@ public class LumensCL511(string name, CommunicationClient client) : CameraBase(n
         Log.Error("LumensCL511 module doesn't support Pan / Tilt");
     }
 
+    public override void SetAutoFocus(PowerState state)
+    {
+    }
+
     public override void DoRecallPreset(int presetNumber)
     {
         CommunicationClient.Send([0xA0, 0x03, 0x00, 0x00, (byte)presetNumber, 0xAF]);

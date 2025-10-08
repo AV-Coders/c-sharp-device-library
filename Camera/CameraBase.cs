@@ -36,6 +36,8 @@ public abstract class CameraBase(string name, CommunicationClient client)
 
     public abstract void PanTiltRight();
 
+    public abstract void SetAutoFocus(PowerState state);
+
     public void RecallPreset(int presetNumber)
     {
         DoRecallPreset(presetNumber);

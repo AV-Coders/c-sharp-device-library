@@ -179,7 +179,7 @@ public class SonyVisca : CameraBase
         //TODO: Handle responses
     }
 
-    public void SetAutoFocus(PowerState state)
+    public override void SetAutoFocus(PowerState state)
     {
         SendCommand([_header, 0x01, 0x04, 0x38, (byte)(state == PowerState.On? 0x02 : 0x03), CommandFooter]);
     }
