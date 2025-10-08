@@ -61,7 +61,7 @@ public class ServerEdgePdu: Pdu
 
         for (int i = 0; i < numberOfOutlets; i++)
         {
-            Outlets.Add(new ServerEdgeOutlet("Unknown", this));
+            AddOutlet(new ServerEdgeOutlet("Unknown", this));
         }
 
         _restClient.Get(_getNamesUri);

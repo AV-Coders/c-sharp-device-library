@@ -74,11 +74,11 @@ public class EatonPdu : Pdu
             return Task.CompletedTask;
         }
 
-        Outlets.Clear();
+        ClearOutlets();
         for (int i = 1; i < 9; i++)
         {
             string name = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.2.1.{i}")[0].Data.ToString();
-            Outlets.Add(new EatonOutlet(name, this, i, 1));
+            AddOutlet(new EatonOutlet(name, this, i, 1));
         }
         _waitForConnectionWorker.Stop();
         OutletDefinitionHandlers?.Invoke(Outlets);
@@ -87,12 +87,18 @@ public class EatonPdu : Pdu
 
     public override void PowerOn()
     {
-        Outlets.ForEach(x => PowerOn(x as EatonOutlet));
+        foreach (Outlet outlet in Outlets)
+        {
+            PowerOn(outlet as EatonOutlet);
+        }
     }
 
     public override void PowerOff()
     {
-        Outlets.ForEach(x => PowerOff(x as EatonOutlet));
+        foreach (Outlet outlet in Outlets)
+        {
+            PowerOff(outlet as EatonOutlet);
+        }
     }
 
     public void PowerOn(EatonOutlet outlet)

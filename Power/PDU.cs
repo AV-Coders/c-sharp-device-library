@@ -6,12 +6,19 @@ public delegate void OutletDefinitionHandler(List<Outlet> outlets);
 
 public abstract class Pdu : DeviceBase
 {
-    protected List<Outlet> Outlets;
+    public List<Outlet> Outlets => _outlets;
     public OutletDefinitionHandler? OutletDefinitionHandlers;
+    private List<Outlet> _outlets;
 
     protected Pdu(string name, CommunicationClient comms) 
         : base(name, comms)
     {
-        Outlets = [];
+        _outlets = [];
     }
+
+    protected void ClearOutlets() => _outlets.Clear();
+    
+    protected void AddOutlet(Outlet outlet) => _outlets.Add(outlet);
+    
+    
 }
