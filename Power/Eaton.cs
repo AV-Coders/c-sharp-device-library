@@ -1,10 +1,5 @@
-﻿using System.Net;
-using AVCoders.CommunicationClients;
+﻿using AVCoders.CommunicationClients;
 using AVCoders.Core;
-using Lextm.SharpSnmpLib;
-using Lextm.SharpSnmpLib.Messaging;
-using Lextm.SharpSnmpLib.Security;
-using Serilog;
 
 namespace AVCoders.Power;
 
@@ -63,6 +58,7 @@ public class EatonPdu : Pdu
 {
     private readonly AvCodersSnmpV3Client _client;
     private ThreadWorker _waitForConnectionWorker;
+    private readonly string _setPowerOid = ".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.6.";
 
     public EatonPdu(string name, AvCodersSnmpV3Client client) : base(name, client)
     {
@@ -113,19 +109,19 @@ public class EatonPdu : Pdu
 
     public void PowerOn(EatonOutlet outlet)
     {
-        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", 2);
+        _client.Set($"{_setPowerOid}{outlet.DeviceIndex}.{outlet.OutletNumber}", 2);
         AddEvent(EventType.Power, $"Outlet {outlet.Name} turned on");
     }
 
     public void PowerOff(EatonOutlet outlet)
     {
-        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", 1);
+        _client.Set($"{_setPowerOid}{outlet.DeviceIndex}.{outlet.OutletNumber}", 1);
         AddEvent(EventType.Power, $"Outlet {outlet.Name} turned off");   
     }
 
     public void Cycle(EatonOutlet outlet)
     {
-        _client.Set($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", 3);
+        _client.Set($"{_setPowerOid}{outlet.DeviceIndex}.{outlet.OutletNumber}", 3);
         AddEvent(EventType.Power, $"Outlet {outlet.Name} cycled");  
     }
     
