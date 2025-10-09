@@ -14,6 +14,9 @@ public class AvCodersSnmpV3Client : CommunicationClient
     private readonly AESPrivacyProvider _priv;
     private readonly IPEndPoint _host;
     
+    private const int DefaultDiscoveryTimeout = 100;
+    private const int DefaultRequestTimeout = 1000;
+    
     public AvCodersSnmpV3Client(string name, string host, ushort port, string username, string auth, string priv) 
         : base(name, host, port, CommandStringFormat.Ascii)
     {
@@ -22,25 +25,25 @@ public class AvCodersSnmpV3Client : CommunicationClient
         _priv = new AESPrivacyProvider(new OctetString(priv), _auth);
         _host = new IPEndPoint(IPAddress.Parse(host), port);
     }
-    
-    public List<Variable> Set(string oid, string value)
+
+    private List<Variable> Set(string oid, ISnmpData value)
     {
-        Discovery discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
-        ReportMessage reportMessage = discovery.GetResponse(100, _host);
+        Discovery discovery = Messenger.GetNextDiscovery(SnmpType.SetRequestPdu);
+        ReportMessage reportMessage = discovery.GetResponse(DefaultDiscoveryTimeout, _host);
         SetRequestMessage request = new SetRequestMessage(
             VersionCode.V3,
             Messenger.NextMessageId, 
             Messenger.NextRequestId,
             _username,
             OctetString.Empty,
-            [new Variable(new ObjectIdentifier(oid), new OctetString(value))],
+            [new Variable(new ObjectIdentifier(oid), value)],
             _priv, 
             Messenger.MaxMessageSize,
             reportMessage);
-        var reply = request.GetResponse(100, _host);
+        var reply = request.GetResponse(DefaultRequestTimeout, _host);
         if (reply.Pdu().ErrorStatus != Integer32.Zero)
         {
-            Log.Error("Error in response {status}, {index}", reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
+            Log.Error("Error in Set response for OID {oid}: {status}, index: {index}", oid, reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
             ConnectionState = ConnectionState.Error;
             return [];
         }
@@ -48,35 +51,14 @@ public class AvCodersSnmpV3Client : CommunicationClient
         return reply.Pdu().Variables.ToList();
     }
     
-    public List<Variable> Set(string oid, int value)
-    {
-        Discovery discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
-        ReportMessage reportMessage = discovery.GetResponse(100, _host);
-        SetRequestMessage request = new SetRequestMessage(
-            VersionCode.V3,
-            Messenger.NextMessageId, 
-            Messenger.NextRequestId,
-            _username,
-            OctetString.Empty,
-            [new Variable(new ObjectIdentifier(oid), new Integer32(value))],
-            _priv, 
-            Messenger.MaxMessageSize,
-            reportMessage);
-        var reply = request.GetResponse(100, _host);
-        if (reply.Pdu().ErrorStatus != Integer32.Zero)
-        {
-            Log.Error("Error in response {status}, {index}", reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
-            ConnectionState = ConnectionState.Error;
-            return [];
-        }
-        ConnectionState = ConnectionState.Connected;
-        return reply.Pdu().Variables.ToList();
-    }
+    public List<Variable> Set(string oid, string value) => Set(oid, new OctetString(value));
+    
+    public List<Variable> Set(string oid, int value) => Set(oid, new Integer32(value));
 
     public List<Variable> Get(string oid)
     {
         Discovery discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
-        ReportMessage reportMessage = discovery.GetResponse(100, _host);
+        ReportMessage reportMessage = discovery.GetResponse(DefaultDiscoveryTimeout, _host);
         GetRequestMessage request = new GetRequestMessage(
             VersionCode.V3,
             Messenger.NextMessageId, 
@@ -87,7 +69,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
             _priv, 
             Messenger.MaxMessageSize,
             reportMessage);
-        var reply = request.GetResponse(100, _host);
+        var reply = request.GetResponse(DefaultRequestTimeout, _host);
         if (reply.Pdu().ErrorStatus != Integer32.Zero)
         {
             Log.Error("Error in response {status}, {index}", reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
