@@ -131,7 +131,7 @@ public class EatonPdu : Pdu
     
     public PowerState GetPowerState(EatonOutlet outlet)
     {
-        var response = _client.Get($".1.3.6.1.4.1.850.1.1.3.2.3.3.1.1.4.{outlet.DeviceIndex}.{outlet.OutletNumber}");
+        var response = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.4.{outlet.DeviceIndex}.{outlet.OutletNumber}");
         return response[0].Data.ToString() switch
         {
             "1" => PowerState.Off,
