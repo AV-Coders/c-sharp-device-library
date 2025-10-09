@@ -31,23 +31,21 @@ public class EatonOutlet : Outlet
     public override void PowerOn()
     {
         _pdu.PowerOn(this);
-        Thread.Sleep(1000);
+        Thread.Sleep(5000);
         PowerState = _pdu.GetPowerState(this);
-        AddEvent(EventType.Power, nameof(PowerState.On));
     }
 
     public override void PowerOff()
     {
         _pdu.PowerOff(this);
-        Thread.Sleep(1000);
+        Thread.Sleep(5000);
         PowerState = _pdu.GetPowerState(this);
-        AddEvent(EventType.Power, nameof(PowerState.Off));
     }
 
     public override void Reboot()
     {
         _pdu.Cycle(this);
-        Thread.Sleep(1000);
+        Thread.Sleep(5000);
         PowerState = _pdu.GetPowerState(this);
         Thread.Sleep(5000);
         PowerState = _pdu.GetPowerState(this);
@@ -88,6 +86,7 @@ public class EatonPdu : Pdu
         }
         _waitForConnectionWorker.Stop();
         OutletDefinitionHandlers?.Invoke(Outlets);
+        CommunicationState = CommunicationState.Okay;
         return Task.CompletedTask;
     }
 
