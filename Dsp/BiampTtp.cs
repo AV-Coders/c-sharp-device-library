@@ -101,13 +101,15 @@ public class BiampTtp : Dsp
     {
         using (PushProperties("HandleConnectionState"))
         {
+            AddEvent(EventType.Connection, connectionState.ToString());
+            
             if (connectionState == ConnectionState.Connected)
             {
                 _connectionStateChangedSinceLastVersionRequest = true;
-                Resubscribe();
+                _ = Task.Run(async () => await Resubscribe());
             }
             else
-                CommunicationState = CommunicationState.Error;
+                CommunicationState = CommunicationState.Unknown;
         }
     }
 
@@ -117,24 +119,24 @@ public class BiampTtp : Dsp
         CommunicationClient.Send(command);
     }
 
-    private void Resubscribe()
+    private async Task Resubscribe()
     {
-        Thread.Sleep(TimeSpan.FromSeconds(20));
+        await Task.Delay(TimeSpan.FromSeconds(10));
         
         using (PushProperties("Resubscribe"))
         {
             _currentQuery = null;
             while (_currentQuery != null)
             {
-                Thread.Sleep(TimeSpan.FromSeconds(5));
+                await Task.Delay(TimeSpan.FromSeconds(5));
             }
             
             Log.Verbose("Re-establishing subscriptions, subscription count: {DeviceSubscriptionsCount}", _deviceSubscriptions.Count);
-            _deviceSubscriptions.ForEach(subscriptionCommand =>
+            foreach (var subscriptionCommand in _deviceSubscriptions)
             {
                 CommunicationClient.Send(subscriptionCommand);
-                Thread.Sleep(TimeSpan.FromMilliseconds(50));
-            });
+                await Task.Delay(TimeSpan.FromMilliseconds(50));
+            }
         }
     }
 
