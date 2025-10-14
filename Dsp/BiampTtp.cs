@@ -106,6 +106,7 @@ public class BiampTtp : Dsp
             if (connectionState == ConnectionState.Connected)
             {
                 _clientHasReconnectedSinceLastPollLoop = true;
+                PollWorker.Restart();
             }
             else
                 CommunicationState = CommunicationState.Unknown;
@@ -150,7 +151,8 @@ public class BiampTtp : Dsp
             {
                 Log.Verbose("Polling for {query}", query.DspCommand);
                 _currentQuery = query;
-                CommunicationClient.Send(_currentQuery.DspCommand);
+                CommunicationClient.Send(query.DspCommand);
+                await Task.Delay(TimeSpan.FromMilliseconds(100), token);
             }
             else
             {
@@ -209,6 +211,7 @@ public class BiampTtp : Dsp
                 else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
                 {
                     _clientHasReconnectedSinceLastPollLoop = true;
+                    PollWorker.Restart();
                 }
             }
         }
