@@ -139,7 +139,7 @@ public class BiampTtp : Dsp
             foreach (var subscriptionCommand in _deviceSubscriptions)
             {
                 CommunicationClient.Send(subscriptionCommand);
-                await Task.Delay(TimeSpan.FromMilliseconds(50));
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
             }
         }
     }
@@ -186,7 +186,8 @@ public class BiampTtp : Dsp
                 if (_loopsSinceLastFetch > 18)
                 {
                     Log.Verbose("Resubscribing");
-                    Resubscribe();
+                    await Resubscribe();
+                    await Task.Delay(TimeSpan.FromSeconds(4), token);
                     Reinitialise();
                     _loopsSinceLastFetch = 0;
                 }
@@ -234,7 +235,8 @@ public class BiampTtp : Dsp
                 else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
                 {
                     _connectionStateChangedSinceLastVersionRequest = true;
-                    Resubscribe();
+                    Resubscribe().Wait();
+                    PollWorker.Restart();
                 }
             }
         }
