@@ -81,10 +81,19 @@ public class BoseCspSoIP : Dsp
     public BoseCspSoIP(TcpClient tcpClient, string name = "Bose", int pollIntervalInMilliseconds = 50000) : base(name, tcpClient, pollIntervalInMilliseconds)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         
         string responsePattern = "GA\\\"([^\\\"]+)\\\"\\>(\\d+)=([a-zA-Z0-9.-]+)";
         _responseParser = new(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(250));
         
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        using (PushProperties("HandleConnectionState"))
+        {
+            AddEvent(EventType.Connection, connectionState.ToString());
+        }
     }
 
     private void HandleResponse(string response)

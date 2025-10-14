@@ -156,36 +156,40 @@ public class QsysEcp : Dsp
 
     private void HandleConnectionState(ConnectionState connectionState)
     {
-        if (connectionState == ConnectionState.Connected)
+        using (PushProperties("HandleConnectionState"))
         {
-            new Thread(_ =>
+            AddEvent(EventType.Connection, connectionState.ToString());
+            if (connectionState == ConnectionState.Connected)
             {
-                CommunicationClient.Send($"cgc {ChangeGroupGains}\n");
-                CommunicationClient.Send($"cgc {ChangeGroupMutes}\n");
-                CommunicationClient.Send($"cgc {ChangeGroupStrings}\n");
-                CommunicationClient.Send($"cgc {ChangeGroupMeters}\n");
-                Thread.Sleep(500);
+                new Thread(_ =>
+                {
+                    CommunicationClient.Send($"cgc {ChangeGroupGains}\n");
+                    CommunicationClient.Send($"cgc {ChangeGroupMutes}\n");
+                    CommunicationClient.Send($"cgc {ChangeGroupStrings}\n");
+                    CommunicationClient.Send($"cgc {ChangeGroupMeters}\n");
+                    Thread.Sleep(500);
 
-                AddControlsToChangeGroup(ChangeGroupGains, _gains.Keys.ToList());
-                Thread.Sleep(500);
-                AddControlsToChangeGroup(ChangeGroupMutes, _mutes.Keys.ToList());
-                Thread.Sleep(500);
-                AddControlsToChangeGroup(ChangeGroupStrings, _strings.Keys.ToList());
-                Thread.Sleep(500);
-                AddControlsToChangeGroup(ChangeGroupMeters, _meters.Keys.ToList());
-                Thread.Sleep(500);
+                    AddControlsToChangeGroup(ChangeGroupGains, _gains.Keys.ToList());
+                    Thread.Sleep(500);
+                    AddControlsToChangeGroup(ChangeGroupMutes, _mutes.Keys.ToList());
+                    Thread.Sleep(500);
+                    AddControlsToChangeGroup(ChangeGroupStrings, _strings.Keys.ToList());
+                    Thread.Sleep(500);
+                    AddControlsToChangeGroup(ChangeGroupMeters, _meters.Keys.ToList());
+                    Thread.Sleep(500);
 
-                ScheduleChangeGroupPoll(ChangeGroupGains);
-                ScheduleChangeGroupPoll(ChangeGroupMutes);
-                ScheduleChangeGroupPoll(ChangeGroupStrings);
-                ScheduleChangeGroupPoll(ChangeGroupMeters, 1000);
-            }).Start();
+                    ScheduleChangeGroupPoll(ChangeGroupGains);
+                    ScheduleChangeGroupPoll(ChangeGroupMutes);
+                    ScheduleChangeGroupPoll(ChangeGroupStrings);
+                    ScheduleChangeGroupPoll(ChangeGroupMeters, 1000);
+                }).Start();
 
-            GetAllControlStates();
-        }
-        else
-        {
-            CommunicationState = CommunicationState.Error;
+                GetAllControlStates();
+            }
+            else
+            {
+                CommunicationState = CommunicationState.Error;
+            }
         }
     }
 
