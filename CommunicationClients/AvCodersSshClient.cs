@@ -177,7 +177,7 @@ public class AvCodersSshClient : SshClientBase
             _stream = null;
         }
         Log.Debug("Creating new shell stream");
-        _stream = _client.CreateShellStream("response", 1000, 1000, 1500, 1000, 8191, _modes);
+        _stream = _client.CreateShellStream("dumb", 1000, 1000, 1500, 1000, 8191, _modes);
         _stream.ErrorOccurred += ClientOnErrorOccurred;
         await Task.Delay(200, token);
         ReceiveThreadWorker.Restart();
