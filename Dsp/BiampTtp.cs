@@ -73,12 +73,14 @@ public class BiampTtp : Dsp
     private readonly Regex _subscriptionResponseParser;
 
     private readonly List<Query> _moduleQueries = [];
+    private readonly object _moduleQueriesLock = new ();
     private readonly ConcurrentQueue<Query> _pendingQueries = new();
     private Query? _currentQuery = null;
     private readonly List<string> _deviceSubscriptions = [];
     private int _loopsSinceLastInitialise = 0;
     private bool _lastRequestWasForTheVersion;
     private bool _clientHasReconnectedSinceLastPollLoop;
+    private bool _initialising;
 
     public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200) : base(name, commsClient, pollIntervalInMilliseconds)
     {
@@ -169,15 +171,44 @@ public class BiampTtp : Dsp
     
     public override void Reinitialise()
     {
-        AddEvent(EventType.Other, "Reinitialising");
-        foreach (var subscriptionCommand in _deviceSubscriptions)
+        using (PushProperties("Reinitialise"))
         {
-            CommunicationClient.Send(subscriptionCommand);
-            Task.Delay(TimeSpan.FromMilliseconds(100)).Wait();
+
+            if (_initialising)
+                return;
+            try
+            {
+                _initialising = true;
+                AddEvent(EventType.Other, "Reinitialising");
+                foreach (var subscriptionCommand in _deviceSubscriptions)
+                {
+                    CommunicationClient.Send(subscriptionCommand);
+                    Task.Delay(TimeSpan.FromMilliseconds(100)).Wait();
+                }
+
+                Task.Delay(TimeSpan.FromSeconds(4)).Wait();
+
+                lock (_moduleQueriesLock)
+                {
+                    foreach (var query in _moduleQueries)
+                    {
+                        _pendingQueries.Enqueue(query);
+                    }
+                }
+
+                _loopsSinceLastInitialise = 0;
+            }
+            catch (Exception e)
+            {
+                LogException(e);
+                AddEvent(EventType.Error, "Initialisation error");
+            }
+            finally
+            {
+                _initialising = false;
+            }
         }
-        Task.Delay(TimeSpan.FromSeconds(4)).Wait();
-        _moduleQueries.ForEach(x => _pendingQueries.Enqueue(x));
-        _loopsSinceLastInitialise = 0;
+
     }
 
     private async Task GetTheVersion(CancellationToken token)
@@ -294,9 +325,13 @@ public class BiampTtp : Dsp
         else
         {
             _gains.Add(arrayIndex, new BiampGain(volumeLevelHandler, controlName, controlIndex));
-            _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
-            _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
-            _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+            lock (_moduleQueriesLock)
+            {
+                _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
+                _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
+                _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+            }
+
             _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
             _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
             _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
