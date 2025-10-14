@@ -225,6 +225,7 @@ public class AvCodersSshClient : SshClientBase
             {
                 Log.Debug("Cannot send, not connected or stream unavailable. Queueing message.");
                 _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
+                ConnectionState = ConnectionState.Error;
             }
         }
     }
