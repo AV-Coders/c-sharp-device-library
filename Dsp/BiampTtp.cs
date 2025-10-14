@@ -106,7 +106,11 @@ public class BiampTtp : Dsp
             if (connectionState == ConnectionState.Connected)
             {
                 _connectionStateChangedSinceLastVersionRequest = true;
-                _ = Task.Run(async () => await Resubscribe());
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30));
+                    await Resubscribe();
+                });
             }
             else
                 CommunicationState = CommunicationState.Unknown;
@@ -153,6 +157,7 @@ public class BiampTtp : Dsp
 
             if (_connectionStateChangedSinceLastVersionRequest)
             {
+                Log.Verbose("Connection state changed, getting the version");
                 await GetTheVersion(token);
                 _connectionStateChangedSinceLastVersionRequest = false;
                 return;
@@ -169,15 +174,18 @@ public class BiampTtp : Dsp
 
             if (_pendingQueries.TryDequeue(out var query))
             {
+                Log.Verbose("Polling for {query}", query.DspCommand);
                 _currentQuery = query;
                 CommunicationClient.Send(_currentQuery.DspCommand);
             }
             else
             {
+                Log.Verbose("There are no pending queries, getting the version");
                 await GetTheVersion(token);
                 _loopsSinceLastFetch++;
                 if (_loopsSinceLastFetch > 18)
                 {
+                    Log.Verbose("Resubscribing");
                     Resubscribe();
                     Reinitialise();
                     _loopsSinceLastFetch = 0;
