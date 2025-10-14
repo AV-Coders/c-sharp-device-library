@@ -76,9 +76,9 @@ public class BiampTtp : Dsp
     private readonly ConcurrentQueue<Query> _pendingQueries = new();
     private Query? _currentQuery = null;
     private readonly List<string> _deviceSubscriptions = [];
-    private int _loopsSinceLastFetch = 0;
+    private int _loopsSinceLastInitialise = 0;
     private bool _lastRequestWasForTheVersion;
-    private bool _connectionStateChangedSinceLastVersionRequest;
+    private bool _clientHasReconnectedSinceLastPollLoop;
 
     public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200) : base(name, commsClient, pollIntervalInMilliseconds)
     {
@@ -105,12 +105,7 @@ public class BiampTtp : Dsp
             
             if (connectionState == ConnectionState.Connected)
             {
-                _connectionStateChangedSinceLastVersionRequest = true;
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(30));
-                    await Resubscribe();
-                });
+                _clientHasReconnectedSinceLastPollLoop = true;
             }
             else
                 CommunicationState = CommunicationState.Unknown;
@@ -123,43 +118,22 @@ public class BiampTtp : Dsp
         CommunicationClient.Send(command);
     }
 
-    private async Task Resubscribe()
-    {
-        await Task.Delay(TimeSpan.FromSeconds(10));
-        
-        using (PushProperties("Resubscribe"))
-        {
-            _currentQuery = null;
-            while (_currentQuery != null)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5));
-            }
-            
-            Log.Verbose("Re-establishing subscriptions, subscription count: {DeviceSubscriptionsCount}", _deviceSubscriptions.Count);
-            foreach (var subscriptionCommand in _deviceSubscriptions)
-            {
-                CommunicationClient.Send(subscriptionCommand);
-                await Task.Delay(TimeSpan.FromMilliseconds(100));
-            }
-        }
-    }
-
     protected override async Task Poll(CancellationToken token)
     {
         using (PushProperties("Poll"))
         {
             if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             {
-                Log.Verbose("IP Comms disconnected, not polling");
+                AddEvent(EventType.Other, "IP Comms disconnected, not polling");
                 await Task.Delay(TimeSpan.FromSeconds(10), token);
                 return;
             }
 
-            if (_connectionStateChangedSinceLastVersionRequest)
+            if (_clientHasReconnectedSinceLastPollLoop)
             {
                 Log.Verbose("Connection state changed, getting the version");
-                await GetTheVersion(token);
-                _connectionStateChangedSinceLastVersionRequest = false;
+                Reinitialise();
+                _clientHasReconnectedSinceLastPollLoop = false;
                 return;
             }
 
@@ -182,17 +156,26 @@ public class BiampTtp : Dsp
             {
                 Log.Verbose("There are no pending queries, getting the version");
                 await GetTheVersion(token);
-                _loopsSinceLastFetch++;
-                if (_loopsSinceLastFetch > 18)
+                _loopsSinceLastInitialise++;
+                if (_loopsSinceLastInitialise > 18)
                 {
-                    Log.Verbose("Resubscribing");
-                    await Resubscribe();
-                    await Task.Delay(TimeSpan.FromSeconds(4), token);
                     Reinitialise();
-                    _loopsSinceLastFetch = 0;
                 }
             }
         }
+    }
+    
+    public override void Reinitialise()
+    {
+        AddEvent(EventType.Other, "Reinitialising");
+        foreach (var subscriptionCommand in _deviceSubscriptions)
+        {
+            CommunicationClient.Send(subscriptionCommand);
+            Task.Delay(TimeSpan.FromMilliseconds(100)).Wait();
+        }
+        Task.Delay(TimeSpan.FromSeconds(4)).Wait();
+        _moduleQueries.ForEach(x => _pendingQueries.Enqueue(x));
+        _loopsSinceLastInitialise = 0;
     }
 
     private async Task GetTheVersion(CancellationToken token)
@@ -200,15 +183,6 @@ public class BiampTtp : Dsp
         CommunicationClient.Send("DEVICE get version\n");
         _lastRequestWasForTheVersion = true;
         await Task.Delay(TimeSpan.FromSeconds(10), token);
-    }
-
-    public override void Reinitialise()
-    {
-        using (PushProperties("Reinitialise"))
-        {
-            Log.Verbose("Reinitialising Biamp TTP");
-            _moduleQueries.ForEach(x => _pendingQueries.Enqueue(x));
-        }
     }
 
     private void HandleResponse(string response)
@@ -234,9 +208,7 @@ public class BiampTtp : Dsp
                 }
                 else if (line.StartsWith("Welcome to the Tesira Text Protocol Server"))
                 {
-                    _connectionStateChangedSinceLastVersionRequest = true;
-                    Resubscribe().Wait();
-                    PollWorker.Restart();
+                    _clientHasReconnectedSinceLastPollLoop = true;
                 }
             }
         }
@@ -476,7 +448,7 @@ public class BiampTtp : Dsp
     public override MuteState GetAudioMute(string controlName) => GetAudioMute(controlName, 1);
 
     public override string GetValue(string controlName) => "";
-    
+
     public override void PowerOn() { }
 
     public override void PowerOff() { }
