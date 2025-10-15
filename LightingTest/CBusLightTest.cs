@@ -21,7 +21,7 @@ public class CBusLightTest
     {
         _light.PowerOn();
         
-        _mockClient.Verify(x => x.Send("\\053800790347\r"));
+        _mockClient.Verify(x => x.Send("\\053800790347r\r"));
     }
 
     [Fact]
@@ -29,14 +29,14 @@ public class CBusLightTest
     {
         _light.PowerOff();
         
-        _mockClient.Verify(x => x.Send("\\0538000103BF\r"));
+        _mockClient.Verify(x => x.Send("\\0538000103BFr\r"));
     }
 
     [Theory]
-    [InlineData(0, "\\053800020300BE\r")]
-    [InlineData(25, "\\05380002033F7F\r")]
-    [InlineData(50, "\\05380002037F3F\r")]
-    [InlineData(100, "\\0538000203FEC0\r")]
+    [InlineData(0, "\\053800020300BEr\r")]
+    [InlineData(25, "\\05380002033F7Fr\r")]
+    [InlineData(50, "\\05380002037F3Fr\r")]
+    [InlineData(100, "\\0538000203FEC0r\r")]
     public void SetLevel_SendsTheCommand(int level, string expected)
     {
         _light.SetLevel(level);

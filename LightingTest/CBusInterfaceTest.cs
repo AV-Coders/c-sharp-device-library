@@ -31,7 +31,7 @@ public class CBusInterfaceTest
     [Fact]
     public void SendPointToMultipointPayload_SendsTheCommand()
     {
-        _interface.SendPointToMultipointPayload(0x38, [0x01, 0x08]);
+        _interface.SendPointToMultipointPayload(0x38, [0x01, 0x08], false);
         
         _mockClient.Verify(x => x.Send("\\0538000108BA\r"));
     }

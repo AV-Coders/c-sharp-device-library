@@ -19,14 +19,14 @@ public class CBusLight : Light
     {
         _interface.SendPointToMultipointPayload(
             CBusSerialInterface.LightingApplication,
-            [_powerOn, _group]);
+            [_powerOn, _group], true);
     }
 
     protected override void DoPowerOff()
     {
         _interface.SendPointToMultipointPayload(
             CBusSerialInterface.LightingApplication,
-            [_powerOff, _group]);
+            [_powerOff, _group], true);
     }
 
     protected override void DoSetLevel(int level)
@@ -34,7 +34,7 @@ public class CBusLight : Light
         byte levelValue = (byte)(level * 2.55);
         _interface.SendPointToMultipointPayload(
             CBusSerialInterface.LightingApplication,
-            [(byte)_defaultRampTime, _group, levelValue]);
+            [(byte)_defaultRampTime, _group, levelValue], true);
     }
 
     public void SetLevel(int level, CBusRampTime rampTime)
@@ -43,13 +43,13 @@ public class CBusLight : Light
         byte levelValue = (byte)(level * 2.55);
         _interface.SendPointToMultipointPayload(
             CBusSerialInterface.LightingApplication,
-            [(byte)rampTime, _group, levelValue]);
+            [(byte)rampTime, _group, levelValue], true);
     }
 
     public void StopRamping()
     {
         _interface.SendPointToMultipointPayload(
             CBusSerialInterface.LightingApplication,
-            [0x09, _group]);
+            [0x09, _group], false);
     }
 }
