@@ -43,7 +43,7 @@ public class CiscoRoomOsTest
         }.ForEach(s => 
             _mockClient.Verify(x => x.Send($"{s}\r\n")));
 
-        Assert.StartsWith("xCommand Peripherals Connect ID: AV-Coders-RoomOS-Module-", (string) _mockClient.Invocations[0].Arguments[0]);
+        Assert.StartsWith("xCommand Peripherals Connect ID: AV-Coders-RoomOS-Module Type: ControlSystem", (string) _mockClient.Invocations[0].Arguments[0]);
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class CiscoRoomOsTest
         
         _communicationStateHandlers.Verify(x => x.Invoke(CommunicationState.Error), Times.Once);
         
-        Assert.StartsWith("xCommand Peripherals Connect ID: AV-Coders-RoomOS-Module-", (string) _mockClient.Invocations[0].Arguments[0]);
+        Assert.StartsWith("xCommand Peripherals Connect ID: AV-Coders-RoomOS-Module Type: ControlSystem", (string) _mockClient.Invocations[0].Arguments[0]);
     }
 
     [Theory]

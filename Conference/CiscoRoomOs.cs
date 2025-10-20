@@ -82,10 +82,10 @@ public class CiscoRoomOs : Conference
       }
     }
 
-    public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, 
+    public CiscoRoomOs(CommunicationClient communicationClient, CiscoRoomOsDeviceInfo deviceInfo, string instanceId = "", 
       PeripheralType peripheralType = PeripheralType.ControlSystem) : base(communicationClient)
     {
-      _moduleIdentifier = $"AV-Coders-RoomOS-Module-{DateTime.Now.Ticks:x}";
+      _moduleIdentifier = $"AV-Coders-RoomOS-Module{instanceId}";
 
       _deviceInfo = deviceInfo;
       _peripheralType = peripheralType;
