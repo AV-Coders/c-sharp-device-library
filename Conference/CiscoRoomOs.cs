@@ -305,7 +305,8 @@ public class CiscoRoomOs : Conference
       }
       else if (responses[3] == "DisplayName:")
       {
-        ActiveCalls[callId].Name = responses[4].Trim().Trim('"');
+        var displayName = string.Join(" ", responses.Skip(4)).Trim().Trim('"');
+        ActiveCalls[callId].Name = displayName;
       }
       else if (responses[3] == "CallbackNumber:")
       {

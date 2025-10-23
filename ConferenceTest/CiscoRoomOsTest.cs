@@ -140,14 +140,14 @@ public class CiscoRoomOsTest
         {
             "*s Call 203 AnswerState: Unanswered\n",
             "*s Call 203 CallbackNumber: \"sip:*123456@client.uri\"\n",
-            "*s Call 203 DisplayName: \"*123456\"",
+            "*s Call 203 DisplayName: \"The Meeting Room!\"",
             "*s Call 203 Status: Dialling\n"
             
         }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
         Assert.Single(_codec.GetActiveCalls());
         Assert.Equal(CallStatus.Dialling, _codec.GetActiveCalls()[0].Status);
-        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("The Meeting Room!", _codec.GetActiveCalls()[0].Name);
         Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
         _callStatusHandler.Verify(x => x.Invoke(CallStatus.Dialling));
     }
