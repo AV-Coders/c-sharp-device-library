@@ -4,18 +4,10 @@ using Serilog.Core;
 
 namespace AVCoders.Core;
 
-public record Event(
-    DateTimeOffset Timestamp,
-    EventType Type,
-    string Info,
-    ILogEventEnricher LogContext);
-
 public abstract class DeviceBase : LogBase, IDevice
 {
-    public IReadOnlyList<Event> Events => _events;
     public CommunicationStateHandler CommunicationStateHandlers;
     public PowerStateHandler PowerStateHandlers;
-    private readonly List<Event> _events = [];
     
     public readonly CommunicationClient CommunicationClient;
     protected PowerState DesiredPowerState = PowerState.Unknown;
@@ -23,7 +15,6 @@ public abstract class DeviceBase : LogBase, IDevice
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
     
-    public event ActionHandler? EventsUpdated;
 
     public PowerState PowerState
     {
@@ -81,26 +72,4 @@ public abstract class DeviceBase : LogBase, IDevice
     public abstract void PowerOn();
 
     public abstract void PowerOff();
-
-    public void ClearEvents()
-    {
-        _events.Clear();
-        EventsUpdated?.Invoke();
-    }
-
-    protected void AddEvent(EventType type, string info)
-    {
-        Log.Verbose(info);
-        _events.Add(new Event(DateTimeOffset.Now, type, info, LogContext.Clone()));
-        LimitEvents();
-        EventsUpdated?.Invoke();
-    }
-
-    private void LimitEvents()
-    {
-        if (_events.Count > 300)
-        {
-            _events.RemoveRange(0, _events.Count - 300);
-        }
-    }
 }

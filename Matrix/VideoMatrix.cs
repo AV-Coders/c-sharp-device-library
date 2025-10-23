@@ -14,4 +14,7 @@ public abstract class VideoMatrix(int numberOfOutputs, CommunicationClient clien
     public abstract bool SupportsAudioBreakaway { get; }
     public abstract void RouteAudio(int input, int output);
     public abstract void RouteAV(int input, int output);
+
+    public abstract List<SyncStatus> GetInputs();
+    public abstract List<SyncStatus> GetOutputs();
 }

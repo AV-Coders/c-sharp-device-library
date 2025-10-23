@@ -53,4 +53,7 @@ public class BlustreamAmf41W : VideoMatrix
     public override void RouteAudio(int input, int output) => SourceSelect(input, output);
 
     public override void RouteAV(int input, int output) => SourceSelect(input, output);
+    public override List<SyncStatus> GetInputs() => new();
+
+    public override List<SyncStatus> GetOutputs() => new();
 }

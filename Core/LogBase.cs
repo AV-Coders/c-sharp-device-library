@@ -1,10 +1,18 @@
 ﻿using Serilog;
 using Serilog.Context;
+using Serilog.Core;
 
 namespace AVCoders.Core;
 
+public record Event(
+    DateTimeOffset Timestamp,
+    EventType Type,
+    string Info,
+    ILogEventEnricher LogContext);
+
 public abstract class LogBase
 {
+    public IReadOnlyList<Event> Events => _events;
     private string _name;
     public const string MethodProperty = "Method";
     public readonly string InstanceUid = Guid.NewGuid().ToString();
@@ -12,6 +20,8 @@ public abstract class LogBase
     public StringHandler? NameChangedHandlers;
     private readonly List<Error> _errors = []; 
     public ActionHandler ErrorsChangedHandlers;
+    private readonly List<Event> _events = [];
+    public event ActionHandler? EventsUpdated;
 
     public string Name
     {
@@ -77,6 +87,28 @@ public abstract class LogBase
             Log.Error("Caused by: {InnerExceptionType} \r\n{InnerExceptionMessage}\r\n{InnerStackTrace}", 
                 e.InnerException.GetType().Name, e.InnerException.Message, e.InnerException.StackTrace);
             _errors.Add(new Error(DateTime.Now, e.InnerException.Message, e.InnerException));
+        }
+    }
+
+    public void ClearEvents()
+    {
+        _events.Clear();
+        EventsUpdated?.Invoke();
+    }
+
+    protected void AddEvent(EventType type, string info)
+    {
+        Log.Verbose(info);
+        _events.Add(new Event(DateTimeOffset.Now, type, info, LogContext.Clone()));
+        LimitEvents();
+        EventsUpdated?.Invoke();
+    }
+
+    private void LimitEvents()
+    {
+        if (_events.Count > 300)
+        {
+            _events.RemoveRange(0, _events.Count - 300);
         }
     }
 }

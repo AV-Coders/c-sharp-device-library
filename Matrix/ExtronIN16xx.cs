@@ -9,6 +9,10 @@ public class ExtronIn16Xx : VideoMatrix
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
     public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
     public readonly List<ExtronMatrixInput> Inputs = [];
+    public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs
+        .SelectMany(output => new[] { output.Primary, output.Secondary })
+        .Where(endpoint => endpoint.InUse)
+        .ToList();
 
     private const string EscapeHeader = "\x1b";
     private readonly int _numberOfInputs;
@@ -72,6 +76,10 @@ public class ExtronIn16Xx : VideoMatrix
         }
         
     }
+
+    public override List<SyncStatus> GetInputs() => [..Inputs];
+
+    public override List<SyncStatus> GetOutputs() => [..Outputs];
 
     public override void PowerOn() {    }
 

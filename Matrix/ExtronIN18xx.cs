@@ -10,6 +10,10 @@ public class ExtronIn18Xx : VideoMatrix
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
     public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
     public readonly List<ExtronMatrixInput> Inputs = [];
+    public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs
+        .SelectMany(output => new[] { output.Primary, output.Secondary })
+        .Where(endpoint => endpoint.InUse)
+        .ToList();
     
     private readonly ThreadWorker _pollWorker;
     private const string EscapeHeader = "\x1b";
@@ -106,6 +110,10 @@ public class ExtronIn18Xx : VideoMatrix
             Log.Error("Not switching output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
         }
     }
+
+    public override List<SyncStatus> GetInputs() => [..Inputs];
+
+    public override List<SyncStatus> GetOutputs() => [..Outputs];
 
     public override void PowerOn() {    }
 

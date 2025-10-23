@@ -62,4 +62,8 @@ public class ExtronSw : VideoMatrix
             Log.Error("Not switching to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", input, _numberOfInputs);
         }
     }
+
+    public override List<SyncStatus> GetInputs() => [];
+
+    public override List<SyncStatus> GetOutputs() => [];
 }

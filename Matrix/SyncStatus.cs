@@ -44,6 +44,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             if (_inputConnectionStatus == value)
                 return;
             _inputConnectionStatus = value;
+            AddEvent(EventType.Connection, $"Input Connection Changed to {_inputConnectionStatus}");
             InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution, _inputHdcpStatus);
         }
     }
@@ -53,6 +54,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
         protected set
         {
             _streamAddress = value;
+            AddEvent(EventType.Other, $"Stream Address Changed to {_streamAddress}");
             StreamChangeHandlers?.Invoke(value);
         }
     }
@@ -65,6 +67,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             if(_inputResolution == value)
                 return;
             _inputResolution = value;
+            AddEvent(EventType.Other, $"Input Resolution Changed to {_inputResolution}");
             InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution, _inputHdcpStatus);
         }
     }
@@ -77,6 +80,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             if (_outputConnectionStatus == value)
                 return;
             _outputConnectionStatus = value;
+            AddEvent(EventType.Connection, $"Output Connection Changed to {_outputConnectionStatus}");
             OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution, _outputHdcpStatus);
         }
     }
@@ -89,6 +93,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             if(_outputResolution == value)
                 return;
             _outputResolution = value;
+            AddEvent(EventType.Other, $"Output Resolution Changed to {_outputResolution}");
             OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution, _outputHdcpStatus);
         }
     }
@@ -101,6 +106,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             if (_inputHdcpStatus == value)
                 return;
             _inputHdcpStatus = value;
+            AddEvent(EventType.Other, $"Input Hdcp Changed to {_inputHdcpStatus}");
             InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution, _inputHdcpStatus);
         }
     }
@@ -113,6 +119,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             if (_outputHdcpStatus == value)
                 return;
             _outputHdcpStatus = value;
+            AddEvent(EventType.Other, $"Output Hdcp Changed to {_outputHdcpStatus}");
             OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution, _outputHdcpStatus);
         }
     }

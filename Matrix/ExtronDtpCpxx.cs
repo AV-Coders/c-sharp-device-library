@@ -279,6 +279,10 @@ public class ExtronDtpCpxx : VideoMatrix
         AddEvent(EventType.Input, $"Switched output {output} to input {input}");
     }
 
+    public override List<SyncStatus> GetInputs() => [..Inputs];
+
+    public override List<SyncStatus> GetOutputs() => [..Outputs];
+
     public void RouteAV(int input, List<int> outputs)
     {
         if (outputs.Count == 0)
