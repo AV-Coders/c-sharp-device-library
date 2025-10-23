@@ -66,7 +66,7 @@ public class ServerEdgePdu: Pdu
 
         _restClient.Get(_getNamesUri);
 
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(30));
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(6));
         _pollWorker.Restart();
 
     }
@@ -82,7 +82,11 @@ public class ServerEdgePdu: Pdu
         {
             if (childNode.Name.StartsWith("pot"))
             {
-                
+                var rawFlags = childNode.InnerText.Split(',');
+                for (int i = 0; i < Outlets.Count; i++)
+                {
+                    Outlets[i].OverridePowerState(rawFlags[i+10] == "1" ? PowerState.On : PowerState.Off);
+                }
             }
             else if (childNode.Name.StartsWith("na"))
             {
@@ -141,12 +145,6 @@ public class ServerEdgePdu: Pdu
         Outlets.ForEach(outlet =>
         {
             sb.Append(outlet.PowerState == PowerState.Rebooting ? "1" : "0");
-            new Thread(_ =>
-            {
-                Thread.Sleep(2000);
-                outlet.OverridePowerState(PowerState.On);
-            }).Start();
-            
         });
         Uri rebootUri = new Uri(sb.ToString(), UriKind.Relative);
         _restClient.Get(rebootUri);
