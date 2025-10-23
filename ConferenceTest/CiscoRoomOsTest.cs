@@ -35,11 +35,13 @@ public class CiscoRoomOsTest
     {
         _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
         new List<string> {
-        "xFeedback register /Status/Standby",
-        "xFeedback register /Status/Call",
-        "xStatus Standby",
-        "xStatus Call",
-        "xStatus SIP Registration URI",
+            "xFeedback register /Status/Standby",
+            "xFeedback register /Status/Call",
+            "xFeedback Register Configuration/Conference/AutoAnswer/Mode",
+            "xStatus Standby",
+            "xStatus Call",
+            "xStatus SIP Registration URI",
+            "xConfiguration Conference AutoAnswer Mode",
         }.ForEach(s => 
             _mockClient.Verify(x => x.Send($"{s}\r\n")));
 
@@ -177,7 +179,7 @@ public class CiscoRoomOsTest
         {
             "*s Call 204 AnswerState: Autoanswered\n",
             "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
-            "*s Call 204 DisplayName: \"*123456\"",
+            "*s Call 204 DisplayName: \"VCAT IR 19-12\"",
             "*s Call 204 Status: Dialling\n",
             "*s Call 204 Status: Connected\n"
             
@@ -185,7 +187,7 @@ public class CiscoRoomOsTest
 
         Assert.Single(_codec.GetActiveCalls());
         Assert.Equal(CallStatus.Connected, _codec.GetActiveCalls()[0].Status);
-        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("VCAT IR 19-12", _codec.GetActiveCalls()[0].Name);
         Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
         _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connected));
         _activeCallHandler.Verify(x => x.Invoke(It.IsAny<List<Call>>()));
@@ -342,6 +344,19 @@ public class CiscoRoomOsTest
         _mockClient.Object.ResponseHandlers!.Invoke(response);
         
         Assert.Equal(expectedState, _codec.DoNotDisturbState);
+    }
+
+    [Theory]
+    [InlineData("*c xConfiguration Conference AutoAnswer Mode: Off\n", PowerState.Off)]
+    [InlineData("*c xConfiguration Conference AutoAnswer Mode: On\n", PowerState.On)]
+    public void AutoAnswerResponses_UpdateTheState(string response, PowerState expectedState)
+    {
+        var mockHandler = new Mock<PowerStateHandler>();
+        _codec.AutoAnswerStateHandlers += mockHandler.Object;
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+        
+        Assert.Equal(expectedState, _codec.AutoAnswerState);
+        mockHandler.Verify(x => x.Invoke(expectedState));
     }
     
 }

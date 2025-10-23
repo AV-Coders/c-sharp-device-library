@@ -67,7 +67,9 @@ public class CiscoRoomOs : Conference
     private bool _forceDoNotDisturb = true;
     private PowerState _doNotDisturbState = PowerState.Unknown;
     private PowerState _desiredDoNotDisturbState = PowerState.Unknown;
+    private PowerState _autoAnswerState = PowerState.Unknown;
     public PowerStateHandler? DoNotDisturbStateHandlers;
+    public PowerStateHandler? AutoAnswerStateHandlers;
     public StringHandler? OutputVolumeResponseHandlers;
 
     public PowerState DoNotDisturbState
@@ -79,6 +81,18 @@ public class CiscoRoomOs : Conference
           return;
         _doNotDisturbState = value;
         DoNotDisturbStateHandlers?.Invoke(value);
+      }
+    }
+
+    public PowerState AutoAnswerState
+    {
+      get => _autoAnswerState;
+      private set
+      {
+        if (_autoAnswerState == value)
+          return;
+        _autoAnswerState = value;
+        AutoAnswerStateHandlers?.Invoke(value);
       }
     }
 
@@ -108,11 +122,13 @@ public class CiscoRoomOs : Conference
           SendCommand("xFeedback register /Status/Conference/DoNotDisturb");
           SendCommand("xFeedback register /Status/Call");
           SendCommand("xFeedback register /Status/Audio/Volume");
+          SendCommand("xFeedback Register Configuration/Conference/AutoAnswer/Mode");
           SendCommand("xStatus Standby");
           SendCommand("xStatus Conference DoNotDisturb");
           SendCommand("xStatus Call");
           SendCommand("xStatus Audio Volume");
           SendCommand("xStatus SIP Registration URI");
+          SendCommand("xConfiguration Conference AutoAnswer Mode");
           PhoneBookParser.RequestPhonebook();
         }
         catch (Exception e)
@@ -204,7 +220,7 @@ public class CiscoRoomOs : Conference
     {
       using (PushProperties("HandleResponse"))
       {
-        if (!response.Contains("*s") && !response.Contains("*r"))
+        if (!response.Contains("*s") && !response.Contains("*r") && !response.Contains("*c"))
           return;
 
         var responses = response.Split(' ');
@@ -248,6 +264,10 @@ public class CiscoRoomOs : Conference
               DoNotDisturbState = responses[3].Contains("Active") ? PowerState.On : PowerState.Off;
               ValidateDoNotDisturbState();
               return;
+            case "xConfiguration" when responses[2] == "Conference" && responses[3] == "AutoAnswer" && responses[4] == "Mode:":
+              AutoAnswerState = responses[5].Contains("On") ? PowerState.On : PowerState.Off;
+              return;
+
             case "SIP" when responses[2] == "Registration" && responses[4] == "URI:":
               Uri = responses[5].Trim().Trim('"');
               return;
