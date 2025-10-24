@@ -73,29 +73,46 @@ public class ServerEdgePdu: Pdu
 
     private void HandleResponse(HttpResponseMessage response)
     {
-        string responseString = response.Content.ReadAsStringAsync().Result;
-        XmlDocument xmlDoc = new XmlDocument();
-        xmlDoc.LoadXml(responseString);
-        string namePayload = string.Empty;
-
-        foreach (XmlNode childNode in xmlDoc.DocumentElement!.ChildNodes)
+        try
         {
-            if (childNode.Name.StartsWith("pot"))
+            string responseString = response.Content.ReadAsStringAsync().Result;
+            if (responseString.Contains("Success!"))
             {
-                var rawFlags = childNode.InnerText.Split(',');
-                for (int i = 0; i < Outlets.Count; i++)
+                CommunicationState = CommunicationState.Okay;
+                return;
+            }
+            XmlDocument xmlDoc = new XmlDocument();
+            xmlDoc.LoadXml(responseString);
+            string namePayload = string.Empty;
+
+            foreach (XmlNode childNode in xmlDoc.DocumentElement!.ChildNodes)
+            {
+                if (childNode.Name.StartsWith("pot"))
                 {
-                    Outlets[i].OverridePowerState(rawFlags[i+10] == "1" ? PowerState.On : PowerState.Off);
+                    // <pot0>,,0.3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,5,5,5,5,5,5,5,0.3,0,</pot0>
+                    var rawFlags = childNode.InnerText.Split(',');
+                    for (int i = 0; i < Outlets.Count; i++)
+                    {
+                        Outlets[i].OverridePowerState(rawFlags[i+10] == "1" ? PowerState.On : PowerState.Off);
+                    }
+                }
+                else if (childNode.Name.StartsWith("na"))
+                {
+                    namePayload += childNode.InnerText;
                 }
             }
-            else if (childNode.Name.StartsWith("na"))
-            {
-                namePayload += childNode.InnerText;
-            }
-        }
         
-        if(namePayload != string.Empty)
-            ProcessOutletNames(namePayload);
+            if(namePayload != string.Empty)
+                ProcessOutletNames(namePayload);
+        }
+        catch (Exception e)
+        {
+            LogException(e);
+            AddEvent(EventType.Error, e.Message);
+            if(e.StackTrace != null)
+                AddEvent(EventType.Error, e.StackTrace);
+            AddEvent(EventType.Error, response.Content.ReadAsStringAsync().Result);
+        }
     }
 
     private void ProcessOutletNames(string namePayload)
