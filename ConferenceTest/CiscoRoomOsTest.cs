@@ -194,6 +194,27 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
+    public void CallResponses_HandleOnHold()
+    {
+        new List<string>
+        {
+            "*s Call 204 AnswerState: Autoanswered\n",
+            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
+            "*s Call 204 DisplayName: \"Foo 12\"",
+            "*s Call 204 Status: Dialling\n",
+            "*s Call 204 Status: OnHold\n"
+            
+        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.OnHold, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal("Foo 12", _codec.GetActiveCalls()[0].Name);
+        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.OnHold));
+        _activeCallHandler.Verify(x => x.Invoke(It.IsAny<List<Call>>()));
+    }
+
+    [Fact]
     public void CallResponses_HandleGhost()
     {
         new List<string>
