@@ -6,15 +6,26 @@ namespace AVCoders.Core;
 
 public abstract class CommunicationClient(string name, string host, ushort port, CommandStringFormat commandStringFormat) : LogBase(name)
 {
+    private string _host = host;
+    private ushort _port = port;
     public StringHandler? RequestHandlers;
     public ByteHandler? RequestByteHandlers;
     public StringHandler? ResponseHandlers;
     public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
     public readonly CommandStringFormat CommandStringFormat = commandStringFormat;
-    
-    public readonly string Host = host;
-    public readonly ushort Port = port;
+
+    public string Host
+    {
+        get => _host;
+        protected set => _host = value;
+    }
+
+    public ushort Port
+    {
+        get => _port;
+        protected set => _port = value;
+    }
 
     private ConnectionState _connectionState = ConnectionState.Unknown;
 
