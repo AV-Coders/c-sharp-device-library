@@ -67,4 +67,26 @@ public class ThreadWorkerTest
         
         _actionMock.Verify(action => action(It.IsAny<CancellationToken>()), Times.Exactly(5));
     }
+
+    [Fact]
+    public void ThreadWorker_ReportsNotRunningWhenCreated()
+    {
+        Assert.False(_threadWorker.IsRunning);
+    }
+
+    [Fact]
+    public void ThreadWorker_ReportsRunningWhenStarted()
+    {
+        _threadWorker.Restart();
+        Assert.True(_threadWorker.IsRunning);
+    }
+
+    [Fact]
+    public async Task ThreadWorker_ReportsNotRunningWhenStopped()
+    {
+        _threadWorker.Restart();
+        await Task.Delay(TimeSpan.FromMilliseconds(100));
+        await _threadWorker.Stop();
+        Assert.False(_threadWorker.IsRunning);
+    }
 }

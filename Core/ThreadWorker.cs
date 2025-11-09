@@ -6,6 +6,18 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     private Task? _task;
     private bool _waitFirst = waitFirst;
 
+    public bool IsRunning
+    {
+        get 
+        {
+            if (_cancellationTokenSource == null || _task == null)
+                return false;
+        
+            return !_cancellationTokenSource.IsCancellationRequested && 
+               (_task.Status == TaskStatus.Running || _task.Status == TaskStatus.WaitingForActivation);
+    }
+}
+
     public void Restart()
     {
         Stop();
