@@ -15,7 +15,7 @@ public class EatonOutlet : Outlet
         _pdu = pdu;
         OutletNumber = outletNumber;
         DeviceIndex = deviceIndex;
-        _pollWorker = new ThreadWorker(PollPowerState, TimeSpan.FromSeconds(12));
+        _pollWorker = new ThreadWorker(PollPowerState, TimeSpan.FromSeconds(13));
         _pollWorker.Restart();
     }
 
@@ -83,6 +83,7 @@ public class EatonPdu : Pdu
             string name = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.2.1.{i}")[0].Data.ToString();
             AddOutlet(new EatonOutlet(name, this, i, 1));
             AddEvent(EventType.DriverState, $"Outlet {name} created");
+            Task.Delay(TimeSpan.FromMilliseconds(333), arg).Wait(arg);
         }
         _waitForConnectionWorker.Stop();
         OutletDefinitionHandlers?.Invoke(Outlets);
