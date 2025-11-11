@@ -48,6 +48,10 @@ public class AvCodersSnmpV3Client : CommunicationClient
             return [];
         }
         ConnectionState = ConnectionState.Connected;
+        InvokeRequestHandlers($"SET OID: {oid}, Value: {value}");
+        var variables = reply.Pdu().Variables;
+        var variableStrings = string.Join(", ", variables.Select(v => $"{v.Id}={v.Data}\n"));
+        InvokeResponseHandlers($"SET OID: {oid}, Values: {variableStrings}");
         return reply.Pdu().Variables.ToList();
     }
     
@@ -79,6 +83,9 @@ public class AvCodersSnmpV3Client : CommunicationClient
 
         ConnectionState = ConnectionState.Connected;
         var result = reply.Pdu().Variables;
+        InvokeRequestHandlers($"GET OID: {oid}");
+        var variableStrings = string.Join(", ", result.Select(v => $"{v.Id}={v.Data}\n"));
+        InvokeResponseHandlers($"GET OID: {oid}, Values: {variableStrings}");
         return result.ToList();
     }
 
