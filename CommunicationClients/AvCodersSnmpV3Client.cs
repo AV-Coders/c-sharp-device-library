@@ -40,6 +40,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
             _priv, 
             Messenger.MaxMessageSize,
             reportMessage);
+        InvokeRequestHandlers($"SET OID: {oid}, Value: {value}");
         var reply = request.GetResponse(DefaultRequestTimeout, _host);
         if (reply.Pdu().ErrorStatus != Integer32.Zero)
         {
@@ -48,11 +49,10 @@ public class AvCodersSnmpV3Client : CommunicationClient
             return [];
         }
         ConnectionState = ConnectionState.Connected;
-        InvokeRequestHandlers($"SET OID: {oid}, Value: {value}");
-        var variables = reply.Pdu().Variables;
-        var variableStrings = string.Join(", ", variables.Select(v => $"{v.Id}={v.Data}\n"));
+        var result = reply.Pdu().Variables;
+        var variableStrings = string.Join(", ", result.Select(v => $"{v.Id}={v.Data}\n"));
         InvokeResponseHandlers($"SET OID: {oid}, Values: {variableStrings}");
-        return reply.Pdu().Variables.ToList();
+        return result.ToList();
     }
     
     public List<Variable> Set(string oid, string value) => Set(oid, new OctetString(value));
@@ -73,6 +73,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
             _priv, 
             Messenger.MaxMessageSize,
             reportMessage);
+        InvokeRequestHandlers($"GET OID: {oid}");
         var reply = request.GetResponse(DefaultRequestTimeout, _host);
         if (reply.Pdu().ErrorStatus != Integer32.Zero)
         {
@@ -83,7 +84,6 @@ public class AvCodersSnmpV3Client : CommunicationClient
 
         ConnectionState = ConnectionState.Connected;
         var result = reply.Pdu().Variables;
-        InvokeRequestHandlers($"GET OID: {oid}");
         var variableStrings = string.Join(", ", result.Select(v => $"{v.Id}={v.Data}\n"));
         InvokeResponseHandlers($"GET OID: {oid}, Values: {variableStrings}");
         return result.ToList();
