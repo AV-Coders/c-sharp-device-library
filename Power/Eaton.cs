@@ -8,24 +8,18 @@ public class EatonOutlet : Outlet
     public readonly int OutletNumber;
     public readonly int DeviceIndex;
     private readonly EatonPdu _pdu;
-    private readonly ThreadWorker _pollWorker;
     
     public EatonOutlet(string name, EatonPdu pdu, int outletNumber, int deviceIndex) : base(name)
     {
         _pdu = pdu;
         OutletNumber = outletNumber;
         DeviceIndex = deviceIndex;
-        _pollWorker = new ThreadWorker(PollPowerState, TimeSpan.FromSeconds(13));
-        _pollWorker.Restart();
     }
 
-    private Task PollPowerState(CancellationToken arg)
+    public void PollPowerState()
     {
         var currentState = _pdu.GetPowerState(this);
-        if(PowerState != currentState)
-            AddEvent(EventType.Power, currentState.ToString());
-        PowerState = currentState;
-        return Task.CompletedTask;   
+        PowerState = currentState;   
     }
 
     public override void PowerOn()
@@ -56,6 +50,7 @@ public class EatonPdu : Pdu
 {
     private readonly AvCodersSnmpV3Client _client;
     private ThreadWorker _waitForConnectionWorker;
+    private ThreadWorker _pollWorker;
     private readonly string _setPowerOid = ".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.6.";
 
     public EatonPdu(string name, AvCodersSnmpV3Client client) : base(name, client)
@@ -63,7 +58,21 @@ public class EatonPdu : Pdu
         _client = client;
         _waitForConnectionWorker = new ThreadWorker(Initialise, TimeSpan.FromSeconds(12));
         _waitForConnectionWorker.Restart();
+        
+        _pollWorker =  new ThreadWorker(Poll, TimeSpan.FromSeconds(12), true);
+        _pollWorker.Restart();
         CommunicationState = CommunicationState.Unknown;
+    }
+
+    private Task Poll(CancellationToken token)
+    {
+        Outlets.ForEach(x =>
+        {
+            Task.Delay(TimeSpan.FromMilliseconds(333), token).Wait(token);
+            var outlet = x as EatonOutlet;
+            outlet!.PollPowerState();
+        });
+        return Task.CompletedTask;
     }
 
     private Task Initialise(CancellationToken arg)
@@ -83,7 +92,6 @@ public class EatonPdu : Pdu
             string name = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.2.1.{i}")[0].Data.ToString();
             AddOutlet(new EatonOutlet(name, this, i, 1));
             AddEvent(EventType.DriverState, $"Outlet {name} created");
-            Task.Delay(TimeSpan.FromMilliseconds(333), arg).Wait(arg);
         }
         _waitForConnectionWorker.Stop();
         OutletDefinitionHandlers?.Invoke(Outlets);
