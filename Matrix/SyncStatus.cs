@@ -21,6 +21,7 @@ public enum HdcpStatus
 
 public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(name)
 {
+    private ConnectionState _deviceConnectionState = ConnectionState.Unknown;
     private ConnectionState _inputConnectionStatus;
     private string _inputResolution = string.Empty;
     private HdcpStatus _inputHdcpStatus = HdcpStatus.Unknown;
@@ -35,6 +36,18 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
     public AddressChangeHandler? StreamChangeHandlers;
     
     public readonly AVEndpointType DeviceType = type;
+    
+    public ConnectionState DeviceConnectionState
+    {
+        get => _deviceConnectionState;
+        protected set
+        {
+            if (_deviceConnectionState == value)
+                return;
+            _deviceConnectionState = value;
+            AddEvent(EventType.Connection, $"Device Connection Changed to {_deviceConnectionState}");
+        }
+    }
 
     public ConnectionState InputConnectionStatus
     {

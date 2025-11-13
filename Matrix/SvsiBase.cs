@@ -34,6 +34,7 @@ public abstract class SvsiBase : AVoIPEndpoint
 
     private void HandleConnectionState(ConnectionState connectionState)
     {
+        DeviceConnectionState = connectionState;
         if (connectionState != ConnectionState.Connected) 
             return;
         Task.Delay(300).ContinueWith(_ =>

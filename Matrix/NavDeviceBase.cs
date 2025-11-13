@@ -67,6 +67,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
     private void HandleNavConnectionState(ConnectionState connectionState)
     {
+        DeviceConnectionState = connectionState;
         if (connectionState != ConnectionState.Connected)
             return;
         Thread.Sleep(TimeSpan.FromSeconds(3));
