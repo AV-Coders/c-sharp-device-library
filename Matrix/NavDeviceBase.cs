@@ -4,7 +4,7 @@ namespace AVCoders.Matrix;
 
 public class NavCommunicationEmulator : CommunicationClient
 {
-    public NavCommunicationEmulator(string name) : base(name, "via Navigator", 0, CommandStringFormat.Ascii)
+    public NavCommunicationEmulator(string name, string host) : base(name, host, 0, CommandStringFormat.Ascii)
     {
         ConnectionState = ConnectionState.Disconnected;
     }
@@ -53,7 +53,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
 
     public NavDeviceBase(string name, AVEndpointType deviceType, string ipAddress, Navigator navigator) : 
-        base(name, deviceType, new NavCommunicationEmulator(GetCommunicationClientName(deviceType, name)))
+        base(name, deviceType, new NavCommunicationEmulator(GetCommunicationClientName(deviceType, name), ipAddress))
     {
         Navigator = navigator;
         _deviceId = ipAddress;
