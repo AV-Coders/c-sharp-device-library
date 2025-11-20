@@ -60,6 +60,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         Navigator.RegisterDevice(ipAddress, PreHandleResponse);
         Navigator.SshClient.ConnectionStateHandlers += HandleNavConnectionState;
         CommunicationClient.ConnectionStateHandlers += x => DeviceConnectionState = x;
+        DeviceConnectionState = CommunicationClient.ConnectionState;
         PollWorker = new ThreadWorker(PrePoll, TimeSpan.FromSeconds(90));
         PollWorker.Restart();
     }
