@@ -13,13 +13,10 @@ public class AvCodersTcpClient : Core_TcpClient
     private TcpClient? _client;
     private NetworkStream? _stream;
     private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
-    private DateTime _lastSendUtc = DateTime.MinValue;
     private int _reconnectBackoffMs = 1000; // starts at 1 second
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan ProbeIdle = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
-    private static readonly byte[] ProbeBytes = [0];
 
     public AvCodersTcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat) :
         base(host, port, name, commandStringFormat)
@@ -183,21 +180,6 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             await Task.Delay(TimeSpan.FromSeconds(1), token);
             return;
-        }
-
-        // Probe if idle to surface half-open earlier than OS keepalive
-        if ((DateTime.UtcNow - _lastSendUtc) > ProbeIdle)
-        {
-            try
-            {
-                await SafeWriteAsync(ProbeBytes, token);
-            }
-            catch
-            {
-                Reconnect();
-                await Task.Delay(TimeSpan.FromMilliseconds(200), token);
-                return;
-            }
         }
 
         while (_sendQueue.Count > 0)
@@ -429,6 +411,5 @@ public class AvCodersTcpClient : Core_TcpClient
 
         streamLocal.WriteTimeout = (int)WriteTimeout.TotalMilliseconds;
         await streamLocal.WriteAsync(payload.AsMemory(0, payload.Length), token);
-        _lastSendUtc = DateTime.UtcNow;
     }
 }
