@@ -4,7 +4,7 @@ using Serilog;
 
 namespace AVCoders.Matrix;
 
-public class Navigator : DeviceBase
+public class Navigator : VideoMatrix
 {
     public static readonly ushort DefaultPort = 22023;
     public readonly SshClient SshClient;
@@ -12,9 +12,12 @@ public class Navigator : DeviceBase
     private readonly Regex _deviceResponseParser;
     public const string EscapeHeader = "\x1b";
     private int _unansweredDeviceForwards = 0;
-    
 
-    public Navigator(string name, SshClient sshClient) : base(name, sshClient)
+    private readonly List<NavEncoder> _inputs = [];
+    private readonly List<NavDecoder> _outputs = [];
+
+
+    public Navigator(string name, SshClient sshClient) : base(0, sshClient, name)
     {
         SshClient = sshClient;
         CommunicationClient.ResponseHandlers += HandleResponse;
@@ -44,9 +47,9 @@ public class Navigator : DeviceBase
             }
         }
     }
-    public virtual void RouteAV(uint input, uint output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}!\r");
-    public void RouteAudio(uint input, uint output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}$\r");
-    public void RouteVideo(uint input, uint output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}%\r");
+    public override void RouteAV(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}!\r");
+    public override void RouteAudio(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}$\r");
+    public override void RouteVideo(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}%\r");
 
     public void SendCommandToDevice(string deviceId, string command) => CommunicationClient.Send($"{{{deviceId}:{command}}}\r");
 
@@ -78,4 +81,25 @@ public class Navigator : DeviceBase
     public override void PowerOn() { }
 
     public override void PowerOff() { }
+    public override int NumberOfOutputs { get => _outputs.Count; }
+    public override int NumberOfInputs { get => _inputs.Count; }
+    public override bool RequiresOutputSpecification { get => true; }
+    public override bool SupportsVideoBreakaway { get => false; }
+    public override bool SupportsAudioBreakaway { get => false; }
+    
+    public override List<SyncStatus> GetInputs() => [.._inputs];
+    public override List<SyncStatus> GetOutputs() => [.._outputs];
+
+    public void AddEndpoint(NavDeviceBase navDeviceBase)
+    {
+        switch (navDeviceBase.DeviceType)
+        {
+            case AVEndpointType.Decoder:
+                _inputs.Add((NavEncoder)navDeviceBase);
+                break;
+            case AVEndpointType.Encoder:
+                _outputs.Add((NavDecoder)navDeviceBase);
+                break;
+        }
+    }
 }

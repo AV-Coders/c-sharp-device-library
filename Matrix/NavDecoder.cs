@@ -46,7 +46,7 @@ public class NavDecoder : NavDeviceBase
     {
     }
 
-    public void SetInput(uint deviceId)
+    public void SetInput(int deviceId)
     {
         using (PushProperties())
         {
@@ -60,7 +60,7 @@ public class NavDecoder : NavDeviceBase
         }
     }
 
-    public void SetVideo(uint deviceId)
+    public void SetVideo(int deviceId)
     {
         using (PushProperties())
         {

@@ -23,7 +23,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     protected readonly ThreadWorker PollWorker;
     protected readonly Navigator Navigator;
     protected readonly string EscapeHeader = "\x1b";
-    private uint? _deviceNumber = null;
+    private int? _deviceNumber = null;
     private string _hostname = string.Empty;
     protected string? SerialNumber = null;
     private int _unansweredRequests = 0;
@@ -32,7 +32,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
 
-    public uint DeviceNumber
+    public int DeviceNumber
     {
         get => _deviceNumber ?? 0;
         protected set
@@ -56,6 +56,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         base(name, deviceType, new NavigatorTunnel(GetCommunicationClientName(deviceType, name), ipAddress))
     {
         Navigator = navigator;
+        Navigator.AddEndpoint(this);
         _deviceId = ipAddress;
         Navigator.RegisterDevice(ipAddress, PreHandleResponse);
         Navigator.SshClient.ConnectionStateHandlers += HandleNavConnectionState;
@@ -106,7 +107,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     {
         if (payload.StartsWith("Dnum"))
         {
-            DeviceNumber = uint.Parse(payload.Replace("Dnum", string.Empty));
+            DeviceNumber = int.Parse(payload.Replace("Dnum", string.Empty));
             Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", PreHandleResponse);
         }
 
