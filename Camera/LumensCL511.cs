@@ -52,26 +52,25 @@ public class LumensCL511 : CameraBase
         _autoTuneWorker.Stop();
     }
 
-    public override void PanTiltStop() => Log.Error("LumensCL511 module doesn't support Pan / Tilt");
+    public override void PanTiltStop() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
 
-    public override void PanTiltUp() => Log.Error("LumensCL511 module doesn't support Pan / Tilt");
+    public override void PanTiltUp() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
 
-    public override void PanTiltDown() => Log.Error("LumensCL511 module doesn't support Pan / Tilt");
+    public override void PanTiltDown() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
 
-    public override void PanTiltLeft() => Log.Error("LumensCL511 module doesn't support Pan / Tilt");
+    public override void PanTiltLeft() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
 
-    public override void PanTiltRight()
-    {
-        Log.Error("LumensCL511 module doesn't support Pan / Tilt");
-    }
+    public override void PanTiltRight() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
 
     public override void SetAutoFocus(PowerState state)
     {
         if (state == PowerState.On)
         {
-            Log.Information("LumensCL511 module doesn't support autofocus, triggering a one-time focus instead");
+            AddEvent(EventType.Error, "This module doesn't support autofocus, triggering a one-time focus instead of enabling it");
             OneTimeAutoFocus();
+            return;
         }
+        AddEvent(EventType.Error, "This module doesn't support autofocus, ignoring command");
     }
 
     public void OneTimeAutoFocus() => CommunicationClient.Send([0xA0, 0xA3, 0x01, 0x00, 0x00, 0xAF]);
