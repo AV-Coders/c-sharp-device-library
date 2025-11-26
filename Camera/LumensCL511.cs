@@ -7,7 +7,7 @@ public class LumensCL511(string name, CommunicationClient client) : CameraBase(n
 {
     public static readonly SerialSpec DefaultSpec = new SerialSpec(SerialBaud.Rate9600, SerialParity.None,
         SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
-    public const uint DefaultPort = 52381;
+    public const ushort DefaultPort = 52381;
     
     public override void PowerOn()
     {
