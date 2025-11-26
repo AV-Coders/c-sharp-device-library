@@ -94,10 +94,10 @@ public class Navigator : VideoMatrix
     {
         switch (navDeviceBase.DeviceType)
         {
-            case AVEndpointType.Decoder:
+            case AVEndpointType.Encoder:
                 _inputs.Add((NavEncoder)navDeviceBase);
                 break;
-            case AVEndpointType.Encoder:
+            case AVEndpointType.Decoder:
                 _outputs.Add((NavDecoder)navDeviceBase);
                 break;
         }
