@@ -10,23 +10,11 @@ public class LumensCL511 : CameraBase
     public const ushort DefaultPort = 9997;
     
     private readonly bool _autoTuneAfterZoom;
-    private readonly ThreadWorker _autoTuneWorker;
+    private CancellationTokenSource? _autoTuneCts;
 
     public LumensCL511(string name, CommunicationClient client, bool autoTuneAfterZoom) : base(name, client)
     {
         _autoTuneAfterZoom = autoTuneAfterZoom;
-        _autoTuneWorker = new ThreadWorker(TriggerAutoTune, TimeSpan.FromSeconds(1));
-    }
-
-    private Task TriggerAutoTune(CancellationToken arg)
-    {
-        AutoTune();
-        Task.Run(() =>
-        {
-            Thread.Sleep(TimeSpan.FromMilliseconds(100));
-            return _autoTuneWorker.Stop();
-        }, arg);
-        return Task.CompletedTask;
     }
 
     public override void PowerOn() => CommunicationClient.Send([0xA0, 0xB1, 0x01, 0x00, 0x00, 0xAF]);
@@ -35,21 +23,35 @@ public class LumensCL511 : CameraBase
 
     public override void ZoomStop()
     {
+        _autoTuneCts?.Cancel();
         CommunicationClient.Send([0xA0, 0x11, 0x00, 0x00, 0x00, 0xAF]);
-        if (_autoTuneAfterZoom)
-            _autoTuneWorker.Restart();
+
+        if (!_autoTuneAfterZoom) 
+            return;
+        
+        _autoTuneCts = new CancellationTokenSource();
+        var token = _autoTuneCts.Token;
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(1000, token);
+                AutoTune();
+            }
+            catch (OperationCanceledException) { }
+        }, token);
     }
 
     public override void ZoomIn()
     {
+        _autoTuneCts?.Cancel();
         CommunicationClient.Send([0xA0, 0x11, 0x23, 0x00, 0x00, 0xAF]);
-        _autoTuneWorker.Stop();
     }
 
     public override void ZoomOut()
     {
+        _autoTuneCts?.Cancel();
         CommunicationClient.Send([0xA0, 0x11, 0x33, 0x00, 0x00, 0xAF]);
-        _autoTuneWorker.Stop();
     }
 
     public override void PanTiltStop() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
