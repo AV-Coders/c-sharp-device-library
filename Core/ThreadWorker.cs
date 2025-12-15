@@ -1,6 +1,9 @@
-﻿namespace AVCoders.Core;
+﻿using System.Text;
 
-public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false) : LogBase("ThreadWorker")
+namespace AVCoders.Core;
+
+public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false)
+    : LogBase(GenerateLogClassName(action))
 {
     private CancellationTokenSource? _cancellationTokenSource = null;
     private Task? _task;
@@ -59,10 +62,10 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
             {
                 while (!token.IsCancellationRequested)
                 {
-                    if(_waitFirst)
+                    if (_waitFirst)
                         await Task.Delay(sleepTime, token);
                     await action.Invoke(token);
-                    if(!_waitFirst)
+                    if (!_waitFirst)
                         await Task.Delay(sleepTime, token);
                 }
             }
@@ -72,7 +75,8 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
             }
             catch (Exception e)
             {
-                LogException(e, "ThreadWorker has encountered an exception while running a task:");
+                LogException(e,
+                    $"ThreadWorker has encountered an exception while running {action.Method.Name} in {action.Target?.GetType().Name ?? "*Class could not be determined*"}");
             }
         }, token);
     }
@@ -85,5 +89,22 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     public void WaitFirst(bool waitFirst)
     {
         _waitFirst = waitFirst;
+    }
+    
+    private static string GenerateLogClassName(Func<CancellationToken, Task> action)
+    {
+        StringBuilder sb = new StringBuilder();
+        if (action.Target != null)
+        {
+            sb.Append(action.Target.GetType().Name);
+            sb.Append('.');
+        }
+        
+        sb.Append(action.Method.Name);
+
+        if (action.Target is LogBase targetInstance) 
+            sb.Append($" ({targetInstance.Name})");
+
+        return sb.ToString();
     }
 }
