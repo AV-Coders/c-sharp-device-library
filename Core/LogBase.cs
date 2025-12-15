@@ -77,16 +77,10 @@ public abstract class LogBase
     {
         using (PushProperties())
         {
-            if(message != null)
-                Log.Error(message);
-            Log.Error("{ExceptionType} \r\n{ExceptionMessage}\r\n{StackTrace}", 
-                e.GetType().Name, e.Message, e.StackTrace);
+            Log.Error(e, message ?? e.Message);
             _errors.Add(new Error(DateTime.Now, message ?? e.Message, e));
-            if (e.InnerException == null)
-                return;
-            Log.Error("Caused by: {InnerExceptionType} \r\n{InnerExceptionMessage}\r\n{InnerStackTrace}", 
-                e.InnerException.GetType().Name, e.InnerException.Message, e.InnerException.StackTrace);
-            _errors.Add(new Error(DateTime.Now, e.InnerException.Message, e.InnerException));
+            if (e.InnerException != null)
+                _errors.Add(new Error(DateTime.Now, e.InnerException.Message, e.InnerException));
         }
     }
 
