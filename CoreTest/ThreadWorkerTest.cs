@@ -14,9 +14,9 @@ public class ThreadWorkerTest
     }
 
     [Fact]
-    public void ThreadWorker_RunsActionWhenStarted()
+    public async Task ThreadWorker_RunsActionWhenStarted()
     {
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         
         Thread.Sleep(10);
         
@@ -24,9 +24,9 @@ public class ThreadWorkerTest
     }
 
     [Fact]
-    public void ThreadWorker_Loops()
+    public async Task ThreadWorker_Loops()
     {
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         
         Thread.Sleep(300);
         
@@ -34,11 +34,11 @@ public class ThreadWorkerTest
     }
 
     [Fact]
-    public void ThreadWorker_Restarts()
+    public async Task ThreadWorker_Restarts()
     {
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         Thread.Sleep(10);
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         
         Thread.Sleep(10);
         
@@ -46,23 +46,23 @@ public class ThreadWorkerTest
     }
 
     [Fact]
-    public void ThreadWorker_CanBeStoppedAndRestartedManyTimes()
+    public async Task ThreadWorker_CanBeStoppedAndRestartedManyTimes()
     {
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         Thread.Sleep(10);
-        _threadWorker.Stop();
+        await _threadWorker.Stop();
         Thread.Sleep(10);
-        _threadWorker.Stop();
+        await _threadWorker.Stop();
         Thread.Sleep(10);
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         Thread.Sleep(10);
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         Thread.Sleep(10);
-        _threadWorker.Stop();
+        await _threadWorker.Stop();
         Thread.Sleep(10);
-        _threadWorker.Stop();
+        await _threadWorker.Stop();
         Thread.Sleep(10);
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         Thread.Sleep(250);
         
         _actionMock.Verify(action => action(It.IsAny<CancellationToken>()), Times.Exactly(5));
@@ -75,16 +75,16 @@ public class ThreadWorkerTest
     }
 
     [Fact]
-    public void ThreadWorker_ReportsRunningWhenStarted()
+    public async Task ThreadWorker_ReportsRunningWhenStarted()
     {
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         Assert.True(_threadWorker.IsRunning);
     }
 
     [Fact]
     public async Task ThreadWorker_ReportsNotRunningWhenStopped()
     {
-        _threadWorker.Restart();
+        await _threadWorker.Restart();
         await Task.Delay(TimeSpan.FromMilliseconds(100));
         await _threadWorker.Stop();
         Assert.False(_threadWorker.IsRunning);

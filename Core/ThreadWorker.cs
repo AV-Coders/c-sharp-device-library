@@ -8,56 +8,88 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     private CancellationTokenSource? _cancellationTokenSource = null;
     private Task? _task;
     private bool _waitFirst = waitFirst;
+    private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly AsyncLocal<bool> _isWorkerTask = new();
 
     public bool IsRunning
     {
         get 
         {
-            if (_cancellationTokenSource == null || _task == null)
+            var cts = _cancellationTokenSource;
+            var t = _task;
+            if (cts == null || t == null)
                 return false;
         
-            return !_cancellationTokenSource.IsCancellationRequested && 
-               (_task.Status == TaskStatus.Running || _task.Status == TaskStatus.WaitingForActivation);
+            return !cts.IsCancellationRequested && 
+               (t.Status == TaskStatus.Running || t.Status == TaskStatus.WaitingForActivation || t.Status == TaskStatus.WaitingToRun);
+        }
     }
-}
 
-    public void Restart()
+    public async Task Restart()
     {
-        Stop();
-        Start();
+        await _lock.WaitAsync();
+        try
+        {
+            await StopInternal();
+            StartInternal();
+        }
+        finally
+        {
+            _lock.Release();
+        }
     }
 
-    public Task Stop()
+    public async Task Stop()
+    {
+        if (_isWorkerTask.Value)
+        {
+            _cancellationTokenSource?.Cancel();
+            return;
+        }
+
+        await _lock.WaitAsync();
+        try
+        {
+            await StopInternal();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private async Task StopInternal()
     {
         try
         {
             if (_cancellationTokenSource == null) 
-                return Task.CompletedTask;
+                return;
             
             _cancellationTokenSource.Cancel();
-            _task?.Wait();
+            if (_task != null)
+                await _task;
             
             _cancellationTokenSource.Dispose();
-            _cancellationTokenSource = null; 
+            _cancellationTokenSource = null;
+            _task = null;
         }
-        catch (AggregateException)
+        catch (OperationCanceledException)
         {
             // Do nothing
         }
-        catch (TaskCanceledException)
+        catch (Exception e)
         {
-            // Do nothing
+            LogException(e, "Error while stopping ThreadWorker");
         }
-        
-        return Task.CompletedTask;
     }
 
-    private void Start()
+    private void StartInternal()
     {
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
         _task = Task.Run(async () =>
         {
+            _isWorkerTask.Value = true;
             try
             {
                 while (!token.IsCancellationRequested)
@@ -78,12 +110,16 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
                 LogException(e,
                     $"ThreadWorker has encountered an exception while running {action.Method.Name} in {action.Target?.GetType().Name ?? "*Class could not be determined*"}");
             }
+            finally
+            {
+                _isWorkerTask.Value = false;
+            }
         }, token);
     }
 
     ~ThreadWorker()
     {
-        Stop();
+        _cancellationTokenSource?.Cancel();
     }
 
     public void WaitFirst(bool waitFirst)
