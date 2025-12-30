@@ -37,18 +37,24 @@ public class CiscoRoomOsRecentCallsTest
     public void ResponseHandler_AddsItems()
     {
         _mockClient.Object.ResponseHandlers!.Invoke("*r CallHistoryGetResult Entry 0 CallbackNumber: \"sip:+61355500193@local.domain\"");
+        _mockClient.Object.ResponseHandlers!.Invoke("*r CallHistoryGetResult Entry 0 DisplayName: \"External Room 54\"");
         _mockClient.Object.ResponseHandlers!.Invoke("*r CallHistoryGetResult Entry 1 CallbackNumber: \"sip:*0491570156@local.domain\"");
+        _mockClient.Object.ResponseHandlers!.Invoke("*r CallHistoryGetResult Entry 1 DisplayName: \"Meeting Room 1\"");
         
         Assert.Equal(2, _recentCallManager.RecentCalls.Count);
-        Assert.Equal("sip:+61355500193@local.domain", _recentCallManager.RecentCalls[0]);
-        Assert.Equal("sip:*0491570156@local.domain", _recentCallManager.RecentCalls[1]);
+        Assert.Equal("sip:+61355500193@local.domain", _recentCallManager.RecentCalls[0].Number);
+        Assert.Equal("External Room 54", _recentCallManager.RecentCalls[0].Name);
+        Assert.Equal("sip:*0491570156@local.domain", _recentCallManager.RecentCalls[1].Number);
+        Assert.Equal("Meeting Room 1", _recentCallManager.RecentCalls[1].Name);
     }
 
     [Fact]
     public void ResponseHandler_InvokesTheDelegate_WhenLastItemReceived()
     {
+        _mockClient.Object.ResponseHandlers!.Invoke("*r CallHistoryGetResult (status=OK):");
         _mockClient.Object.ResponseHandlers!.Invoke("*r CallHistoryGetResult Entry 29 CallbackNumber: \"sip:*0491570156@local.domain\"");
-        
+        _mockClient.Object.ResponseHandlers!.Invoke("** end");
+
         _mockStringListHandler.Verify(x => x.Invoke(It.IsAny<List<string>>()));
     }
 }
