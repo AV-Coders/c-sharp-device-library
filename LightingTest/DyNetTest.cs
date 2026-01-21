@@ -29,10 +29,18 @@ public class DyNetTest
     [InlineData(27, 3, 100, new byte [] {0x1C ,0x1B ,0x64 ,0x02 ,0x00 ,0x00 ,0xFF ,0x64 })]
     [InlineData(27, 5, 100, new byte [] {0x1C ,0x1B ,0x64 ,0x0A ,0x00 ,0x00 ,0xFF ,0x5C })]
     [InlineData(27, 9, 100, new byte [] {0x1C ,0x1B ,0x64 ,0x00 ,0x00 ,0x01 ,0xFF ,0x65 })]
-    [InlineData(1, 4, 2, new byte [] {0x1C ,0x01 ,0x20 ,0x03 ,0x00 ,0x00 ,0xFF ,0xC1 })]
-    public void RecallPreset_SendsTheExpectedCommand(byte area, byte preset, byte rampTime, byte[] expectedCommand)
+    public void RecallPresetInBank_SendsTheExpectedCommand(byte area, byte preset, byte rampTime, byte[] expectedCommand)
     {
         _dyNet.RecallPresetInBank(area, preset, rampTime);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+    
+    [Theory]
+    [InlineData(1, 4, 100, new byte [] {0x1C, 0x01, 0x03, 0x65, 0x64, 0x00, 0xFF, 0x18})]
+    public void PresetLinear_SendsTheExpectedCommand(byte area, byte preset, byte rampTimeIn20Ms, byte[] expectedCommand)
+    {
+        _dyNet.RecallPresetLinear(area, preset, rampTimeIn20Ms);
         
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
