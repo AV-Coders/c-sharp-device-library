@@ -2,7 +2,7 @@
 
 namespace AVCoders.Lighting;
 
-public class DyNet
+public class DyNet : DeviceBase
 {
     public static readonly ushort DefaultPort = 50000;
     private readonly CommunicationClient _tcpClient;
@@ -10,7 +10,7 @@ public class DyNet
     private const byte Broadcast = 0xFF;
     //From https://docs.dynalite.com/system-builder/latest/quick_start/dynet_opcodes.html
     
-    public DyNet(TcpClient tcpClient)
+    public DyNet(TcpClient tcpClient, string name) : base(name, tcpClient)
     {
         _tcpClient = tcpClient;
     }
@@ -38,6 +38,7 @@ public class DyNet
             bank,
             Broadcast
         ]);
+        AddEvent(EventType.Preset, $"Recalled preset {preset} (by bank) in area {area}");
     }
 
     public void RecallPresetLinear(byte area, int preset, byte rampTimeIn20Ms = 0x64)
@@ -60,6 +61,7 @@ public class DyNet
             fadeHigh,
             Broadcast
         ]);
+        AddEvent(EventType.Preset, $"Recalled preset {preset} (linear) in area {area}");
     }
 
     public void PowerOffArea(byte area, byte rampTimeIn100thsOfASecond = 0x64)
@@ -74,7 +76,7 @@ public class DyNet
             fadeLow,
             Broadcast
         ]);
-        
+        AddEvent(EventType.Power, $"Powered off area {area}");
     }
 
     public void PowerOnArea(byte area, byte rampTimeIn100thsOfASecond = 0x64)
@@ -89,6 +91,7 @@ public class DyNet
             fadeLow,
             Broadcast
         ]);
+        AddEvent(EventType.Power, $"Powered on area {area}");
     }
 
     public void RampAreaToLevel(byte area, int level, byte rampTimeIn100thsOfASecond = 0x64)
@@ -102,6 +105,7 @@ public class DyNet
             rampTimeIn100thsOfASecond,
             Broadcast
         ]);
+        AddEvent(EventType.Level, $"Ramped area {area} to level {level}%");
     }
 
     private byte GetLevelFromPercentage(int level)
@@ -145,4 +149,8 @@ public class DyNet
         checksum++;
         return (byte)(checksum & 0xFF);
     }
+
+    public override void PowerOn() { }
+
+    public override void PowerOff() { }
 }

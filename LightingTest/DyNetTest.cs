@@ -11,7 +11,7 @@ public class DyNetTest
 
     public DyNetTest()
     {
-        _dyNet = new DyNet(_mockClient.Object);
+        _dyNet = new DyNet(_mockClient.Object, "name");
     }
     
     [Theory]
@@ -29,6 +29,7 @@ public class DyNetTest
     [InlineData(27, 3, 100, new byte [] {0x1C ,0x1B ,0x64 ,0x02 ,0x00 ,0x00 ,0xFF ,0x64 })]
     [InlineData(27, 5, 100, new byte [] {0x1C ,0x1B ,0x64 ,0x0A ,0x00 ,0x00 ,0xFF ,0x5C })]
     [InlineData(27, 9, 100, new byte [] {0x1C ,0x1B ,0x64 ,0x00 ,0x00 ,0x01 ,0xFF ,0x65 })]
+    [InlineData(1, 4, 2, new byte [] {0x1C ,0x01 ,0x20 ,0x03 ,0x00 ,0x00 ,0xFF ,0xC1 })]
     public void RecallPreset_SendsTheExpectedCommand(byte area, byte preset, byte rampTime, byte[] expectedCommand)
     {
         _dyNet.RecallPresetInBank(area, preset, rampTime);

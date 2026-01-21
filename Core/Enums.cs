@@ -139,5 +139,6 @@ public enum EventType
     DriverState,
     Volume,
     Error,
-    Preset
+    Preset,
+    Level
 }
