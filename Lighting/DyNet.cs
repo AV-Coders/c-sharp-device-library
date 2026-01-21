@@ -5,14 +5,12 @@ namespace AVCoders.Lighting;
 public class DyNet : DeviceBase
 {
     public static readonly ushort DefaultPort = 50000;
-    private readonly CommunicationClient _tcpClient;
     private readonly byte _syncByteLogicalAddressingScheme = 0x1c;
     private const byte Broadcast = 0xFF;
     //From https://docs.dynalite.com/system-builder/latest/quick_start/dynet_opcodes.html
     
-    public DyNet(TcpClient tcpClient, string name) : base(name, tcpClient)
+    public DyNet(CommunicationClient commsClient, string name) : base(name, commsClient)
     {
-        _tcpClient = tcpClient;
     }
 
     public void RecallPresetInBank(byte area, int preset, byte rampTimeIn100thsOfASecond = 0x64)
@@ -136,7 +134,7 @@ public class DyNet : DeviceBase
         byte[] messageWithChecksum = new byte[messageWithoutChecksum.Length + 1];
         Array.Copy(messageWithoutChecksum, messageWithChecksum, messageWithoutChecksum.Length);
         messageWithChecksum[messageWithoutChecksum.Length] = CalculateChecksum(messageWithoutChecksum);
-        _tcpClient.Send(messageWithChecksum);
+        CommunicationClient.Send(messageWithChecksum);
     }
 
     public static byte CalculateChecksum(byte[] message)
