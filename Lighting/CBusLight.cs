@@ -7,12 +7,21 @@ public class CBusLight : Light
     private readonly CBusSerialInterface _interface;
     private readonly byte _powerOff = 0x01;
     private readonly byte _powerOn = 0x79;
+    private readonly byte _recallPreset = 0x65;
 
     public CBusLight(string name, CBusSerialInterface @interface, byte group, CBusRampTime defaultRampTime) : base(name)
     {
         _group = group;
         _defaultRampTime = defaultRampTime;
         _interface = @interface;
+    }
+
+    protected override void DoRecallPreset(int preset)
+    {
+        _interface.SendPointToMultipointPayload(
+            CBusSerialInterface.SceneApplication,
+            [_group, (byte)preset], true
+            );
     }
 
     protected override void DoPowerOn()

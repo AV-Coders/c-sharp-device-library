@@ -33,12 +33,22 @@ public abstract class Light : DeviceBase
     public override void PowerOff()
     {
         DoPowerOff();
+        AddEvent(EventType.Power, nameof(PowerState.Off));
     }
 
     public override void PowerOn()
     {
         DoPowerOn();
+        AddEvent(EventType.Power, nameof(PowerState.On));
     }
+
+    public void RecallPreset(int preset)
+    {
+        DoRecallPreset(preset);
+        AddEvent(EventType.Preset, $"Preset {preset} recalled");
+    }
+
+    protected abstract void DoRecallPreset(int preset);
 
     protected abstract void DoPowerOn();
 

@@ -53,6 +53,11 @@ public class Zigbee2MqttLight : Light
         }
     }
 
+    protected override void DoRecallPreset(int preset)
+    {
+        _client.Send($"{TopicPrefix}/{_topic}/set", $"{{\"scene_recall\": \"{preset}\"}}");
+    }
+
     protected override void DoPowerOn() => _client.Send($"{TopicPrefix}/{_topic}/set", "{\"state\": \"On\"}");
 
     protected override void DoPowerOff() => _client.Send($"{TopicPrefix}/{_topic}/set", "{\"state\": \"Off\"}");
