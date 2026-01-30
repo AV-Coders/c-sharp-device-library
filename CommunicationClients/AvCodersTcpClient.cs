@@ -17,6 +17,7 @@ public class AvCodersTcpClient : Core_TcpClient
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
+    private ushort _receiveBufferSize = 2048;
 
     public AvCodersTcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat) :
         base(host, port, name, commandStringFormat)
@@ -46,7 +47,7 @@ public class AvCodersTcpClient : Core_TcpClient
             try
             {
                 streamLocal.ReadTimeout = (int)ReadTimeout.TotalMilliseconds;
-                byte[] buffer = new byte[2048];
+                byte[] buffer = new byte[_receiveBufferSize];
                 var bytesRead = await streamLocal.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
                 
                 if (bytesRead == 0)
@@ -411,5 +412,12 @@ public class AvCodersTcpClient : Core_TcpClient
 
         streamLocal.WriteTimeout = (int)WriteTimeout.TotalMilliseconds;
         await streamLocal.WriteAsync(payload.AsMemory(0, payload.Length), token);
+    }
+    
+    public void SetReceiveBufferSize(ushort bufferSize)
+    {
+        if (bufferSize < 1024)
+            throw new ArgumentOutOfRangeException(nameof(bufferSize), "Buffer size must be at least 1024 bytes.");
+        _receiveBufferSize = bufferSize;
     }
 }
