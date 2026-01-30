@@ -27,6 +27,7 @@ public abstract class MediaPlayer : DeviceBase
                 return;
             _mediaState = value;
             MediaStateHandlers?.Invoke(value);
+            AddEvent(EventType.Connection, value.ToString());
         }
     }
 
@@ -39,6 +40,7 @@ public abstract class MediaPlayer : DeviceBase
                 return;
             _transportState = value;
             TransportStateHandlers?.Invoke(value);
+            AddEvent(EventType.Transport, value.ToString());
         }
     }
 }
