@@ -2,10 +2,13 @@
 
 namespace AVCoders.Lighting;
 
+public record LightPreset(string Name);
+
 public abstract class Light : DeviceBase
 {
     private uint _brightness;
     public UintHandler? BrightnessChangeHandlers;
+    public abstract List<LightPreset> Presets();
 
     protected Light(string name) 
         : base(name, CommunicationClient.None)

@@ -1,5 +1,7 @@
 ﻿namespace AVCoders.Lighting;
 
+public record CBusLightPreset(string Name, byte Preset) : LightPreset(Name);
+
 public class CBusLight : Light
 {
     private readonly byte _group;
@@ -8,6 +10,7 @@ public class CBusLight : Light
     private readonly byte _powerOff = 0x01;
     private readonly byte _powerOn = 0x79;
     private readonly byte _recallPreset = 0x65;
+    private readonly List<CBusLightPreset> _presets = new();
 
     public CBusLight(string name, CBusSerialInterface @interface, byte group, CBusRampTime defaultRampTime) : base(name)
     {
@@ -15,6 +18,8 @@ public class CBusLight : Light
         _defaultRampTime = defaultRampTime;
         _interface = @interface;
     }
+
+    public override List<LightPreset> Presets() => [.._presets];
 
     protected override void DoRecallPreset(int preset)
     {
