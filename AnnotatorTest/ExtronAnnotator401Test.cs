@@ -85,4 +85,20 @@ public class ExtronAnnotator401Test
         
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+    
+    [Theory]
+    [InlineData(Annotator401Outputs.All, MuteState.On, "0*2B")]
+    [InlineData(Annotator401Outputs.All, MuteState.Off, "0*0B")]
+    [InlineData(Annotator401Outputs.Output1, MuteState.On, "1*2B")]
+    [InlineData(Annotator401Outputs.Output1, MuteState.Off, "1*0B")]
+    [InlineData(Annotator401Outputs.Output2, MuteState.On, "2*2B")]
+    [InlineData(Annotator401Outputs.Output2, MuteState.Off, "2*0B")]
+    public void SetVideoMute_ForASpecificOutput_SendsTheCommand(Annotator401Outputs output, MuteState state, string expectedCommand)
+    {
+        _annotator.SetVideoMute(output, state);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+    
+    
 }

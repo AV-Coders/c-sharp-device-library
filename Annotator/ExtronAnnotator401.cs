@@ -109,8 +109,19 @@ public class ExtronAnnotator401 : AnnotatorBase
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
     public void SetCursorOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}CSHW");
-    
-    
+
+    public void SetVideoMute(Annotator401Outputs output, MuteState state)
+    {
+        int outputNumber = output switch
+        {
+            Annotator401Outputs.Output1 => 1,
+            Annotator401Outputs.Output2 => 2,
+            Annotator401Outputs.All => 0,
+            _ => throw new ArgumentOutOfRangeException(nameof(output), output, null)
+        };
+        
+        SendCommand(state == MuteState.On ? $"{outputNumber}*2B" : $"{outputNumber}*0B");
+    }
 
     public override void SetVideoMute(MuteState state)
     {
