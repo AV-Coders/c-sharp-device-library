@@ -13,53 +13,26 @@ public class DyNet : DeviceBase
     {
     }
 
-    public void RecallPresetInBank(byte area, int preset, byte rampTimeIn100thsOfASecond = 0x64)
+    public void SelectCurrentPreset(byte area, byte preset, byte rampTimeIn100thsOfASecond = 0x64)
     {
-        if (preset < 1)
-            throw new ArgumentOutOfRangeException(nameof(preset), "Preset must be >= 1.");
-
-        // Compute bank and index-within-bank (0..7 for P1..P8)
-        int zeroBased = preset - 1;
-        byte bank = (byte)(zeroBased / 8);
-        byte presetInBank = GetByteForPreset(zeroBased % 8);
-
-        // Fade time as 16-bit little-endian (here high byte is 0 because parameter is a byte)
+        if(preset < 1 || preset > 8)
+            throw new ArgumentOutOfRangeException(nameof(preset), "Preset must be between 1 and 8.");
+        
+        byte zeroBased = (byte)(preset - 1);
         byte fadeLow = rampTimeIn100thsOfASecond;
         byte fadeHigh = 0x00;
-
+        byte bank = 0x00;
+        
         Send([
             _syncByteLogicalAddressingScheme,
             area,
             fadeLow,
-            presetInBank,
+            GetByteForPreset(zeroBased),
             fadeHigh,
             bank,
             Broadcast
         ]);
-        AddEvent(EventType.Preset, $"Recalled preset {preset} (by bank) in area {area}");
-    }
 
-    public void RecallPresetLinear(byte area, int preset, byte rampTimeIn20Ms = 0x64)
-    {
-        if (preset < 1 || preset > 256)
-            throw new ArgumentOutOfRangeException(nameof(preset), "Preset must be between 1 and 255.");
-
-        byte zeroBased = (byte)(preset - 1);
-
-        // Fade time as 16-bit little-endian (here high byte is 0 because parameter is a byte)
-        byte fadeLow = rampTimeIn20Ms;
-        byte fadeHigh = 0x00;
-
-        Send([
-            _syncByteLogicalAddressingScheme,
-            area,
-            zeroBased,
-            0x65,
-            fadeLow,
-            fadeHigh,
-            Broadcast
-        ]);
-        AddEvent(EventType.Preset, $"Recalled preset {preset} (linear) in area {area}");
     }
 
     public void PowerOffArea(byte area, byte rampTimeIn100thsOfASecond = 0x64)
