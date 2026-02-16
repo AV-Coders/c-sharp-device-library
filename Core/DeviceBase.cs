@@ -6,8 +6,9 @@ namespace AVCoders.Core;
 
 public abstract class DeviceBase : LogBase, IDevice
 {
-    public CommunicationStateHandler CommunicationStateHandlers;
-    public PowerStateHandler PowerStateHandlers;
+    public CommunicationStateHandler? CommunicationStateHandlers;
+    public PowerStateHandler? PowerStateHandlers;
+    public event Action<PowerState>? OnPowerStateChanged;
     
     public readonly CommunicationClient CommunicationClient;
     protected PowerState DesiredPowerState = PowerState.Unknown;
@@ -24,7 +25,9 @@ public abstract class DeviceBase : LogBase, IDevice
             if (value == _powerState)
                 return;
             _powerState = value;
+            AddEvent(EventType.Power, value.ToString());
             PowerStateHandlers?.Invoke(PowerState);
+            OnPowerStateChanged?.Invoke(PowerState);
         }
     }
 
@@ -37,15 +40,14 @@ public abstract class DeviceBase : LogBase, IDevice
                 return;
             
             _communicationState = value;
-            CommunicationStateHandlers.Invoke(CommunicationState);
+            AddEvent(EventType.DriverState, value.ToString());
+            CommunicationStateHandlers?.Invoke(CommunicationState);
         }
     }
     
     protected DeviceBase(string name, CommunicationClient client) : base(name)
     {
         CommunicationClient = client;
-        CommunicationStateHandlers = x => AddEvent(EventType.DriverState, x.ToString());
-        PowerStateHandlers = x => AddEvent(EventType.Power, x.ToString());
     }
 
     protected void ProcessPowerState()

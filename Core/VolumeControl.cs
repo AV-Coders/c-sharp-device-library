@@ -25,6 +25,7 @@ public abstract class VolumeControl : LogBase
             if( _volume == value)
                 return;
             _volume = value;
+            AddEvent(EventType.Volume,  value.ToString());
             VolumeLevelHandlers?.Invoke(_volume);
         }
     }
@@ -37,6 +38,7 @@ public abstract class VolumeControl : LogBase
             if( _muteState == value)
                 return;
             _muteState = value;
+            AddEvent(EventType.Volume, $"Mute: {value.ToString()}");
             MuteStateHandlers?.Invoke(_muteState);
         }
     }
