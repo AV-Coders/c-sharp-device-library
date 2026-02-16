@@ -12,9 +12,9 @@ public record PhonebookContact(string Name, List<PhonebookNumber> Numbers): Phon
 
 public delegate void PhonebookUpdated(PhonebookFolder folder);
 
-public abstract class PhonebookParserBase : LogBase
+public abstract class PhonebookParserBase : DeviceBase
 {
-    protected PhonebookParserBase(string name) : base(name)
+    protected PhonebookParserBase(string name, CommunicationClient comms) : base(name, comms)
     {
     }
 

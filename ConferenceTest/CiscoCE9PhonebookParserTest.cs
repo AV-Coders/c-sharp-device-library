@@ -1,12 +1,17 @@
+using AVCoders.Core;
+using AVCoders.Core.Tests;
+using Moq;
+
 namespace AVCoders.Conference.Tests;
 
 public class CiscoCE9PhonebookParserTest
 {
     private readonly CiscoCE9PhonebookParser _parser;
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     
     public CiscoCE9PhonebookParserTest()
     {
-        _parser = new CiscoCE9PhonebookParser();
+        _parser = new CiscoCE9PhonebookParser(_mockClient.Object);
     }
 
     [Fact]
@@ -27,7 +32,7 @@ public class CiscoCE9PhonebookParserTest
             "*r PhonebookSearchResult Folder 3 LocalId: \"c_63\"",
             "*r PhonebookSearchResult Folder 3 FolderId: \"c_63\"",
             "*r PhonebookSearchResult Folder 3 Name: \"More folders\"",
-        }.ForEach(response => _parser.HandlePhonebookSearchResponse($"{response}\n"));
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
 
         CiscoRoomOsPhonebookFolder firstFolder = (CiscoRoomOsPhonebookFolder)_parser.PhoneBook.Items[0];
         
@@ -66,7 +71,7 @@ public class CiscoCE9PhonebookParserTest
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 Number: \"SIP:foomcbar@mcbarindustries.co.uk\"",
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 Protocol: SIP",
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 CallRate: 768",
-        }.ForEach(response => _parser.HandlePhonebookSearchResponse($"{response}\n"));
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
         
         CiscoRoomOsPhonebookContact firstContact = (CiscoRoomOsPhonebookContact)_parser.PhoneBook.Items[0];
         

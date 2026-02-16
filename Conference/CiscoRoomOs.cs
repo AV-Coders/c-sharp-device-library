@@ -61,7 +61,6 @@ public enum PeripheralType
 public class CiscoRoomOs : Conference
   {
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
-    public readonly CiscoCE9PhonebookParser PhoneBookParser;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
     private bool _forceDoNotDisturb = true;
@@ -104,9 +103,6 @@ public class CiscoRoomOs : Conference
       _deviceInfo = deviceInfo;
       _peripheralType = peripheralType;
       CommunicationClient.ResponseHandlers += HandleResponse;
-
-      PhoneBookParser = new CiscoCE9PhonebookParser();
-      PhoneBookParser.Comms += CommunicationClient.Send;
     }
 
     private void Reinitialise()
@@ -129,7 +125,6 @@ public class CiscoRoomOs : Conference
           SendCommand("xStatus Audio Volume");
           SendCommand("xStatus SIP Registration URI");
           SendCommand("xConfiguration Conference AutoAnswer Mode");
-          PhoneBookParser.RequestPhonebook();
         }
         catch (Exception e)
         {
@@ -228,9 +223,6 @@ public class CiscoRoomOs : Conference
         {
           switch (responses[1])
           {
-            case "PhonebookSearchResult":
-              CommunicationState = PhoneBookParser.HandlePhonebookSearchResponse(response);
-              return;
             case "PeripheralsHeartBeatResult":
               if (response.Contains("status=OK"))
                 CommunicationState = CommunicationState.Okay;

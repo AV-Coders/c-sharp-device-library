@@ -1,10 +1,7 @@
 using AVCoders.Core;
 using Serilog;
-using static System.Int32;
 
 namespace AVCoders.Conference;
-
-public delegate void CommsClientSend(string command);
 
 public record CiscoRoomOsPhonebookFolder(
     string Name,
@@ -26,7 +23,6 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
 {
     private readonly string _phonebookType;
     public readonly CiscoRoomOsPhonebookFolder PhoneBook;
-    public CommsClientSend? Comms;
 
     // Phonebook parsing variables
     private readonly Dictionary<string, string> _injestFolder;
@@ -39,29 +35,47 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     private CiscoRoomOsPhonebookFolder? _currentInjestfolder = null;
     private int _currentLimit = 50;
 
-    public CiscoCE9PhonebookParser(string phonebookType = "Corporate") : base(phonebookType)
+    public CiscoCE9PhonebookParser(CommunicationClient communicationClient, string phonebookType = "Corporate") : base(phonebookType, communicationClient)
     {
         _phonebookType = phonebookType;
         PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", string.Empty, string.Empty, []);
         _injestFolder = new Dictionary<string, string>();
         _injestContact = new Dictionary<string, string>();
         _injestContactMethods = [new()];
+
+        communicationClient.ResponseHandlers += HandleResponse;
+        communicationClient.ConnectionStateHandlers += HandleConnectionState;
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        if(connectionState != ConnectionState.Connected)
+            return;
+        Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            RequestPhonebook();
+        });
     }
 
     public void RequestPhonebook()
     {
-        if (Comms == null)
-            throw new InvalidOperationException("A phonebook can't be requested without a send deleagte");
-
-        Comms.Invoke($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0\n");
+        CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0\n");
+        AddEvent(EventType.Other, "Requesting Phonebook");
     }
 
-    public CommunicationState HandlePhonebookSearchResponse(string response)
+    private void HandleResponse(string response)
     {
         using (PushProperties("HandlePhonebookSearchResponse"))
         {
+            if( !response.Contains("*r PhonebookSearchResult"))
+                   return;
+            
             if (response.Contains("status=OK"))
-                return CommunicationState.Error;
+            {
+                CommunicationState = CommunicationState.Error;
+                return;
+            }
 
             var responses = response.Split(' ');
 
@@ -72,21 +86,26 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                     switch (responses[3])
                     {
                         case "Offset:":
-                            _resultOffset = Parse(responses[4]);
+                            _resultOffset = Int32.Parse(responses[4]);
                             Log.Verbose("The offset is {ResultOffset}", _resultOffset);
-                            return CommunicationState.Okay;
+                            CommunicationState = CommunicationState.Okay;
+                            return;
                         case "TotalRows:":
-                            _resultTotalRows = Parse(responses[4]);
+                            _resultTotalRows = Int32.Parse(responses[4]);
                             Log.Verbose("Total rows is {ResultTotalRows}", _resultTotalRows);
                             _currentRow = 1;
                             _currentSubRow = 1;
-                            return CommunicationState.Okay;
+                            CommunicationState = CommunicationState.Okay;
+                            return;
                         case "Limit:":
-                            _currentLimit = Parse(responses[4]);
-                            return CommunicationState.Okay;
+                            _currentLimit = Int32.Parse(responses[4]);
+                            CommunicationState = CommunicationState.Okay;
+                            return;
                         default:
                             Log.Information("Unhandled ResultInfo key: {Response}", responses[3]);
-                            return CommunicationState.Error;
+                            CommunicationState = CommunicationState.Error;
+                            AddEvent(EventType.Error,  $"Unhandled ResultInfo key: {responses[3]}");
+                            return;
                     }
                 }
                 case "Folder":
@@ -100,9 +119,10 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                         RequestNextPhoneBookFolder();
                     }
 
-                    return loadResult.state == EntryLoadState.Error
+                    CommunicationState = loadResult.state == EntryLoadState.Error
                         ? CommunicationState.Error
                         : CommunicationState.Okay;
+                    return;
                 }
                 case "Contact":
                 {
@@ -111,13 +131,17 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                     int resultRow = loadResult.responseRow + _resultOffset;
 
                     if (loadResult.state != EntryLoadState.Loaded)
-                        return CommunicationState.Error;
+                    {
+                        CommunicationState = CommunicationState.Error;
+                        return;
+                    }
 
                     if (resultRow == _resultTotalRows)
                     {
                         _currentInjestfolder!.ContentsFetched = true;
                         RequestNextPhoneBookFolder();
-                        return CommunicationState.Okay;
+                        CommunicationState = CommunicationState.Okay;
+                        return;
                     }
 
                     if (loadResult.responseRow == _currentLimit)
@@ -126,15 +150,15 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                         {
                             _currentInjestfolder!.ContentsFetched = true;
                             RequestNextPhoneBookFolder();
-                            return CommunicationState.Okay;
+                            CommunicationState = CommunicationState.Okay;
+                            return;
                         }
 
-                        if (Comms == null)
-                            throw new InvalidOperationException("A phonebook can't be requested without a send deleagte");
-                        Comms.Invoke(
+                        CommunicationClient.Send(
                             $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder!.FolderId}\n");
 
-                        return CommunicationState.Okay;
+                        CommunicationState = CommunicationState.Okay;
+                        return;
                     }
 
                     break;
@@ -142,7 +166,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
             }
 
             Log.Debug("Unhandled response key: {Response}", responses[2]);
-            return CommunicationState.Error;
+            CommunicationState = CommunicationState.Error;
         }
     }
 
@@ -161,9 +185,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         _currentInjestfolder = unFetchedFolder;
         _currentRow = 0;
 
-        if (Comms == null)
-            throw new InvalidOperationException("A phonebook can't be requested without a send deleagte");
-        Comms.Invoke($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
+        CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
     }
 
     private CiscoRoomOsPhonebookFolder? FindUnFetchedFolder(List<PhonebookBase> phoneBookItems)
@@ -185,7 +207,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
 
     private (int responseRow, EntryLoadState state) HandlePhonebookFolderResponse(string response, string[] responses)
     {
-        var responseRow = Parse(responses[3]);
+        var responseRow = Int32.Parse(responses[3]);
         if (responseRow != _currentRow)
         {
             Log.Debug("Ignoring response as it's an invalid row, i'm expecting {CurrentRow}", _currentRow);
@@ -220,7 +242,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
 
     private (int responseRow, EntryLoadState state) HandlePhonebookContactResponse(string response, string[] responses)
     {
-        var responseRow = Parse(responses[3]);
+        var responseRow = Int32.Parse(responses[3]);
         if (responseRow != _currentRow)
         {
             Log.Debug("Ignoring response as it's an invalid row, i'm expecting {CurrentRow}", _currentRow);
@@ -235,7 +257,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                 _injestContact.Add("Name:", response.Substring(startIndex, count).Trim().Trim('"'));
                 break;
             case "ContactMethod":
-                var methodId = Parse(responses[5]);
+                var methodId = Int32.Parse(responses[5]);
                 if (methodId > _currentSubRow)
                 {
                     _injestContactMethods.Add(new Dictionary<string, string>());
@@ -314,4 +336,8 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
 
         return true;
     }
+
+    public override void PowerOn() => RequestPhonebook();
+
+    public override void PowerOff() => RequestPhonebook();
 }
