@@ -66,7 +66,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         PollWorker.Restart();
     }
 
-    public static string GetCommunicationClientName(AVEndpointType type, string name) => $"{name} {type.ToString()}";
+    public static string GetCommunicationClientName(AVEndpointType type, string name) => $"Nav {type.ToString()} - {name}";
 
     private void HandleNavConnectionState(ConnectionState connectionState)
     {
