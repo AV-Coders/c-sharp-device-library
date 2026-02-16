@@ -116,30 +116,33 @@ public class TybaTurn2 : LogBase
 
     private void ProcessLine(string line)
     {
-        if (line.Contains(": heartbeat"))
+        using (PushProperties("ProcessLine"))
         {
-            UpdateCommunicationState(CommunicationState.Okay);
-            Log.Debug("Heartbeat received");
-            // TODO: Heartbeat logic goes here
-            return;
-        }
-        
-        if (line.Contains("event: "))
-        {
-            _currentEvent = line.Remove(0, 7);
-            Log.Debug("Event received: {CurrentEvent}", _currentEvent);
-        }
-        else if (line.Contains("data: "))
-        {
-            if (_currentEvent.StartsWith("media")
-                || _currentEvent.StartsWith("source")
-                || line.Contains(_thisInstanceGuid.ToString())
-                || line.Contains("InternalTemperatureServiceImpl")
-                )
+            if (line.Contains(": heartbeat"))
+            {
+                UpdateCommunicationState(CommunicationState.Okay);
+                Log.Debug("Heartbeat received");
+                // TODO: Heartbeat logic goes here
                 return;
-            Log.Verbose(line);
-            ProcessEvent(line.Remove(0, 6));
-            _currentEvent = string.Empty;
+            }
+
+            if (line.Contains("event: "))
+            {
+                _currentEvent = line.Remove(0, 7);
+                Log.Debug("Event received: {CurrentEvent}", _currentEvent);
+            }
+            else if (line.Contains("data: "))
+            {
+                if (_currentEvent.StartsWith("media")
+                    || _currentEvent.StartsWith("source")
+                    || line.Contains(_thisInstanceGuid.ToString())
+                    || line.Contains("InternalTemperatureServiceImpl")
+                   )
+                    return;
+                Log.Verbose(line);
+                ProcessEvent(line.Remove(0, 6));
+                _currentEvent = string.Empty;
+            }
         }
     }
 
