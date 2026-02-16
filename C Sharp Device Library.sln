@@ -51,6 +51,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Annotator", "Annotator\Anno
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AnnotatorTest", "AnnotatorTest\AnnotatorTest.csproj", "{9C17283E-5844-48C6-B6B0-184DE61F8177}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Climate", "Climate\Climate.csproj", "{FBDD8171-0538-4218-AB21-CBA9EEB1707A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -161,5 +163,9 @@ Global
 		{9C17283E-5844-48C6-B6B0-184DE61F8177}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9C17283E-5844-48C6-B6B0-184DE61F8177}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9C17283E-5844-48C6-B6B0-184DE61F8177}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FBDD8171-0538-4218-AB21-CBA9EEB1707A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FBDD8171-0538-4218-AB21-CBA9EEB1707A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FBDD8171-0538-4218-AB21-CBA9EEB1707A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FBDD8171-0538-4218-AB21-CBA9EEB1707A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
