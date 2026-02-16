@@ -125,6 +125,28 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     }
 }
 
+public abstract class ModbusClient(String name, string host, ushort port, CommandStringFormat commandStringFormat)
+    : CommunicationClient(name, host, port, commandStringFormat)
+{
+    public abstract void ReadCoil(int coil);
+    public abstract void ReadRegister(int register);
+    public abstract void ReadRegisters(List<int> registers);
+    public abstract void WriteRegister(int register, int value);
+    public abstract void WriteRegisters(Dictionary<int, int> value);
+}
+
+public abstract class ModbusRtuClient(String name, string host, ushort port)
+    : ModbusClient(name, host, port, CommandStringFormat.Hex)
+{
+    
+}
+
+public abstract class ModbusAsciiClient(String name, string host, ushort port)
+    : ModbusClient(name, host, port, CommandStringFormat.Hex)
+{
+    
+}
+
 public abstract class SerialClient(string name, string host, ushort port, CommandStringFormat commandStringFormat)
     : CommunicationClient(name, host, port, commandStringFormat)
 {
@@ -228,6 +250,9 @@ public abstract class TcpClient(string host, ushort port, string name, CommandSt
     : IpComms(host, port, name, commandStringFormat);
 
 public abstract class UdpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+    : IpComms(host, port, name, commandStringFormat);
+
+public abstract class WebSocketClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
     : IpComms(host, port, name, commandStringFormat);
 
 public interface IWakeOnLan
