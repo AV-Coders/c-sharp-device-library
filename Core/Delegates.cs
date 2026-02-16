@@ -10,6 +10,8 @@ public delegate void CommunicationStateHandler(CommunicationState communicationS
 
 public delegate void ConnectionStateHandler(ConnectionState connectionState);
 
+public delegate void FloatHandler(float value);
+
 public delegate void HttpResponseHandler(HttpResponseMessage response);
 
 public delegate void IntHandler(int value);
