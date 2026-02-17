@@ -326,7 +326,6 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                     }
 
                     AddContactToFolder(new CiscoRoomOsPhonebookContact(contactData["Name:"], contactData["ContactId:"], contactMethods));
-                    complete = AllContactMethodsArePopulated(row);
                 }
             }
 
@@ -377,7 +376,29 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                 else
                 {
                     Log.Verbose("Replacing existing contact {ContactName}", contact.Name);
-                    items[existingIndex] = contact;
+                    if (items[existingIndex] is CiscoRoomOsPhonebookContact oldContact && contact is CiscoRoomOsPhonebookContact newContact)
+                    {
+                        var mergedMethods = oldContact.ContactMethods.ToList();
+                        foreach (var newMethod in newContact.ContactMethods)
+                        {
+                            var existingMethod = mergedMethods.Cast<CiscoRoomOsPhonebookContactMethod>()
+                                .FirstOrDefault(m => m.ContactMethodId == ((CiscoRoomOsPhonebookContactMethod)newMethod).ContactMethodId);
+                            if (existingMethod != null)
+                            {
+                                int idx = mergedMethods.IndexOf(existingMethod);
+                                mergedMethods[idx] = newMethod;
+                            }
+                            else
+                            {
+                                mergedMethods.Add(newMethod);
+                            }
+                        }
+                        items[existingIndex] = new CiscoRoomOsPhonebookContact(newContact.Name, newContact.ContactId, mergedMethods);
+                    }
+                    else
+                    {
+                        items[existingIndex] = contact;
+                    }
                 }
             }
         }
@@ -407,24 +428,6 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
             }
         }
         return null;
-    }
-
-    private bool AllContactMethodsArePopulated(int responseRow)
-    {
-        if (!_injestContactMethods.ContainsKey(responseRow))
-            return false;
-
-        foreach (var dictionaryEntry in _injestContactMethods[responseRow].Values)
-        {
-            if (!dictionaryEntry.ContainsKey("ContactMethodId:"))
-                return false;
-            if (!dictionaryEntry.ContainsKey("Number:"))
-                return false;
-            if (!dictionaryEntry.ContainsKey("Protocol:"))
-                return false;
-        }
-
-        return true;
     }
 
     public override void PowerOn() => RequestPhonebook();
