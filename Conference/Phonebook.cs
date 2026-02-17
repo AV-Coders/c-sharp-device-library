@@ -6,7 +6,10 @@ public record PhonebookBase(string Name);
 
 public record PhonebookNumber(string Number);
 
-public record PhonebookFolder(string Name, List<PhonebookBase> Items): PhonebookBase(Name);
+public record PhonebookFolder(string Name, string FolderId, List<PhonebookBase> Items) : PhonebookBase(Name)
+{
+    public bool ContentsFetched { get; set; }
+}
 
 public record PhonebookContact(string Name, List<PhonebookNumber> Numbers): PhonebookBase(Name);
 
@@ -18,5 +21,8 @@ public abstract class PhonebookParserBase : DeviceBase
     {
     }
 
+    public PhonebookFolder PhoneBook { get; protected set; }
     public PhonebookUpdated? PhonebookUpdated { get; set; }
+    
+    public abstract void RequestPhonebook();
 }
