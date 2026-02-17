@@ -30,7 +30,8 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
     private CiscoRoomOsPhonebookFolder? _currentInjestfolder = null;
     private int _currentLimit = 50;
 
-    public CiscoRoomOsPhonebookParser(CommunicationClient communicationClient, string phonebookType = "Corporate") : base(phonebookType, communicationClient)
+    public CiscoRoomOsPhonebookParser(CommunicationClient communicationClient, string phonebookType = "Corporate") :
+        base(phonebookType, communicationClient)
     {
         _phonebookType = phonebookType;
         PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", string.Empty, string.Empty, []);
@@ -41,7 +42,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
     private void HandleConnectionState(ConnectionState connectionState)
     {
-        if(connectionState != ConnectionState.Connected)
+        if (connectionState != ConnectionState.Connected)
             return;
         Task.Run(async () =>
         {
@@ -53,12 +54,11 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
     public override void RequestPhonebook()
     {
         CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 Limit: 300\n");
-        AddEvent(EventType.Other, "Requesting Phonebook");
+        AddEvent(EventType.DriverState, "Requesting Phonebook");
     }
 
     private void HandleResponse(string response)
     {
-        Log.Debug("Phonebook Response: {Response}", response);
         using (PushProperties("HandlePhonebookSearchResponse"))
         {
             if (response.Contains("** end"))
@@ -103,6 +103,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                                     _currentInjestfolder.ContentsFetched = true;
                                 RequestNextPhoneBookFolder();
                             }
+
                             return;
                         case "Limit:":
                             _currentLimit = Int32.Parse(responses[4]);
@@ -111,38 +112,33 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                         default:
                             Log.Information("Unhandled ResultInfo key: {Response}", responses[3]);
                             CommunicationState = CommunicationState.Error;
-                            AddEvent(EventType.Error,  $"Unhandled ResultInfo key: {responses[3]}");
+                            AddEvent(EventType.Error, $"Unhandled ResultInfo key: {responses[3]}");
                             return;
                     }
                 }
-            case "Folder":
+                case "Folder":
                 {
-                    Log.Verbose("Handling Phonebook Folder Response: {Response}", response);
                     var loadResult = HandlePhonebookFolderResponse(response, responses);
 
                     CommunicationState = loadResult.state == EntryLoadState.Error
                         ? CommunicationState.Error
                         : CommunicationState.Okay;
-                    
-                    ProcessInjestData();
                     return;
                 }
-            case "Contact":
+                case "Contact":
                 {
-                    Log.Verbose("Handling Phonebook Contact Response: {Response}", response);
                     var loadResult = HandlePhonebookContactResponse(response, responses);
 
                     CommunicationState = loadResult.state == EntryLoadState.Error
                         ? CommunicationState.Error
                         : CommunicationState.Okay;
-                    
-                    ProcessInjestData();
                     return;
                 }
+                default:
+                    Log.Debug("Unhandled response key: {Response}", responses[2]);
+                    CommunicationState = CommunicationState.Error;
+                    break;
             }
-
-            Log.Debug("Unhandled response key: {Response}", responses[2]);
-            CommunicationState = CommunicationState.Error;
         }
     }
 
@@ -150,24 +146,26 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
     {
         if (_currentInjestfolder == null)
             PhoneBook.ContentsFetched = true;
-        
+
         CiscoRoomOsPhonebookFolder? unFetchedFolder = FindUnFetchedFolder(PhoneBook.Items);
         if (unFetchedFolder == null)
         {
+            AddEvent(EventType.DriverState, "Phonebook search complete");
             Log.Debug("Phonebook search complete");
             PhonebookUpdated?.Invoke(PhoneBook);
             return;
         }
 
         _currentInjestfolder = unFetchedFolder;
-        Log.Debug("Requesting contents for folder {FolderName} ({FolderId})", _currentInjestfolder.Name, _currentInjestfolder.FolderId);
+        AddEvent(EventType.DriverState, $"Requesting contents for folder {_currentInjestfolder.Name} ({_currentInjestfolder.FolderId})");
 
         _injestFolders.Clear();
         _injestContacts.Clear();
         _injestContactMethods.Clear();
         _loadedRows.Clear();
 
-        CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId} Limit: 300\n");
+        CommunicationClient.Send(
+            $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId} Limit: 300\n");
     }
 
     private CiscoRoomOsPhonebookFolder? FindUnFetchedFolder(List<PhonebookBase> phoneBookItems)
@@ -178,7 +176,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
             {
                 if (!folder.ContentsFetched)
                     return folder;
-                
+
                 var nestedUnfetched = FindUnFetchedFolder(folder.Items);
                 if (nestedUnfetched != null)
                     return nestedUnfetched;
@@ -242,7 +240,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                         methods[methodId][responses[6]] = responses[7].Trim().Trim('"');
                     }
                 }
-                
+
                 methods[methodId]["ContactMethodId:"] = methodId.ToString();
                 break;
             default:
@@ -264,7 +262,8 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
         int currentTotalProcessed = maxRow + _resultOffset;
 
-        Log.Debug("CheckForCompletion: maxRow={MaxRow}, offset={Offset}, totalRows={TotalRows}, currentTotalProcessed={CurrentTotalProcessed}", 
+        Log.Debug(
+            "CheckForCompletion: maxRow={MaxRow}, offset={Offset}, totalRows={TotalRows}, currentTotalProcessed={CurrentTotalProcessed}",
             maxRow, _resultOffset, _resultTotalRows, currentTotalProcessed);
 
         if (currentTotalProcessed >= _resultTotalRows || (maxRow > 0 && maxRow == _currentLimit))
@@ -274,8 +273,10 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                 if (_currentInjestfolder != null)
                 {
                     _currentInjestfolder.ContentsFetched = true;
-                    Log.Debug("Setting ContentsFetched for folder {FolderName} ({FolderId})", _currentInjestfolder.Name, _currentInjestfolder.FolderId);
+                    Log.Debug("Setting ContentsFetched for folder {FolderName} ({FolderId})", _currentInjestfolder.Name,
+                        _currentInjestfolder.FolderId);
                 }
+
                 RequestNextPhoneBookFolder();
             }
             else if (maxRow >= _currentLimit)
@@ -304,7 +305,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                         folderData.GetValueOrDefault("FolderId:", string.Empty),
                         folderData.GetValueOrDefault("LocalId:", string.Empty),
                         []));
-                    
+
                     complete = folderData.ContainsKey("FolderId:") && folderData.ContainsKey("LocalId:");
                 }
             }
@@ -315,7 +316,8 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                     List<PhonebookNumber> contactMethods = [];
                     if (_injestContactMethods.TryGetValue(row, out var methodDict))
                     {
-                        var methodEntries = methodDict.Values.OrderBy(m => int.Parse(m.GetValueOrDefault("ContactMethodId:", "0")));
+                        var methodEntries =
+                            methodDict.Values.OrderBy(m => int.Parse(m.GetValueOrDefault("ContactMethodId:", "0")));
                         foreach (var methodEntry in methodEntries)
                         {
                             contactMethods.Add(new CiscoRoomOsPhonebookContactMethod(
@@ -325,7 +327,8 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                         }
                     }
 
-                    AddContactToFolder(new CiscoRoomOsPhonebookContact(contactData["Name:"], contactData["ContactId:"], contactMethods));
+                    AddContactToFolder(new CiscoRoomOsPhonebookContact(contactData["Name:"], contactData["ContactId:"],
+                        contactMethods));
                 }
             }
 
@@ -337,18 +340,18 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
     private void AddContactToFolder(PhonebookBase contact)
     {
-        Log.Verbose("Adding {ItemType} {ItemName} to folder tree", contact.GetType().Name, contact.Name);
         CiscoRoomOsPhonebookFolder parentFolder;
         if (_currentInjestfolder == null)
         {
-            parentFolder = (CiscoRoomOsPhonebookFolder) PhoneBook;
+            parentFolder = (CiscoRoomOsPhonebookFolder)PhoneBook;
         }
         else
         {
             if (_currentInjestfolder.FolderId == PhoneBook.FolderId)
-                parentFolder = (CiscoRoomOsPhonebookFolder) PhoneBook;
+                parentFolder = (CiscoRoomOsPhonebookFolder)PhoneBook;
             else
-                parentFolder = FindFolderById(PhoneBook.Items, _currentInjestfolder.FolderId) ?? (CiscoRoomOsPhonebookFolder) PhoneBook;
+                parentFolder = FindFolderById(PhoneBook.Items, _currentInjestfolder.FolderId) ??
+                               (CiscoRoomOsPhonebookFolder)PhoneBook;
         }
 
         var items = parentFolder.Items;
@@ -358,31 +361,33 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
         {
             if (items[existingIndex].GetType() == contact.GetType())
             {
-                if (contact is CiscoRoomOsPhonebookFolder newFolder && items[existingIndex] is CiscoRoomOsPhonebookFolder oldFolder)
+                if (contact is CiscoRoomOsPhonebookFolder newFolder &&
+                    items[existingIndex] is CiscoRoomOsPhonebookFolder oldFolder)
                 {
-                    Log.Verbose("Updating existing folder {FolderName}", newFolder.Name);
-                    
-                    var updated = new CiscoRoomOsPhonebookFolder(newFolder.Name, newFolder.FolderId, newFolder.LocalId, oldFolder.Items);
+
+                    var updated = new CiscoRoomOsPhonebookFolder(newFolder.Name, newFolder.FolderId, newFolder.LocalId,
+                        oldFolder.Items);
                     updated.ContentsFetched = oldFolder.ContentsFetched || newFolder.ContentsFetched;
                     items[existingIndex] = updated;
-                    
-                    
+
+
                     if (_currentInjestfolder == oldFolder)
                     {
-                        Log.Verbose("Updating _currentInjestfolder reference to updated folder {FolderName}", updated.Name);
                         _currentInjestfolder = updated;
                     }
                 }
                 else
                 {
-                    Log.Verbose("Replacing existing contact {ContactName}", contact.Name);
-                    if (items[existingIndex] is CiscoRoomOsPhonebookContact oldContact && contact is CiscoRoomOsPhonebookContact newContact)
+                    if (items[existingIndex] is CiscoRoomOsPhonebookContact oldContact &&
+                        contact is CiscoRoomOsPhonebookContact newContact)
                     {
                         var mergedMethods = oldContact.ContactMethods.ToList();
                         foreach (var newMethod in newContact.ContactMethods)
                         {
                             var existingMethod = mergedMethods.Cast<CiscoRoomOsPhonebookContactMethod>()
-                                .FirstOrDefault(m => m.ContactMethodId == ((CiscoRoomOsPhonebookContactMethod)newMethod).ContactMethodId);
+                                .FirstOrDefault(m =>
+                                    m.ContactMethodId ==
+                                    ((CiscoRoomOsPhonebookContactMethod)newMethod).ContactMethodId);
                             if (existingMethod != null)
                             {
                                 int idx = mergedMethods.IndexOf(existingMethod);
@@ -393,7 +398,9 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                                 mergedMethods.Add(newMethod);
                             }
                         }
-                        items[existingIndex] = new CiscoRoomOsPhonebookContact(newContact.Name, newContact.ContactId, mergedMethods);
+
+                        items[existingIndex] =
+                            new CiscoRoomOsPhonebookContact(newContact.Name, newContact.ContactId, mergedMethods);
                     }
                     else
                     {
@@ -404,7 +411,6 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
         }
         else
         {
-            Log.Verbose("Adding new {ItemType} {ItemName} to folder {FolderName}", contact.GetType().Name, contact.Name, parentFolder.Name);
             items.Add(contact);
         }
     }
@@ -426,6 +432,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                 if (found != null) return found;
             }
         }
+
         return null;
     }
 
