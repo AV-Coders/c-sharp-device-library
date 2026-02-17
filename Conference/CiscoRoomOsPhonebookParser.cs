@@ -30,6 +30,8 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
     private CiscoRoomOsPhonebookFolder? _currentInjestfolder = null;
     private int _currentLimit = 50;
 
+    private bool _isProcessingPhonebook;
+
     public CiscoRoomOsPhonebookParser(CommunicationClient communicationClient, string phonebookType = "Corporate") :
         base(phonebookType, communicationClient)
     {
@@ -38,6 +40,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
         communicationClient.ResponseHandlers += HandleResponse;
         communicationClient.ConnectionStateHandlers += HandleConnectionState;
+        AddEvent(EventType.DriverState, "Module Started");
     }
 
     private void HandleConnectionState(ConnectionState connectionState)
@@ -61,15 +64,22 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
     {
         using (PushProperties("HandlePhonebookSearchResponse"))
         {
+            if (response.Contains("*r PhonebookSearchResult"))
+                _isProcessingPhonebook = true;
+
             if (response.Contains("** end"))
             {
+                if (!_isProcessingPhonebook)
+                    return;
+
                 Log.Debug("Phonebook search chunk ended. Total processed so far: {Count}", _loadedRows.Count);
                 ProcessInjestData();
                 CheckForCompletion();
+                _isProcessingPhonebook = false;
                 return;
             }
 
-            if (!response.Contains("*r PhonebookSearchResult"))
+            if (!_isProcessingPhonebook)
                 return;
 
             var responses = response.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -101,7 +111,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                             {
                                 if (_currentInjestfolder != null)
                                     _currentInjestfolder.ContentsFetched = true;
-                                RequestNextPhoneBookFolder();
+                                // RequestNextPhoneBookFolder(); // Removed to avoid double completion
                             }
 
                             return;
@@ -151,7 +161,6 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
         if (unFetchedFolder == null)
         {
             AddEvent(EventType.DriverState, "Phonebook search complete");
-            Log.Debug("Phonebook search complete");
             PhonebookUpdated?.Invoke(PhoneBook);
             return;
         }
