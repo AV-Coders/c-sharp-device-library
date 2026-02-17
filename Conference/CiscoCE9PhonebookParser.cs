@@ -25,11 +25,10 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     public readonly CiscoRoomOsPhonebookFolder PhoneBook;
 
     // Phonebook parsing variables
-    private readonly Dictionary<string, string> _injestFolder;
-    private readonly Dictionary<string, string> _injestContact;
-    private readonly List<Dictionary<string, string>> _injestContactMethods;
-    private int _currentRow;
-    private int _currentSubRow;
+    private readonly Dictionary<int, Dictionary<string, string>> _injestFolders = new();
+    private readonly Dictionary<int, Dictionary<string, string>> _injestContacts = new();
+    private readonly Dictionary<int, Dictionary<int, Dictionary<string, string>>> _injestContactMethods = new();
+    private readonly HashSet<int> _loadedRows = [];
     private int _resultOffset;
     private int _resultTotalRows;
     private CiscoRoomOsPhonebookFolder? _currentInjestfolder = null;
@@ -39,9 +38,6 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     {
         _phonebookType = phonebookType;
         PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", string.Empty, string.Empty, []);
-        _injestFolder = new Dictionary<string, string>();
-        _injestContact = new Dictionary<string, string>();
-        _injestContactMethods = [new()];
 
         communicationClient.ResponseHandlers += HandleResponse;
         communicationClient.ConnectionStateHandlers += HandleConnectionState;
@@ -68,12 +64,19 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     {
         using (PushProperties("HandlePhonebookSearchResponse"))
         {
+            if (response.Contains("** end"))
+            {
+                ProcessInjestData();
+                CheckForCompletion();
+                return;
+            }
+
             if( !response.Contains("*r PhonebookSearchResult"))
                    return;
-            
+
             if (response.Contains("status=OK"))
             {
-                CommunicationState = CommunicationState.Error;
+                CommunicationState = CommunicationState.Okay;
                 return;
             }
 
@@ -93,9 +96,18 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                         case "TotalRows:":
                             _resultTotalRows = Int32.Parse(responses[4]);
                             Log.Verbose("Total rows is {ResultTotalRows}", _resultTotalRows);
-                            _currentRow = 1;
-                            _currentSubRow = 1;
+                            _injestFolders.Clear();
+                            _injestContacts.Clear();
+                            _injestContactMethods.Clear();
+                            _loadedRows.Clear();
                             CommunicationState = CommunicationState.Okay;
+
+                            if (_resultTotalRows == 0)
+                            {
+                                if (_currentInjestfolder != null)
+                                    _currentInjestfolder.ContentsFetched = true;
+                                RequestNextPhoneBookFolder();
+                            }
                             return;
                         case "Limit:":
                             _currentLimit = Int32.Parse(responses[4]);
@@ -108,60 +120,23 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                             return;
                     }
                 }
-                case "Folder":
+            case "Folder":
                 {
                     var loadResult = HandlePhonebookFolderResponse(response, responses);
-
-                    if (loadResult.state == EntryLoadState.Loaded && loadResult.responseRow == _resultTotalRows)
-                    {
-                        if (_currentInjestfolder != null)
-                            _currentInjestfolder.ContentsFetched = true;
-                        RequestNextPhoneBookFolder();
-                    }
 
                     CommunicationState = loadResult.state == EntryLoadState.Error
                         ? CommunicationState.Error
                         : CommunicationState.Okay;
                     return;
                 }
-                case "Contact":
+            case "Contact":
                 {
                     var loadResult = HandlePhonebookContactResponse(response, responses);
 
-                    int resultRow = loadResult.responseRow + _resultOffset;
-
-                    if (loadResult.state != EntryLoadState.Loaded)
-                    {
-                        CommunicationState = CommunicationState.Error;
-                        return;
-                    }
-
-                    if (resultRow == _resultTotalRows)
-                    {
-                        _currentInjestfolder!.ContentsFetched = true;
-                        RequestNextPhoneBookFolder();
-                        CommunicationState = CommunicationState.Okay;
-                        return;
-                    }
-
-                    if (loadResult.responseRow == _currentLimit)
-                    {
-                        if (_resultTotalRows == _currentLimit)
-                        {
-                            _currentInjestfolder!.ContentsFetched = true;
-                            RequestNextPhoneBookFolder();
-                            CommunicationState = CommunicationState.Okay;
-                            return;
-                        }
-
-                        CommunicationClient.Send(
-                            $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder!.FolderId}\n");
-
-                        CommunicationState = CommunicationState.Okay;
-                        return;
-                    }
-
-                    break;
+                    CommunicationState = loadResult.state == EntryLoadState.Error
+                        ? CommunicationState.Error
+                        : CommunicationState.Okay;
+                    return;
                 }
             }
 
@@ -183,7 +158,11 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
         }
 
         _currentInjestfolder = unFetchedFolder;
-        _currentRow = 0;
+
+        _injestFolders.Clear();
+        _injestContacts.Clear();
+        _injestContactMethods.Clear();
+        _loadedRows.Clear();
 
         CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
     }
@@ -208,123 +187,209 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     private (int responseRow, EntryLoadState state) HandlePhonebookFolderResponse(string response, string[] responses)
     {
         var responseRow = Int32.Parse(responses[3]);
-        if (responseRow != _currentRow)
-        {
-            Log.Debug("Ignoring response as it's an invalid row, i'm expecting {CurrentRow}", _currentRow);
-            return (responseRow, EntryLoadState.Error);
-        }
+        if (!_injestFolders.ContainsKey(responseRow))
+            _injestFolders[responseRow] = new Dictionary<string, string>();
+
+        var folderData = _injestFolders[responseRow];
 
         if (responses[4] == "Name:")
         {
-            var startIndex = response.IndexOf(':') + 1;
-            var count = response.Length - startIndex;
-            _injestFolder.Add("Name:", response.Substring(startIndex, count).Trim());
+            var startIndex = response.IndexOf("Name:") + 5;
+            folderData["Name:"] = response.Substring(startIndex).Trim().Trim('"');
         }
-        else
-            _injestFolder.Add(responses[4], responses[5].Trim());
+        else if (responses.Length > 5)
+            folderData[responses[4]] = responses[5].Trim().Trim('"');
 
-        if (!_injestFolder.ContainsKey("Name:") ||
-            !_injestFolder.ContainsKey("FolderId:") ||
-            !_injestFolder.ContainsKey("LocalId:"))
-            return (responseRow, EntryLoadState.NotLoaded);
-
-        _currentRow++;
-
-        AddContactToFolder(new CiscoRoomOsPhonebookFolder(
-            _injestFolder["Name:"].Trim('"'),
-            _injestFolder["FolderId:"].Trim('"'),
-            _injestFolder["LocalId:"].Trim('"'),
-            []));
-
-        _injestFolder.Clear();
         return (responseRow, EntryLoadState.Loaded);
     }
 
     private (int responseRow, EntryLoadState state) HandlePhonebookContactResponse(string response, string[] responses)
     {
         var responseRow = Int32.Parse(responses[3]);
-        if (responseRow != _currentRow)
-        {
-            Log.Debug("Ignoring response as it's an invalid row, i'm expecting {CurrentRow}", _currentRow);
-            return (responseRow, EntryLoadState.Error);
-        }
+        if (!_injestContacts.ContainsKey(responseRow))
+            _injestContacts[responseRow] = new Dictionary<string, string>();
+
+        var contactData = _injestContacts[responseRow];
 
         switch (responses[4])
         {
             case "Name:":
-                var startIndex = response.IndexOf(':') + 1;
-                var count = response.Length - startIndex;
-                _injestContact.Add("Name:", response.Substring(startIndex, count).Trim().Trim('"'));
+                var nameStartIndex = response.IndexOf("Name:") + 5;
+                contactData["Name:"] = response.Substring(nameStartIndex).Trim().Trim('"');
                 break;
             case "ContactMethod":
                 var methodId = Int32.Parse(responses[5]);
-                if (methodId > _currentSubRow)
+                if (!_injestContactMethods.ContainsKey(responseRow))
+                    _injestContactMethods[responseRow] = new Dictionary<int, Dictionary<string, string>>();
+
+                var methods = _injestContactMethods[responseRow];
+                if (!methods.ContainsKey(methodId))
+                    methods[methodId] = new Dictionary<string, string>();
+
+                if (responses.Length > 6)
                 {
-                    _injestContactMethods.Add(new Dictionary<string, string>());
-                    _currentSubRow = methodId;
+                    if (responses[6] == "Number:")
+                    {
+                        var numberStartIndex = response.IndexOf("Number:") + 7;
+                        methods[methodId]["Number:"] = response.Substring(numberStartIndex).Trim().Trim('"');
+                    }
+                    else if (responses.Length > 7)
+                    {
+                        methods[methodId][responses[6]] = responses[7].Trim().Trim('"');
+                    }
                 }
                 
-                _injestContactMethods[methodId - 1].Add(responses[6], responses[7].Trim().Trim('"'));
+                methods[methodId]["ContactMethodId:"] = methodId.ToString();
                 break;
             default:
-                _injestContact.Add(responses[4], responses[5].Trim().Trim('"'));
+                if (responses.Length > 5)
+                    contactData[responses[4]] = responses[5].Trim().Trim('"');
                 break;
         }
 
-        if (!_injestContact.ContainsKey("Name:") ||
-            !_injestContact.ContainsKey("ContactId:") ||
-            !AllContactMethodsArePopulated())
-            return (responseRow, EntryLoadState.NotLoaded);
-
-        List<PhonebookNumber> contactMethods = [];
-
-        _injestContactMethods.ForEach(contactMethod =>
-        {
-            contactMethods.Add(new CiscoRoomOsPhonebookContactMethod(
-                contactMethod["ContactMethodId:"],
-                contactMethod["Number:"],
-                contactMethod["Protocol:"]));
-        });
-
-        AddContactToFolder(new CiscoRoomOsPhonebookContact(_injestContact["Name:"], _injestContact["ContactId:"],
-            contactMethods));
-
-        _injestContact.Clear();
-        _injestContactMethods.Clear();
-        _injestContactMethods.Add(new Dictionary<string, string>());
-        _currentSubRow = 1;
-        _currentRow++;
-        // _currentSubRow = 1;
         return (responseRow, EntryLoadState.Loaded);
     }
 
-    private void AddContactToFolder(PhonebookBase contact)
+    private void CheckForCompletion()
     {
-        if (_currentInjestfolder == null)
-        {
-            PhoneBook.Items.Add(contact);
-            return;
-        }
+        ProcessInjestData();
 
-        PhoneBook.Items.ForEach(item =>
+        int maxRow = 0;
+        if (_injestFolders.Count > 0) maxRow = Math.Max(maxRow, _injestFolders.Keys.Max());
+        if (_injestContacts.Count > 0) maxRow = Math.Max(maxRow, _injestContacts.Keys.Max());
+
+        int currentTotalProcessed = maxRow + _resultOffset;
+
+        if (currentTotalProcessed == _resultTotalRows || (maxRow > 0 && maxRow == _currentLimit))
         {
-            if (item.GetType() == typeof(CiscoRoomOsPhonebookFolder))
+            if (currentTotalProcessed == _resultTotalRows)
             {
-                if (item == _currentInjestfolder)
-                {
-                    CiscoRoomOsPhonebookFolder folder = (CiscoRoomOsPhonebookFolder)item;
-                    folder.Items.Add(contact);
-                    return;
-                }
+                if (_currentInjestfolder != null)
+                    _currentInjestfolder.ContentsFetched = true;
+                RequestNextPhoneBookFolder();
             }
-        });
+            else if (maxRow == _currentLimit)
+            {
+                CommunicationClient.Send(
+                    $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder?.FolderId ?? string.Empty}\n");
+            }
+        }
     }
 
-    private bool AllContactMethodsArePopulated()
+    private void ProcessInjestData()
     {
-        if(_injestContactMethods.Count == 0)
+        var sortedRows = _injestFolders.Keys.Concat(_injestContacts.Keys).Distinct().OrderBy(r => r).ToList();
+
+        foreach (var row in sortedRows)
+        {
+            if (_loadedRows.Contains(row)) continue;
+
+            bool complete = false;
+            if (_injestFolders.TryGetValue(row, out var folderData))
+            {
+                if (folderData.TryGetValue("Name:", out var data))
+                {
+                    AddContactToFolder(new CiscoRoomOsPhonebookFolder(
+                        data,
+                        folderData.GetValueOrDefault("FolderId:", string.Empty),
+                        folderData.GetValueOrDefault("LocalId:", string.Empty),
+                        []));
+                    
+                    complete = folderData.ContainsKey("FolderId:") && folderData.ContainsKey("LocalId:");
+                }
+            }
+            else if (_injestContacts.TryGetValue(row, out var contactData))
+            {
+                if (contactData.ContainsKey("Name:") && contactData.ContainsKey("ContactId:"))
+                {
+                    List<PhonebookNumber> contactMethods = [];
+                    if (_injestContactMethods.TryGetValue(row, out var methodDict))
+                    {
+                        var methodEntries = methodDict.Values.OrderBy(m => int.Parse(m.GetValueOrDefault("ContactMethodId:", "0")));
+                        foreach (var methodEntry in methodEntries)
+                        {
+                            contactMethods.Add(new CiscoRoomOsPhonebookContactMethod(
+                                methodEntry.GetValueOrDefault("ContactMethodId:", "0"),
+                                methodEntry.GetValueOrDefault("Number:", string.Empty),
+                                methodEntry.GetValueOrDefault("Protocol:", string.Empty)));
+                        }
+                    }
+
+                    AddContactToFolder(new CiscoRoomOsPhonebookContact(contactData["Name:"], contactData["ContactId:"], contactMethods));
+                    complete = AllContactMethodsArePopulated(row);
+                }
+            }
+
+            if (complete)
+                _loadedRows.Add(row);
+        }
+    }
+
+
+    private void AddContactToFolder(PhonebookBase contact)
+    {
+        List<PhonebookBase> items;
+        if (_currentInjestfolder == null)
+        {
+            items = PhoneBook.Items;
+        }
+        else
+        {
+            // Root folder itself or finding it by ID in the tree
+            if (_currentInjestfolder.FolderId == PhoneBook.FolderId)
+                items = PhoneBook.Items;
+            else
+                items = FindFolderById(PhoneBook.Items, _currentInjestfolder.FolderId)?.Items ?? PhoneBook.Items;
+        }
+
+        int existingIndex = items.FindIndex(i => i.Name == contact.Name);
+        if (existingIndex >= 0)
+        {
+            if (items[existingIndex].GetType() == contact.GetType())
+            {
+                if (contact is CiscoRoomOsPhonebookFolder newFolder && items[existingIndex] is CiscoRoomOsPhonebookFolder oldFolder)
+                {
+                    // Update and preserve sub-items
+                    var updated = new CiscoRoomOsPhonebookFolder(newFolder.Name, newFolder.FolderId, newFolder.LocalId, oldFolder.Items);
+                    updated.ContentsFetched = oldFolder.ContentsFetched || newFolder.ContentsFetched;
+                    items[existingIndex] = updated;
+                    
+                    // If this was the folder we are currently filling, update the reference
+                    if (_currentInjestfolder == oldFolder)
+                        _currentInjestfolder = updated;
+                }
+                else
+                {
+                    items[existingIndex] = contact;
+                }
+            }
+        }
+        else
+        {
+            items.Add(contact);
+        }
+    }
+
+    private CiscoRoomOsPhonebookFolder? FindFolderById(List<PhonebookBase> items, string folderId)
+    {
+        foreach (var item in items)
+        {
+            if (item is CiscoRoomOsPhonebookFolder folder)
+            {
+                if (folder.FolderId == folderId) return folder;
+                var found = FindFolderById(folder.Items, folderId);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    private bool AllContactMethodsArePopulated(int responseRow)
+    {
+        if (!_injestContactMethods.ContainsKey(responseRow))
             return false;
-        foreach (var dictionaryEntry in _injestContactMethods)
+
+        foreach (var dictionaryEntry in _injestContactMethods[responseRow].Values)
         {
             if (!dictionaryEntry.ContainsKey("ContactMethodId:"))
                 return false;

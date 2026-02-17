@@ -32,6 +32,7 @@ public class CiscoCE9PhonebookParserTest
             "*r PhonebookSearchResult Folder 3 LocalId: \"c_63\"",
             "*r PhonebookSearchResult Folder 3 FolderId: \"c_63\"",
             "*r PhonebookSearchResult Folder 3 Name: \"More folders\"",
+            "** end"
         }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
 
         CiscoRoomOsPhonebookFolder firstFolder = (CiscoRoomOsPhonebookFolder)_parser.PhoneBook.Items[0];
@@ -71,6 +72,7 @@ public class CiscoCE9PhonebookParserTest
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 Number: \"SIP:foomcbar@mcbarindustries.co.uk\"",
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 Protocol: SIP",
         "*r PhonebookSearchResult Contact 3 ContactMethod 1 CallRate: 768",
+        "** end"
         }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
         
         CiscoRoomOsPhonebookContact firstContact = (CiscoRoomOsPhonebookContact)_parser.PhoneBook.Items[0];
@@ -81,5 +83,103 @@ public class CiscoCE9PhonebookParserTest
         Assert.Equal("SIP:123@234.com", firstContact.ContactMethods[0].Number);
         Assert.Equal("Storbven La Trattore", _parser.PhoneBook.Items[1].Name);
         Assert.Equal("Foo McBar", _parser.PhoneBook.Items[2].Name);
+    }
+
+    [Fact]
+    public void PhonebookFolders_OutOfOrder_AreParsedCorrectly()
+    {
+        new List<string>
+        {
+            "*r PhonebookSearchResult (status=OK):",
+            "*r PhonebookSearchResult ResultInfo Offset: 0",
+            "*r PhonebookSearchResult ResultInfo Limit: 20",
+            "*r PhonebookSearchResult ResultInfo TotalRows: 2",
+            "*r PhonebookSearchResult Folder 2 Name: \"Second Folder\"",
+            "*r PhonebookSearchResult Folder 1 Name: \"First Folder\"",
+            "*r PhonebookSearchResult Folder 2 LocalId: \"c_2\"",
+            "*r PhonebookSearchResult Folder 1 LocalId: \"c_1\"",
+            "*r PhonebookSearchResult Folder 1 FolderId: \"c_1\"",
+            "*r PhonebookSearchResult Folder 2 FolderId: \"c_2\"",
+            "** end"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
+
+        Assert.Equal(2, _parser.PhoneBook.Items.Count);
+        
+        var firstFolder = (CiscoRoomOsPhonebookFolder)_parser.PhoneBook.Items.FirstOrDefault(i => i.Name == "First Folder");
+        var secondFolder = (CiscoRoomOsPhonebookFolder)_parser.PhoneBook.Items.FirstOrDefault(i => i.Name == "Second Folder");
+        
+        Assert.NotNull(firstFolder);
+        Assert.Equal("c_1", firstFolder.LocalId);
+        Assert.NotNull(secondFolder);
+        Assert.Equal("c_2", secondFolder.LocalId);
+    }
+
+    [Fact]
+    public void PhonebookContacts_Interleaved_AreParsedCorrectly()
+    {
+        new List<string>
+        {
+            "*r PhonebookSearchResult (status=OK):",
+            "*r PhonebookSearchResult ResultInfo Offset: 0",
+            "*r PhonebookSearchResult ResultInfo Limit: 1000",
+            "*r PhonebookSearchResult ResultInfo TotalRows: 2",
+            "*r PhonebookSearchResult Contact 1 Name: \"Contact One\"",
+            "*r PhonebookSearchResult Contact 2 Name: \"Contact Two\"",
+            "*r PhonebookSearchResult Contact 1 ContactId: \"e_1\"",
+            "*r PhonebookSearchResult Contact 2 ContactId: \"e_2\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 1 ContactMethodId: \"1\"",
+            "*r PhonebookSearchResult Contact 2 ContactMethod 1 ContactMethodId: \"1\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 1 Number: \"111\"",
+            "*r PhonebookSearchResult Contact 2 ContactMethod 1 Number: \"222\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 1 Protocol: SIP",
+            "*r PhonebookSearchResult Contact 2 ContactMethod 1 Protocol: SIP",
+            "** end"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
+
+        Assert.Equal(2, _parser.PhoneBook.Items.Count);
+
+        var c1 = (CiscoRoomOsPhonebookContact)_parser.PhoneBook.Items.FirstOrDefault(i => i.Name == "Contact One");
+        var c2 = (CiscoRoomOsPhonebookContact)_parser.PhoneBook.Items.FirstOrDefault(i => i.Name == "Contact Two");
+
+        Assert.NotNull(c1);
+        Assert.Equal("e_1", c1.ContactId);
+        Assert.Equal("111", c1.ContactMethods[0].Number);
+
+        Assert.NotNull(c2);
+        Assert.Equal("e_2", c2.ContactId);
+        Assert.Equal("222", c2.ContactMethods[0].Number);
+    }
+
+    [Fact]
+    public void PhonebookContacts_WithMultipleMethods_AreParsedCorrectly()
+    {
+        new List<string>
+        {
+            "*r PhonebookSearchResult (status=OK):",
+            "*r PhonebookSearchResult ResultInfo Offset: 0",
+            "*r PhonebookSearchResult ResultInfo Limit: 1000",
+            "*r PhonebookSearchResult ResultInfo TotalRows: 1",
+            "*r PhonebookSearchResult Contact 1 Name: \"Multi Method\"",
+            "*r PhonebookSearchResult Contact 1 ContactId: \"e_1\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 2 ContactMethodId: \"2\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 2 Number: \"222\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 2 Protocol: SIP",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 1 ContactMethodId: \"1\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 1 Number: \"111\"",
+            "*r PhonebookSearchResult Contact 1 ContactMethod 1 Protocol: H323",
+            "** end"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
+
+        Assert.Equal(1, _parser.PhoneBook.Items.Count);
+        var contact = (CiscoRoomOsPhonebookContact)_parser.PhoneBook.Items[0];
+        Assert.Equal(2, contact.ContactMethods.Count);
+        
+        var m1 = contact.ContactMethods.FirstOrDefault(m => m.Number == "111");
+        var m2 = contact.ContactMethods.FirstOrDefault(m => m.Number == "222");
+        
+        Assert.NotNull(m1);
+        Assert.Equal("H323", ((CiscoRoomOsPhonebookContactMethod)m1).Protocol);
+        Assert.NotNull(m2);
+        Assert.Equal("SIP", ((CiscoRoomOsPhonebookContactMethod)m2).Protocol);
     }
 }
