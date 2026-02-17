@@ -16,7 +16,7 @@ public record CiscoRoomOsPhonebookContactMethod(string ContactMethodId, string N
 public record CiscoRoomOsPhonebookContact(string Name, string ContactId, List<PhonebookNumber> ContactMethods)
     : PhonebookContact(Name, ContactMethods);
 
-public class CiscoCE9PhonebookParser : PhonebookParserBase
+public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 {
     private readonly string _phonebookType;
 
@@ -30,7 +30,7 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
     private CiscoRoomOsPhonebookFolder? _currentInjestfolder = null;
     private int _currentLimit = 50;
 
-    public CiscoCE9PhonebookParser(CommunicationClient communicationClient, string phonebookType = "Corporate") : base(phonebookType, communicationClient)
+    public CiscoRoomOsPhonebookParser(CommunicationClient communicationClient, string phonebookType = "Corporate") : base(phonebookType, communicationClient)
     {
         _phonebookType = phonebookType;
         PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", string.Empty, string.Empty, []);

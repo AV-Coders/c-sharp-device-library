@@ -4,14 +4,14 @@ using Moq;
 
 namespace AVCoders.Conference.Tests;
 
-public class CiscoCE9PhonebookParserTest
+public class CiscoRoomOsPhonebookParserTest
 {
-    private readonly CiscoCE9PhonebookParser _parser;
+    private readonly CiscoRoomOsPhonebookParser _parser;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     
-    public CiscoCE9PhonebookParserTest()
+    public CiscoRoomOsPhonebookParserTest()
     {
-        _parser = new CiscoCE9PhonebookParser(_mockClient.Object);
+        _parser = new CiscoRoomOsPhonebookParser(_mockClient.Object);
     }
 
     [Fact]
