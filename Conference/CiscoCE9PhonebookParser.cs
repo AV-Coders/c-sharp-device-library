@@ -69,12 +69,8 @@ public class CiscoCE9PhonebookParser : PhonebookParserBase
                 return;
             }
 
-
-            if (response.Contains("status=OK"))
-            {
-                CommunicationState = CommunicationState.Okay;
+            if (!response.Contains("*r PhonebookSearchResult"))
                 return;
-            }
 
             var responses = response.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
