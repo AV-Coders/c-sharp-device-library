@@ -52,7 +52,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
     public override void RequestPhonebook()
     {
-        CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0\n");
+        CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 Limit: 300\n");
         AddEvent(EventType.Other, "Requesting Phonebook");
     }
 
@@ -167,7 +167,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
         _injestContactMethods.Clear();
         _loadedRows.Clear();
 
-        CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId}\n");
+        CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 FolderId: {_currentInjestfolder.FolderId} Limit: 300\n");
     }
 
     private CiscoRoomOsPhonebookFolder? FindUnFetchedFolder(List<PhonebookBase> phoneBookItems)
@@ -281,7 +281,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
             else if (maxRow >= _currentLimit)
             {
                 CommunicationClient.Send(
-                    $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder?.FolderId ?? string.Empty}\n");
+                    $"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:{_resultOffset + _currentLimit} FolderId: {_currentInjestfolder?.FolderId ?? string.Empty} Limit: 300\n");
             }
         }
     }
@@ -407,7 +407,6 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
             Log.Verbose("Adding new {ItemType} {ItemName} to folder {FolderName}", contact.GetType().Name, contact.Name, parentFolder.Name);
             items.Add(contact);
         }
-        PhonebookUpdated?.Invoke(PhoneBook);
     }
 
     public PhonebookFolder? FindFolderById(string folderId)

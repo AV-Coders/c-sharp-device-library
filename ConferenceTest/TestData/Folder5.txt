@@ -1,0 +1,29 @@
+﻿*r PhonebookSearchResult (status=OK):
+*r PhonebookSearchResult ResultInfo Offset: 0
+*r PhonebookSearchResult ResultInfo Limit: 300
+*r PhonebookSearchResult ResultInfo TotalRows: 4
+*r PhonebookSearchResult Contact 1 Name: "Lake Superior"
+*r PhonebookSearchResult Contact 1 ContactId: "anom_1"
+*r PhonebookSearchResult Contact 1 Type: "Room"
+*r PhonebookSearchResult Contact 1 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 1 ContactMethod 1 Number: "SIP:+61118107402@example.com"
+*r PhonebookSearchResult Contact 1 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 2 Name: "Lake Victoria"
+*r PhonebookSearchResult Contact 2 ContactId: "anom_2"
+*r PhonebookSearchResult Contact 2 Type: "Room"
+*r PhonebookSearchResult Contact 2 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 2 ContactMethod 1 Number: "SIP:+61214411322@example.com"
+*r PhonebookSearchResult Contact 2 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 3 Name: "Lake Huron"
+*r PhonebookSearchResult Contact 3 ContactId: "anom_3"
+*r PhonebookSearchResult Contact 3 Type: "Room"
+*r PhonebookSearchResult Contact 3 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 3 ContactMethod 1 Number: "SIP:+61312696938@example.com"
+*r PhonebookSearchResult Contact 3 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 4 Name: "Lake Michigan"
+*r PhonebookSearchResult Contact 4 ContactId: "anom_4"
+*r PhonebookSearchResult Contact 4 Type: "Room"
+*r PhonebookSearchResult Contact 4 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 4 ContactMethod 1 Number: "SIP:+61413975760@example.com"
+*r PhonebookSearchResult Contact 4 ContactMethod 1 Protocol: SIP
+** end

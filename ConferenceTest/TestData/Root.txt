@@ -1,0 +1,20 @@
+﻿*r PhonebookSearchResult (status=OK):
+*r PhonebookSearchResult ResultInfo Offset: 0
+*r PhonebookSearchResult ResultInfo Limit: 300
+*r PhonebookSearchResult ResultInfo TotalRows: 5
+*r PhonebookSearchResult Folder 1 LocalId: "c_123"
+*r PhonebookSearchResult Folder 1 FolderId: "c_123"
+*r PhonebookSearchResult Folder 1 Name: "Folder 1"
+*r PhonebookSearchResult Folder 2 LocalId: "c_124"
+*r PhonebookSearchResult Folder 2 FolderId: "c_124"
+*r PhonebookSearchResult Folder 2 Name: "Folder 2"
+*r PhonebookSearchResult Folder 3 LocalId: "c_104"
+*r PhonebookSearchResult Folder 3 FolderId: "c_104"
+*r PhonebookSearchResult Folder 3 Name: "Folder 3"
+*r PhonebookSearchResult Folder 4 LocalId: "c_446"
+*r PhonebookSearchResult Folder 4 FolderId: "c_446"
+*r PhonebookSearchResult Folder 4 Name: "Folder 4"
+*r PhonebookSearchResult Folder 5 LocalId: "c_950"
+*r PhonebookSearchResult Folder 5 FolderId: "c_950"
+*r PhonebookSearchResult Folder 5 Name: "Folder 5"
+** end

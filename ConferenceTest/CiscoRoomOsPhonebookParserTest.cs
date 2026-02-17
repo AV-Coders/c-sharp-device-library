@@ -21,8 +21,8 @@ public class CiscoRoomOsPhonebookParserTest
         {
             "*r PhonebookSearchResult (status=OK):", 
             "*r PhonebookSearchResult ResultInfo Offset: 0",
-            "*r PhonebookSearchResult ResultInfo Limit: 20",
-            "*r PhonebookSearchResult ResultInfo TotalRows: 13",
+            "*r PhonebookSearchResult ResultInfo Limit: 300",
+            "*r PhonebookSearchResult ResultInfo TotalRows: 3",
             "*r PhonebookSearchResult Folder 1 LocalId: \"c_61\"",
             "*r PhonebookSearchResult Folder 1 FolderId: \"c_61\"",
             "*r PhonebookSearchResult Folder 1 Name: \"AV Coders\"",
@@ -52,8 +52,8 @@ public class CiscoRoomOsPhonebookParserTest
         {
         "*r PhonebookSearchResult (status=OK):", 
         "*r PhonebookSearchResult ResultInfo Offset: 0",
-        "*r PhonebookSearchResult ResultInfo Limit: 1000",
-        "*r PhonebookSearchResult ResultInfo TotalRows: 109",
+        "*r PhonebookSearchResult ResultInfo Limit: 300",
+        "*r PhonebookSearchResult ResultInfo TotalRows: 3",
         "*r PhonebookSearchResult Contact 1 Name: \"Jeoffery Sparnston\"",
         "*r PhonebookSearchResult Contact 1 ContactId: \"e_55246\"",
         "*r PhonebookSearchResult Contact 1 ContactMethod 1 ContactMethodId: \"1\"",
@@ -92,7 +92,7 @@ public class CiscoRoomOsPhonebookParserTest
         {
             "*r PhonebookSearchResult (status=OK):",
             "*r PhonebookSearchResult ResultInfo Offset: 0",
-            "*r PhonebookSearchResult ResultInfo Limit: 20",
+            "*r PhonebookSearchResult ResultInfo Limit: 300",
             "*r PhonebookSearchResult ResultInfo TotalRows: 2",
             "*r PhonebookSearchResult Folder 2 Name: \"Second Folder\"",
             "*r PhonebookSearchResult Folder 1 Name: \"First Folder\"",
@@ -121,7 +121,7 @@ public class CiscoRoomOsPhonebookParserTest
         {
             "*r PhonebookSearchResult (status=OK):",
             "*r PhonebookSearchResult ResultInfo Offset: 0",
-            "*r PhonebookSearchResult ResultInfo Limit: 1000",
+            "*r PhonebookSearchResult ResultInfo Limit: 300",
             "*r PhonebookSearchResult ResultInfo TotalRows: 2",
             "*r PhonebookSearchResult Contact 1 Name: \"Contact One\"",
             "*r PhonebookSearchResult Contact 2 Name: \"Contact Two\"",
@@ -157,7 +157,7 @@ public class CiscoRoomOsPhonebookParserTest
         {
             "*r PhonebookSearchResult (status=OK):",
             "*r PhonebookSearchResult ResultInfo Offset: 0",
-            "*r PhonebookSearchResult ResultInfo Limit: 1000",
+            "*r PhonebookSearchResult ResultInfo Limit: 300",
             "*r PhonebookSearchResult ResultInfo TotalRows: 1",
             "*r PhonebookSearchResult Contact 1 Name: \"Multi Method\"",
             "*r PhonebookSearchResult Contact 1 ContactId: \"e_1\"",

@@ -1,0 +1,125 @@
+﻿*r PhonebookSearchResult (status=OK):
+*r PhonebookSearchResult ResultInfo Offset: 0
+*r PhonebookSearchResult ResultInfo Limit: 300
+*r PhonebookSearchResult ResultInfo TotalRows: 20
+*r PhonebookSearchResult Contact 1 Name: "Magic Kingdom"
+*r PhonebookSearchResult Contact 1 ContactId: "anom_1"
+*r PhonebookSearchResult Contact 1 Type: "Other"
+*r PhonebookSearchResult Contact 1 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 1 ContactMethod 1 Number: "SIP:+61119914252@example.com"
+*r PhonebookSearchResult Contact 1 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 2 Name: "Disneyland Park"
+*r PhonebookSearchResult Contact 2 ContactId: "anom_2"
+*r PhonebookSearchResult Contact 2 Type: "Other"
+*r PhonebookSearchResult Contact 2 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 2 ContactMethod 1 Number: "SIP:+61214490558@example.com"
+*r PhonebookSearchResult Contact 2 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 3 Name: "Tokyo Disneyland"
+*r PhonebookSearchResult Contact 3 ContactId: "anom_3"
+*r PhonebookSearchResult Contact 3 Type: "Other"
+*r PhonebookSearchResult Contact 3 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 3 ContactMethod 1 Number: "SIP:+61315749065@example.com"
+*r PhonebookSearchResult Contact 3 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 4 Name: "Tokyo DisneySea"
+*r PhonebookSearchResult Contact 4 ContactId: "anom_4"
+*r PhonebookSearchResult Contact 4 Type: "Other"
+*r PhonebookSearchResult Contact 4 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 4 ContactMethod 1 Number: "SIP:+61411640997@example.com"
+*r PhonebookSearchResult Contact 4 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 5 Name: "Universal Studios Japan"
+*r PhonebookSearchResult Contact 5 ContactId: "anom_5"
+*r PhonebookSearchResult Contact 5 Type: "Other"
+*r PhonebookSearchResult Contact 5 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 5 ContactMethod 1 Number: "SIP:+61519862489@example.com"
+*r PhonebookSearchResult Contact 5 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 6 Name: "Disney Animal Kingdom"
+*r PhonebookSearchResult Contact 6 ContactId: "anom_6"
+*r PhonebookSearchResult Contact 6 Type: "Other"
+*r PhonebookSearchResult Contact 6 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 6 ContactMethod 1 Number: "SIP:+61616143784@example.com"
+*r PhonebookSearchResult Contact 6 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 7 Name: "Epcot"
+*r PhonebookSearchResult Contact 7 ContactId: "anom_7"
+*r PhonebookSearchResult Contact 7 Type: "Other"
+*r PhonebookSearchResult Contact 7 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 7 ContactMethod 1 Number: "SIP:+61714971773@example.com"
+*r PhonebookSearchResult Contact 7 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 8 Name: "Shanghai Disneyland"
+*r PhonebookSearchResult Contact 8 ContactId: "anom_8"
+*r PhonebookSearchResult Contact 8 Type: "Other"
+*r PhonebookSearchResult Contact 8 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 8 ContactMethod 1 Number: "SIP:+61816230089@example.com"
+*r PhonebookSearchResult Contact 8 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 9 Name: "Disney Hollywood Studios"
+*r PhonebookSearchResult Contact 9 ContactId: "anom_9"
+*r PhonebookSearchResult Contact 9 Type: "Other"
+*r PhonebookSearchResult Contact 9 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 9 ContactMethod 1 Number: "SIP:+61912065907@example.com"
+*r PhonebookSearchResult Contact 9 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 10 Name: "Universal Studios Florida"
+*r PhonebookSearchResult Contact 10 ContactId: "anom_10"
+*r PhonebookSearchResult Contact 10 Type: "Other"
+*r PhonebookSearchResult Contact 10 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 10 ContactMethod 1 Number: "SIP:+611012397545@example.com"
+*r PhonebookSearchResult Contact 10 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 11 Name: "Islands of Adventure"
+*r PhonebookSearchResult Contact 11 ContactId: "anom_11"
+*r PhonebookSearchResult Contact 11 Type: "Other"
+*r PhonebookSearchResult Contact 11 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 11 ContactMethod 1 Number: "SIP:+611114436986@example.com"
+*r PhonebookSearchResult Contact 11 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 12 Name: "Disney California Adventure"
+*r PhonebookSearchResult Contact 12 ContactId: "anom_12"
+*r PhonebookSearchResult Contact 12 Type: "Other"
+*r PhonebookSearchResult Contact 12 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 12 ContactMethod 1 Number: "SIP:+611213461384@example.com"
+*r PhonebookSearchResult Contact 12 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 13 Name: "Disneyland Paris"
+*r PhonebookSearchResult Contact 13 ContactId: "anom_13"
+*r PhonebookSearchResult Contact 13 Type: "Other"
+*r PhonebookSearchResult Contact 13 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 13 ContactMethod 1 Number: "SIP:+611313988815@example.com"
+*r PhonebookSearchResult Contact 13 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 14 Name: "Universal Studios Hollywood"
+*r PhonebookSearchResult Contact 14 ContactId: "anom_14"
+*r PhonebookSearchResult Contact 14 Type: "Other"
+*r PhonebookSearchResult Contact 14 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 14 ContactMethod 1 Number: "SIP:+611411220492@example.com"
+*r PhonebookSearchResult Contact 14 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 15 Name: "Everland"
+*r PhonebookSearchResult Contact 15 ContactId: "anom_15"
+*r PhonebookSearchResult Contact 15 Type: "Other"
+*r PhonebookSearchResult Contact 15 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 15 ContactMethod 1 Number: "SIP:+611512803352@example.com"
+*r PhonebookSearchResult Contact 15 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 16 Name: "Lotte World"
+*r PhonebookSearchResult Contact 16 ContactId: "anom_16"
+*r PhonebookSearchResult Contact 16 Type: "Other"
+*r PhonebookSearchResult Contact 16 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 16 ContactMethod 1 Number: "SIP:+611611257059@example.com"
+*r PhonebookSearchResult Contact 16 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 17 Name: "Nagashima Spa Land"
+*r PhonebookSearchResult Contact 17 ContactId: "anom_17"
+*r PhonebookSearchResult Contact 17 Type: "Other"
+*r PhonebookSearchResult Contact 17 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 17 ContactMethod 1 Number: "SIP:+611711813601@example.com"
+*r PhonebookSearchResult Contact 17 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 18 Name: "Ocean Park"
+*r PhonebookSearchResult Contact 18 ContactId: "anom_18"
+*r PhonebookSearchResult Contact 18 Type: "Other"
+*r PhonebookSearchResult Contact 18 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 18 ContactMethod 1 Number: "SIP:+611819313064@example.com"
+*r PhonebookSearchResult Contact 18 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 19 Name: "Europa-Park"
+*r PhonebookSearchResult Contact 19 ContactId: "anom_19"
+*r PhonebookSearchResult Contact 19 Type: "Other"
+*r PhonebookSearchResult Contact 19 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 19 ContactMethod 1 Number: "SIP:+611917014503@example.com"
+*r PhonebookSearchResult Contact 19 ContactMethod 1 Protocol: SIP
+*r PhonebookSearchResult Contact 20 Name: "De Efteling"
+*r PhonebookSearchResult Contact 20 ContactId: "anom_20"
+*r PhonebookSearchResult Contact 20 Type: "Other"
+*r PhonebookSearchResult Contact 20 ContactMethod 1 ContactMethodId: "1"
+*r PhonebookSearchResult Contact 20 ContactMethod 1 Number: "SIP:+612011087503@example.com"
+*r PhonebookSearchResult Contact 20 ContactMethod 1 Protocol: SIP
+** end
