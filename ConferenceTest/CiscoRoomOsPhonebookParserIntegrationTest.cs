@@ -6,7 +6,7 @@ namespace AVCoders.Conference.Tests;
 
 public class CiscoRoomOsPhonebookParserIntegrationTest
 {
-    [Fact]
+    [Fact(Skip = "Only to run locally")]
     public async Task Recursive_FolderDiscovery_And_Pagination_Test()
     {
         // 1. Setup
