@@ -100,5 +100,11 @@ public class ExtronAnnotator401Test
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
     
-    
+    [Fact]
+    public void Reboot_SendsTheCommand()
+    {
+        _annotator.Reboot();
+        
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}1boot\r"));
+    }
 }

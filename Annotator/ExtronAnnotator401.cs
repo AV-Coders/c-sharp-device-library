@@ -127,4 +127,6 @@ public class ExtronAnnotator401 : AnnotatorBase
     {
         SendCommand(state == MuteState.On ? "0*2B" : "0*0B");
     }
+
+    public void Reboot() => WrapAndSendCommand("1boot");
 }
