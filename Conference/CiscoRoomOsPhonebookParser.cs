@@ -53,6 +53,8 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
     public override void RequestPhonebook()
     {
+        _currentInjestfolder = null;
+        PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", string.Empty, string.Empty, []);
         CommunicationClient.Send($"xCommand Phonebook Search PhonebookType: {_phonebookType} Offset:0 Limit: 300\n");
         AddEvent(EventType.DriverState, "Requesting Phonebook");
     }
@@ -70,6 +72,9 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
             }
 
             if (!response.Contains("*r PhonebookSearchResult"))
+                return;
+
+            if (response.Contains("(status=OK):"))
                 return;
 
             var responses = response.Split(' ', StringSplitOptions.RemoveEmptyEntries);
