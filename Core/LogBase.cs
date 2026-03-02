@@ -15,6 +15,7 @@ public abstract class LogBase
     public IReadOnlyList<Event> Events => _events;
     private string _name;
     public const string MethodProperty = "Method";
+    public const string TriggerProperty = "Trigger";
     public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
     public StringHandler? NameChangedHandlers;
