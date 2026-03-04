@@ -99,6 +99,21 @@ public class ExtronAnnotator401Test
         
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Theory]
+    [InlineData("Server/images", "W0*/shares/Server/images/test-")]
+    [InlineData("Server/images2", "W0*/shares/Server/images2/test-")]
+    [InlineData("Server/images2/", "W0*/shares/Server/images2/test-")]
+    [InlineData("/Server/images2/", "W0*/shares/Server/images2/test-")]
+    public void SaveToNetworkShare_SendTheCommand(string folderPath, string expectedPrefix)
+    {
+        _annotator.SaveToNetworkShare(folderPath);
+        
+        _mockClient.Verify(x => x.Send(It.Is<string>( s => 
+            s.StartsWith(expectedPrefix) &&
+            s.EndsWith(".pngMF|")
+            )));
+    }
     
     [Fact]
     public void Reboot_SendsTheCommand()
