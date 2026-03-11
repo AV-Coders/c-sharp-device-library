@@ -20,8 +20,8 @@ public class SonyVisca : CameraBase
     protected static readonly byte CommandFooter = 0xFF;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
 
-    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, byte cameraId = 0x01) 
-        : base(name, client)
+    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01)
+        : base(name, client, presetNames)
     {
         _useIpHeaders = useIpHeaders;
         SetCameraId(cameraId);
@@ -165,13 +165,15 @@ public class SonyVisca : CameraBase
     public override void DoRecallPreset(int presetNumber)
     {
         SendCommand([_header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter]);
-        AddEvent(EventType.Preset, $"Preset {presetNumber} recalled");
+        var presetName = PresetNames.TryGetValue(presetNumber, out var name) ? name : presetNumber.ToString();
+        AddEvent(EventType.Preset, $"Preset {presetName} recalled");
     }
 
     public override void SavePreset(int presetNumber)
     {
         SendCommand([_header, 0x01, 0x04, 0x3f, 0x01, (byte)presetNumber, CommandFooter]);
-        AddEvent(EventType.Preset, $"Preset {presetNumber} saved");
+        var presetName = PresetNames.TryGetValue(presetNumber, out var name) ? name : presetNumber.ToString();
+        AddEvent(EventType.Preset, $"Preset {presetName} saved");
     }
 
     private void HandleResponse(string response)

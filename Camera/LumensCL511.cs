@@ -12,7 +12,8 @@ public class LumensCL511 : CameraBase
     private readonly bool _autoTuneAfterZoom;
     private CancellationTokenSource? _autoTuneCts;
 
-    public LumensCL511(string name, CommunicationClient client, bool autoTuneAfterZoom) : base(name, client)
+    public LumensCL511(string name, CommunicationClient client, bool autoTuneAfterZoom, Dictionary<int, string> presetNames) 
+        : base(name, client, presetNames)
     {
         _autoTuneAfterZoom = autoTuneAfterZoom;
     }

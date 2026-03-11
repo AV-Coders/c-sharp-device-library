@@ -10,7 +10,8 @@ public class SonyViscaSerialTest
 
     public SonyViscaSerialTest()
     {
-        _viscaCamera = new SonyVisca(_mockClient.Object, false, "Test Cam");
+        _viscaCamera = new SonyVisca(_mockClient.Object, false, "Test Cam",
+            new Dictionary<int, string> () {{0, "Home"}, {1, "Lectern"}});
     }
 
     [Fact]
@@ -157,7 +158,8 @@ public class SonyViscaIpTest
 
     public SonyViscaIpTest()
     {
-        _viscaCamera = new SonyVisca(_mockClient.Object, true, "Test Camera");
+        _viscaCamera = new SonyVisca(_mockClient.Object, true, "Test Camera",
+            new Dictionary<int, string> () {{0, "Home"}, {1, "Lectern"}});
     }
 
     [Fact]

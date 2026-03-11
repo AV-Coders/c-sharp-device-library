@@ -2,11 +2,12 @@ using AVCoders.Core;
 
 namespace AVCoders.Camera;
 
-public abstract class CameraBase(string name, CommunicationClient client)
+public abstract class CameraBase(string name, CommunicationClient client, Dictionary<int, string> presetNames)
     : DeviceBase(name, client)
 {
     private int _lastRecalledPreset = 0;
     public IntHandler? LastRecalledPresetHandlers;
+    public Dictionary<int, string> PresetNames { get; } = presetNames;
 
     public int LastRecalledPreset
     {
