@@ -112,20 +112,20 @@ public class LumensLc300 : Recorder
                 return Task.CompletedTask;
             }
         
-            SendCommand(GetAction, "ST"u8.ToArray()); // Record Status
-            SendCommand(GetAction, "LO"u8.ToArray()); // Layout
+            SendCommand(GetAction, "ST"u8.ToArray(), []); // Record Status
+            SendCommand(GetAction, "LO"u8.ToArray(), []); // Layout
         
             return Task.CompletedTask;
         }
     }
 
-    private void SendCommand(byte action, byte[] command, byte? parameters = null)
+    private void 
+        SendCommand(byte action, byte[] command, List<byte> parameters)
     {
-        byte length =  (byte)(2 + command.Length + (parameters.HasValue ? 1 : 0));
+        byte length =  (byte)(2 + command.Length + parameters.Count);
         List<byte> bytes = [Header, ExtendedHeader, length, Address, action];
         bytes.AddRange(command);
-        if (parameters != null)
-            bytes.Add(parameters.Value);
+        parameters.ForEach(bytes.Add);
         bytes.Add(End);
         CommunicationClient.Send(bytes.ToArray());
     }
@@ -139,7 +139,7 @@ public class LumensLc300 : Recorder
     /// </remarks>
     public override void PowerOn()
     {
-        SendCommand(SetAction, "SR"u8.ToArray(), 0x32);
+        SendCommand(SetAction, "SR"u8.ToArray(), [0x32]);
         PowerState = PowerState.On;
     }
 
@@ -150,7 +150,7 @@ public class LumensLc300 : Recorder
     /// </summary>
     public override void PowerOff()
     {
-        SendCommand(SetAction, "SR"u8.ToArray(), 0x31);
+        SendCommand(SetAction, "SR"u8.ToArray(), [0x31]);
         PowerState = PowerState.Off;
     }
 
@@ -161,17 +161,17 @@ public class LumensLc300 : Recorder
 
     protected override void DoRecord()
     {
-        SendCommand(SetAction, "RC"u8.ToArray());
+        SendCommand(SetAction, "RC"u8.ToArray(), []);
     }
 
     protected override void DoPause()
     {
-        SendCommand(SetAction, "PS"u8.ToArray());
+        SendCommand(SetAction, "PS"u8.ToArray(), []);
     }
 
     protected override void DoStop()
     {
-        SendCommand(SetAction, "SP"u8.ToArray());
+        SendCommand(SetAction, "SP"u8.ToArray(), []);
     }
 
     public void SetLayout(uint layoutIndex)
@@ -184,7 +184,20 @@ public class LumensLc300 : Recorder
                 return;
             }
 
-            SendCommand(SetAction, "LO"u8.ToArray(), (byte)layoutIndex);
+            SendCommand(SetAction, "LO"u8.ToArray(), [(byte)layoutIndex]);
         }
+    }
+
+    public void SetVideoSourceId(int channel, byte index)
+    {
+        if (channel is < 0 or > 4)
+        {
+            Log.Error("Layout number {layoutNumber} is invalid.  It must be between 1 and 18", channel);
+            return;
+        }
+
+        byte channelbyte = (byte)channel.ToString()[0];
+        
+        SendCommand(SetAction, "CH"u8.ToArray(), [channelbyte, index]);
     }
 }

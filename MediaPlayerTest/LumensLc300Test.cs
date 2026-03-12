@@ -100,4 +100,14 @@ public class LumensLc300Test
         Assert.Equal(expectedState, _recorder.TransportState);
     }
     
+    [Theory]
+    [InlineData(1, 1, new byte[] { 0x55, 0xf0, 0x06, 0x01, 0x73, 0x43, 0x48, 0x31, 0x01, 0x0D })]
+    [InlineData(1, 2, new byte[] { 0x55, 0xf0, 0x06, 0x01, 0x73, 0x43, 0x48, 0x31, 0x02, 0x0D })]
+    public void SetVideoSourceId_SendsTheCommand(byte channel, byte index, byte[] expectedCommand)
+    {
+        _recorder.SetVideoSourceId(channel, index);
+        
+        _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);   
+    }
+    
 }
