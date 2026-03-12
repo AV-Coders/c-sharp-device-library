@@ -22,7 +22,7 @@ public class LumensCL511 : CameraBase
 
     public override void PowerOff() => CommunicationClient.Send([0xA0, 0xB1, 0x00, 0x00, 0x00, 0xAF]);
 
-    public override void ZoomStop()
+    protected override void DoZoomStop()
     {
         _autoTuneCts?.Cancel();
         CommunicationClient.Send([0xA0, 0x11, 0x00, 0x00, 0x00, 0xAF]);
@@ -55,7 +55,7 @@ public class LumensCL511 : CameraBase
         CommunicationClient.Send([0xA0, 0x11, 0x33, 0x00, 0x00, 0xAF]);
     }
 
-    public override void PanTiltStop() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
+    protected override void DoPanTiltStop() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
 
     public override void PanTiltUp() => AddEvent(EventType.Error, "This module doesn't support Pan / Tilt");
 

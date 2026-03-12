@@ -114,7 +114,9 @@ public class SonyVisca : CameraBase
         SendCommand([_header, 0x01, 0x04, 0x00, 0x02, CommandFooter]);
         DesiredPowerState = PowerState.On;
         AddEvent(EventType.Power, nameof(PowerState.On));
-    }public override void ZoomStop()
+    }
+    
+    protected override void DoZoomStop()
     {
         SendCommand([_header, 0x01, 0x04, 0x07, 0x00, CommandFooter]);
         Log.Verbose("Zoom Stop");
@@ -132,7 +134,7 @@ public class SonyVisca : CameraBase
         Log.Verbose("Zooming Out");
     }
 
-    public override void PanTiltStop()
+    protected override void DoPanTiltStop()
     {
         SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x03, CommandFooter]);
         Log.Verbose("PTZ Stop");

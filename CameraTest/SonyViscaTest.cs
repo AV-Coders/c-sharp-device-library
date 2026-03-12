@@ -149,6 +149,34 @@ public class SonyViscaSerialTest
         
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
+
+    [Fact]
+    public void PanTilt_ClearsPresets()
+    {
+        Mock<Action<int>> mockPresetRecalled = new Mock<Action<int>>();
+        Mock<Action> mockPresetCleared = new Mock<Action>();
+        _viscaCamera.OnPresetCleared += mockPresetCleared.Object;
+        _viscaCamera.OnPresetRecalled  += mockPresetRecalled.Object;
+        _viscaCamera.RecallPreset(0);
+        _viscaCamera.PanTiltStop();
+        
+        mockPresetCleared.Verify(x => x.Invoke(), Times.Once);
+        mockPresetRecalled.Verify(x => x.Invoke(It.IsAny<int>()), Times.Once);
+        Assert.Equal(-1, _viscaCamera.LastRecalledPreset);
+    }
+
+    [Fact]
+    public void PanTilt_ClearsPresetsOnceOnly()
+    {
+        Mock<Action> mockPresetCleared = new Mock<Action>();
+        _viscaCamera.OnPresetCleared += mockPresetCleared.Object;
+        _viscaCamera.RecallPreset(0);
+        
+        _viscaCamera.PanTiltStop();
+        _viscaCamera.PanTiltStop();
+        
+        mockPresetCleared.Verify(x => x.Invoke(), Times.Once);
+    }
 }
 
 public class SonyViscaIpTest
