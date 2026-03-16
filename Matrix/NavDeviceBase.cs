@@ -130,7 +130,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
     protected abstract void ProcessConcatenatedResponse(string response);
 
-    private string GetLetterForDeviceType()
+    public string GetLetterForDeviceType()
     {
         return DeviceType switch
         {

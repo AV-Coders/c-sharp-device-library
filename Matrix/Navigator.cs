@@ -50,6 +50,13 @@ public class Navigator : VideoMatrix
     public override void RouteAV(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}!\r");
     public override void RouteAudio(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}$\r");
     public override void RouteVideo(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}%\r");
+    
+    public void RouteUsb(NavDeviceBase host, NavDeviceBase device)
+    {
+        var inputString = $"{host.DeviceNumber}{host.GetLetterForDeviceType()}";
+        var outputString = $"{device.DeviceNumber}{device.GetLetterForDeviceType()}";
+        CommunicationClient.Send($"{EscapeHeader}{inputString}*{outputString}^\r");
+    }
 
     public void SendCommandToDevice(string deviceId, string command) => CommunicationClient.Send($"{{{deviceId}:{command}}}\r");
 
