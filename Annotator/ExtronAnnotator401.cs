@@ -78,13 +78,17 @@ public class ExtronAnnotator401 : AnnotatorBase
     public override void PowerOn()
     {
         SetAnnotationOutput(_annotationOutputs);
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
         SetCursorOutput(_cursorOutputs);
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
     }
 
     public override void PowerOff()
     {
         SetAnnotationOutput(Annotator401Outputs.None);
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
         SetCursorOutput(Annotator401Outputs.None);
+        Thread.Sleep(TimeSpan.FromMilliseconds(200));
     }
     
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
