@@ -46,8 +46,13 @@ public abstract class LogBase
 
     private void HandleErrorListChange()
     {
-        if(_errors.Count > 100)
-            _errors.RemoveRange(0, 75);
+        LimitErrors();
+    }
+
+    private void LimitErrors()
+    {
+        if (_errors.Count > 100)
+            _errors.RemoveRange(0, _errors.Count - 100);
     }
 
     public void AddLogProperty(string name, string value)
@@ -82,6 +87,7 @@ public abstract class LogBase
             _errors.Add(new Error(DateTime.Now, message ?? e.Message, e));
             if (e.InnerException != null)
                 _errors.Add(new Error(DateTime.Now, e.InnerException.Message, e.InnerException));
+            LimitErrors();
         }
     }
 
