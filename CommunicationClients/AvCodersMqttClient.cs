@@ -13,6 +13,7 @@ public class AvCodersMqttClient : MqttClient
     private readonly MqttClientOptions _mqttClientOptions;
     private readonly IMqttClient _mqttClient;
     private readonly Dictionary<string, List<Action<string>>> _handlers = new();
+    private readonly object _handlersLock = new();
 
     public AvCodersMqttClient(string host, ushort port, string username, string password, string name):
         base(host, port, name)
@@ -30,23 +31,29 @@ public class AvCodersMqttClient : MqttClient
     {
         string topic = arg.ApplicationMessage.Topic;
         var rawPayload = Encoding.UTF8.GetString(arg.ApplicationMessage.Payload);
-        if(_handlers.TryGetValue(topic, out var handlers))
-            foreach (var handler in handlers)
-                handler(rawPayload);
-        
+        lock (_handlersLock)
+        {
+            if(_handlers.TryGetValue(topic, out var handlers))
+                foreach (var handler in handlers)
+                    handler(rawPayload);
+        }
+
         InvokeResponseHandlers($"{topic} - {rawPayload}");
         return Task.CompletedTask;
     }
 
     public override void SubscribeToTopic(string topic, Action<string> handler)
     {
-        if (!_handlers.ContainsKey(topic))
+        lock (_handlersLock)
         {
-            _handlers.Add(topic, [handler]);
-            _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+            if (!_handlers.ContainsKey(topic))
+            {
+                _handlers.Add(topic, [handler]);
+                _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+            }
+            else
+                _handlers[topic].Add(handler);
         }
-        else
-            _handlers[topic].Add(handler);
     }
 
     private async Task HandleMqttDisconnection(MqttClientDisconnectedEventArgs arg)
@@ -64,7 +71,12 @@ public class AvCodersMqttClient : MqttClient
     private Task RegisterDevicesToMqttServer(MqttClientConnectedEventArgs arg)
     {
         ConnectionState = ConnectionState.Connected;
-        _handlers.Keys.ToList().ForEach(topic => _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce));
+        List<string> topics;
+        lock (_handlersLock)
+        {
+            topics = _handlers.Keys.ToList();
+        }
+        topics.ForEach(topic => _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce));
         return Task.CompletedTask;
     }
 
