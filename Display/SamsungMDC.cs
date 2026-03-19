@@ -121,6 +121,14 @@ public class SamsungMdc : Display
         using (PushProperties())
         {
             _gather.AddRange(response);
+
+            if (_gather.Count > 1024)
+            {
+                Log.Warning("Gather buffer exceeded 1024 bytes, clearing");
+                _gather.Clear();
+                return;
+            }
+
             while (_gather.Count > 0 && _gather[0] != 0xAA)
             {
                 _gather.RemoveAt(0);

@@ -1,4 +1,5 @@
 ﻿using AVCoders.Core;
+using Serilog;
 
 namespace AVCoders.Display;
 
@@ -80,6 +81,13 @@ public class NecUhdExternalControl : Display
         using (PushProperties())
         {
             _gather.AddRange(response);
+
+            if (_gather.Count > 1024)
+            {
+                Log.Warning("Gather buffer exceeded 1024 bytes, clearing");
+                _gather.Clear();
+                return;
+            }
 
             while (_gather.Contains(0x0D))
             {

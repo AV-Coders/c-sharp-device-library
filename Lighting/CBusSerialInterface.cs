@@ -49,6 +49,13 @@ public class CBusSerialInterface : LogBase
     {
         _gather.AddRange(response);
 
+        if (_gather.Count > 1024)
+        {
+            Log.Warning("Gather buffer exceeded 1024 bytes, clearing");
+            _gather.Clear();
+            return;
+        }
+
         while (_gather.Contains(0x0A))
         {
             int endIndex = _gather.IndexOf(0x0A) + 1;
