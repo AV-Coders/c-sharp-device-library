@@ -8,11 +8,15 @@ public class AvCodersRestClient : RestComms
 {
     private readonly Dictionary<string, string> _headers;
     private readonly Uri _uri;
-    
+    private readonly HttpClient _httpClient;
+
     public AvCodersRestClient(string host, ushort port, string protocol, string name = "") : base(host, port, name)
     {
         _headers = new Dictionary<string, string>();
         _uri = new Uri($"{protocol}://{host}:{port}", UriKind.Absolute);
+        var handler = new HttpClientHandler();
+        handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
+        _httpClient = new HttpClient(handler);
     }
 
     public override void Send(string message) => _ = Post(message, "application/json");
@@ -24,7 +28,7 @@ public class AvCodersRestClient : RestComms
     {
         _headers.Remove(key);
     }
-    
+
     private async Task HandleResponse(HttpResponseMessage response)
     {
         HttpResponseHandlers?.Invoke(response);
@@ -35,24 +39,26 @@ public class AvCodersRestClient : RestComms
         }
     }
 
+    private HttpRequestMessage CreateRequest(HttpMethod method, Uri uri)
+    {
+        var request = new HttpRequestMessage(method, uri);
+        foreach (var (key, value) in _headers)
+        {
+            request.Headers.TryAddWithoutValidation(key, value);
+        }
+        return request;
+    }
+
     public override async Task Post(string payload, string contentType) => await Post(null, payload, contentType);
-    
+
     public override async Task Post(Uri? endpoint, string payload, string contentType)
     {
         try
         {
-            using HttpClientHandler handler = new();
-            handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
-        
-            // Use HttpClient - HttpWebRequest seems to break after three requests.
-            HttpClient httpClient = new HttpClient(handler);
-            foreach (var (key, value) in _headers)
-            {
-                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
-            }
-            
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            HttpResponseMessage response = await httpClient.PostAsync(uri, new StringContent(payload, Encoding.Default, contentType));
+            using var request = CreateRequest(HttpMethod.Post, uri);
+            request.Content = new StringContent(payload, Encoding.Default, contentType);
+            HttpResponseMessage response = await _httpClient.SendAsync(request);
             RequestHandlers?.Invoke(payload);
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
@@ -70,17 +76,10 @@ public class AvCodersRestClient : RestComms
     {
         try
         {
-            using HttpClientHandler handler = new();
-            handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
-        
-            // Use HttpClient - HttpWebRequest seems to break after three requests.
-            HttpClient httpClient = new HttpClient(handler);
-            foreach (var (key, value) in _headers)
-            {
-                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
-            }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            HttpResponseMessage response = await httpClient.PutAsync(uri, new StringContent(content, Encoding.Default, contentType));
+            using var request = CreateRequest(HttpMethod.Put, uri);
+            request.Content = new StringContent(content, Encoding.Default, contentType);
+            HttpResponseMessage response = await _httpClient.SendAsync(request);
             RequestHandlers?.Invoke(content);
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
@@ -98,17 +97,9 @@ public class AvCodersRestClient : RestComms
     {
         try
         {
-            using HttpClientHandler handler = new();
-            handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
-            
-            // Use HttpClient - HttpWebRequest seems to break after three requests.
-            HttpClient httpClient = new HttpClient(handler);
-            foreach (var (key, value) in _headers)
-            {
-                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
-            }
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            HttpResponseMessage response = await httpClient.GetAsync(uri);
+            using var request = CreateRequest(HttpMethod.Get, uri);
+            HttpResponseMessage response = await _httpClient.SendAsync(request);
             RequestHandlers?.Invoke($"HTTP Get to {uri.AbsolutePath}");
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
@@ -120,6 +111,6 @@ public class AvCodersRestClient : RestComms
         }
 
     }
-    
+
     private bool ValidateCertificate(HttpRequestMessage arg1, X509Certificate2? arg2, X509Chain? arg3, SslPolicyErrors arg4) => true;
 }
