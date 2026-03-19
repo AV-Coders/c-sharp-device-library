@@ -25,11 +25,12 @@ public class LumensCL511 : CameraBase
     protected override void DoZoomStop()
     {
         _autoTuneCts?.Cancel();
+        _autoTuneCts?.Dispose();
         CommunicationClient.Send([0xA0, 0x11, 0x00, 0x00, 0x00, 0xAF]);
 
-        if (!_autoTuneAfterZoom) 
+        if (!_autoTuneAfterZoom)
             return;
-        
+
         _autoTuneCts = new CancellationTokenSource();
         var token = _autoTuneCts.Token;
         Task.Run(async () =>
@@ -46,12 +47,16 @@ public class LumensCL511 : CameraBase
     public override void ZoomIn()
     {
         _autoTuneCts?.Cancel();
+        _autoTuneCts?.Dispose();
+        _autoTuneCts = null;
         CommunicationClient.Send([0xA0, 0x11, 0x23, 0x00, 0x00, 0xAF]);
     }
 
     public override void ZoomOut()
     {
         _autoTuneCts?.Cancel();
+        _autoTuneCts?.Dispose();
+        _autoTuneCts = null;
         CommunicationClient.Send([0xA0, 0x11, 0x33, 0x00, 0x00, 0xAF]);
     }
 
