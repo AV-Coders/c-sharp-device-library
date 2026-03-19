@@ -326,7 +326,7 @@ public class CiscoRoomOs : Conference
       }
       else if (responses[3].Contains("(ghost=True)"))
       {
-        ActiveCalls[callId].Status = CallStatus.Idle;
+        ActiveCalls.Remove(callId);
         CallStatusFeedback();
       }
     }
@@ -342,6 +342,9 @@ public class CiscoRoomOs : Conference
         CallStatus.OnHold,
         CallStatus.Disconnecting
       };
+
+      var idleCalls = ActiveCalls.Where(x => x.Value.Status == CallStatus.Idle).Select(x => x.Key).ToList();
+      idleCalls.ForEach(x => ActiveCalls.Remove(x));
 
       CallStatus status = ActiveCalls.Values
         .Select(call => call.Status)

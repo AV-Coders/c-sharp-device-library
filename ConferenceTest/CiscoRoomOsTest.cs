@@ -375,9 +375,38 @@ public class CiscoRoomOsTest
         var mockHandler = new Mock<PowerStateHandler>();
         _codec.AutoAnswerStateHandlers += mockHandler.Object;
         _mockClient.Object.ResponseHandlers!.Invoke(response);
-        
+
         Assert.Equal(expectedState, _codec.AutoAnswerState);
         mockHandler.Verify(x => x.Invoke(expectedState));
     }
-    
+
+    [Fact]
+    public void ActiveCalls_IsEmpty_AfterManyCallsAreDisconnectedExternally()
+    {
+        for (int i = 1; i <= 50; i++)
+        {
+            new List<string>
+            {
+                $"*s Call {i} CallbackNumber: \"sip:user{i}@client.uri\"\n",
+                $"*s Call {i} DisplayName: \"User {i}\"",
+                $"*s Call {i} Status: Dialling\n",
+                $"*s Call {i} Status: Connected\n",
+            }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+        }
+
+        Assert.Equal(50, _codec.GetActiveCalls().Count);
+
+        for (int i = 1; i <= 50; i++)
+        {
+            new List<string>
+            {
+                $"*s Call {i} Status: Disconnecting\n",
+                $"*s Call {i} (ghost=True):\n",
+            }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+        }
+
+        Assert.Empty(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Idle, _codec.CallStatus);
+    }
+
 }
