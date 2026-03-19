@@ -107,9 +107,9 @@ public abstract class LogBase
 
     private void LimitEvents()
     {
-        if (_events.Count > 300)
+        if (_events.Count > 100)
         {
-            _events.RemoveRange(0, _events.Count - 300);
+            _events.RemoveRange(0, _events.Count - 100);
         }
     }
 }
