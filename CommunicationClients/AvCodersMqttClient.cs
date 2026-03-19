@@ -45,7 +45,8 @@ public class AvCodersMqttClient : MqttClient
             _handlers.Add(topic, [handler]);
             _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
         }
-        _handlers[topic].Add(handler);
+        else
+            _handlers[topic].Add(handler);
     }
 
     private async Task HandleMqttDisconnection(MqttClientDisconnectedEventArgs arg)
