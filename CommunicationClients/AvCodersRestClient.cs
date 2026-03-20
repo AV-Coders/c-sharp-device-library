@@ -10,13 +10,14 @@ public class AvCodersRestClient : RestComms
     private readonly Uri _uri;
     private readonly HttpClient _httpClient;
 
-    public AvCodersRestClient(string host, ushort port, string protocol, string name = "") : base(host, port, name)
+    public AvCodersRestClient(string host, ushort port, string protocol, string name = "", TimeSpan? requestTimeout = null) : base(host, port, name)
     {
         _headers = new Dictionary<string, string>();
         _uri = new Uri($"{protocol}://{host}:{port}", UriKind.Absolute);
         var handler = new HttpClientHandler();
         handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
         _httpClient = new HttpClient(handler);
+        _httpClient.Timeout = requestTimeout ?? TimeSpan.FromSeconds(10);
     }
 
     public override void Send(string message) => _ = Post(message, "application/json");
@@ -58,10 +59,15 @@ public class AvCodersRestClient : RestComms
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             using var request = CreateRequest(HttpMethod.Post, uri);
             request.Content = new StringContent(payload, Encoding.Default, contentType);
-            HttpResponseMessage response = await _httpClient.SendAsync(request);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request);
             RequestHandlers?.Invoke(payload);
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
+        }
+        catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
+        {
+            ConnectionState = ConnectionState.Error;
+            LogException(e, "POST request timed out");
         }
         catch (Exception e)
         {
@@ -79,10 +85,15 @@ public class AvCodersRestClient : RestComms
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             using var request = CreateRequest(HttpMethod.Put, uri);
             request.Content = new StringContent(content, Encoding.Default, contentType);
-            HttpResponseMessage response = await _httpClient.SendAsync(request);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request);
             RequestHandlers?.Invoke(content);
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
+        }
+        catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
+        {
+            ConnectionState = ConnectionState.Error;
+            LogException(e, "PUT request timed out");
         }
         catch (Exception e)
         {
@@ -99,17 +110,21 @@ public class AvCodersRestClient : RestComms
         {
             Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
             using var request = CreateRequest(HttpMethod.Get, uri);
-            HttpResponseMessage response = await _httpClient.SendAsync(request);
+            using HttpResponseMessage response = await _httpClient.SendAsync(request);
             RequestHandlers?.Invoke($"HTTP Get to {uri.AbsolutePath}");
             await HandleResponse(response);
             ConnectionState = ConnectionState.Connected;
+        }
+        catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
+        {
+            ConnectionState = ConnectionState.Error;
+            LogException(e, "GET request timed out");
         }
         catch (Exception e)
         {
             ConnectionState = ConnectionState.Error;
             LogException(e);
         }
-
     }
 
     private bool ValidateCertificate(HttpRequestMessage arg1, X509Certificate2? arg2, X509Chain? arg3, SslPolicyErrors arg4) => true;
