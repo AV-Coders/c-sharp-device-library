@@ -19,10 +19,12 @@ public abstract class LogBase
     public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
     public StringHandler? NameChangedHandlers;
-    private readonly List<Error> _errors = []; 
-    public ActionHandler ErrorsChangedHandlers;
+    private readonly List<Error> _errors = [];
     private readonly List<Event> _events = [];
+    private int _errorLimit = 10;
+    private int _eventLimit = 100;
     public event ActionHandler? EventsUpdated;
+    public event ActionHandler? ErrorsUpdated;
 
     public string Name
     {
@@ -41,18 +43,6 @@ public abstract class LogBase
     protected LogBase(string name)
     {
         _name = name;
-        ErrorsChangedHandlers += HandleErrorListChange;
-    }
-
-    private void HandleErrorListChange()
-    {
-        LimitErrors();
-    }
-
-    private void LimitErrors()
-    {
-        if (_errors.Count > 100)
-            _errors.RemoveRange(0, _errors.Count - 100);
     }
 
     public void AddLogProperty(string name, string value)
@@ -83,18 +73,25 @@ public abstract class LogBase
     {
         using (PushProperties())
         {
-            Log.Error(e, message ?? e.Message);
+            Log.Error(e, message == null ? e.Message : $"{message} - {e.Message}");
             _errors.Add(new Error(DateTime.Now, message ?? e.Message, e));
             if (e.InnerException != null)
-                _errors.Add(new Error(DateTime.Now, e.InnerException.Message, e.InnerException));
+                Log.Error(e.InnerException, e.InnerException.Message);
+
             LimitErrors();
+            ErrorsUpdated?.Invoke();
         }
     }
 
-    public void ClearEvents()
+    public void ClearErrors()
     {
-        _events.Clear();
-        EventsUpdated?.Invoke();
+        _errors.Clear();
+        ErrorsUpdated?.Invoke();
+    }
+    private void LimitErrors()
+    {
+        if (_errors.Count > _errorLimit)
+            _errors.RemoveRange(0, _errors.Count - _errorLimit);
     }
 
     protected void AddEvent(EventType type, string info)
@@ -104,12 +101,17 @@ public abstract class LogBase
         LimitEvents();
         EventsUpdated?.Invoke();
     }
+    
+    public void ClearEvents()
+    {
+        _events.Clear();
+        EventsUpdated?.Invoke();
+    }
 
     private void LimitEvents()
     {
-        if (_events.Count > 100)
-        {
-            _events.RemoveRange(0, _events.Count - 100);
-        }
+        if (_events.Count > _eventLimit)
+            _events.RemoveRange(0, _events.Count - _eventLimit);
+    }
     }
 }
