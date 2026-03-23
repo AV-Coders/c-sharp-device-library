@@ -113,5 +113,18 @@ public abstract class LogBase
         if (_events.Count > _eventLimit)
             _events.RemoveRange(0, _events.Count - _eventLimit);
     }
+
+    public void SetEventLimit(int limit)
+    {
+        _eventLimit = limit;
+        LimitEvents();
+        EventsUpdated?.Invoke();
+    }
+
+    public void SetErrorLimit(int limit)
+    {
+        _errorLimit = limit;
+        LimitErrors();
+        ErrorsUpdated?.Invoke();
     }
 }
