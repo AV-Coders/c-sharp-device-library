@@ -188,7 +188,7 @@ public class AvCodersTcpClient : Core_TcpClient
             var item = _sendQueue.Dequeue();
 
             // Drop stale items
-            if (Math.Abs((DateTime.Now - item.Timestamp).TotalSeconds) >= QueueTimeout)
+            if (Math.Abs((DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds) >= QueueTimeout)
                 continue;
 
             try
@@ -249,30 +249,30 @@ public class AvCodersTcpClient : Core_TcpClient
                 catch (IOException e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.UtcNow, bytes));
+                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
                     Reconnect();
                 }
                 catch (ObjectDisposedException e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.UtcNow, bytes));
+                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
                     Reconnect();
                 }
                 catch (SocketException e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.UtcNow, bytes));
+                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
                     Reconnect();
                 }
                 catch (Exception e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.UtcNow, bytes));
+                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
                     Reconnect();
                 }
             }
 
-            _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTime.UtcNow, bytes));
+            _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
         }
     }
 

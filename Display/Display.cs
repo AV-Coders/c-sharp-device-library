@@ -270,7 +270,7 @@ public abstract class Display : VolumeControl, IDevice
     protected void AddEvent(EventType type, string info)
     {
         Log.Verbose(info);
-        _events.Add(new Event(DateTimeOffset.Now, type, info, LogContext.Clone()));
+        _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));
         LimitEvents();
         EventsUpdated?.Invoke();
     }

@@ -1,3 +1,3 @@
 namespace AVCoders.Core;
 
-public record Error(DateTime Timestamp, string Message, Exception? Exception = null);
+public record Error(DateTimeOffset Timestamp, string Message, Exception? Exception = null);

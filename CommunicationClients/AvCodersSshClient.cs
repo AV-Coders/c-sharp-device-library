@@ -149,7 +149,7 @@ public class AvCodersSshClient : SshClientBase
             {
                 while (_sendQueue.TryDequeue(out var item))
                 {
-                    var age = (DateTime.Now - item.Timestamp).TotalSeconds;
+                    var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
                     if (age >= QueueTimeout)
                     {
                         Log.Warning(
@@ -217,14 +217,14 @@ public class AvCodersSshClient : SshClientBase
                 catch (ObjectDisposedException e)
                 {
                     Log.Debug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
-                    _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
+                    _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
                     ConnectionState = ConnectionState.Error;
                 }
             }
             else
             {
                 Log.Debug("Cannot send, not connected or stream unavailable. Queueing message.");
-                _sendQueue.Enqueue(new QueuedPayload<string>(DateTime.Now, message));
+                _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
                 ConnectionState = ConnectionState.Error;
             }
         }

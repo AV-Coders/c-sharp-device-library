@@ -74,7 +74,7 @@ public abstract class LogBase
         using (PushProperties())
         {
             Log.Error(e, message == null ? e.Message : $"{message} - {e.Message}");
-            _errors.Add(new Error(DateTime.Now, message ?? e.Message, e));
+            _errors.Add(new Error(DateTimeOffset.UtcNow, message ?? e.Message, e));
             if (e.InnerException != null)
                 Log.Error(e.InnerException, e.InnerException.Message);
 
@@ -97,7 +97,7 @@ public abstract class LogBase
     protected void AddEvent(EventType type, string info)
     {
         Log.Verbose(info);
-        _events.Add(new Event(DateTimeOffset.Now, type, info, LogContext.Clone()));
+        _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));
         LimitEvents();
         EventsUpdated?.Invoke();
     }
