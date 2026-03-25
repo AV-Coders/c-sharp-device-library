@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Collections.Concurrent;
+using System.Net;
 using Serilog;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
@@ -9,7 +10,7 @@ public class AvCodersUdpClient : Core_UdpClient
 {
     private UdpClient? _client;
     private IPEndPoint? _ipEndPoint;
-    private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
+    private readonly ConcurrentQueue<QueuedPayload<byte[]>> _sendQueue = new();
 
     public AvCodersUdpClient(string ipAddress, ushort port, string name, CommandStringFormat commandStringFormat) : 
         base(ipAddress, port, name, commandStringFormat)
@@ -86,9 +87,8 @@ public class AvCodersUdpClient : Core_UdpClient
         }
         else
         {
-            while (_sendQueue.Count > 0)
+            while (_sendQueue.TryDequeue(out var item))
             {
-                var item = _sendQueue.Dequeue();
                 if (Math.Abs((DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds) < QueueTimeout)
                     await _client.SendAsync(item.Payload, token);
             }

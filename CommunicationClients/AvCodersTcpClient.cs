@@ -1,4 +1,5 @@
-﻿using System.Net.Sockets;
+﻿using System.Collections.Concurrent;
+using System.Net.Sockets;
 using System.Text;
 using Serilog;
 using Serilog.Context;
@@ -12,7 +13,7 @@ public class AvCodersTcpClient : Core_TcpClient
     private readonly object _clientLock = new();
     private TcpClient? _client;
     private NetworkStream? _stream;
-    private readonly Queue<QueuedPayload<byte[]>> _sendQueue = new();
+    private readonly ConcurrentQueue<QueuedPayload<byte[]>> _sendQueue = new();
     private int _reconnectBackoffMs = 1000; // starts at 1 second
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
@@ -183,9 +184,8 @@ public class AvCodersTcpClient : Core_TcpClient
             return;
         }
 
-        while (_sendQueue.Count > 0)
+        while (_sendQueue.TryDequeue(out var item))
         {
-            var item = _sendQueue.Dequeue();
 
             // Drop stale items
             if (Math.Abs((DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds) >= QueueTimeout)
