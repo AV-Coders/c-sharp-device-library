@@ -12,7 +12,6 @@ public record Event(
 
 public abstract class LogBase
 {
-    public IReadOnlyList<Event> Events => _events;
     private string _name;
     public const string MethodProperty = "Method";
     public const string TriggerProperty = "Trigger";
@@ -21,10 +20,22 @@ public abstract class LogBase
     public StringHandler? NameChangedHandlers;
     private readonly List<Error> _errors = [];
     private readonly List<Event> _events = [];
+    private readonly object _eventsLock = new();
+    private readonly object _errorsLock = new();
     private int _errorLimit = 10;
     private int _eventLimit = 100;
     public event ActionHandler? EventsUpdated;
     public event ActionHandler? ErrorsUpdated;
+
+    public IReadOnlyList<Event> Events
+    {
+        get { lock (_eventsLock) return _events.ToList(); }
+    }
+
+    public IReadOnlyList<Error> Errors
+    {
+        get { lock (_errorsLock) return _errors.ToList(); }
+    }
 
     public string Name
     {
@@ -37,8 +48,6 @@ public abstract class LogBase
             NameChangedHandlers?.Invoke(value);
         }
     }
-    
-    public List<Error> Errors => _errors;
 
     protected LogBase(string name)
     {
@@ -74,20 +83,27 @@ public abstract class LogBase
         using (PushProperties())
         {
             Log.Error(e, message == null ? e.Message : $"{message} - {e.Message}");
-            _errors.Add(new Error(DateTimeOffset.UtcNow, message ?? e.Message, e));
             if (e.InnerException != null)
                 Log.Error(e.InnerException, e.InnerException.Message);
 
-            LimitErrors();
+            lock (_errorsLock)
+            {
+                _errors.Add(new Error(DateTimeOffset.UtcNow, message ?? e.Message, e));
+                LimitErrors();
+            }
             ErrorsUpdated?.Invoke();
         }
     }
 
     public void ClearErrors()
     {
-        _errors.Clear();
+        lock (_errorsLock)
+        {
+            _errors.Clear();
+        }
         ErrorsUpdated?.Invoke();
     }
+
     private void LimitErrors()
     {
         if (_errors.Count > _errorLimit)
@@ -97,14 +113,20 @@ public abstract class LogBase
     protected void AddEvent(EventType type, string info)
     {
         Log.Verbose(info);
-        _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));
-        LimitEvents();
+        lock (_eventsLock)
+        {
+            _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));
+            LimitEvents();
+        }
         EventsUpdated?.Invoke();
     }
-    
+
     public void ClearEvents()
     {
-        _events.Clear();
+        lock (_eventsLock)
+        {
+            _events.Clear();
+        }
         EventsUpdated?.Invoke();
     }
 
@@ -116,15 +138,21 @@ public abstract class LogBase
 
     public void SetEventLimit(int limit)
     {
-        _eventLimit = limit;
-        LimitEvents();
+        lock (_eventsLock)
+        {
+            _eventLimit = limit;
+            LimitEvents();
+        }
         EventsUpdated?.Invoke();
     }
 
     public void SetErrorLimit(int limit)
     {
-        _errorLimit = limit;
-        LimitErrors();
+        lock (_errorsLock)
+        {
+            _errorLimit = limit;
+            LimitErrors();
+        }
         ErrorsUpdated?.Invoke();
     }
 }

@@ -8,7 +8,11 @@ public delegate void InputHandler(Input input);
 
 public abstract class Display : VolumeControl, IDevice
 {
-    public IReadOnlyList<Event> Events => _events;
+    private readonly object _eventsLock = new();
+    public IReadOnlyList<Event> Events
+    {
+        get { lock (_eventsLock) return _events.ToList(); }
+    }
     public List<Input> SupportedInputs { get; }
     public readonly CommunicationClient CommunicationClient;
     public readonly CommandStringFormat CommandStringFormat;
@@ -263,15 +267,21 @@ public abstract class Display : VolumeControl, IDevice
 
     public void ClearEvents()
     {
-        _events.Clear();
+        lock (_eventsLock)
+        {
+            _events.Clear();
+        }
         EventsUpdated?.Invoke();
     }
 
     protected void AddEvent(EventType type, string info)
     {
         Log.Verbose(info);
-        _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));
-        LimitEvents();
+        lock (_eventsLock)
+        {
+            _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));
+            LimitEvents();
+        }
         EventsUpdated?.Invoke();
     }
 
