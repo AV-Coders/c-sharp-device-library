@@ -15,6 +15,8 @@ public class AvCodersRestClient : RestComms
         _headers = new Dictionary<string, string>();
         _uri = new Uri($"{protocol}://{host}:{port}", UriKind.Absolute);
         var handler = new HttpClientHandler();
+        handler.UseCookies = true;
+        handler.CookieContainer = new System.Net.CookieContainer();
         handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
         _httpClient = new HttpClient(handler);
         _httpClient.Timeout = requestTimeout ?? TimeSpan.FromSeconds(10);
