@@ -4,9 +4,10 @@ namespace AVCoders.MediaPlayer;
 
 public abstract class Recorder : MediaPlayer
 {
+    public event EventHandler<TransportState>? TransportStateChanging;
     public StringHandler? TimestampHandlers;
 
-    protected Recorder(string name, CommunicationClient comms) 
+    protected Recorder(string name, CommunicationClient comms)
         : base(name, comms)
     {
     }
@@ -29,6 +30,8 @@ public abstract class Recorder : MediaPlayer
 
     public void Record()
     {
+        if (TransportState != TransportState.Recording)
+            TransportStateChanging?.Invoke(this, TransportState.Recording);
         DesiredTransportState = TransportState.Recording;
         DoRecord();
     }
@@ -36,14 +39,22 @@ public abstract class Recorder : MediaPlayer
     public void Pause()
     {
         if (TransportState is TransportState.Recording or TransportState.PreparingToRecord)
+        {
+            TransportStateChanging?.Invoke(this, TransportState.RecordingPaused);
             DesiredTransportState = TransportState.RecordingPaused;
+        }
         if (DesiredTransportState is TransportState.Playing)
+        {
+            TransportStateChanging?.Invoke(this, TransportState.Paused);
             DesiredTransportState = TransportState.Paused;
+        }
         DoPause();
     }
 
     public void Stop()
     {
+        if (TransportState != TransportState.Stopped)
+            TransportStateChanging?.Invoke(this, TransportState.Stopped);
         DesiredTransportState = TransportState.Stopped;
         DoStop();
     }
