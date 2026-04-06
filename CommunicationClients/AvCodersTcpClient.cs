@@ -186,10 +186,16 @@ public class AvCodersTcpClient : Core_TcpClient
 
         while (_sendQueue.TryDequeue(out var item))
         {
-
             // Drop stale items
-            if (Math.Abs((DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds) >= QueueTimeout)
+            var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+            if (Math.Abs(age) >= QueueTimeout)
+            {
+                using (PushProperties("ProcessSendQueue"))
+                    Log.Warning(
+                        "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
+                        age, QueueTimeout);
                 continue;
+            }
 
             try
             {
@@ -249,31 +255,42 @@ public class AvCodersTcpClient : Core_TcpClient
                 catch (IOException e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
+                    EnqueueWithCap(bytes);
                     Reconnect();
                 }
                 catch (ObjectDisposedException e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
+                    EnqueueWithCap(bytes);
                     Reconnect();
                 }
                 catch (SocketException e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
+                    EnqueueWithCap(bytes);
                     Reconnect();
                 }
                 catch (Exception e)
                 {
                     LogException(e);
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
+                    EnqueueWithCap(bytes);
                     Reconnect();
                 }
             }
 
-            _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
+            EnqueueWithCap(bytes);
         }
+    }
+
+    private void EnqueueWithCap(byte[] bytes)
+    {
+        if (_sendQueue.Count >= MaxQueueSize)
+        {
+            _sendQueue.TryDequeue(out _);
+            using (PushProperties("EnqueueWithCap"))
+                Log.Warning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+        }
+        _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
     }
 
     public override void Connect()

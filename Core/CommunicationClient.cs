@@ -190,7 +190,8 @@ public abstract class RestComms(string host, ushort port, string name)
 public abstract class IpComms : CommunicationClient
 {
     protected int QueueTimeout = 5;
-    
+    protected int MaxQueueSize = 100;
+
     protected readonly ThreadWorker ReceiveThreadWorker;
     protected readonly ThreadWorker ConnectionStateWorker;
     protected readonly ThreadWorker SendQueueWorker;

@@ -225,14 +225,14 @@ public class AvCodersSshClient : SshClientBase
                 catch (ObjectDisposedException e)
                 {
                     Log.Debug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
-                    _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
+                    EnqueueWithCap(message);
                     ConnectionState = ConnectionState.Error;
                 }
             }
             else
             {
                 Log.Debug("Cannot send, not connected or stream unavailable. Queueing message.");
-                _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
+                EnqueueWithCap(message);
                 ConnectionState = ConnectionState.Error;
             }
         }
@@ -243,6 +243,17 @@ public class AvCodersSshClient : SshClientBase
         var message = System.Text.Encoding.UTF8.GetString(bytes);
         Send(message);
         InvokeRequestHandlers(bytes);
+    }
+
+    private void EnqueueWithCap(string message)
+    {
+        if (_sendQueue.Count >= MaxQueueSize)
+        {
+            _sendQueue.TryDequeue(out _);
+            using (PushProperties("EnqueueWithCap"))
+                Log.Warning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+        }
+        _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
     }
 
     public override void Connect() => ConnectionStateWorker.Restart();

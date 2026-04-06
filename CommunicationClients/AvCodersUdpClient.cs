@@ -89,8 +89,16 @@ public class AvCodersUdpClient : Core_UdpClient
         {
             while (_sendQueue.TryDequeue(out var item))
             {
-                if (Math.Abs((DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds) < QueueTimeout)
-                    await _client.SendAsync(item.Payload, token);
+                var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+                if (Math.Abs(age) >= QueueTimeout)
+                {
+                    using (PushProperties("ProcessSendQueue"))
+                        Log.Warning(
+                            "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
+                            age, QueueTimeout);
+                    continue;
+                }
+                await _client.SendAsync(item.Payload, token);
             }
             await Task.Delay(1100, token);
         }
@@ -140,7 +148,7 @@ public class AvCodersUdpClient : Core_UdpClient
             {
                 if (_client == null)
                 {
-                    _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
+                    EnqueueWithCap(bytes);
                     return;
                 }
 
@@ -152,6 +160,17 @@ public class AvCodersUdpClient : Core_UdpClient
                 LogException(e);
             }
         }
+    }
+
+    private void EnqueueWithCap(byte[] bytes)
+    {
+        if (_sendQueue.Count >= MaxQueueSize)
+        {
+            _sendQueue.TryDequeue(out _);
+            using (PushProperties("EnqueueWithCap"))
+                Log.Warning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+        }
+        _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
     }
 
     public override void Send(string message)
