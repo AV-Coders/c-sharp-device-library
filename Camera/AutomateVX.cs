@@ -230,51 +230,72 @@ public class AutomateVX : DeviceBase
 
     private void GetToken()
     {
-        Log.Information("Getting Token from 1Beyond");
-        _client.AddDefaultHeader("Authorization", _encodedUserAndPassword);
-        _client.Post(_tokenUri, "", "application/json");
+        using (PushProperties("GetToken"))
+        {
+            Log.Information("Getting Token from 1Beyond");
+            _client.AddDefaultHeader("Authorization", _encodedUserAndPassword);
+            _client.Post(_tokenUri, "", "application/json");
+        }
     }
 
     public void StartAutoSwitch()
     {
-        Log.Information("Starting auto switch");
-        _client.Post(_startAutoSwitchUri, "", "application/json");
-        _lastAction = StartAutoSwitch;
+        using (PushProperties("StartAutoSwitch"))
+        {
+            Log.Information("Starting auto switch");
+            _client.Post(_startAutoSwitchUri, "", "application/json");
+            _lastAction = StartAutoSwitch;
+        }
     }
-    
+
     public void StopAutoSwitch()
     {
-        Log.Information("Stopping auto switch");
-        _client.Post(_stopAutoSwitchUri, "", "application/json");
-        _lastAction = StopAutoSwitch;
+        using (PushProperties("StopAutoSwitch"))
+        {
+            Log.Information("Stopping auto switch");
+            _client.Post(_stopAutoSwitchUri, "", "application/json");
+            _lastAction = StopAutoSwitch;
+        }
     }
 
     private void GetLayouts()
     {
-        Log.Information("Getting Layouts");
-        _client.Post(_getLayoutsUri, "", "application/json");
-        _lastAction = GetLayouts;
+        using (PushProperties("GetLayouts"))
+        {
+            Log.Information("Getting Layouts");
+            _client.Post(_getLayoutsUri, "", "application/json");
+            _lastAction = GetLayouts;
+        }
     }
 
     public void SetLayout(int layoutId)
     {
-        Log.Information("Setting Layout to {layoutId}", _layouts[layoutId].Name);
-        _client.Post(_changeLayoutUri, $"{{\"id\": \"{_layouts[layoutId].Id}\"}}", "application/json");
-        _lastAction = () => SetLayout(layoutId);
+        using (PushProperties("SetLayout"))
+        {
+            Log.Information("Setting Layout to {layoutId}", _layouts[layoutId].Name);
+            _client.Post(_changeLayoutUri, $"{{\"id\": \"{_layouts[layoutId].Id}\"}}", "application/json");
+            _lastAction = () => SetLayout(layoutId);
+        }
     }
 
     private void GetScenarios()
     {
-        Log.Information("Getting Scenarios");
-        _client.Post(_getScenariosUri, "", "application/json");
-        _lastAction = GetLayouts;
+        using (PushProperties("GetScenarios"))
+        {
+            Log.Information("Getting Scenarios");
+            _client.Post(_getScenariosUri, "", "application/json");
+            _lastAction = GetLayouts;
+        }
     }
 
     public void SetScenario(int scenarioId)
     {
-        Log.Information("Setting Layout to {layoutId}", _scenarios[scenarioId].Name);
-        _client.Post(_goToScenarioUri, $"{{\"id\": \"{_scenarios[scenarioId].Id}\"}}", "application/json");
-        _lastAction = () => SetScenario(scenarioId);
+        using (PushProperties("SetScenario"))
+        {
+            Log.Information("Setting Layout to {layoutId}", _scenarios[scenarioId].Name);
+            _client.Post(_goToScenarioUri, $"{{\"id\": \"{_scenarios[scenarioId].Id}\"}}", "application/json");
+            _lastAction = () => SetScenario(scenarioId);
+        }
     }
 
     public override void PowerOn()

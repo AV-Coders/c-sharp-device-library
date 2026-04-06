@@ -74,27 +74,33 @@ public abstract class Conference : DeviceBase
 
     public override void PowerOn()
     {
-        DoPowerOn();
-        Log.Verbose("Turning On");
-        DesiredPowerState = PowerState.On;
-        PowerState = PowerState.On;
+        using (PushProperties("PowerOn"))
+        {
+            DoPowerOn();
+            Log.Verbose("Turning On");
+            DesiredPowerState = PowerState.On;
+            PowerState = PowerState.On;
+        }
     }
 
     protected abstract void DoPowerOn();
 
     public override void PowerOff()
     {
-        DoPowerOff();
-        Log.Verbose("Turning Off");
-        DesiredPowerState = PowerState.Off;
-        PowerState = PowerState.Off;
-        ActiveCalls.Keys.ToList().ForEach(x =>
+        using (PushProperties("PowerOff"))
         {
-            if (ActiveCalls[x].Status == CallStatus.Idle)
+            DoPowerOff();
+            Log.Verbose("Turning Off");
+            DesiredPowerState = PowerState.Off;
+            PowerState = PowerState.Off;
+            ActiveCalls.Keys.ToList().ForEach(x =>
             {
-                ActiveCalls.Remove(x);
-            }
-        });
+                if (ActiveCalls[x].Status == CallStatus.Idle)
+                {
+                    ActiveCalls.Remove(x);
+                }
+            });
+        }
     }
 
     public abstract void HangUp(Call? call);

@@ -74,38 +74,47 @@ public abstract class CommunicationClient(string name, string host, ushort port,
 
     protected void InvokeRequestHandlers(string request)
     {
-        try
+        using (PushProperties("InvokeRequestHandlers"))
         {
-            RequestHandlers?.Invoke(request);
-        }
-        catch (Exception e)
-        {
-            LogException(e, "A Request string handler threw an exception");
+            Log.Verbose("Sending: {Request}", request);
+            try
+            {
+                RequestHandlers?.Invoke(request);
+            }
+            catch (Exception e)
+            {
+                LogException(e, "A Request string handler threw an exception");
+            }
         }
     }
 
     protected void InvokeRequestHandlers(byte[] request)
     {
-        try
+        using (PushProperties("InvokeRequestHandlers"))
         {
-            RequestByteHandlers?.Invoke(request);
-        }
-        catch (Exception e)
-        {
-            LogException(e, "A Request byte handler threw an exception");
+            Log.Verbose("Sending bytes: {Request}", BitConverter.ToString(request));
+            try
+            {
+                RequestByteHandlers?.Invoke(request);
+            }
+            catch (Exception e)
+            {
+                LogException(e, "A Request byte handler threw an exception");
+            }
         }
     }
 
     protected void InvokeResponseHandlers(string response, byte[] responseBytes)
     {
-        try
+        using (PushProperties("InvokeResponseHandlers"))
         {
-            ResponseHandlers?.Invoke(response);
-            ResponseByteHandlers?.Invoke(responseBytes);
-        }
-        catch (Exception e)
-        {
-            using (PushProperties("InvokeResponseHandlers"))
+            Log.Verbose("Received: {Response}", response);
+            try
+            {
+                ResponseHandlers?.Invoke(response);
+                ResponseByteHandlers?.Invoke(responseBytes);
+            }
+            catch (Exception e)
             {
                 LogException(e, "A Response handler threw an exception");
             }
@@ -114,13 +123,17 @@ public abstract class CommunicationClient(string name, string host, ushort port,
 
     protected void InvokeResponseHandlers(string response)
     {
-        try
+        using (PushProperties("InvokeResponseHandlers"))
         {
-            ResponseHandlers?.Invoke(response);
-        }
-        catch (Exception e)
-        {
-            LogException(e, $"A Response handler threw an exception when given response:\n\t {response}");
+            Log.Verbose("Received: {Response}", response);
+            try
+            {
+                ResponseHandlers?.Invoke(response);
+            }
+            catch (Exception e)
+            {
+                LogException(e, $"A Response handler threw an exception when given response:\n\t {response}");
+            }
         }
     }
 }

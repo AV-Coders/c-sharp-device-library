@@ -62,22 +62,31 @@ public class ScreenTechnicsConnect : Motor
 
     public override void Raise()
     {
-        Send($"30 {_moduleId}\r");
-        CurrentMoveAction = RelayAction.Raise;
-        Log.Verbose("Screen technics will Raise");
+        using (PushProperties("Raise"))
+        {
+            Send($"30 {_moduleId}\r");
+            CurrentMoveAction = RelayAction.Raise;
+            Log.Verbose("Screen technics will Raise");
+        }
     }
 
     public override void Lower()
     {
-        Send($"33 {_moduleId}\r");
-        CurrentMoveAction = RelayAction.Lower;
-        Log.Verbose("Screen technics will Lower");
+        using (PushProperties("Lower"))
+        {
+            Send($"33 {_moduleId}\r");
+            CurrentMoveAction = RelayAction.Lower;
+            Log.Verbose("Screen technics will Lower");
+        }
     }
 
     public override void Stop()
     {
-        Send($"36 {_moduleId}\r");
-        CurrentMoveAction = RelayAction.None;
-        Log.Verbose("Screen technics will Stop");
+        using (PushProperties("Stop"))
+        {
+            Send($"36 {_moduleId}\r");
+            CurrentMoveAction = RelayAction.None;
+            Log.Verbose("Screen technics will Stop");
+        }
     }
 }

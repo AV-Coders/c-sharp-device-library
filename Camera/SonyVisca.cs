@@ -118,50 +118,74 @@ public class SonyVisca : CameraBase
     
     protected override void DoZoomStop()
     {
-        SendCommand([_header, 0x01, 0x04, 0x07, 0x00, CommandFooter]);
-        Log.Verbose("Zoom Stop");
+        using (PushProperties("DoZoomStop"))
+        {
+            SendCommand([_header, 0x01, 0x04, 0x07, 0x00, CommandFooter]);
+            Log.Verbose("Zoom Stop");
+        }
     }
 
     public override void ZoomIn()
     {
-        SendCommand([_header, 0x01, 0x04, 0x07, _zoomInSpeed, CommandFooter]);
-        Log.Verbose("Zooming In");
+        using (PushProperties("ZoomIn"))
+        {
+            SendCommand([_header, 0x01, 0x04, 0x07, _zoomInSpeed, CommandFooter]);
+            Log.Verbose("Zooming In");
+        }
     }
 
     public override void ZoomOut()
     {
-        SendCommand([_header, 0x01, 0x04, 0x07, _zoomOutSpeed, CommandFooter]);
-        Log.Verbose("Zooming Out");
+        using (PushProperties("ZoomOut"))
+        {
+            SendCommand([_header, 0x01, 0x04, 0x07, _zoomOutSpeed, CommandFooter]);
+            Log.Verbose("Zooming Out");
+        }
     }
 
     protected override void DoPanTiltStop()
     {
-        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x03, CommandFooter]);
-        Log.Verbose("PTZ Stop");
+        using (PushProperties("DoPanTiltStop"))
+        {
+            SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x03, CommandFooter]);
+            Log.Verbose("PTZ Stop");
+        }
     }
 
     public override void PanTiltUp()
     {
-        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x01, CommandFooter]);
-        Log.Verbose("PTZ Up");
+        using (PushProperties("PanTiltUp"))
+        {
+            SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x01, CommandFooter]);
+            Log.Verbose("PTZ Up");
+        }
     }
 
     public override void PanTiltDown()
     {
-        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x02, CommandFooter]);
-        Log.Verbose("PTZ Down");
+        using (PushProperties("PanTiltDown"))
+        {
+            SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x02, CommandFooter]);
+            Log.Verbose("PTZ Down");
+        }
     }
 
     public override void PanTiltLeft()
     {
-        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x01, 0x03, CommandFooter]);
-        Log.Verbose("PTZ Left");
+        using (PushProperties("PanTiltLeft"))
+        {
+            SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x01, 0x03, CommandFooter]);
+            Log.Verbose("PTZ Left");
+        }
     }
 
     public override void PanTiltRight()
     {
-        SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x02, 0x03, CommandFooter]);
-        Log.Verbose("PTZ Right");
+        using (PushProperties("PanTiltRight"))
+        {
+            SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x02, 0x03, CommandFooter]);
+            Log.Verbose("PTZ Right");
+        }
     }
 
     public override void DoRecallPreset(int presetNumber)

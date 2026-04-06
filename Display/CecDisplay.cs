@@ -208,7 +208,8 @@ public class CecDisplay : Display, ISetTopBox
 
     public void ToggleSubtitles()
     {
-        Log.Error("ToggleSubtitles is not supported");
+        using (PushProperties("ToggleSubtitles"))
+            Log.Error("ToggleSubtitles is not supported");
         AddEvent(EventType.Error, "ToggleSubtitles is not supported");
     }
 }

@@ -41,12 +41,14 @@ public class ExtronSw : VideoMatrix
 
     public override void RouteVideo(int input, int output)
     {
-        Log.Error("This device doesn't support video breakaway");
+        using (PushProperties("RouteVideo"))
+            Log.Error("This device doesn't support video breakaway");
     }
 
     public override void RouteAudio(int input, int output)
     {
-        Log.Error("This device doesn't support audio breakaway");
+        using (PushProperties("RouteAudio"))
+            Log.Error("This device doesn't support audio breakaway");
     }
 
     public override void RouteAV(int input, int output)
@@ -59,7 +61,8 @@ public class ExtronSw : VideoMatrix
         else
         {
             AddEvent(EventType.Input, $"Not switching to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
-            Log.Error("Not switching to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", input, _numberOfInputs);
+            using (PushProperties("RouteAV"))
+                Log.Error("Not switching to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", input, _numberOfInputs);
         }
     }
 

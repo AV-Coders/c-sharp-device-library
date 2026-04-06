@@ -192,7 +192,8 @@ public class LumensLc300 : Recorder
     {
         if (channel is < 0 or > 4)
         {
-            Log.Error("Layout number {layoutNumber} is invalid.  It must be between 1 and 18", channel);
+            using (PushProperties("SetVideoSourceId"))
+                Log.Error("Layout number {layoutNumber} is invalid.  It must be between 1 and 18", channel);
             return;
         }
 

@@ -19,7 +19,8 @@ public class Zigbee2MqttLight : Light
 
     private void HandleValueChange(string valueChange)
     {
-        var data = JsonSerializer.Deserialize<JsonElement>(valueChange);
+        using var document = JsonDocument.Parse(valueChange);
+        var data = document.RootElement;
         TryToGetBrightness(data);
         TryToGetPowerState(data);
     }

@@ -1,6 +1,7 @@
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Serilog;
 
 namespace AVCoders.CommunicationClients;
 
@@ -56,25 +57,29 @@ public class AvCodersRestClient : RestComms
 
     public override async Task Post(Uri? endpoint, string payload, string contentType)
     {
-        try
+        using (PushProperties("Post"))
         {
-            Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            using var request = CreateRequest(HttpMethod.Post, uri);
-            request.Content = new StringContent(payload, Encoding.Default, contentType);
-            using HttpResponseMessage response = await _httpClient.SendAsync(request);
-            RequestHandlers?.Invoke(payload);
-            await HandleResponse(response);
-            ConnectionState = ConnectionState.Connected;
-        }
-        catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
-        {
-            ConnectionState = ConnectionState.Error;
-            LogException(e, "POST request timed out");
-        }
-        catch (Exception e)
-        {
-            ConnectionState = ConnectionState.Error;
-            LogException(e);
+            try
+            {
+                Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
+                using var request = CreateRequest(HttpMethod.Post, uri);
+                request.Content = new StringContent(payload, Encoding.Default, contentType);
+                Log.Verbose("POST {Uri} - {Payload}", uri, payload);
+                using HttpResponseMessage response = await _httpClient.SendAsync(request);
+                RequestHandlers?.Invoke(payload);
+                await HandleResponse(response);
+                ConnectionState = ConnectionState.Connected;
+            }
+            catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
+            {
+                ConnectionState = ConnectionState.Error;
+                LogException(e, "POST request timed out");
+            }
+            catch (Exception e)
+            {
+                ConnectionState = ConnectionState.Error;
+                LogException(e);
+            }
         }
     }
 
@@ -82,25 +87,29 @@ public class AvCodersRestClient : RestComms
 
     public override async Task Put(Uri? endpoint, string content, string contentType)
     {
-        try
+        using (PushProperties("Put"))
         {
-            Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            using var request = CreateRequest(HttpMethod.Put, uri);
-            request.Content = new StringContent(content, Encoding.Default, contentType);
-            using HttpResponseMessage response = await _httpClient.SendAsync(request);
-            RequestHandlers?.Invoke(content);
-            await HandleResponse(response);
-            ConnectionState = ConnectionState.Connected;
-        }
-        catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
-        {
-            ConnectionState = ConnectionState.Error;
-            LogException(e, "PUT request timed out");
-        }
-        catch (Exception e)
-        {
-            ConnectionState = ConnectionState.Error;
-            LogException(e);
+            try
+            {
+                Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
+                using var request = CreateRequest(HttpMethod.Put, uri);
+                request.Content = new StringContent(content, Encoding.Default, contentType);
+                Log.Verbose("PUT {Uri} - {Payload}", uri, content);
+                using HttpResponseMessage response = await _httpClient.SendAsync(request);
+                RequestHandlers?.Invoke(content);
+                await HandleResponse(response);
+                ConnectionState = ConnectionState.Connected;
+            }
+            catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
+            {
+                ConnectionState = ConnectionState.Error;
+                LogException(e, "PUT request timed out");
+            }
+            catch (Exception e)
+            {
+                ConnectionState = ConnectionState.Error;
+                LogException(e);
+            }
         }
     }
 
@@ -108,24 +117,28 @@ public class AvCodersRestClient : RestComms
 
     public override async Task Get(Uri? endpoint)
     {
-        try
+        using (PushProperties("Get"))
         {
-            Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
-            using var request = CreateRequest(HttpMethod.Get, uri);
-            using HttpResponseMessage response = await _httpClient.SendAsync(request);
-            RequestHandlers?.Invoke($"HTTP Get to {uri.AbsolutePath}");
-            await HandleResponse(response);
-            ConnectionState = ConnectionState.Connected;
-        }
-        catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
-        {
-            ConnectionState = ConnectionState.Error;
-            LogException(e, "GET request timed out");
-        }
-        catch (Exception e)
-        {
-            ConnectionState = ConnectionState.Error;
-            LogException(e);
+            try
+            {
+                Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
+                using var request = CreateRequest(HttpMethod.Get, uri);
+                Log.Verbose("GET {Uri}", uri);
+                using HttpResponseMessage response = await _httpClient.SendAsync(request);
+                RequestHandlers?.Invoke($"HTTP Get to {uri.AbsolutePath}");
+                await HandleResponse(response);
+                ConnectionState = ConnectionState.Connected;
+            }
+            catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
+            {
+                ConnectionState = ConnectionState.Error;
+                LogException(e, "GET request timed out");
+            }
+            catch (Exception e)
+            {
+                ConnectionState = ConnectionState.Error;
+                LogException(e);
+            }
         }
     }
 

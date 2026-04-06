@@ -72,11 +72,11 @@ public class NovaStarH5 : Display
             RecallPreset((int)_powerOffPreset);
     }
 
-    protected override void DoSetInput(Input input) => Log.Error("NovaStarH5 does not support input select");
+    protected override void DoSetInput(Input input) { using (PushProperties("DoSetInput")) Log.Error("NovaStarH5 does not support input select"); }
 
-    protected override void DoSetVolume(int percentage) => Log.Error("NovaStarH5 does not support volume");
+    protected override void DoSetVolume(int percentage) { using (PushProperties("DoSetVolume")) Log.Error("NovaStarH5 does not support volume"); }
 
-    protected override void DoSetAudioMute(MuteState state) => Log.Error("NovaStarH5 does not support audio mute");
+    protected override void DoSetAudioMute(MuteState state) { using (PushProperties("DoSetAudioMute")) Log.Error("NovaStarH5 does not support audio mute"); }
     
     protected override void HandleConnectionState(ConnectionState connectionState) { }
 }

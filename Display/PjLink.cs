@@ -50,10 +50,11 @@ public class PjLink : Display
     {
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
-            Log.Warning("Not polling");
+            using (PushProperties("DoPoll"))
+                Log.Warning("Not polling");
             return Task.CompletedTask;
         }
-        
+
         PollProjector(_pollTask);
         
         _pollTask = _pollTask switch

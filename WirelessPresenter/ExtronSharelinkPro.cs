@@ -108,16 +108,19 @@ public class ExtronSharelinkPro : DeviceBase
 
     private void SendCommand(string command)
     {
-        try
+        using (PushProperties("SendCommand"))
         {
-            Log.Information("Sending {command}", command);
-            _client.Send(command);
-            CommunicationState = CommunicationState.Okay;
-        }
-        catch (Exception e)
-        {
-            LogException(e);
-            CommunicationState = CommunicationState.Error;
+            try
+            {
+                Log.Information("Sending {command}", command);
+                _client.Send(command);
+                CommunicationState = CommunicationState.Okay;
+            }
+            catch (Exception e)
+            {
+                LogException(e);
+                CommunicationState = CommunicationState.Error;
+            }
         }
     }
 

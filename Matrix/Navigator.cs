@@ -62,22 +62,25 @@ public class Navigator : VideoMatrix
 
     private void ForwardDeviceResponse(string response)
     {
-        var hostEndIndex = response.IndexOf('}');
-        if (hostEndIndex == -1)
+        using (PushProperties("ForwardDeviceResponse"))
         {
-            Log.Error("} was not found");
-            return;
+            var hostEndIndex = response.IndexOf('}');
+            if (hostEndIndex == -1)
+            {
+                Log.Error("} was not found");
+                return;
+            }
+            var respondant = response.Substring(0, hostEndIndex).Trim('{').Trim('}');
+            if (_callbacks.TryGetValue(respondant, out Action<string>? action))
+            {
+                action.Invoke(response.Substring(hostEndIndex + 1, response.Length - hostEndIndex - 1));
+            }
+            else
+                Log.Verbose("Navigator has returned a response for a device that's not registered to this module: {Respondant}", respondant);
+            _unansweredDeviceForwards++;
+            if (_unansweredDeviceForwards > 5)
+                CommunicationState = CommunicationState.Error;
         }
-        var respondant = response.Substring(0, hostEndIndex).Trim('{').Trim('}');
-        if (_callbacks.TryGetValue(respondant, out Action<string>? action))
-        {
-            action.Invoke(response.Substring(hostEndIndex + 1, response.Length - hostEndIndex - 1));
-        }
-        else
-            Log.Verbose("Navigator has returned a response for a device that's not registered to this module: {Respondant}", respondant);
-        _unansweredDeviceForwards++;
-        if (_unansweredDeviceForwards > 5)
-            CommunicationState = CommunicationState.Error;
     }
 
     public virtual void RegisterDevice(string deviceId, Action<string> responseHandler)

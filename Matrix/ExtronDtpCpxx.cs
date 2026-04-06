@@ -357,7 +357,8 @@ public class ExtronDtpCpxx : VideoMatrix
         else
         {
             AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
-            Log.Error("The sync timeout can't be longer than 502 seconds");
+            using (PushProperties("SetSyncTimeout"))
+                Log.Error("The sync timeout can't be longer than 502 seconds");
         }
     }
 }

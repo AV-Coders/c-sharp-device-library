@@ -62,10 +62,11 @@ public class SamsungMdc : Display
     {
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
-            Log.Warning("Not polling");
+            using (PushProperties("DoPoll"))
+                Log.Warning("Not polling");
             return Task.CompletedTask;
         }
-        
+
         CommunicationClient.Send(_pollPowerCommand);
         if (PowerState != PowerState.On) 
             return Task.CompletedTask;
