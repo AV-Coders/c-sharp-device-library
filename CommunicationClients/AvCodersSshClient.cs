@@ -141,29 +141,37 @@ public class AvCodersSshClient : SshClientBase
 
     protected override async Task ProcessSendQueue(CancellationToken token)
     {
-        if (!_client.IsConnected || _stream is not { CanWrite: true })
-            await Task.Delay(TimeSpan.FromSeconds(1), token);
-        else
+        try
         {
-            using (PushProperties("ProcessSendQueue"))
+            if (!_client.IsConnected || _stream is not { CanWrite: true })
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+            else
             {
-                while (_sendQueue.TryDequeue(out var item))
+                using (PushProperties("ProcessSendQueue"))
                 {
-                    var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
-                    if (age >= QueueTimeout)
+                    while (_sendQueue.TryDequeue(out var item))
                     {
-                        Log.Warning(
-                            "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
-                            age, QueueTimeout, item.Payload);
-                        continue;
+                        var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+                        if (age >= QueueTimeout)
+                        {
+                            Log.Warning(
+                                "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
+                                age, QueueTimeout, item.Payload);
+                            continue;
+                        }
+
+                        _stream.Write(item.Payload);
+                        InvokeRequestHandlers(item.Payload);
                     }
 
-                    _stream.Write(item.Payload);
-                    InvokeRequestHandlers(item.Payload);
+                    await Task.Delay(TimeSpan.FromMilliseconds(500), token);
                 }
-
-                await Task.Delay(TimeSpan.FromMilliseconds(500), token);
             }
+        }
+        catch (ObjectDisposedException)
+        {
+            Log.Warning("Client was disposed during send queue processing, waiting for reconnection");
+            await Task.Delay(TimeSpan.FromSeconds(3), token);
         }
     }
 
