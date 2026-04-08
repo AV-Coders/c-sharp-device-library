@@ -78,9 +78,6 @@ jobs:
   
     - name: Create Power Nuget Package
       run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/Power/Power.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
-  
-    - name: Create SignalR.Camera Nuget Package
-      run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/SignalR.Camera/SignalR.Camera.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
 
     - name: Create WirelessPresenter Nuget Package
       run: dotnet pack /home/runner/work/c-sharp-device-library/c-sharp-device-library/WirelessPresenter/WirelessPresenter.csproj --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.date.outputs.date }}.${{ github.run_number }} --configuration PackRelease
