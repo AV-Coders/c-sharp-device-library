@@ -187,7 +187,7 @@ public class CecDisplay : Display, ISetTopBox
         {
             if (UnsupportedButtons.Contains(button))
             {
-                Log.Error("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
+                Log.Warning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
                 AddEvent(EventType.Error, $"Unsupported button - {button.ToString()}");
                 return;
             }
@@ -209,7 +209,7 @@ public class CecDisplay : Display, ISetTopBox
     public void ToggleSubtitles()
     {
         using (PushProperties("ToggleSubtitles"))
-            Log.Error("ToggleSubtitles is not supported");
+            Log.Warning("ToggleSubtitles is not supported");
         AddEvent(EventType.Error, "ToggleSubtitles is not supported");
     }
 }

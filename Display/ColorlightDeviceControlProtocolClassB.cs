@@ -56,18 +56,18 @@ public class ColorlightDeviceControlProtocolClassB : Display
         CommunicationClient.Send([0x10, 0x10, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
     }
 
-    protected override void DoSetInput(Input input) { using (PushProperties("DoSetInput")) Log.Error("ColorlightDeviceControlProtocolClassB does not support input select"); }
+    protected override void DoSetInput(Input input) { using (PushProperties("DoSetInput")) Log.Warning("ColorlightDeviceControlProtocolClassB does not support input select"); }
 
-    protected override void DoSetVolume(int percentage) { using (PushProperties("DoSetVolume")) Log.Error("ColorlightDeviceControlProtocolClassB does not support volume"); }
+    protected override void DoSetVolume(int percentage) { using (PushProperties("DoSetVolume")) Log.Warning("ColorlightDeviceControlProtocolClassB does not support volume"); }
 
-    protected override void DoSetAudioMute(MuteState state) { using (PushProperties("DoSetAudioMute")) Log.Error("ColorlightDeviceControlProtocolClassB does not support audio mute"); }
+    protected override void DoSetAudioMute(MuteState state) { using (PushProperties("DoSetAudioMute")) Log.Warning("ColorlightDeviceControlProtocolClassB does not support audio mute"); }
 
     public void SetBrightness(uint percentage)
     {
         if (percentage > 100)
         {
             using (PushProperties("SetBrightness"))
-            Log.Error("The brightness can't go over 100%");
+            Log.Warning("The brightness can't go over 100%");
             AddEvent(EventType.Error, $"The brightness can't go over 100%, you've requested {percentage}");
             return;
         }

@@ -51,7 +51,7 @@ public class PjLink : Display
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
             using (PushProperties("DoPoll"))
-                Log.Warning("Not polling");
+                Log.Debug("Not polling");
             return Task.CompletedTask;
         }
 
@@ -195,7 +195,7 @@ public class PjLink : Display
         {
             if (!PowerStateDictionary.TryGetValue(desiredPowerState, out var value))
             {
-                Log.Error("Desired PowerState {DesiredPowerState} is not appropriate", desiredPowerState);
+                Log.Warning("Desired PowerState {DesiredPowerState} is not appropriate", desiredPowerState);
                 return;
             }
 
@@ -214,7 +214,7 @@ public class PjLink : Display
     {
         using (PushProperties())
         {
-            Log.Error("Volume control is not supported");   
+            Log.Warning("Volume control is not supported");
         }
     }
 

@@ -145,7 +145,7 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             if (DesiredPowerState == PowerState.Unknown)
                 return;
-            Log.Information("{Name} has the incorrect power state - Forcing Power", Name);
+            Log.Warning("{Name} has the incorrect power state - Forcing Power", Name);
             AddEvent(EventType.Power, $"The power state is incorrect, setting to desired power state {_desiredPowerState.ToString()}");
             if (DesiredPowerState == PowerState.Off)
                 PowerOff();
@@ -162,7 +162,7 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             if (DesiredInput == Input.Unknown)
                 return;
-            Log.Information("{Name} has the incorrect input - Forcing Input", Name);
+            Log.Warning("{Name} has the incorrect input - Forcing Input", Name);
             AddEvent(EventType.Input, $"The input is incorrect, setting to desired input {_desiredInput.ToString()}");
             SetInput(DesiredInput);
         }
@@ -198,29 +198,35 @@ public abstract class Display : VolumeControl, IDevice
 
     public void SetInput(Input input)
     {
-        if (!SupportedInputs.Contains(input))
+        using (PushProperties("SetInput"))
         {
-            Log.Error("Requested Input {Input} is not available", input);
-            AddEvent(EventType.Error, $"Requested Input {input.ToString()} is not available");
-            return;
+            if (!SupportedInputs.Contains(input))
+            {
+                Log.Warning("Requested Input {Input} is not available", input);
+                AddEvent(EventType.Error, $"Requested Input {input.ToString()} is not available");
+                return;
+            }
+            DoSetInput(input);
+            DesiredInput = input;
+            Input = input;
         }
-        DoSetInput(input);
-        DesiredInput = input;
-        Input = input;
     }
 
     protected abstract void DoSetInput(Input input);
 
     public void SetVolume(int volume)
     {
-        if (volume is > 100 or < 0)
+        using (PushProperties("SetVolume"))
         {
-            Log.Error("Volume needs to be a value between 0 and 100, it's {Volume}", volume);
-            AddEvent(EventType.Error, $"Volume needs to be a value between 0 and 100, it's {volume}");
-            return;
+            if (volume is > 100 or < 0)
+            {
+                Log.Warning("Volume needs to be a value between 0 and 100, it's {Volume}", volume);
+                AddEvent(EventType.Error, $"Volume needs to be a value between 0 and 100, it's {volume}");
+                return;
+            }
+            DoSetVolume(volume);
+            Volume = volume;
         }
-        DoSetVolume(volume);
-        Volume = volume;
     }
 
     protected abstract void DoSetVolume(int percentage);
@@ -276,7 +282,8 @@ public abstract class Display : VolumeControl, IDevice
 
     protected void AddEvent(EventType type, string info)
     {
-        Log.Verbose(info);
+        using (PushProperties("AddEvent"))
+            Log.Verbose(info);
         lock (_eventsLock)
         {
             _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));

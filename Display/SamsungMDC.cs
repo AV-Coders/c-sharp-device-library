@@ -63,7 +63,7 @@ public class SamsungMdc : Display
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
             using (PushProperties("DoPoll"))
-                Log.Warning("Not polling");
+                Log.Debug("Not polling");
             return Task.CompletedTask;
         }
 
@@ -151,14 +151,14 @@ public class SamsungMdc : Display
         {
             if (response[0] != 0xAA && response[1] != 0xFF)
             {
-                Log.Debug("The response does not have the correct header");
+                Log.Warning("The response does not have the correct header");
                 AddEvent(EventType.Error, "The response does not have the correct header");
                 return;
             }
 
             if (response[4] == 0x4E)
             {
-                Log.Debug("NAK Received");
+                Log.Warning("NAK Received");
                 CommunicationState = CommunicationState.Error;
                 return;
             }
