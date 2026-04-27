@@ -67,7 +67,7 @@ public class Navigator : VideoMatrix
             var hostEndIndex = response.IndexOf('}');
             if (hostEndIndex == -1)
             {
-                Log.Error("} was not found");
+                Log.Warning("} was not found");
                 return;
             }
             var respondant = response.Substring(0, hostEndIndex).Trim('{').Trim('}');

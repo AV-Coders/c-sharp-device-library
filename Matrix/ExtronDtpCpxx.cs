@@ -93,7 +93,7 @@ public class ExtronDtpCpxx : VideoMatrix
                         break;
                 }
 
-                Log.Information("Setting output {outputNumber} B as {status}", inputNumber,
+                Log.Verbose("Setting input {inputNumber} as {status}", inputNumber,
                     connectionStatus.ToString());
                 Inputs[inputNumber - 1].SetInputStatus(connectionStatus);
                 Inputs[inputNumber - 1].SetInputHdcpStatus(hdcpStatus);
@@ -129,14 +129,14 @@ public class ExtronDtpCpxx : VideoMatrix
 
                 if (parts[0].Contains('B'))
                 {
-                    Log.Information("Setting output {outputNumber} B as {status}", outputNumber,
+                    Log.Verbose("Setting output {outputNumber} B as {status}", outputNumber,
                         connectionStatus.ToString());
                     ComposedOutputs[outputNumber - 1].Secondary.SetOutputStatus(connectionStatus);
                     ComposedOutputs[outputNumber - 1].Secondary.SetOutputHdcpStatus(hdcpStatus);
                 }
                 else
                 {
-                    Log.Information("Setting output {outputNumber} A as {status}", outputNumber,
+                    Log.Verbose("Setting output {outputNumber} A as {status}", outputNumber,
                         connectionStatus.ToString());
                     ComposedOutputs[outputNumber - 1].Primary.SetOutputStatus(connectionStatus);
                     ComposedOutputs[outputNumber - 1].Primary.SetOutputHdcpStatus(hdcpStatus);
@@ -358,7 +358,7 @@ public class ExtronDtpCpxx : VideoMatrix
         {
             AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
             using (PushProperties("SetSyncTimeout"))
-                Log.Error("The sync timeout can't be longer than 502 seconds");
+                Log.Warning("The sync timeout can't be longer than 502 seconds");
         }
     }
 }

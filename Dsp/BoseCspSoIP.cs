@@ -232,7 +232,8 @@ public class BoseCspSoIP : Dsp
 
     public override Task Reinitialise(CancellationToken token = default)
     {
-        Log.Verbose("This module doesn't pull data from the DSP");
+        using (PushProperties("Reinitialise"))
+            Log.Verbose("This module doesn't pull data from the DSP");
         return Task.CompletedTask;
     }
 }

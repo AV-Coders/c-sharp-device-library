@@ -73,7 +73,7 @@ public class ExtronIn16Xx : VideoMatrix
         {
             AddEvent(EventType.Error, $"Not switching output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
             using (PushProperties("RouteAV"))
-                Log.Error("Not switching output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+                Log.Warning("Not switching output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
         }
 
     }
@@ -102,7 +102,7 @@ public class ExtronIn16Xx : VideoMatrix
         {
             AddEvent(EventType.Error, $"Not switching video output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
             using (PushProperties("RouteVideo"))
-                Log.Error("Not switching video output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+                Log.Warning("Not switching video output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
         }
     }
 
@@ -119,7 +119,7 @@ public class ExtronIn16Xx : VideoMatrix
         {
             AddEvent(EventType.Error, $"Not switching audio output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
             using (PushProperties("RouteAudio"))
-                Log.Error("Not switching audio output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+                Log.Warning("Not switching audio output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
         }
     }
 
@@ -134,7 +134,7 @@ public class ExtronIn16Xx : VideoMatrix
         {
             AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
             using (PushProperties("SetSyncTimeout"))
-                Log.Error("The sync timeout can't be longer than 502 seconds");
+                Log.Warning("The sync timeout can't be longer than 502 seconds");
         }
     }
 
