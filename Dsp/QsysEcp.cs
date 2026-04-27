@@ -374,7 +374,11 @@ public class QsysEcp : Dsp
         return _strings[intName].Value;
     }
 
-    public override void Reinitialise() => GetAllControlStates();
+    public override Task Reinitialise(CancellationToken token = default)
+    {
+        GetAllControlStates();
+        return Task.CompletedTask;
+    }
 
     [Obsolete("This method is deprecated in favor of TriggerPreset")]
     public void RecallPreset(string controlName) =>CommunicationClient.Send($"csv \"{controlName}\" 1 \n");

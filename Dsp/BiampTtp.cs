@@ -77,10 +77,11 @@ public class BiampTtp : Dsp
     private readonly ConcurrentQueue<Query> _pendingQueries = new();
     private Query? _currentQuery = null;
     private readonly List<string> _deviceSubscriptions = [];
+    private readonly object _deviceSubscriptionsLock = new ();
     private int _loopsSinceLastInitialise = 0;
     private bool _lastRequestWasForTheVersion;
     private bool _clientHasReconnectedSinceLastPollLoop;
-    private bool _initialising;
+    private int _initialising;
 
     public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200) : base(name, commsClient, pollIntervalInMilliseconds)
     {
@@ -135,14 +136,14 @@ public class BiampTtp : Dsp
             if (_clientHasReconnectedSinceLastPollLoop)
             {
                 Log.Verbose("Connection state changed, getting the version");
-                Reinitialise();
                 _clientHasReconnectedSinceLastPollLoop = false;
+                await Reinitialise(token);
                 return;
             }
 
             if (_currentQuery != null)
             {
-                Log.Error("The query {query} was not answered, momentarily slowing down", _currentQuery.DspCommand);
+                Log.Warning("The query {query} was not answered, momentarily slowing down", _currentQuery.DspCommand);
                 _pendingQueries.Enqueue(_currentQuery);
                 await Task.Delay(TimeSpan.FromSeconds(1), token);
                 _currentQuery = null;
@@ -163,33 +164,38 @@ public class BiampTtp : Dsp
                 _loopsSinceLastInitialise++;
                 if (_loopsSinceLastInitialise > 18)
                 {
-                    Reinitialise();
+                    await Reinitialise(token);
                 }
             }
         }
     }
     
-    public override void Reinitialise()
+    public override async Task Reinitialise(CancellationToken token = default)
     {
         using (PushProperties("Reinitialise"))
         {
-
-            if (_initialising)
+            if (Interlocked.CompareExchange(ref _initialising, 1, 0) != 0)
                 return;
             try
             {
-                _initialising = true;
                 AddEvent(EventType.Other, "Reinitialising");
-                foreach (var subscriptionCommand in _deviceSubscriptions)
+
+                List<string> subscriptions;
+                lock (_deviceSubscriptionsLock)
+                    subscriptions = _deviceSubscriptions.ToList();
+
+                foreach (var subscriptionCommand in subscriptions)
                 {
                     CommunicationClient.Send(subscriptionCommand);
-                    Task.Delay(TimeSpan.FromMilliseconds(100)).Wait();
+                    await Task.Delay(TimeSpan.FromMilliseconds(100), token);
                 }
 
-                Task.Delay(TimeSpan.FromSeconds(4)).Wait();
+                await Task.Delay(TimeSpan.FromSeconds(4), token);
 
                 lock (_moduleQueriesLock)
                 {
+                    while (_pendingQueries.TryDequeue(out _)) { }
+                    _currentQuery = null;
                     foreach (var query in _moduleQueries)
                     {
                         _pendingQueries.Enqueue(query);
@@ -198,6 +204,7 @@ public class BiampTtp : Dsp
 
                 _loopsSinceLastInitialise = 0;
             }
+            catch (OperationCanceledException) { }
             catch (Exception e)
             {
                 LogException(e);
@@ -205,10 +212,9 @@ public class BiampTtp : Dsp
             }
             finally
             {
-                _initialising = false;
+                Interlocked.Exchange(ref _initialising, 0);
             }
         }
-
     }
 
     private async Task GetTheVersion(CancellationToken token)
@@ -315,100 +321,121 @@ public class BiampTtp : Dsp
 
     public void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex)
     {
-        string arrayIndex = $"AvCodersLevel-{controlName}-{controlIndex}";
-        if (_gains.TryGetValue(arrayIndex, out var gain))
+        using (PushProperties("AddControl"))
         {
-            gain.VolumeLevelHandlers += volumeLevelHandler;
-            volumeLevelHandler.Invoke(gain.Volume);
-            Log.Verbose("Adding a handler to the existing gain {gainName}", gain.ControlName);
-        }
-        else
-        {
-            _gains.Add(arrayIndex, new BiampGain(volumeLevelHandler, controlName, controlIndex));
-            lock (_moduleQueriesLock)
+            string arrayIndex = $"AvCodersLevel-{controlName}-{controlIndex}";
+            if (_gains.TryGetValue(arrayIndex, out var gain))
             {
-                _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
-                _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
-                _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+                gain.VolumeLevelHandlers += volumeLevelHandler;
+                volumeLevelHandler.Invoke(gain.Volume);
+                Log.Verbose("Adding a handler to the existing gain {gainName}", gain.ControlName);
             }
+            else
+            {
+                _gains.Add(arrayIndex, new BiampGain(volumeLevelHandler, controlName, controlIndex));
+                lock (_moduleQueriesLock)
+                {
+                    _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
+                    _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
+                    _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+                }
 
-            _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
-            _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
-            _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
+                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
+                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
 
-            CommunicationClient.Send($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
-            _deviceSubscriptions.Add($"{controlName} subscribe level {controlIndex} {arrayIndex}\n");
-            Log.Verbose("Created a new gain {gainName}", controlName);
+                var levelSubscription = $"{controlName} subscribe level {controlIndex} {arrayIndex}\n";
+                CommunicationClient.Send(levelSubscription);
+                lock (_deviceSubscriptionsLock)
+                    _deviceSubscriptions.Add(levelSubscription);
+                Log.Verbose("Created a new gain {gainName}", controlName);
+            }
         }
     }
 
     public override void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName)
     {
-        Log.Verbose("The array index was not specified for {controlName} level/gain, using the default of 1.", controlName);
+        using (PushProperties("AddControl"))
+            Log.Verbose("The array index was not specified for {controlName} level/gain, using the default of 1.", controlName);
         AddControl(volumeLevelHandler, controlName, 1);
     }
 
     public void AddControl(MuteStateHandler muteStateHandler, string muteName, int controlIndex)
     {
-        string arrayIndex = $"AvCodersMute-{muteName}-{controlIndex}";
-        if (_mutes.TryGetValue(arrayIndex, out var mute))
+        using (PushProperties("AddControl"))
         {
-            mute.MuteStateHandlers += muteStateHandler;
-            muteStateHandler.Invoke(mute.MuteState);
-            Log.Verbose("Adding a handler to the existing mute {muteName}", mute.ControlName);
-        }
-        else
-        {
-            _mutes.Add(arrayIndex, new BiampMute(muteStateHandler, muteName, controlIndex));
+            string arrayIndex = $"AvCodersMute-{muteName}-{controlIndex}";
+            if (_mutes.TryGetValue(arrayIndex, out var mute))
+            {
+                mute.MuteStateHandlers += muteStateHandler;
+                muteStateHandler.Invoke(mute.MuteState);
+                Log.Verbose("Adding a handler to the existing mute {muteName}", mute.ControlName);
+            }
+            else
+            {
+                _mutes.Add(arrayIndex, new BiampMute(muteStateHandler, muteName, controlIndex));
 
-            CommunicationClient.Send($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
-            _deviceSubscriptions.Add($"{muteName} subscribe mute {controlIndex} {arrayIndex}\n");
-            Log.Verbose("Created a new mute {muteName}", muteName);
+                var muteSubscription = $"{muteName} subscribe mute {controlIndex} {arrayIndex}\n";
+                CommunicationClient.Send(muteSubscription);
+                lock (_deviceSubscriptionsLock)
+                    _deviceSubscriptions.Add(muteSubscription);
+                Log.Verbose("Created a new mute {muteName}", muteName);
+            }
         }
     }
 
     public override void AddControl(MuteStateHandler muteStateHandler, string muteName)
     {
-        Log.Verbose("The array index was not specified for {controlName} mute, using the default of 1.", muteName);       
+        using (PushProperties("AddControl"))
+            Log.Verbose("The array index was not specified for {controlName} mute, using the default of 1.", muteName);
         AddControl(muteStateHandler, muteName, 1);
     }
 
     public override void AddControl(StringValueHandler stringValueHandler, string controlName)
     {
-        if (_strings.TryGetValue(controlName, out var s))
+        using (PushProperties("AddControl"))
         {
-            s.StringValueHandlers += stringValueHandler;
-            Log.Verbose("Adding a handler to the existing string/value {controlName}", controlName);
-        }
-        else
-        {
-            _strings.Add(controlName, new BiampInt(stringValueHandler));
-            Log.Verbose("Created a new string/value handler {controlName}", controlName);
+            if (_strings.TryGetValue(controlName, out var s))
+            {
+                s.StringValueHandlers += stringValueHandler;
+                Log.Verbose("Adding a handler to the existing string/value {controlName}", controlName);
+            }
+            else
+            {
+                _strings.Add(controlName, new BiampInt(stringValueHandler));
+                Log.Verbose("Created a new string/value handler {controlName}", controlName);
+            }
         }
     }
 
     public void RecallPreset(int presetNumber)
     {
-        // DEVICE recallPreset 1001
-        // Value must be between 1001 and 9999.
-        if (presetNumber is > 1000 and < 10000)
+        using (PushProperties("RecallPreset"))
         {
-            CommunicationClient.Send($"DEVICE recallPreset {presetNumber}\n");
-            Log.Verbose("Recalled preset {presetNumber}", presetNumber);
-        }
-        else
-        {
-            Log.Error("{presetNumber} is out of range", presetNumber);
+            // DEVICE recallPreset 1001
+            // Value must be between 1001 and 9999.
+            if (presetNumber is > 1000 and < 10000)
+            {
+                CommunicationClient.Send($"DEVICE recallPreset {presetNumber}\n");
+                Log.Verbose("Recalled preset {presetNumber}", presetNumber);
+            }
+            else
+            {
+                Log.Warning("{presetNumber} is out of range", presetNumber);
+            }
         }
     }
 
     public void RecallPreset(string presetName)
     {
-        // DEVICE recallPresetByName "EWIS_On"
-        if (presetName.Length > 0)
+        using (PushProperties("RecallPreset"))
         {
-            SendNonPollCommand($"DEVICE recallPresetByName \"{presetName}\"\n");
-            Log.Verbose("Recalled preset \"{presetName}\"", presetName);
+            // DEVICE recallPresetByName "EWIS_On"
+            if (presetName.Length > 0)
+            {
+                SendNonPollCommand($"DEVICE recallPresetByName \"{presetName}\"\n");
+                Log.Verbose("Recalled preset \"{presetName}\"", presetName);
+            }
         }
     }
 

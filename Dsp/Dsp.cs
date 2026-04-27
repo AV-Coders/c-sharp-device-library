@@ -36,7 +36,7 @@ public abstract class Dsp : DeviceBase
     public abstract MuteState GetAudioMute(string controlName);
     public abstract string GetValue(string controlName);
 
-    public abstract void Reinitialise();
+    public abstract Task Reinitialise(CancellationToken token = default);
 }
 
 public abstract class AudioBlock
