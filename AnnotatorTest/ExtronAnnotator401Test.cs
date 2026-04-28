@@ -122,4 +122,12 @@ public class ExtronAnnotator401Test
         
         _mockClient.Verify(x => x.Send($"{EscapeHeader}1boot\r"));
     }
+
+    [Fact]
+    public void Save_SendsTheCommand()
+    {
+        _annotator.Save();
+        
+        _mockClient.Verify(x => x.Send("W9MF|"));
+    }
 }

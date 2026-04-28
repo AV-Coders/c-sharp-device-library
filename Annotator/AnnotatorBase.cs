@@ -14,5 +14,7 @@ public abstract class AnnotatorBase(string name, CommunicationClient client)
     public abstract void SaveToUsb();
 
     public abstract void SaveToNetworkShare(string folderPath);
+
+    public abstract void Save();
     public abstract void SetVideoMute(MuteState state);
 }
