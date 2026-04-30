@@ -127,7 +127,70 @@ public class ExtronAnnotator401Test
     public void Save_SendsTheCommand()
     {
         _annotator.Save();
-        
+
         _mockClient.Verify(x => x.Send("W9MF|"));
+    }
+
+    [Theory]
+    [InlineData(DrawingTool.Eraser, $"{EscapeHeader}0DRAW\r")]
+    [InlineData(DrawingTool.Pointer, $"{EscapeHeader}1DRAW\r")]
+    [InlineData(DrawingTool.Freehand, $"{EscapeHeader}2DRAW\r")]
+    [InlineData(DrawingTool.Highlighter, $"{EscapeHeader}3DRAW\r")]
+    [InlineData(DrawingTool.VectorLine, $"{EscapeHeader}4DRAW\r")]
+    [InlineData(DrawingTool.ArrowLine, $"{EscapeHeader}5DRAW\r")]
+    [InlineData(DrawingTool.Ellipse, $"{EscapeHeader}6DRAW\r")]
+    [InlineData(DrawingTool.Rectangle, $"{EscapeHeader}7DRAW\r")]
+    [InlineData(DrawingTool.Text, $"{EscapeHeader}8DRAW\r")]
+    [InlineData(DrawingTool.Spotlight, $"{EscapeHeader}9DRAW\r")]
+    [InlineData(DrawingTool.Zoom, $"{EscapeHeader}10DRAW\r")]
+    [InlineData(DrawingTool.Pan, $"{EscapeHeader}11DRAW\r")]
+    public void SetTool_SendsTheCommand(DrawingTool tool, string expectedCommand)
+    {
+        _annotator.SetTool(tool);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Fact]
+    public void QueryTool_SendsTheCommand()
+    {
+        _annotator.QueryTool();
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}DRAW\r"));
+    }
+
+    [Theory]
+    [InlineData("Draw00", DrawingTool.Eraser)]
+    [InlineData("Draw01", DrawingTool.Pointer)]
+    [InlineData("Draw02", DrawingTool.Freehand)]
+    [InlineData("Draw03", DrawingTool.Highlighter)]
+    [InlineData("Draw04", DrawingTool.VectorLine)]
+    [InlineData("Draw05", DrawingTool.ArrowLine)]
+    [InlineData("Draw06", DrawingTool.Ellipse)]
+    [InlineData("Draw07", DrawingTool.Rectangle)]
+    [InlineData("Draw08", DrawingTool.Text)]
+    [InlineData("Draw09", DrawingTool.Spotlight)]
+    [InlineData("Draw10", DrawingTool.Zoom)]
+    [InlineData("Draw11", DrawingTool.Pan)]
+    public void ResponseHandler_RaisesOnDrawingToolChanged(string response, DrawingTool expectedTool)
+    {
+        Mock<DrawingToolHandler> toolHandler = new Mock<DrawingToolHandler>();
+        _annotator.OnDrawingToolChanged += toolHandler.Object;
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+        toolHandler.Verify(x => x.Invoke(expectedTool));
+    }
+
+    [Fact]
+    public void ResponseHandler_ExposesCurrentTool()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("Draw04");
+        Assert.Equal(DrawingTool.VectorLine, _annotator.CurrentTool);
+    }
+
+    [Fact]
+    public void ResponseHandler_IgnoresUnknownDrawValues()
+    {
+        Mock<DrawingToolHandler> toolHandler = new Mock<DrawingToolHandler>();
+        _annotator.OnDrawingToolChanged += toolHandler.Object;
+        _mockClient.Object.ResponseHandlers!.Invoke("Draw99");
+        toolHandler.Verify(x => x.Invoke(It.IsAny<DrawingTool>()), Times.Never);
     }
 }

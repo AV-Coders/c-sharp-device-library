@@ -19,6 +19,26 @@ public class ExtronAnnotator401 : AnnotatorBase
     private readonly ThreadWorker _pollWorker;
     private readonly Annotator401Outputs _annotationOutputs;
     private readonly Annotator401Outputs _cursorOutputs;
+    public DrawingTool? CurrentTool { get; private set; }
+
+    private static readonly Dictionary<DrawingTool, int> ToolCodes = new()
+    {
+        { DrawingTool.Eraser, 0 },
+        { DrawingTool.Pointer, 1 },
+        { DrawingTool.Freehand, 2 },
+        { DrawingTool.Highlighter, 3 },
+        { DrawingTool.VectorLine, 4 },
+        { DrawingTool.ArrowLine, 5 },
+        { DrawingTool.Ellipse, 6 },
+        { DrawingTool.Rectangle, 7 },
+        { DrawingTool.Text, 8 },
+        { DrawingTool.Spotlight, 9 },
+        { DrawingTool.Zoom, 10 },
+        { DrawingTool.Pan, 11 }
+    };
+
+    private static readonly Dictionary<int, DrawingTool> ToolsByCode =
+        ToolCodes.ToDictionary(kvp => kvp.Value, kvp => kvp.Key);
 
     public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs = Annotator401Outputs.All, Annotator401Outputs cursorOutputs = Annotator401Outputs.All)
         : base(name, client)
@@ -43,6 +63,13 @@ public class ExtronAnnotator401 : AnnotatorBase
         {
             InternalMemorySavedHandlers?.Invoke();
             InternalMemoryFileSavedHandlers?.Invoke(response.Substring(5));
+        }
+        if (response.StartsWith("Draw") && response.Length >= 6
+            && int.TryParse(response.AsSpan(4, 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int toolValue)
+            && ToolsByCode.TryGetValue(toolValue, out DrawingTool tool))
+        {
+            CurrentTool = tool;
+            OnDrawingToolChanged?.Invoke(tool);
         }
     }
 
@@ -112,6 +139,10 @@ public class ExtronAnnotator401 : AnnotatorBase
     
     public override void SaveToNetworkShare(string folderPath) => SendCommand($"W0*/shares/{folderPath.Trim('/')}/{_fileprefix}-{DateTime.Now:yyyy-MM-dd-HH-mm-ss}.pngMF|");
     public override void Save() => SendCommand("W9MF|");
+
+    public override void SetTool(DrawingTool tool) => WrapAndSendCommand($"{ToolCodes[tool]}DRAW");
+
+    public void QueryTool() => WrapAndSendCommand("DRAW");
 
     public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
     
