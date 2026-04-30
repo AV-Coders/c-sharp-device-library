@@ -88,6 +88,8 @@ public class ExtronAnnotator401 : AnnotatorBase
         WrapAndSendCommand("ASHW");
         Thread.Sleep(TimeSpan.FromSeconds(1));
         WrapAndSendCommand($"P{_fileprefix}CFMT");
+        Thread.Sleep(TimeSpan.FromSeconds(1));
+        QueryTool();
     }
 
     private Task Poll(CancellationToken arg)
