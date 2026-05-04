@@ -57,6 +57,12 @@ public class Navigator : VideoMatrix
         var outputString = $"{device.DeviceNumber}{device.GetLetterForDeviceType()}";
         CommunicationClient.Send($"{EscapeHeader}{inputString}*{outputString}^\r");
     }
+    
+    public void DerouteUsb(NavDeviceBase device)
+    {
+        var outputString = $"{device.DeviceNumber}{device.GetLetterForDeviceType()}";
+        CommunicationClient.Send($"{EscapeHeader}0*{outputString}^\r");
+    }
 
     public void SendCommandToDevice(string deviceId, string command) => CommunicationClient.Send($"{{{deviceId}:{command}}}\r");
 
