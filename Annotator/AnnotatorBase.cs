@@ -23,10 +23,7 @@ public delegate void DrawingToolHandler(DrawingTool tool);
 public abstract class AnnotatorBase(string name, CommunicationClient client)
     : DeviceBase(name, client)
 {
-    public ActionHandler? UsbSavedHandlers;
-    public ActionHandler? InternalMemorySavedHandlers;
-    public StringHandler? UsbFileSavedHandlers;
-    public StringHandler? InternalMemoryFileSavedHandlers;
+    public StringHandler? OnFileSaved;
     public DrawingToolHandler? OnDrawingToolChanged;
     public abstract void Clear();
     public abstract void SaveToInternalMemory();

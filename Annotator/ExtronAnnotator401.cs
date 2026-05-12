@@ -56,13 +56,11 @@ public class ExtronAnnotator401 : AnnotatorBase
     {
         if (response.StartsWith("Ims1*"))
         {
-            UsbSavedHandlers?.Invoke();
-            UsbFileSavedHandlers?.Invoke(response.Substring(5));
+            OnFileSaved?.Invoke(response.Substring(5));
         }
         if (response.StartsWith("Ims0*"))
         {
-            InternalMemorySavedHandlers?.Invoke();
-            InternalMemoryFileSavedHandlers?.Invoke(response.Substring(5));
+            OnFileSaved?.Invoke(response.Substring(5));
         }
         if (response.StartsWith("Draw") && response.Length >= 6
             && int.TryParse(response.AsSpan(4, 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int toolValue)

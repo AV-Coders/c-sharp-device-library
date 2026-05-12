@@ -61,18 +61,18 @@ public class ExtronAnnotator401Test
     [Fact]
     public void ResponseHandler_HandlesUSBSaveFeedback()
     {
-        Mock<ActionHandler> saveHandler = new Mock<ActionHandler>();
-        _annotator.UsbSavedHandlers += saveHandler.Object;
+        Mock<StringHandler> saveHandler = new Mock<StringHandler>();
+        _annotator.OnFileSaved += saveHandler.Object;
         _mockClient.Object.ResponseHandlers!.Invoke("Ims1*/Graphics/filename.png");
-        saveHandler.Verify(x => x.Invoke());
+        saveHandler.Verify(x => x.Invoke("/Graphics/filename.png"));
     }
 
     [Fact]
-    public void ResponseHandler_HandlesUSBSaveFeedbackWithFilename()
+    public void ResponseHandler_HandlesNetworkSaveFeedbackWithFilename()
     {
         Mock<StringHandler> saveHandler = new Mock<StringHandler>();
-        _annotator.UsbFileSavedHandlers += saveHandler.Object;
-        _mockClient.Object.ResponseHandlers!.Invoke("Ims1*/Graphics/filename.png");
+        _annotator.OnFileSaved += saveHandler.Object;
+        _mockClient.Object.ResponseHandlers!.Invoke("Ims0*/Graphics/filename.png");
         saveHandler.Verify(x => x.Invoke("/Graphics/filename.png"));
     }
     
