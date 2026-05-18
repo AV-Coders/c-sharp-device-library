@@ -102,4 +102,80 @@ public class BiampTtpTest
         _dsp.SetState("mic_press", index, state);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Theory]
+    [InlineData(MuteState.On, "true")]
+    [InlineData(MuteState.Off, "false")]
+    public void SetAudioMute_DefaultsToIndexOne(MuteState state, string expectedValue)
+    {
+        _dsp.SetAudioMute(MuteName, state);
+        _mockClient.Verify(x => x.Send($"{MuteName} set mute 1 {expectedValue}\n"));
+    }
+
+    [Theory]
+    [InlineData(MuteState.On, 5, "room_mic_level set mute 5 true\n")]
+    [InlineData(MuteState.Off, 5, "room_mic_level set mute 5 false\n")]
+    [InlineData(MuteState.On, 3, "room_mic_level set mute 3 true\n")]
+    public void SetAudioMute_AtIndex_SendsTheCommand(MuteState state, int index, string expectedCommand)
+    {
+        _dsp.SetAudioMute("room_mic_level", index, state);
+        _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Fact]
+    public void ToggleAudioMute_AtIndex_TogglesFromOnToOff()
+    {
+        _dsp.AddControl(Mock.Of<MuteStateHandler>(), "room_mic_level", 5);
+        _mockClient.Object.ResponseHandlers?.Invoke("! \"publishToken\":\"AvCodersMute-room_mic_level-5\" \"value\":true\n");
+
+        _dsp.ToggleAudioMute("room_mic_level", 5);
+
+        _mockClient.Verify(x => x.Send("room_mic_level set mute 5 false\n"));
+    }
+
+    [Theory]
+    [InlineData(MuteState.On, "true")]
+    [InlineData(MuteState.Off, "false")]
+    public void BiampVolumeControl_SetAudioMute_UsesTheConfiguredIndex(MuteState state, string expectedValue)
+    {
+        var vc = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, _dsp);
+
+        vc.SetAudioMute(state);
+
+        _mockClient.Verify(x => x.Send($"room_mic_level set mute 5 {expectedValue}\n"));
+    }
+
+    [Fact]
+    public void BiampVolumeControl_ToggleAudioMute_UsesTheConfiguredIndex()
+    {
+        var vc = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, _dsp);
+        _mockClient.Object.ResponseHandlers?.Invoke("! \"publishToken\":\"AvCodersMute-room_mic_level-5\" \"value\":false\n");
+
+        vc.ToggleAudioMute();
+
+        _mockClient.Verify(x => x.Send("room_mic_level set mute 5 true\n"));
+    }
+
+    [Fact]
+    public void BiampVolumeControl_SetLevel_UsesTheConfiguredIndex()
+    {
+        _mockClient.Setup(x => x.Send("room_mic_level get maxLevel 5\n"))
+            .Callback(() => _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":0.000000\n"));
+        _mockClient.Setup(x => x.Send("room_mic_level get minLevel 5\n"))
+            .Callback(() => _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":-100.000000\n"));
+        var vc = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, _dsp);
+
+        vc.SetLevel(50);
+
+        _mockClient.Verify(x => x.Send("room_mic_level set level 5 -50\n"));
+    }
+
+    [Fact]
+    public void BiampVolumeControl_Construction_SubscribesAtTheConfiguredIndex()
+    {
+        _ = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, _dsp);
+
+        _mockClient.Verify(x => x.Send("room_mic_level subscribe level 5 AvCodersLevel-room_mic_level-5\n"));
+        _mockClient.Verify(x => x.Send("room_mic_level subscribe mute 5 AvCodersMute-room_mic_level-5\n"));
+    }
 }

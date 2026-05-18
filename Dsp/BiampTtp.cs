@@ -57,7 +57,7 @@ public class BiampVolumeControl : VolumeControl
 
     public override void ToggleAudioMute() => _dsp.ToggleAudioMute(_instanceTag, _index);
     
-    public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_instanceTag, state);
+    public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_instanceTag, _index, state);
 }
 
 public class BiampTtp : Dsp
