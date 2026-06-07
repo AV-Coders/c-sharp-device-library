@@ -69,6 +69,8 @@ public class CiscoRoomOs : Conference
     public PowerStateHandler? DoNotDisturbStateHandlers;
     public PowerStateHandler? AutoAnswerStateHandlers;
     public StringHandler? OutputVolumeResponseHandlers;
+    public event Action<PowerState>? OnDoNotDisturbStateChanged;
+    public event Action<PowerState>? OnAutoAnswerStateChanged;
 
     public PowerState DoNotDisturbState
     {
@@ -79,6 +81,7 @@ public class CiscoRoomOs : Conference
           return;
         _doNotDisturbState = value;
         DoNotDisturbStateHandlers?.Invoke(value);
+        OnDoNotDisturbStateChanged?.Invoke(value);
       }
     }
 
@@ -91,6 +94,7 @@ public class CiscoRoomOs : Conference
           return;
         _autoAnswerState = value;
         AutoAnswerStateHandlers?.Invoke(value);
+        OnAutoAnswerStateChanged?.Invoke(value);
       }
     }
 
@@ -240,7 +244,7 @@ public class CiscoRoomOs : Conference
               return;
             case "Call":
               ProcessCallResponse(responses);
-              ActiveCallHandlers?.Invoke(GetActiveCalls());
+              RaiseActiveCallsChanged(GetActiveCalls());
               return;
             case "Audio" when responses[2] == "Volume:":
               OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));

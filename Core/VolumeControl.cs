@@ -12,6 +12,8 @@ public abstract class VolumeControl : LogBase
     public readonly VolumeType Type;
     public VolumeLevelHandler? VolumeLevelHandlers;
     public MuteStateHandler? MuteStateHandlers;
+    public event Action<int>? OnVolumeChanged;
+    public event Action<MuteState>? OnMuteStateChanged;
     private int _volume;
     private int? _storedLevel = null;
     private MuteState _muteState;
@@ -27,6 +29,7 @@ public abstract class VolumeControl : LogBase
             _volume = value;
             AddEvent(EventType.Volume,  value.ToString());
             VolumeLevelHandlers?.Invoke(_volume);
+            OnVolumeChanged?.Invoke(_volume);
         }
     }
 
@@ -40,6 +43,7 @@ public abstract class VolumeControl : LogBase
             _muteState = value;
             AddEvent(EventType.Volume, $"Mute: {value.ToString()}");
             MuteStateHandlers?.Invoke(_muteState);
+            OnMuteStateChanged?.Invoke(_muteState);
         }
     }
 

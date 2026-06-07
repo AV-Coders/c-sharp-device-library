@@ -20,6 +20,11 @@ public abstract class Display : VolumeControl, IDevice
     public PowerStateHandler? DesiredPowerStateHandlers;
     public InputHandler? InputHandlers;
     public InputHandler? DesiredInputHandlers;
+    public event Action<PowerState>? OnPowerStateChanged;
+    public event Action<PowerState>? OnDesiredPowerStateChanged;
+    public event Action<Input>? OnInputChanged;
+    public event Action<Input>? OnDesiredInputChanged;
+    public event Action<CommunicationState>? OnCommunicationStateChanged;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
 
@@ -55,6 +60,7 @@ public abstract class Display : VolumeControl, IDevice
             _input = value;
             AddEvent(EventType.Input, value.ToString());
             InputHandlers?.Invoke(value);
+            OnInputChanged?.Invoke(value);
         }
     }
 
@@ -68,6 +74,7 @@ public abstract class Display : VolumeControl, IDevice
             _desiredInput = value;
             AddEvent(EventType.Input, $"Desired input is now {value.ToString()}");
             DesiredInputHandlers?.Invoke(value);
+            OnDesiredInputChanged?.Invoke(value);
         }
     }
 
@@ -81,6 +88,7 @@ public abstract class Display : VolumeControl, IDevice
             _powerState = value;
             AddEvent(EventType.Power, value.ToString());
             PowerStateHandlers?.Invoke(value);
+            OnPowerStateChanged?.Invoke(value);
         }
     }
 
@@ -94,6 +102,7 @@ public abstract class Display : VolumeControl, IDevice
             _desiredPowerState = value;
             AddEvent(EventType.Power, $"Desired power state is now {value.ToString()}");
             DesiredPowerStateHandlers?.Invoke(value);
+            OnDesiredPowerStateChanged?.Invoke(value);
         }
     }
     
@@ -115,6 +124,7 @@ public abstract class Display : VolumeControl, IDevice
             _communicationState = value;
             AddEvent(EventType.DriverState,  value.ToString());
             CommunicationStateHandlers?.Invoke(value);
+            OnCommunicationStateChanged?.Invoke(value);
         }
     }
 
