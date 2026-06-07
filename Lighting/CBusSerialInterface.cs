@@ -1,6 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
-using Serilog.Context;
 using System.Text;
 
 namespace AVCoders.Lighting;
@@ -51,7 +49,7 @@ public class CBusSerialInterface : LogBase
 
         if (_gather.Count > 1024)
         {
-            Log.Warning("Gather buffer exceeded 1024 bytes, clearing");
+            LogWarning("Gather buffer exceeded 1024 bytes, clearing");
             _gather.Clear();
             return;
         }
@@ -70,7 +68,7 @@ public class CBusSerialInterface : LogBase
     {
         using (PushProperties("ProcessResponse"))
         {
-            Log.Information(BitConverter.ToString(aResponsePayload));
+            LogInformation("{Response}", BitConverter.ToString(aResponsePayload));
         }
     }
 

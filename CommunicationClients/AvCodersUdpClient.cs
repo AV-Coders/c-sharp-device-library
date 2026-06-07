@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using System.Net;
-using Serilog;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
 
@@ -54,7 +53,7 @@ public class AvCodersUdpClient : Core_UdpClient
         {
             if (_ipEndPoint == null)
             {
-                Log.Debug("Client disconnected, aborting receive");
+                LogDebug("Client disconnected, aborting receive");
                 await ReceiveThreadWorker.Stop();
                 return;
             }
@@ -82,7 +81,7 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         if (_client == null)
         {
-            Log.Debug("Messages in send queue will not be sent while client is not connected");
+            LogDebug("Messages in send queue will not be sent while client is not connected");
             await Task.Delay(500, token);
         }
         else
@@ -93,7 +92,7 @@ public class AvCodersUdpClient : Core_UdpClient
                 if (Math.Abs(age) >= QueueTimeout)
                 {
                     using (PushProperties("ProcessSendQueue"))
-                        Log.Warning(
+                        LogWarning(
                             "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
                             age, QueueTimeout);
                     continue;
@@ -168,7 +167,7 @@ public class AvCodersUdpClient : Core_UdpClient
         {
             _sendQueue.TryDequeue(out _);
             using (PushProperties("EnqueueWithCap"))
-                Log.Warning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+                LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
         }
         _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
     }

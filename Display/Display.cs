@@ -1,6 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
-using Serilog.Context;
 
 namespace AVCoders.Display;
 
@@ -8,15 +6,9 @@ public delegate void InputHandler(Input input);
 
 public abstract class Display : VolumeControl, IDevice
 {
-    private readonly object _eventsLock = new();
-    public IReadOnlyList<Event> Events
-    {
-        get { lock (_eventsLock) return _events.ToList(); }
-    }
     public List<Input> SupportedInputs { get; }
     public readonly CommunicationClient CommunicationClient;
     public readonly CommandStringFormat CommandStringFormat;
-    private readonly Dictionary<string, string> _logProperties = new ();
     private Input _input = Input.Unknown;
     private Input _desiredInput = Input.Unknown;
     private PowerState _powerState = PowerState.Unknown;
@@ -28,10 +20,8 @@ public abstract class Display : VolumeControl, IDevice
     public PowerStateHandler? DesiredPowerStateHandlers;
     public InputHandler? InputHandlers;
     public InputHandler? DesiredInputHandlers;
-    private readonly List<Event> _events = [];
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
-    public event ActionHandler? EventsUpdated;
 
     protected readonly ThreadWorker PollWorker;
 
@@ -130,7 +120,7 @@ public abstract class Display : VolumeControl, IDevice
 
     protected Task Poll(CancellationToken token)
     {
-        using (LogContext.PushProperty(LogBase.MethodProperty, "Poll"))
+        using (PushProperties("Poll"))
         {
             return DoPoll(token);
         }
@@ -145,7 +135,7 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             if (DesiredPowerState == PowerState.Unknown)
                 return;
-            Log.Warning("{Name} has the incorrect power state - Forcing Power", Name);
+            LogWarning("{Name} has the incorrect power state - Forcing Power", Name);
             AddEvent(EventType.Power, $"The power state is incorrect, setting to desired power state {_desiredPowerState.ToString()}");
             if (DesiredPowerState == PowerState.Off)
                 PowerOff();
@@ -162,7 +152,7 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             if (DesiredInput == Input.Unknown)
                 return;
-            Log.Warning("{Name} has the incorrect input - Forcing Input", Name);
+            LogWarning("{Name} has the incorrect input - Forcing Input", Name);
             AddEvent(EventType.Input, $"The input is incorrect, setting to desired input {_desiredInput.ToString()}");
             SetInput(DesiredInput);
         }
@@ -202,7 +192,7 @@ public abstract class Display : VolumeControl, IDevice
         {
             if (!SupportedInputs.Contains(input))
             {
-                Log.Warning("Requested Input {Input} is not available", input);
+                LogWarning("Requested Input {Input} is not available", input);
                 AddEvent(EventType.Error, $"Requested Input {input.ToString()} is not available");
                 return;
             }
@@ -220,7 +210,7 @@ public abstract class Display : VolumeControl, IDevice
         {
             if (volume is > 100 or < 0)
             {
-                Log.Warning("Volume needs to be a value between 0 and 100, it's {Volume}", volume);
+                LogWarning("Volume needs to be a value between 0 and 100, it's {Volume}", volume);
                 AddEvent(EventType.Error, $"Volume needs to be a value between 0 and 100, it's {volume}");
                 return;
             }
@@ -271,32 +261,4 @@ public abstract class Display : VolumeControl, IDevice
         }
     }
 
-    public void ClearEvents()
-    {
-        lock (_eventsLock)
-        {
-            _events.Clear();
-        }
-        EventsUpdated?.Invoke();
-    }
-
-    protected void AddEvent(EventType type, string info)
-    {
-        using (PushProperties("AddEvent"))
-            Log.Verbose(info);
-        lock (_eventsLock)
-        {
-            _events.Add(new Event(DateTimeOffset.UtcNow, type, info, LogContext.Clone()));
-            LimitEvents();
-        }
-        EventsUpdated?.Invoke();
-    }
-
-    private void LimitEvents()
-    {
-        if (_events.Count > 300)
-        {
-            _events.RemoveRange(0, _events.Count - 300);
-        }
-    }
 }

@@ -15,7 +15,6 @@
 
     <ItemGroup>
       <PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.7" />
-      <PackageReference Include="Serilog" Version="4.3.0" />
       <PackageReference Include="SSH.NET" Version="2025.1.0" />
     </ItemGroup>
 

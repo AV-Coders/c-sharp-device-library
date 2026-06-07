@@ -2,7 +2,6 @@
 using System.Net.Sockets;
 using Renci.SshNet;
 using Renci.SshNet.Common;
-using Serilog;
 using SshClient = Renci.SshNet.SshClient;
 using SshClientBase = AVCoders.Core.SshClient;
 
@@ -66,7 +65,7 @@ public class AvCodersSshClient : SshClientBase
                     }
                     catch (Exception e) when (e is ObjectDisposedException)
                     {
-                        Log.Warning("Stream was disposed, waiting for reconnection");
+                        LogWarning("Stream was disposed, waiting for reconnection");
                         await Task.Delay(TimeSpan.FromSeconds(5), token);
                     }
                 }
@@ -125,7 +124,7 @@ public class AvCodersSshClient : SshClientBase
             {
                 try
                 {
-                    Log.Warning("Client connected but stream is null, recreating stream");
+                    LogWarning("Client connected but stream is null, recreating stream");
                     await CreateStream(token);
                 }
                 catch (Exception e)
@@ -154,7 +153,7 @@ public class AvCodersSshClient : SshClientBase
                         var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
                         if (age >= QueueTimeout)
                         {
-                            Log.Warning(
+                            LogWarning(
                                 "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
                                 age, QueueTimeout, item.Payload);
                             continue;
@@ -170,7 +169,7 @@ public class AvCodersSshClient : SshClientBase
         }
         catch (ObjectDisposedException)
         {
-            Log.Warning("Client was disposed during send queue processing, waiting for reconnection");
+            LogWarning("Client was disposed during send queue processing, waiting for reconnection");
             await Task.Delay(TimeSpan.FromSeconds(3), token);
         }
     }
@@ -184,13 +183,13 @@ public class AvCodersSshClient : SshClientBase
             await _stream.DisposeAsync();
             _stream = null;
         }
-        Log.Debug("Creating new shell stream");
+        LogDebug("Creating new shell stream");
         _stream = _client.CreateShellStream("dumb", 1000, 1000, 1500, 1000, 8191, _modes);
         _stream.ErrorOccurred += ClientOnErrorOccurred;
         await Task.Delay(200, token);
         ReceiveThreadWorker.Restart();
         ConnectionState = ConnectionState.Connected;
-        Log.Information("Shell stream created successfully");
+        LogInformation("Shell stream created successfully");
         return _stream;
     }
 
@@ -224,14 +223,14 @@ public class AvCodersSshClient : SshClientBase
                 }
                 catch (ObjectDisposedException e)
                 {
-                    Log.Debug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
+                    LogDebug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
                     EnqueueWithCap(message);
                     ConnectionState = ConnectionState.Error;
                 }
             }
             else
             {
-                Log.Debug("Cannot send, not connected or stream unavailable. Queueing message.");
+                LogDebug("Cannot send, not connected or stream unavailable. Queueing message.");
                 EnqueueWithCap(message);
                 ConnectionState = ConnectionState.Error;
             }
@@ -251,7 +250,7 @@ public class AvCodersSshClient : SshClientBase
         {
             _sendQueue.TryDequeue(out _);
             using (PushProperties("EnqueueWithCap"))
-                Log.Warning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+                LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
         }
         _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
     }

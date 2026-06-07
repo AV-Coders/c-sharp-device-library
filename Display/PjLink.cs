@@ -1,7 +1,6 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Display;
 
@@ -51,7 +50,7 @@ public class PjLink : Display
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
             using (PushProperties("DoPoll"))
-                Log.Debug("Not polling");
+                LogDebug("Not polling");
             return Task.CompletedTask;
         }
 
@@ -102,7 +101,7 @@ public class PjLink : Display
             if (response.Contains("ERRA"))
             {
                 CommunicationState = CommunicationState.Error;
-                Log.Error("Password not accepted");
+                LogError("Password not accepted");
                 return;
             }
 
@@ -195,7 +194,7 @@ public class PjLink : Display
         {
             if (!PowerStateDictionary.TryGetValue(desiredPowerState, out var value))
             {
-                Log.Warning("Desired PowerState {DesiredPowerState} is not appropriate", desiredPowerState);
+                LogWarning("Desired PowerState {DesiredPowerState} is not appropriate", desiredPowerState);
                 return;
             }
 
@@ -214,7 +213,7 @@ public class PjLink : Display
     {
         using (PushProperties())
         {
-            Log.Warning("Volume control is not supported");
+            LogWarning("Volume control is not supported");
         }
     }
 

@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
 
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 
@@ -55,7 +54,7 @@ public class TriplePlay : MediaPlayer, ISetTopBox
         Get(GenerateCommandString("ChannelDown"));
     }
 
-    public void SendIRCode(RemoteButton button) { using (PushProperties("SendIRCode")) Log.Error("SendIRCode is not supported in TriplePlay"); }
+    public void SendIRCode(RemoteButton button) { using (PushProperties("SendIRCode")) LogError("SendIRCode is not supported in TriplePlay"); }
 
     public void SetChannel(int channel) => GoToChannelNumber((uint) channel);
     public void ToggleSubtitles()

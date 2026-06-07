@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Camera;
 
@@ -121,7 +120,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("DoZoomStop"))
         {
             SendCommand([_header, 0x01, 0x04, 0x07, 0x00, CommandFooter]);
-            Log.Verbose("Zoom Stop");
+            LogVerbose("Zoom Stop");
         }
     }
 
@@ -130,7 +129,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("ZoomIn"))
         {
             SendCommand([_header, 0x01, 0x04, 0x07, _zoomInSpeed, CommandFooter]);
-            Log.Verbose("Zooming In");
+            LogVerbose("Zooming In");
         }
     }
 
@@ -139,7 +138,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("ZoomOut"))
         {
             SendCommand([_header, 0x01, 0x04, 0x07, _zoomOutSpeed, CommandFooter]);
-            Log.Verbose("Zooming Out");
+            LogVerbose("Zooming Out");
         }
     }
 
@@ -148,7 +147,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("DoPanTiltStop"))
         {
             SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x03, CommandFooter]);
-            Log.Verbose("PTZ Stop");
+            LogVerbose("PTZ Stop");
         }
     }
 
@@ -157,7 +156,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("PanTiltUp"))
         {
             SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x01, CommandFooter]);
-            Log.Verbose("PTZ Up");
+            LogVerbose("PTZ Up");
         }
     }
 
@@ -166,7 +165,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("PanTiltDown"))
         {
             SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x03, 0x02, CommandFooter]);
-            Log.Verbose("PTZ Down");
+            LogVerbose("PTZ Down");
         }
     }
 
@@ -175,7 +174,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("PanTiltLeft"))
         {
             SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x01, 0x03, CommandFooter]);
-            Log.Verbose("PTZ Left");
+            LogVerbose("PTZ Left");
         }
     }
 
@@ -184,7 +183,7 @@ public class SonyVisca : CameraBase
         using (PushProperties("PanTiltRight"))
         {
             SendCommand([_header, 0x01, 0x06, 0x01, _panSpeed, _tiltSpeed, 0x02, 0x03, CommandFooter]);
-            Log.Verbose("PTZ Right");
+            LogVerbose("PTZ Right");
         }
     }
 

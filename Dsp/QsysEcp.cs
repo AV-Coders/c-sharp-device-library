@@ -1,7 +1,5 @@
 ﻿using System.Text.RegularExpressions;
 using AVCoders.Core;
-using Serilog;
-using Serilog.Context;
 
 namespace AVCoders.Dsp;
 
@@ -106,7 +104,7 @@ public class QsysEcp : Dsp
                 else if (line.Contains("bad_id"))
                 {
                     CommunicationState = CommunicationState.Error;
-                    Log.Error("Invalid named control found: {Line}", line);
+                    LogError("Invalid named control found: {Line}", line);
                 }
             }
         }
@@ -215,7 +213,7 @@ public class QsysEcp : Dsp
     {
         new Thread(_ =>
         {
-            using (LogContext.PushProperty(LogBase.MethodProperty, "GetAllControlStates"))
+            using (PushProperties("GetAllControlStates"))
             {
                 try
                 {

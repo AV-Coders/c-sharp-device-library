@@ -1,7 +1,3 @@
-using Serilog;
-using Serilog.Context;
-using Serilog.Core;
-
 namespace AVCoders.Core;
 
 public abstract class DeviceBase : LogBase, IDevice

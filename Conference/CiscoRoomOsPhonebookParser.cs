@@ -1,5 +1,4 @@
 using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Conference;
 
@@ -65,7 +64,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
         {
             if (response.Contains("** end"))
             {
-                Log.Debug("Phonebook search chunk ended. Total processed so far: {Count}", _loadedRows.Count);
+                LogDebug("Phonebook search chunk ended. Total processed so far: {Count}", _loadedRows.Count);
                 ProcessInjestData();
                 CheckForCompletion();
                 return;
@@ -90,12 +89,12 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                     {
                         case "Offset:":
                             _resultOffset = Int32.Parse(responses[4]);
-                            Log.Verbose("The offset is {ResultOffset}", _resultOffset);
+                            LogVerbose("The offset is {ResultOffset}", _resultOffset);
                             CommunicationState = CommunicationState.Okay;
                             return;
                         case "TotalRows:":
                             _resultTotalRows = Int32.Parse(responses[4]);
-                            Log.Verbose("Total rows is {ResultTotalRows}", _resultTotalRows);
+                            LogVerbose("Total rows is {ResultTotalRows}", _resultTotalRows);
                             _injestFolders.Clear();
                             _injestContacts.Clear();
                             _injestContactMethods.Clear();
@@ -115,7 +114,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                             CommunicationState = CommunicationState.Okay;
                             return;
                         default:
-                            Log.Information("Unhandled ResultInfo key: {Response}", responses[3]);
+                            LogInformation("Unhandled ResultInfo key: {Response}", responses[3]);
                             CommunicationState = CommunicationState.Error;
                             AddEvent(EventType.Error, $"Unhandled ResultInfo key: {responses[3]}");
                             return;
@@ -140,7 +139,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                     return;
                 }
                 default:
-                    Log.Debug("Unhandled response key: {Response}", responses[2]);
+                    LogDebug("Unhandled response key: {Response}", responses[2]);
                     CommunicationState = CommunicationState.Error;
                     break;
             }
@@ -156,7 +155,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
         if (unFetchedFolder == null)
         {
             AddEvent(EventType.DriverState, "Phonebook search complete");
-            Log.Debug("Phonebook search complete");
+            LogDebug("Phonebook search complete");
             PhonebookUpdated?.Invoke(PhoneBook);
             return;
         }
@@ -267,7 +266,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
         int currentTotalProcessed = maxRow + _resultOffset;
 
-        Log.Debug(
+        LogDebug(
             "CheckForCompletion: maxRow={MaxRow}, offset={Offset}, totalRows={TotalRows}, currentTotalProcessed={CurrentTotalProcessed}",
             maxRow, _resultOffset, _resultTotalRows, currentTotalProcessed);
 
@@ -278,7 +277,7 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
                 if (_currentInjestfolder != null)
                 {
                     _currentInjestfolder.ContentsFetched = true;
-                    Log.Debug("Setting ContentsFetched for folder {FolderName} ({FolderId})", _currentInjestfolder.Name,
+                    LogDebug("Setting ContentsFetched for folder {FolderName} ({FolderId})", _currentInjestfolder.Name,
                         _currentInjestfolder.FolderId);
                 }
 

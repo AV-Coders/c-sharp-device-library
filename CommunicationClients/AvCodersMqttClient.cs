@@ -1,9 +1,7 @@
-using System.Diagnostics.Tracing;
 using System.Text;
 using MQTTnet;
 using MQTTnet.Exceptions;
 using MQTTnet.Protocol;
-using Serilog;
 using MqttClient = AVCoders.Core.MqttClient;
 
 namespace AVCoders.CommunicationClients;
@@ -63,7 +61,7 @@ public class AvCodersMqttClient : MqttClient
             ConnectionState = ConnectionState.Disconnected;
             Task.Delay(TimeSpan.FromSeconds(3)).Wait();
             ConnectionState = ConnectionState.Connecting;
-            Log.Debug("Reconnecting to MQTT server");
+            LogDebug("Reconnecting to MQTT server");
             await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
         }
     }
@@ -100,7 +98,7 @@ public class AvCodersMqttClient : MqttClient
             }
             catch (MqttClientNotConnectedException e)
             {
-                Log.Verbose($"MqttClientNotConnectedException: {e}", EventLevel.Error);
+                LogVerbose("MqttClientNotConnectedException: {Exception}", e);
                 _ = HandleMqttDisconnection(new MqttClientDisconnectedEventArgs(true, new MqttClientConnectResult(),
                     MqttClientDisconnectReason.UnspecifiedError, String.Empty, [], null));
             }

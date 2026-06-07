@@ -1,6 +1,5 @@
 ﻿using System.Text;
 using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Matrix;
 
@@ -93,7 +92,7 @@ public class ExtronDtpCpxx : VideoMatrix
                         break;
                 }
 
-                Log.Verbose("Setting input {inputNumber} as {status}", inputNumber,
+                LogVerbose("Setting input {inputNumber} as {status}", inputNumber,
                     connectionStatus.ToString());
                 Inputs[inputNumber - 1].SetInputStatus(connectionStatus);
                 Inputs[inputNumber - 1].SetInputHdcpStatus(hdcpStatus);
@@ -129,14 +128,14 @@ public class ExtronDtpCpxx : VideoMatrix
 
                 if (parts[0].Contains('B'))
                 {
-                    Log.Verbose("Setting output {outputNumber} B as {status}", outputNumber,
+                    LogVerbose("Setting output {outputNumber} B as {status}", outputNumber,
                         connectionStatus.ToString());
                     ComposedOutputs[outputNumber - 1].Secondary.SetOutputStatus(connectionStatus);
                     ComposedOutputs[outputNumber - 1].Secondary.SetOutputHdcpStatus(hdcpStatus);
                 }
                 else
                 {
-                    Log.Verbose("Setting output {outputNumber} A as {status}", outputNumber,
+                    LogVerbose("Setting output {outputNumber} A as {status}", outputNumber,
                         connectionStatus.ToString());
                     ComposedOutputs[outputNumber - 1].Primary.SetOutputStatus(connectionStatus);
                     ComposedOutputs[outputNumber - 1].Primary.SetOutputHdcpStatus(hdcpStatus);
@@ -358,7 +357,7 @@ public class ExtronDtpCpxx : VideoMatrix
         {
             AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
             using (PushProperties("SetSyncTimeout"))
-                Log.Warning("The sync timeout can't be longer than 502 seconds");
+                LogWarning("The sync timeout can't be longer than 502 seconds");
         }
     }
 }

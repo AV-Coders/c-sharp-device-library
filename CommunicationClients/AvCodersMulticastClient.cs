@@ -1,8 +1,6 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using Serilog;
-using Serilog.Context;
 using UdpClient = System.Net.Sockets.UdpClient;
 
 namespace AVCoders.CommunicationClients;
@@ -85,7 +83,7 @@ public class AvCodersMulticastClient : IMulticastClient
     {
         using (PushProperties("Connect"))
         {
-            Log.Debug("Connect not supported");
+            LogDebug("Connect not supported");
         }
     }
 
@@ -93,7 +91,7 @@ public class AvCodersMulticastClient : IMulticastClient
     {
         using (PushProperties("Reconnect"))
         {
-            Log.Debug("Reconnect not supported");
+            LogDebug("Reconnect not supported");
         }
     }
 
@@ -101,7 +99,7 @@ public class AvCodersMulticastClient : IMulticastClient
     {
         using (PushProperties("Disconnect"))
         {
-            Log.Debug("Disconnect not supported");
+            LogDebug("Disconnect not supported");
         }
     }
 

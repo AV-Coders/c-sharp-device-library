@@ -2,7 +2,6 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using Serilog;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
 
@@ -81,7 +80,7 @@ public class AvCodersTcpServer : Core_TcpClient
                 // Clean up this specific client when HandleClientAsync exits
                 _clients.TryRemove(clientId, out _);
                 client.Dispose();
-                Log.Debug("Client {ClientId} disconnected and removed", clientId);
+                LogDebug("Client {ClientId} disconnected and removed", clientId);
             }
         }
     }
@@ -96,7 +95,7 @@ public class AvCodersTcpServer : Core_TcpClient
             Guid clientId = Guid.NewGuid();
             _clients.TryAdd(clientId, client);
             IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? null;
-            Log.Debug("Added client {ClientId} - {IpAddress}", clientId, remoteIpEndPoint?.Address);
+            LogDebug("Added client {ClientId} - {IpAddress}", clientId, remoteIpEndPoint?.Address);
             ConnectionState = ConnectionState.Connected;
             _ = HandleClientAsync(client, clientId, token);
             await Task.Delay(TimeSpan.FromSeconds(1), token);
@@ -112,7 +111,7 @@ public class AvCodersTcpServer : Core_TcpClient
             {
                 if (_clients.TryRemove(kvp.Key, out var client))
                 {
-                    Log.Debug("Removing disconnected client {ClientId}", kvp.Key);
+                    LogDebug("Removing disconnected client {ClientId}", kvp.Key);
                     client.Dispose();
                 }
             }

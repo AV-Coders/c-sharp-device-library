@@ -2,7 +2,6 @@
 using Lextm.SharpSnmpLib;
 using Lextm.SharpSnmpLib.Messaging;
 using Lextm.SharpSnmpLib.Security;
-using Serilog;
 
 namespace AVCoders.CommunicationClients;
 
@@ -44,7 +43,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
         var reply = request.GetResponse(DefaultRequestTimeout, _host);
         if (reply.Pdu().ErrorStatus != Integer32.Zero)
         {
-            Log.Error("Error in Set response for OID {oid}: {status}, index: {index}", oid, reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
+            LogError("Error in Set response for OID {oid}: {status}, index: {index}", oid, reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
             ConnectionState = ConnectionState.Error;
             return [];
         }
@@ -77,7 +76,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
         var reply = request.GetResponse(DefaultRequestTimeout, _host);
         if (reply.Pdu().ErrorStatus != Integer32.Zero)
         {
-            Log.Error("Error in response {status}, {index}", reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
+            LogError("Error in response {status}, {index}", reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
             ConnectionState = ConnectionState.Error;
             return [];
         }

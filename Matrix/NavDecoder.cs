@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Matrix;
 
@@ -52,7 +51,7 @@ public class NavDecoder : NavDeviceBase
         {
             if (DeviceNumber == 0)
             {
-                Log.Warning("Not requesting a route as my device number is 0");
+                LogWarning("Not requesting a route as my device number is 0");
                 return;
             }
             Navigator.RouteAV(deviceId, DeviceNumber);
@@ -66,7 +65,7 @@ public class NavDecoder : NavDeviceBase
         {
             if (DeviceNumber == 0)
             {
-                Log.Warning("Not requesting a video route as my device number is 0");
+                LogWarning("Not requesting a video route as my device number is 0");
                 return;
             }
 

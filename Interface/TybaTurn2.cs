@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AVCoders.Core;
-using Serilog;
 
 namespace AvCoders.Interface;
 
@@ -121,7 +120,7 @@ public class TybaTurn2 : LogBase
             if (line.Contains(": heartbeat"))
             {
                 UpdateCommunicationState(CommunicationState.Okay);
-                Log.Debug("Heartbeat received");
+                LogDebug("Heartbeat received");
                 // TODO: Heartbeat logic goes here
                 return;
             }
@@ -129,7 +128,7 @@ public class TybaTurn2 : LogBase
             if (line.Contains("event: "))
             {
                 _currentEvent = line.Remove(0, 7);
-                Log.Debug("Event received: {CurrentEvent}", _currentEvent);
+                LogDebug("Event received: {CurrentEvent}", _currentEvent);
             }
             else if (line.Contains("data: "))
             {
@@ -139,7 +138,7 @@ public class TybaTurn2 : LogBase
                     || line.Contains("InternalTemperatureServiceImpl")
                    )
                     return;
-                Log.Verbose(line);
+                LogVerbose("{Line}", line);
                 ProcessEvent(line.Remove(0, 6));
                 _currentEvent = string.Empty;
             }
@@ -173,7 +172,7 @@ public class TybaTurn2 : LogBase
         {
             if (valueAndOnChangeData == null && eventData[0] != "temperature" || temperatureChangeData == null && eventData[0] == "temperature")
             {
-                Log.Debug("Data is invalid");
+                LogDebug("Data is invalid");
                 return;
             }
 
@@ -181,7 +180,7 @@ public class TybaTurn2 : LogBase
         }
         else
         {
-            Log.Error("Unhandled event type: {EventType}", eventData[0]);
+            LogError("Unhandled event type: {EventType}", eventData[0]);
         }
     }
 
@@ -234,7 +233,7 @@ public class TybaTurn2 : LogBase
         
         try
         {
-            Log.Verbose("Sending payload {Payload} to URI {ChannelUriAbsoluteUri}", payload, channelUri.AbsoluteUri);
+            LogVerbose("Sending payload {Payload} to URI {ChannelUriAbsoluteUri}", payload, channelUri.AbsoluteUri);
             using HttpClient httpClient = new HttpClient();
             foreach (var (key, v) in _headers)
             {
@@ -244,7 +243,7 @@ public class TybaTurn2 : LogBase
             httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
             var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
-            Log.Verbose("Response {ResponseStatusCode}: {ResponseReasonPhrase}", response.StatusCode, response.ReasonPhrase);
+            LogVerbose("Response {ResponseStatusCode}: {ResponseReasonPhrase}", response.StatusCode, response.ReasonPhrase);
         }
         catch (HttpRequestException e)
         {

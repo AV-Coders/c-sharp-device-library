@@ -1,6 +1,5 @@
 using AVCoders.Core;
 using AVCoders.Dsp;
-using Serilog;
 
 namespace AVCoders.Conference;
 
@@ -77,7 +76,7 @@ public abstract class Conference : DeviceBase
         using (PushProperties("PowerOn"))
         {
             DoPowerOn();
-            Log.Verbose("Turning On");
+            LogVerbose("Turning On");
             DesiredPowerState = PowerState.On;
             PowerState = PowerState.On;
         }
@@ -90,7 +89,7 @@ public abstract class Conference : DeviceBase
         using (PushProperties("PowerOff"))
         {
             DoPowerOff();
-            Log.Verbose("Turning Off");
+            LogVerbose("Turning Off");
             DesiredPowerState = PowerState.Off;
             PowerState = PowerState.Off;
             ActiveCalls.Keys.ToList().ForEach(x =>

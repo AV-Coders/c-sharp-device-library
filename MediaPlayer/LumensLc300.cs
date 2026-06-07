@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.MediaPlayer;
 
@@ -67,7 +66,7 @@ public class LumensLc300 : Recorder
                 {
                     if (response[4] != AckAction)
                     {
-                        Log.Error("Response {response} did not have an ack", BitConverter.ToString(response));
+                        LogError("Response {response} did not have an ack", BitConverter.ToString(response));
                         return;
                     }
 
@@ -180,7 +179,7 @@ public class LumensLc300 : Recorder
         {
             if (layoutIndex is 0 or > 18)
             {
-                Log.Error("Layout number {layoutNumber} is invalid.  It must be between 1 and 18", layoutIndex);
+                LogError("Layout number {layoutNumber} is invalid.  It must be between 1 and 18", layoutIndex);
                 return;
             }
 
@@ -193,7 +192,7 @@ public class LumensLc300 : Recorder
         if (channel is < 0 or > 4)
         {
             using (PushProperties("SetVideoSourceId"))
-                Log.Error("Layout number {layoutNumber} is invalid.  It must be between 1 and 18", channel);
+                LogError("Layout number {layoutNumber} is invalid.  It must be between 1 and 18", channel);
             return;
         }
 
