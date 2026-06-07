@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Display, projector and LED-wall drivers for the AV Coders device library, including PjLink, Samsung MDC, Sony, NEC, Philips SICP, LG, CEC, NovaStar and Colorlight.</Description>
+        <PackageId>AVCoders.Display</PackageId>
         <AssemblyName>AVCoders.Display</AssemblyName>
         <RootNamespace>AVCoders.Display</RootNamespace>
         <LangVersion>default</LangVersion>

@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Audio DSP drivers for the AV Coders device library, including Biamp Tesira, QSC Q-SYS and Bose ControlSpace.</Description>
+        <PackageId>AVCoders.Dsp</PackageId>
         <AssemblyName>AVCoders.Dsp</AssemblyName>
         <RootNamespace>AVCoders.Dsp</RootNamespace>
         <LangVersion>default</LangVersion>

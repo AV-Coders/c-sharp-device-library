@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Conferencing codec drivers for the AV Coders device library, including Cisco RoomOS control, output/microphone faders and phonebook parsing.</Description>
+        <PackageId>AVCoders.Conference</PackageId>
         <AssemblyName>AVCoders.Conference</AssemblyName>
         <RootNamespace>AVCoders.Conference</RootNamespace>
         <LangVersion>default</LangVersion>

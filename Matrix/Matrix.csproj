@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Matrix switcher and AV-over-IP drivers for the AV Coders device library, including Extron, SVSI, Blustream and Navigator encoders and decoders.</Description>
+        <PackageId>AVCoders.Matrix</PackageId>
         <AssemblyName>AVCoders.Matrix</AssemblyName>
         <RootNamespace>AVCoders.Matrix</RootNamespace>
         <LangVersion>default</LangVersion>

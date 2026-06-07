@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>PDU and outlet drivers for the AV Coders device library, including Eaton (SNMP) and ServerEdge (REST).</Description>
+        <PackageId>AVCoders.Power</PackageId>
         <AssemblyName>AVCoders.Power</AssemblyName>
         <RootNamespace>AVCoders.Power</RootNamespace>
         <LangVersion>default</LangVersion>

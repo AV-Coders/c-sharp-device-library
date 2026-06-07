@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>PTZ camera and auto-tracking drivers for the AV Coders device library, including Sony and AVer VISCA, Lumens and 1 Beyond AutomateVX.</Description>
+        <PackageId>AVCoders.Camera</PackageId>
         <AssemblyName>AVCoders.Camera</AssemblyName>
         <RootNamespace>AVCoders.Camera</RootNamespace>
         <LangVersion>default</LangVersion>

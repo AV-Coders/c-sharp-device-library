@@ -4,6 +4,8 @@
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Annotation device drivers for the AV Coders device library, including the Extron Annotator 401.</Description>
+        <PackageId>AVCoders.Annotator</PackageId>
         <AssemblyName>AVCoders.Annotator</AssemblyName>
         <RootNamespace>AVCoders.Annotator</RootNamespace>
     </PropertyGroup>
