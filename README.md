@@ -1,2 +1,153 @@
 # c-sharp-device-library
-The C# implementation of the AV Coders device library
+
+The C# implementation of the AV Coders device library — a collection of drivers and
+abstractions for controlling audio-visual hardware (displays, cameras, DSPs, matrix
+switchers, PDUs, conferencing codecs, lighting, motors and more) over TCP, UDP, SSH,
+serial, REST, MQTT, multicast and SNMP.
+
+Each device domain ships as its own NuGet package (published to GitHub Packages) on top
+of a shared `AVCoders.Core` foundation. Targets **.NET 8.0**.
+
+## How it works
+
+Every driver derives (directly or indirectly) from `LogBase` in `AVCoders.Core`, which
+provides logging, an in-memory diagnostics buffer and tracing. Most drivers also derive
+from `DeviceBase` and talk to hardware through a `CommunicationClient` transport, so a
+driver is decoupled from *how* it is connected:
+
+```
+LogBase                     logging + Events/Errors buffer + tracing
+ └─ DeviceBase              power/communication state, IDevice
+     └─ Display / CameraBase / Dsp / VideoMatrix / Conference / ...   ← concrete drivers
+                                       │
+                                CommunicationClient                   ← transport
+                                  (TCP, UDP, SSH, REST, MQTT, serial, ...)
+```
+
+You wire a driver to a transport and subscribe to its state-change handlers:
+
+```csharp
+var comms   = new AvCodersTcpClient("Projector", "192.168.1.50", 4352);
+var display = new PjLink(supportedInputs, "Projector", defaultInput, comms, CommandStringFormat.Ascii);
+
+display.PowerStateHandlers += state => Console.WriteLine($"Power: {state}");
+display.PowerOn();
+```
+
+## Packages
+
+| Package | Domain | Notable drivers |
+| --- | --- | --- |
+| `AVCoders.Core` | Foundation: `LogBase`, `DeviceBase`, `CommunicationClient`/`VolumeControl`/`ThreadWorker` abstractions, enums, handler delegates | — |
+| `AVCoders.CommunicationClients` | Concrete transports | `AvCodersTcpClient`, `AvCodersUdpClient`, `AvCodersSshClient`, `AvCodersMqttClient`, `AvCodersRestClient`, `AvCodersMulticastClient`, `AvCodersTcpServer`, `AvCodersSnmpV3Client`, `AvCodersWakeOnLan` |
+| `AVCoders.Display` | Displays / projectors / LED walls | `PjLink`, `SamsungMdc`, `SonySerialControl`/`SonySimpleIpControl`/`SonyRest`, `NecUhdExternalControl`, `PhilipsSICP`, `LGCommercial`, `CecDisplay`, `NovaStarH5`, `ColorlightDeviceControlProtocolClassB` |
+| `AVCoders.Matrix` | Matrix switchers / AV-over-IP | `ExtronIn16xx`/`ExtronIn18xx`/`ExtronSw`/`ExtronDtpCpxx`, `SvsiEncoder`/`SvsiDecoder`, `BlustreamAmf41W`, `Navigator`/`NavEncoder`/`NavDecoder` |
+| `AVCoders.Camera` | PTZ cameras & auto-tracking | `SonyVisca`, `AverVisca` (`ITrackingCamera`), `LumensCL511`, `AutomateVX` (1Beyond) |
+| `AVCoders.Conference` | Conferencing codecs & phonebooks | `CiscoRoomOs` (+ output/mic faders), `CiscoRoomOsPhonebookParser` |
+| `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `BoseCspSoIP` |
+| `AVCoders.Power` | PDUs / outlets | `EatonPdu`/`EatonOutlet` (SNMP), `ServerEdgePdu`/`ServerEdgeOutlet` (REST) |
+| `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer` |
+| `AVCoders.Motor` | Screens / blinds / shades | `ScreenTechnicsConnect`, `Grandview`, `MotoluxBlindTransmitter`, `BondDevice`/`BondGroup` |
+| `AVCoders.Lighting` | Lighting & dimmers | `CBusLight`, `DyNet` (Dynalite), `Zigbee2MqttLight` |
+| `AVCoders.Annotator` | Annotation devices | `ExtronAnnotator401` |
+| `AvCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2` |
+| `WirelessPresenter` | Wireless presentation | `ExtronSharelinkPro` |
+
+`Climate/` (`TemperzoneUc8`, Modbus RTU HVAC) exists in the solution but is **not** currently
+published as a package.
+
+## Installation
+
+Packages are hosted on GitHub Packages. Add the source once:
+
+```bash
+dotnet nuget add source "https://nuget.pkg.github.com/AV-Coders/index.json" \
+  --name github --username <github-user> --password <github-PAT> --store-password-in-clear-text
+```
+
+Then reference the domains you need (Core comes transitively):
+
+```bash
+dotnet add package AVCoders.Display
+dotnet add package AVCoders.CommunicationClients
+```
+
+To consume a beta build (see [Versioning](#versioning--releases)), opt into prereleases:
+
+```bash
+dotnet add package AVCoders.Display --prerelease
+```
+
+## Logging
+
+`AVCoders.Core` logs through the `Microsoft.Extensions.Logging` (MEL) abstraction — it has
+**no hard dependency on any specific logging framework**. Wire a logger factory **once at
+startup** via the static `LogBase.LoggerFactory`. Until you do, logging is silently
+discarded through `NullLoggerFactory` (nothing breaks; nothing is logged).
+
+Bridge an existing Serilog logger (requires the `Serilog.Extensions.Logging` package):
+
+```csharp
+Log.Logger = new LoggerConfiguration()
+    .Enrich.FromLogContext()      // surfaces the Class/InstanceName/Method scope properties
+    .WriteTo.Console()
+    .CreateLogger();
+
+LogBase.LoggerFactory = new SerilogLoggerFactory(Log.Logger);
+```
+
+Or use any other MEL provider:
+
+```csharp
+LogBase.LoggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+```
+
+Each log line is automatically scoped with the instance's `Class`, `InstanceName`,
+`InstanceUid` and the calling `Method`.
+
+### Diagnostics buffer
+
+Independently of the sink, every `LogBase` instance keeps a bounded in-memory ring buffer
+of recent `Events` (default 100) and `Errors` (default 10), with `EventsUpdated` /
+`ErrorsUpdated` change events — handy for driving a status UI without a log sink. Limits
+are adjustable via `SetEventLimit` / `SetErrorLimit`. `LogBaseRegistry` offers an opt-in
+static registry for clearing buffers across many instances at once.
+
+## Tracing
+
+`LogBase` exposes a static `ActivitySource` (`LogBase.ActivitySourceName` == `"AVCoders.Core"`).
+Each `PushProperties(...)` block opens a `Class.Method` span under the current `Activity`,
+so spans you create externally automatically become the parent. It is zero-cost when no
+listener is registered.
+
+Collect spans with OpenTelemetry:
+
+```csharp
+.WithTracing(t => t
+    .AddSource(LogBase.ActivitySourceName)
+    .AddOtlpExporter())
+```
+
+```csharp
+using var activity = LogBase.ActivitySource.StartActivity("HandleRoomPowerOn");
+display.PowerOn();   // each driver method nests its own span under this one
+```
+
+## Building & testing
+
+```bash
+dotnet restore
+dotnet build
+dotnet test
+```
+
+Each domain has a matching `*Test` xUnit project (tests use Moq).
+
+## Versioning & releases
+
+CI (`.github/workflows/dotnet.yml`) builds, tests, packs every published project and
+pushes to GitHub Packages. Versions are `YYYY.MM.<run_number>`:
+
+- Builds from **`main`** are stable releases.
+- Builds from **any other branch** get a `-beta` suffix (e.g. `2026.06.43-beta`) and are
+  published as NuGet **prereleases**.
