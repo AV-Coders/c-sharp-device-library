@@ -12,25 +12,28 @@ of a shared `AVCoders.Core` foundation. Targets **.NET 8.0**.
 
 Every driver derives (directly or indirectly) from `LogBase` in `AVCoders.Core`, which
 provides logging, an in-memory diagnostics buffer and tracing. Most drivers also derive
-from `DeviceBase` and talk to hardware through a `CommunicationClient` transport, so a
-driver is decoupled from *how* it is connected:
+from `DeviceBase` (or, where there is volume to manage, from `VolumeControl`) and talk to
+hardware through a `CommunicationClient` transport, so a driver is decoupled from *how* it
+is connected:
 
 ```
 LogBase                     logging + Events/Errors buffer + tracing
- └─ DeviceBase              power/communication state, IDevice
-     └─ Display / CameraBase / Dsp / VideoMatrix / Conference / ...   ← concrete drivers
+ ├─ VolumeControl           volume / mute state
+ │   └─ Display             power + input + volume, IDevice          ← concrete drivers
+ └─ DeviceBase              power / communication state, IDevice
+     └─ CameraBase / Dsp / VideoMatrix / Conference / ...            ← concrete drivers
                                        │
                                 CommunicationClient                   ← transport
-                                  (TCP, UDP, SSH, REST, MQTT, serial, ...)
+                                  (TCP, UDP, SSH, REST, MQTT, multicast, SNMP, ...)
 ```
 
-You wire a driver to a transport and subscribe to its state-change handlers:
+You wire a driver to a transport and subscribe to its state-change events:
 
 ```csharp
-var comms   = new AvCodersTcpClient("Projector", "192.168.1.50", 4352);
-var display = new PjLink(supportedInputs, "Projector", defaultInput, comms, CommandStringFormat.Ascii);
+var comms   = new AvCodersTcpClient("192.168.1.50", 4352, "Projector", CommandStringFormat.Ascii);
+var display = new PjLink(comms, "Projector", defaultInput);
 
-display.PowerStateHandlers += state => Console.WriteLine($"Power: {state}");
+display.OnPowerStateChanged += state => Console.WriteLine($"Power: {state}");
 display.PowerOn();
 ```
 
@@ -41,42 +44,20 @@ display.PowerOn();
 | `AVCoders.Core` | Foundation: `LogBase`, `DeviceBase`, `CommunicationClient`/`VolumeControl`/`ThreadWorker` abstractions, enums, handler delegates | — |
 | `AVCoders.CommunicationClients` | Concrete transports | `AvCodersTcpClient`, `AvCodersUdpClient`, `AvCodersSshClient`, `AvCodersMqttClient`, `AvCodersRestClient`, `AvCodersMulticastClient`, `AvCodersTcpServer`, `AvCodersSnmpV3Client`, `AvCodersWakeOnLan` |
 | `AVCoders.Display` | Displays / projectors / LED walls | `PjLink`, `SamsungMdc`, `SonySerialControl`/`SonySimpleIpControl`/`SonyRest`, `NecUhdExternalControl`, `PhilipsSICP`, `LGCommercial`, `CecDisplay`, `NovaStarH5`, `ColorlightDeviceControlProtocolClassB` |
-| `AVCoders.Matrix` | Matrix switchers / AV-over-IP | `ExtronIn16xx`/`ExtronIn18xx`/`ExtronSw`/`ExtronDtpCpxx`, `SvsiEncoder`/`SvsiDecoder`, `BlustreamAmf41W`, `Navigator`/`NavEncoder`/`NavDecoder` |
+| `AVCoders.Matrix` | Matrix switchers / AV-over-IP | `ExtronIn16Xx`/`ExtronIn18Xx`/`ExtronSw`/`ExtronDtpCpxx`, `SvsiEncoder`/`SvsiDecoder`, `BlustreamAmf41W`, `Navigator`/`NavEncoder`/`NavDecoder`, `AVoIPEndpoint` |
 | `AVCoders.Camera` | PTZ cameras & auto-tracking | `SonyVisca`, `AverVisca` (`ITrackingCamera`), `LumensCL511`, `AutomateVX` (1Beyond) |
 | `AVCoders.Conference` | Conferencing codecs & phonebooks | `CiscoRoomOs` (+ output/mic faders), `CiscoRoomOsPhonebookParser` |
 | `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `BoseCspSoIP` |
 | `AVCoders.Power` | PDUs / outlets | `EatonPdu`/`EatonOutlet` (SNMP), `ServerEdgePdu`/`ServerEdgeOutlet` (REST) |
-| `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer` |
+| `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer`, `ExterityTci` |
 | `AVCoders.Motor` | Screens / blinds / shades | `ScreenTechnicsConnect`, `Grandview`, `MotoluxBlindTransmitter`, `BondDevice`/`BondGroup` |
 | `AVCoders.Lighting` | Lighting & dimmers | `CBusLight`, `DyNet` (Dynalite), `Zigbee2MqttLight` |
 | `AVCoders.Annotator` | Annotation devices | `ExtronAnnotator401` |
-| `AvCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2` |
-| `WirelessPresenter` | Wireless presentation | `ExtronSharelinkPro` |
+| `AVCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2` |
+| `AVCoders.WirelessPresenter` | Wireless presentation | `ExtronSharelinkPro` |
 
 `Climate/` (`TemperzoneUc8`, Modbus RTU HVAC) exists in the solution but is **not** currently
 published as a package.
-
-## Installation
-
-Packages are hosted on GitHub Packages. Add the source once:
-
-```bash
-dotnet nuget add source "https://nuget.pkg.github.com/AV-Coders/index.json" \
-  --name github --username <github-user> --password <github-PAT> --store-password-in-clear-text
-```
-
-Then reference the domains you need (Core comes transitively):
-
-```bash
-dotnet add package AVCoders.Display
-dotnet add package AVCoders.CommunicationClients
-```
-
-To consume a beta build (see [Versioning](#versioning--releases)), opt into prereleases:
-
-```bash
-dotnet add package AVCoders.Display --prerelease
-```
 
 ## Logging
 
@@ -141,7 +122,8 @@ dotnet build
 dotnet test
 ```
 
-Each domain has a matching `*Test` xUnit project (tests use Moq).
+Most domains have a matching `*Test` xUnit project (tests use Moq); `CommunicationClients`,
+`Interface` and `Climate` are the current exceptions.
 
 ## Versioning & releases
 
