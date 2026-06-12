@@ -200,7 +200,7 @@ well-formed, complete messages</strong> — malformed or partial input will cras
   <div class="card high"><div class="num">10</div><div class="lbl">High severity</div></div>
   <div class="card med"><div class="num">13</div><div class="lbl">Medium severity</div></div>
   <div class="card low"><div class="num">9</div><div class="lbl">Low severity</div></div>
-  <div class="card"><div class="num">3</div><div class="lbl">Confirmed bugs · 1 fixed</div></div>
+  <div class="card"><div class="num">3</div><div class="lbl">Confirmed bugs · 2 fixed</div></div>
   <div class="card tests"><div class="num">996</div><div class="lbl">Tests · all green</div></div>
 </div>
 
@@ -250,12 +250,12 @@ well-formed, complete messages</strong> — malformed or partial input will cras
   <div class="fix"><strong>Resolution:</strong> now decodes with <code>Encoding.UTF8.GetString(bytes)</code>, matching the UTF-8 string content the <code>Post</code> path sends. Build verified, no new warnings.</div>
 </div>
 
-<div class="finding high">
-  <div class="head"><span class="badge high">High</span><span class="badge verified">Verified</span>
-    <span class="title"><code>AvCodersMqttClient</code> ignores its <code>username</code>/<code>password</code> parameters</span></div>
+<div class="finding low">
+  <div class="head"><span class="badge fixed">✅ Fixed 2026-06-12</span><span class="badge verified">Verified</span>
+    <span class="title"><code>AvCodersMqttClient</code> ignored its <code>username</code>/<code>password</code> parameters</span></div>
   <div class="loc">CommunicationClients/AvCodersMqttClient.cs:16–27</div>
-  <div class="body">Credentials are accepted but never passed to <code>MqttClientOptionsBuilder</code> — authenticated brokers reject every connection. The constructor also fire-and-forgets <code>ConnectAsync</code> (line 23) with no error handling, <em>before</em> attaching the <code>ConnectedAsync</code> handler (line 24) — a startup race.</div>
-  <div class="fix"><strong>Fix:</strong> add <code>.WithCredentials(username, password)</code>; wire handlers before connecting; surface initial-connect failure.</div>
+  <div class="body">Credentials were accepted but never passed to <code>MqttClientOptionsBuilder</code> — authenticated brokers rejected every connection. The constructor also fire-and-forgot <code>ConnectAsync</code> before attaching the <code>ConnectedAsync</code> handler — a startup race.</div>
+  <div class="fix"><strong>Resolution:</strong> <code>.WithCredentials(...)</code> is applied when a username is supplied; a null/empty username connects anonymously (the CONNECT packet omits the username/password flags entirely — an empty-string username reads as a failed login to brokers, and MQTT forbids a password without a username). Parameters are now nullable. Handlers are wired before the initial connect, which logs failures and sets <code>Disconnected</code>. The blocking <code>.Wait()</code> in the reconnect loop (H5) remains open.</div>
 </div>
 
 <div class="finding high">
@@ -443,7 +443,7 @@ well-formed, complete messages</strong> — malformed or partial input will cras
 <div class="phase">Week 1 — fix confirmed bugs (small diffs)</div>
 <ul class="plan">
   <li><s><code>AvCodersRestClient.Send(byte[])</code> → encode bytes properly.</s> <span class="badge fixed">✅ Done 2026-06-12</span></li>
-  <li><code>AvCodersMqttClient</code> → <code>.WithCredentials(...)</code>, wire handlers before connecting, handle initial-connect failure.</li>
+  <li><s><code>AvCodersMqttClient</code> → <code>.WithCredentials(...)</code>, wire handlers before connecting, handle initial-connect failure.</s> <span class="badge fixed">✅ Done 2026-06-12</span></li>
   <li><code>PhilipsSICP</code> → bounds-check before <code>response[0]</code> / <code>response[3]</code>.</li>
   <li>Replace the three blocking <code>.Wait()</code> calls (SSH, MQTT, SamsungMDC) with <code>await</code>.</li>
 </ul>

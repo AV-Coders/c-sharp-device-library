@@ -35,7 +35,7 @@ These were re-read and confirmed during synthesis, not just reported by a review
 
 1. ✅ **FIXED (2026-06-12)** — **`AvCodersRestClient.Send(byte[])` sent the literal string `"System.Byte[]"`** — `CommunicationClients/AvCodersRestClient.cs:26` called `bytes.ToString()`, which returns the CLR type name, not the payload. Now decodes with `Encoding.UTF8.GetString(bytes)`, matching the UTF-8 string content the `Post` path sends.
 
-2. **`AvCodersMqttClient` ignores its `username`/`password` parameters** — `CommunicationClients/AvCodersMqttClient.cs:16-21` accepts credentials but builds `MqttClientOptions` without `.WithCredentials(...)`. Authenticated brokers will reject every connection. The constructor also fire-and-forgets `_mqttClient.ConnectAsync(...)` (line 23) with no error handling, **before** wiring the `ConnectedAsync` handler (line 24) — a startup race where the initial connection can complete before the handler is attached.
+2. ✅ **FIXED (2026-06-12)** — **`AvCodersMqttClient` ignored its `username`/`password` parameters** — `CommunicationClients/AvCodersMqttClient.cs:16-21` accepted credentials but built `MqttClientOptions` without `.WithCredentials(...)`, so authenticated brokers rejected every connection. Now: credentials are applied when a username is supplied; a null/empty username connects anonymously (the CONNECT packet omits the username/password flags entirely, which is what brokers expect — an empty-string username is treated as a failed login by brokers like Mosquitto, and MQTT forbids a password without a username). The parameters are now nullable (`string?`). The startup race was also fixed: handlers are wired **before** the initial connect, which is wrapped to log failures and set `Disconnected` instead of fire-and-forgetting. (The blocking `.Wait()` in the reconnect loop — issue H5 — remains open.)
 
 3. **`PhilipsSICP.HandleResponse` crashes on an empty response** — `Display/PhilipsSICP.cs:34` evaluates `response.Length < response[0]` without first checking `response.Length > 0`; an empty array throws `IndexOutOfRangeException`. The guard is also off by one (it should ensure `response[0]` bytes are actually present) and `response[3]` at line 41 is reachable with a 1–3 byte response.
 
@@ -145,7 +145,7 @@ Fix: a shared safe-parsing helper (bounds-checked indexer + `TryParse`) used by 
 
 **Week 1 — fix confirmed bugs (small diffs):**
 1. ~~`AvCodersRestClient.Send(byte[])` → encode bytes properly.~~ ✅ Done 2026-06-12.
-2. `AvCodersMqttClient` → `.WithCredentials(username, password)`, wire handlers before connecting, handle initial-connect failure.
+2. ~~`AvCodersMqttClient` → `.WithCredentials(username, password)`, wire handlers before connecting, handle initial-connect failure.~~ ✅ Done 2026-06-12.
 3. `PhilipsSICP` → bounds-check before `response[0]`/`response[3]`.
 4. Replace the three blocking `.Wait()` calls (SSH, MQTT, SamsungMDC) with `await`.
 
