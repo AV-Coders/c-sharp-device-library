@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AV Coders Device Library — Code Review</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --surface: #1a2129;
+    --surface-2: #212a35;
+    --border: #2d3845;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #4fa3ff;
+    --high: #f0526a;
+    --high-bg: rgba(240, 82, 106, .12);
+    --med: #f5a623;
+    --med-bg: rgba(245, 166, 35, .12);
+    --low: #3fb68b;
+    --low-bg: rgba(63, 182, 139, .12);
+    --good: #3fb68b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 80px; }
+  header {
+    padding: 56px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 36px;
+  }
+  header h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -.02em; }
+  header .sub { color: var(--muted); margin-top: 8px; font-size: .95rem; }
+  header .sub strong { color: var(--text); }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: .75rem; font-weight: 600; letter-spacing: .03em;
+  }
+  .pill.pass { background: var(--low-bg); color: var(--low); border: 1px solid var(--low); }
+
+  /* summary cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 28px 0; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .card .num { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+  .card .lbl { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; margin-top: 4px; }
+  .card.high .num { color: var(--high); }
+  .card.med  .num { color: var(--med); }
+  .card.low  .num { color: var(--low); }
+  .card.tests .num { color: var(--good); }
+
+  h2 {
+    font-size: 1.35rem; margin: 48px 0 16px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--border); letter-spacing: -.01em;
+  }
+  h3 { font-size: 1.05rem; margin: 26px 0 10px; color: var(--accent); }
+  p { margin: 10px 0; }
+  p.lede { font-size: 1.02rem; }
+  .muted { color: var(--muted); }
+  code {
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 5px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: .85em; color: #9fc6ff;
+  }
+
+  /* grade table */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: .92rem; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  .grade {
+    display: inline-block; width: 2.4em; text-align: center; font-weight: 700;
+    border-radius: 8px; padding: 2px 0;
+  }
+  .grade.a, .grade.bp { background: var(--low-bg); color: var(--low); }
+  .grade.b { background: rgba(79,163,255,.12); color: var(--accent); }
+  .grade.bm { background: var(--med-bg); color: var(--med); }
+  .grade.c { background: var(--high-bg); color: var(--high); }
+
+  /* severity bars */
+  .sevbar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; margin: 18px 0 6px; }
+  .sevbar div { height: 100%; }
+  .sevbar .h { background: var(--high); }
+  .sevbar .m { background: var(--med); }
+  .sevbar .l { background: var(--low); }
+  .legend { display: flex; gap: 18px; font-size: .82rem; color: var(--muted); margin-bottom: 8px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  .dot.h { background: var(--high); } .dot.m { background: var(--med); } .dot.l { background: var(--low); }
+
+  /* findings */
+  .finding {
+    background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin: 12px 0;
+  }
+  .finding.high { border-left-color: var(--high); }
+  .finding.med  { border-left-color: var(--med); }
+  .finding.low  { border-left-color: var(--low); }
+  .finding .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .finding .title { font-weight: 600; font-size: .98rem; }
+  .badge {
+    font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+    padding: 2px 8px; border-radius: 5px; white-space: nowrap;
+  }
+  .badge.high { background: var(--high-bg); color: var(--high); }
+  .badge.med  { background: var(--med-bg); color: var(--med); }
+  .badge.low  { background: var(--low-bg); color: var(--low); }
+  .badge.verified { background: rgba(79,163,255,.14); color: var(--accent); }
+  .badge.fixed { background: var(--low-bg); color: var(--low); border: 1px solid var(--low); }
+  .finding .body { margin-top: 8px; font-size: .92rem; color: #c4cdd6; }
+  .finding .fix { margin-top: 8px; font-size: .9rem; }
+  .finding .fix strong { color: var(--good); }
+  .loc { font-size: .82rem; color: var(--muted); margin-top: 4px;
+         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  details { margin: 12px 0; }
+  summary {
+    cursor: pointer; font-weight: 600; padding: 12px 16px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    user-select: none;
+  }
+  summary:hover { background: var(--surface-2); }
+  details[open] summary { border-radius: 10px 10px 0 0; border-bottom: none; }
+  details .inner {
+    border: 1px solid var(--border); border-top: none; border-radius: 0 0 10px 10px;
+    padding: 8px 16px 16px; background: rgba(255,255,255,.015);
+  }
+
+  ul.clean { list-style: none; padding-left: 0; }
+  ul.clean li { padding: 7px 0 7px 26px; position: relative; border-bottom: 1px dashed var(--border); font-size: .92rem; }
+  ul.clean li:last-child { border-bottom: none; }
+  ul.clean li::before { content: "✓"; position: absolute; left: 4px; color: var(--good); font-weight: 700; }
+  ul.plan { padding-left: 0; list-style: none; counter-reset: plan; }
+  ul.plan li {
+    counter-increment: plan; padding: 9px 0 9px 44px; position: relative; font-size: .93rem;
+    border-bottom: 1px dashed var(--border);
+  }
+  ul.plan li:last-child { border-bottom: none; }
+  ul.plan li::before {
+    content: counter(plan); position: absolute; left: 4px; top: 8px;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; font-weight: 700;
+  }
+  .phase { color: var(--accent); font-weight: 700; font-size: .82rem; text-transform: uppercase;
+           letter-spacing: .07em; margin: 22px 0 4px; }
+  .callout {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; margin: 16px 0; font-size: .92rem;
+  }
+  .callout.warn { border-left: 4px solid var(--med); }
+  .callout.note { border-left: 4px solid var(--accent); }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border);
+           color: var(--muted); font-size: .82rem; }
+
+  /* coverage bars */
+  .cov { display: flex; align-items: center; gap: 10px; }
+  .cov .track { flex: 1; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+  .cov .fill { height: 100%; border-radius: 4px; background: var(--good); }
+  .cov .fill.warn { background: var(--med); }
+  .cov .fill.bad { background: var(--high); }
+  .cov .pct { width: 52px; text-align: right; font-size: .82rem; color: var(--muted);
+              font-family: ui-monospace, Menlo, Consolas, monospace; }
+  @media print {
+    body { background: #fff; color: #111; }
+    .finding, .card, .callout, summary { background: #f6f8fa; border-color: #ddd; }
+    details { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>AV Coders C# Device Library — Code Review</h1>
+  <div class="sub">
+    2026-06-10 &nbsp;·&nbsp; Full repository: Core, CommunicationClients, 13 driver domains, 12 test projects, packaging &amp; CI
+    &nbsp;·&nbsp; <span class="pill pass">996 tests · 995 passed · 0 failed (2026-06-12)</span>
+  </div>
+  <div class="sub">Five parallel specialist reviews; high-severity findings <strong>spot-verified against source</strong> before inclusion.</div>
+</header>
+
+<p class="lede">
+This is a <strong>well-architected, professionally packaged library</strong> with an unusually good observability story
+(MEL logging abstraction, diagnostics ring buffers, ActivitySource tracing) and strong test density across driver domains.
+The risk is concentrated in two places: <strong><code>CommunicationClients</code> has zero tests</strong> despite being the most
+concurrency-heavy code in the repo (and contains several confirmed bugs today), and <strong>driver response parsing assumes
+well-formed, complete messages</strong> — malformed or partial input will crash or silently desynchronize drivers.
+</p>
+
+<div class="cards">
+  <div class="card high"><div class="num">10</div><div class="lbl">High severity</div></div>
+  <div class="card med"><div class="num">13</div><div class="lbl">Medium severity</div></div>
+  <div class="card low"><div class="num">9</div><div class="lbl">Low severity</div></div>
+  <div class="card"><div class="num">3</div><div class="lbl">Confirmed bugs · 1 fixed</div></div>
+  <div class="card tests"><div class="num">996</div><div class="lbl">Tests · all green</div></div>
+</div>
+
+<div class="sevbar">
+  <div class="h" style="width:31%"></div>
+  <div class="m" style="width:41%"></div>
+  <div class="l" style="width:28%"></div>
+</div>
+<div class="legend">
+  <span><span class="dot h"></span>High (10)</span>
+  <span><span class="dot m"></span>Medium (13)</span>
+  <span><span class="dot l"></span>Low (9)</span>
+</div>
+
+<h2>Scorecard</h2>
+<table>
+  <tr><th>Area</th><th>Grade</th><th>Verdict</th></tr>
+  <tr><td>Architecture &amp; Core abstractions</td><td><span class="grade b">B</span></td>
+      <td>Clean hierarchy, great observability; threading/disposal lifecycle needs hardening</td></tr>
+  <tr><td>Transports (CommunicationClients)</td><td><span class="grade c">C</span></td>
+      <td>Solid TCP backoff design, but confirmed bugs, races, and zero tests</td></tr>
+  <tr><td>Device drivers (~50 across 13 domains)</td><td><span class="grade bm">B−</span></td>
+      <td>Consistent patterns, good state reconciliation; fragile parsing on malformed input</td></tr>
+  <tr><td>Testing</td><td><span class="grade b">B</span></td>
+      <td>988 fast, well-parameterized tests — but the riskiest project is the untested one</td></tr>
+  <tr><td>Packaging, CI &amp; docs</td><td><span class="grade bp">B+</span></td>
+      <td>Excellent NuGet metadata and READMEs; missing analyzers, XML docs, changelog</td></tr>
+</table>
+
+<h2>What's genuinely good</h2>
+<ul class="clean">
+  <li><strong>Observability built into the foundation</strong> — MEL abstraction with no hard logging dependency, per-instance bounded event/error ring buffers with change events, zero-cost ActivitySource tracing with automatic span nesting via <code>PushProperties()</code>.</li>
+  <li><strong>Clean driver/transport decoupling</strong> — every driver talks through <code>CommunicationClient</code>, so transports are swappable; <code>NoneCommunicationClient</code> is a proper Null Object.</li>
+  <li><strong>TCP reconnection done thoughtfully</strong> — exponential backoff with jitter, proactive half-open socket detection via <code>Poll()</code>, careful lock discipline when swapping client/stream pairs.</li>
+  <li><strong>Desired-vs-actual state reconciliation</strong> in display drivers — drivers re-send commands when the device reports a state that doesn't match intent.</li>
+  <li><strong>988 fast tests with excellent parameterization</strong> — 478 <code>[Theory]</code>/<code>[InlineData]</code> usages, consistent naming, a shared <code>TestFactory</code>, near-zero flaky patterns.</li>
+  <li><strong>Professional packaging</strong> — complete NuGet metadata on all 14 packages (descriptions, MIT license, icon, repo URL, per-package READMEs), nullable enabled everywhere, beta-prerelease CI flow, accurate root README.</li>
+</ul>
+
+<h2>Confirmed bugs <span class="muted" style="font-size:.8em">(re-verified against source during synthesis)</span></h2>
+
+<div class="finding low">
+  <div class="head"><span class="badge fixed">✅ Fixed 2026-06-12</span><span class="badge verified">Verified</span>
+    <span class="title"><code>AvCodersRestClient.Send(byte[])</code> sent the literal string <code>"System.Byte[]"</code></span></div>
+  <div class="loc">CommunicationClients/AvCodersRestClient.cs:26</div>
+  <div class="body"><code>bytes.ToString()</code> returned the CLR type name, not the payload — every caller of the byte overload posted garbage to the device.</div>
+  <div class="fix"><strong>Resolution:</strong> now decodes with <code>Encoding.UTF8.GetString(bytes)</code>, matching the UTF-8 string content the <code>Post</code> path sends. Build verified, no new warnings.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="badge verified">Verified</span>
+    <span class="title"><code>AvCodersMqttClient</code> ignores its <code>username</code>/<code>password</code> parameters</span></div>
+  <div class="loc">CommunicationClients/AvCodersMqttClient.cs:16–27</div>
+  <div class="body">Credentials are accepted but never passed to <code>MqttClientOptionsBuilder</code> — authenticated brokers reject every connection. The constructor also fire-and-forgets <code>ConnectAsync</code> (line 23) with no error handling, <em>before</em> attaching the <code>ConnectedAsync</code> handler (line 24) — a startup race.</div>
+  <div class="fix"><strong>Fix:</strong> add <code>.WithCredentials(username, password)</code>; wire handlers before connecting; surface initial-connect failure.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="badge verified">Verified</span>
+    <span class="title"><code>PhilipsSICP.HandleResponse</code> crashes on an empty response</span></div>
+  <div class="loc">Display/PhilipsSICP.cs:34, 41</div>
+  <div class="body"><code>response.Length &lt; response[0]</code> dereferences <code>response[0]</code> before any length check — an empty array throws <code>IndexOutOfRangeException</code>. The guard is also off by one, and <code>response[3]</code> is reachable with a 1–3 byte response.</div>
+  <div class="fix"><strong>Fix:</strong> <code>if (response.Length &lt; 4 || response.Length &lt; response[0] + 1) return;</code> (with the warning log).</div>
+</div>
+
+<div class="callout note">
+  <strong>Rejected during verification:</strong> a reviewer flagged <code>LGCommercial.cs:101</code> (<code>data[1]</code> after
+  <code>Split("OK")</code>) as a crash risk. It is safe — line 99 returns early unless the response contains <code>"OK"</code>,
+  guaranteeing the split yields ≥ 2 parts. Counts on this page reflect verified findings only.
+</div>
+
+<h2>High-severity issues</h2>
+
+<h3>Transports &amp; threading</h3>
+
+<div class="finding med">
+  <div class="head"><span class="badge med">High → Partial</span><span class="badge fixed">⚠ Addressed 2026-06-12</span><span class="title">Zero test coverage for <code>CommunicationClients</code></span></div>
+  <div class="body">Originally: 12 classes implementing reconnection, backoff, send queues and connection-state machines had no test project at all — the highest-risk untested surface in the repo. <strong>Now:</strong> <code>CommunicationClientsTest</code> exists with 27 tests over loopback sockets/<code>HttpListener</code> covering the TCP client (connect, send/receive, queue-while-disconnected, reconnect-after-drop, refused-connection state), TCP server (accept, receive, probe-byte filtering, multi-client broadcast), UDP client, REST client (incl. the UTF-8 byte-payload regression test) and Wake-on-LAN packet construction.</div>
+  <div class="fix"><strong>Remaining:</strong> <code>AvCodersSshClient</code>, <code>AvCodersMqttClient</code>, <code>AvCodersSnmpV3Client</code>, <code>AvCodersMulticastClient</code> — these need local server infrastructure or refactoring for dependency injection. <code>Interface</code> and <code>Climate</code> also remain untested.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title">Finalizers call async <code>Stop()</code> — disposal is broken by design</span></div>
+  <div class="loc">Core/CommunicationClient.cs:205–210 (~IpComms) · Core/ThreadWorker.cs:120–123</div>
+  <div class="body">A destructor cannot await: the <code>Stop()</code> calls fire-and-forget, finalizer ordering between <code>IpComms</code> and its workers is undefined, and the <code>CancellationTokenSource</code> is never disposed. No concrete client implements <code>IDisposable</code>/<code>IAsyncDisposable</code>.</div>
+  <div class="fix"><strong>Fix:</strong> implement <code>IAsyncDisposable</code> on <code>IpComms</code> and concrete clients; delete the finalizers.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title"><code>ThreadWorker</code> lifecycle races</span></div>
+  <div class="loc">Core/ThreadWorker.cs:14–26, 125–128</div>
+  <div class="body"><code>IsRunning</code> reads <code>_cancellationTokenSource</code>/<code>_task</code> without the lock (TOCTOU against <code>StopInternal</code>), and <code>WaitFirst()</code> mutates <code>_waitFirst</code> unsynchronized while the worker loop reads it.</div>
+  <div class="fix"><strong>Fix:</strong> take <code>_lock</code> in these members, or document them as start-up-only / best-effort.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title">No TCP framing / partial-read handling</span></div>
+  <div class="loc">CommunicationClients/AvCodersTcpClient.cs:50–58 · e.g. Matrix/ExtronDtpCpxx.cs:48–65</div>
+  <div class="body">Each <code>ReadAsync</code> result is treated as one complete message and decoded as ASCII; TCP guarantees neither. Drivers that split on <code>\r</code> lose sync when a frame straddles two reads. <code>CommandStringFormat</code> exists but is never consulted on receive.</div>
+  <div class="fix"><strong>Fix:</strong> per-connection reassembly buffer with delimiter- or length-based framing; honor <code>CommandStringFormat</code> when decoding.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title">Blocking waits on async paths (3 instances)</span></div>
+  <div class="loc">AvCodersSshClient.cs:265 · AvCodersMqttClient.cs:62 · Display/SamsungMDC.cs:73–78</div>
+  <div class="body">SSH reconnect calls <code>Stop().Wait()</code> with no timeout; the MQTT disconnect handler blocks MQTTnet's event pipeline with <code>Task.Delay(3s).Wait()</code> inside a retry loop; SamsungMDC's poll loop uses <code>.Wait(token)</code> instead of <code>await</code>.</div>
+  <div class="fix"><strong>Fix:</strong> make these paths async end-to-end; if a sync bridge is unavoidable, bound it with a timeout.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title">UDP sends fail silently; unsynchronized client access</span></div>
+  <div class="loc">AvCodersUdpClient.cs:61, 100</div>
+  <div class="body"><code>SendAsync</code> isn't wrapped in try/catch — a socket error drops the queued item with no log and no re-queue (TCP re-queues; behavior should match). The <code>_client</code> null-check races with <code>CreateClient()</code> on another thread.</div>
+  <div class="fix"><strong>Fix:</strong> catch and log/re-queue send failures; guard <code>_client</code> with a lock.</div>
+</div>
+
+<h3>Drivers &amp; core API</h3>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title">Unguarded index access into device responses (cross-driver pattern)</span></div>
+  <div class="loc">NecUhdExternalControl.cs:104–143 · PhilipsSICP.cs:34 · CiscoRoomOs.cs:308–335 · SonySimpleIPControl.cs:120</div>
+  <div class="body">Malformed or truncated responses throw <code>IndexOutOfRangeException</code>/<code>FormatException</code> and abort the parse. The pattern repeats across roughly 8 drivers: positional access after <code>Split</code>, fixed-offset byte indexing, <code>int.Parse</code> on unvalidated substrings.</div>
+  <div class="fix"><strong>Fix:</strong> one shared safe-parsing helper (bounds-checked access + <code>TryParse</code>) used by all drivers — a single change that hardens the whole fleet.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title">State-change handler invocations aren't exception-isolated</span></div>
+  <div class="loc">Core/DeviceBase.cs:26–27 · Core/VolumeControl.cs:31–46 · Conference/CiscoRoomOs.cs:278–284</div>
+  <div class="body">Legacy delegate fields and modern events are invoked back-to-back with no try/catch — one throwing subscriber prevents the rest from running. <code>CiscoRoomOs</code> rethrows out of its response handler, leaving the driver in an unmarked error state. <code>CommunicationClient.ConnectionState</code> already does this correctly.</div>
+  <div class="fix"><strong>Fix:</strong> copy the <code>ConnectionState</code> isolation pattern to every handler invocation site.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title">Public mutable delegate fields instead of events</span></div>
+  <div class="loc">Core/LogBase.cs · DeviceBase.cs · VolumeControl.cs · Display/Display.cs</div>
+  <div class="body">Fields like <code>public StringHandler? NameChangedHandlers</code> can be <em>reassigned</em> by any consumer — <code>device.PowerStateHandlers = null</code> silently wipes other subscribers. The codebase is mid-migration to <code>event</code> properties (<code>OnPowerStateChanged</code>).</div>
+  <div class="fix"><strong>Fix:</strong> finish the migration to <code>event</code> declarations; remove the duplicate legacy fields.</div>
+</div>
+
+<div class="finding high">
+  <div class="head"><span class="badge high">High</span><span class="title"><code>LogBase.LoggerFactory</code> swap after construction is a silent no-op</span></div>
+  <div class="loc">Core/LogBase.cs:21</div>
+  <div class="body">Each instance captures its <code>ILogger</code> at construction; setting the factory after devices exist changes nothing, and the static setter is unsynchronized.</div>
+  <div class="fix"><strong>Fix:</strong> resolve the logger lazily through the factory (or document "set once, before constructing any device" and guard with a lock).</div>
+</div>
+
+<h2>Medium-severity issues</h2>
+<details open>
+  <summary>13 findings — concurrency, security posture, CI consistency</summary>
+  <div class="inner">
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title"><code>BiampTtp</code> <code>_currentQuery</code> race</span></div>
+      <div class="loc">Dsp/BiampTtp.cs:135–149</div>
+      <div class="body">Checked and cleared from poll and response threads without synchronization — queries can be lost or mismatched. Similar unsynchronized shared state in <code>QsysEcp</code> change-group tracking. Use a lock or <code>Interlocked</code>.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title"><code>QsysEcp</code> swallows parse exceptions without context</span></div>
+      <div class="loc">Dsp/QsysEcp.cs:142–145</div>
+      <div class="body">The exception is logged but not the offending response — include the payload in the log message.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title">TLS certificate validation disabled unconditionally</span></div>
+      <div class="loc">AvCodersRestClient.cs:144</div>
+      <div class="body"><code>ValidateCertificate</code> always returns <code>true</code>. Acceptable on closed AV networks, but it should be opt-in (constructor flag, strict by default) and documented.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title"><code>AvCodersTcpServer</code> accepts unbounded connections</span></div>
+      <div class="body">No client cap or accept throttle — a misbehaving network device can exhaust memory.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title">SSH: fixed 60&thinsp;s retry and racy stream creation</span></div>
+      <div class="loc">AvCodersSshClient.cs:121, 177–194</div>
+      <div class="body">Reconnect waits a fixed 60&thinsp;s (TCP starts at 1&thinsp;s with backoff), and <code>CreateStream</code> is callable concurrently from the receive and connection-check paths with no lock.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title"><code>NetworkStream</code> I/O not synchronized across threads</span></div>
+      <div class="loc">AvCodersTcpClient.cs</div>
+      <div class="body">Assignment of <code>_client</code>/<code>_stream</code> is locked, but concurrent read/write operations from the receive and send-queue workers are not — <code>NetworkStream</code> is not thread-safe for that.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title">TCP <code>Send</code> uses <code>CancellationToken.None</code></span></div>
+      <div class="loc">AvCodersTcpClient.cs:241–280</div>
+      <div class="body">A hung network blocks the caller indefinitely; bound the write with a timeout token.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title">Null-forgiving cast in Eaton PDU poll</span></div>
+      <div class="loc">Power/Eaton.cs:73</div>
+      <div class="body"><code>x as EatonOutlet</code> followed by <code>outlet!.PollPowerState()</code> — the <code>!</code> doesn't prevent the NRE. Use <code>if (x is EatonOutlet outlet)</code>.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title"><code>LGCommercial.DoPoll</code> infers power from connection state</span></div>
+      <div class="loc">Display/LGCommercial.cs:145–171</div>
+      <div class="body">Connection up ≠ display on — poll the device for power state like <code>SamsungMDC</code> does.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title"><code>DisposableItems.Dispose</code> stops at the first throwing item</span></div>
+      <div class="loc">Core/DisposableItems.cs:5–11</div>
+      <div class="body">Dispose every item and aggregate exceptions, otherwise one bad item leaks the rest.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title"><code>VolumeControl</code> constructor self-subscribes state-writing lambdas</span></div>
+      <div class="loc">Core/VolumeControl.cs:54–55</div>
+      <div class="body">The handler chain re-assigns the backing field the property setter already set — redundant, and confusing about who owns state.</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title">CI version computation duplicated and divergent</span></div>
+      <div class="loc">.github/workflows/dotnet.yml</div>
+      <div class="body">The <code>publish-nuget</code> job computes <code>date + run_number</code> while <code>build</code> uses the monthly-counter scheme — versions can drift. Factor into one shared <code>compute-version</code> job. (The workflow edit and both plan files are currently uncommitted.)</div></div>
+    <div class="finding med"><div class="head"><span class="badge med">Medium</span><span class="title">Parsing edge cases untested everywhere</span></div>
+      <div class="body">Across 988 tests there is essentially no malformed/empty/truncated-response coverage — exactly the input class behind the high-severity parsing crashes. Parameterized "garbage in" tests per driver are cheap and high-value.</div></div>
+  </div>
+</details>
+
+<h2>Low-severity / polish</h2>
+<details>
+  <summary>9 findings — click to expand</summary>
+  <div class="inner">
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title"><code>double.Parse</code>/<code>int.Parse</code> without <code>TryParse</code> in driver parsing</span></div><div class="loc">Dsp/BiampTtp.cs:241, 263, 299 and others</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title">Duplicated constructor statements</span></div><div class="loc">Camera/SonyVisca.cs:27, 35 — <code>SetCameraId</code> and <code>_useIpHeaders</code> each assigned twice</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title">Inverted brightness underflow condition (accidentally still clamps correctly)</span></div><div class="loc">Display/ColorlightDeviceControlProtocolClassB.cs:96–101</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title"><code>EnqueueWithCap</code> silently drops the oldest queued command</span></div><div class="loc">AvCodersTcpClient.cs:283–292 — no notification to the driver</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title">Hardcoded poll intervals across drivers</span></div><div class="body">23&thinsp;s displays, 200&thinsp;ms Biamp, 50&thinsp;s Q-SYS — make them constructor parameters.</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title">Dead / commented code</span></div><div class="loc">Matrix/ExtronDtpCpxx.cs:224 · unused <code>ConvertByteArrayToString</code> in Core</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title">Sleep-based timing in <code>ThreadWorkerTest</code></span></div><div class="body">Fixed <code>Thread.Sleep(300)</code> assumptions — poll for the invocation count with a timeout to avoid CI flakes.</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title">xUnit2013: <code>Assert.Equal(1, count)</code> instead of <code>Assert.Single</code></span></div><div class="loc">ConferenceTest/CiscoRoomOsPhonebookParserTest.cs</div></div>
+    <div class="finding low"><div class="head"><span class="badge low">Low</span><span class="title">Magic protocol bytes throughout</span></div><div class="body"><code>0xAA</code>, <code>0x11</code>… — name them as constants per driver.</div></div>
+  </div>
+</details>
+
+<h2>Test coverage by domain</h2>
+<table>
+  <tr><th>Domain</th><th style="width:45%">Class-level coverage</th><th>Notable gaps</th></tr>
+  <tr><td>Display</td><td><div class="cov"><div class="track"><div class="fill" style="width:93%"></div></div><div class="pct">13/14</div></div></td><td>Best in repo</td></tr>
+  <tr><td>Dsp</td><td><div class="cov"><div class="track"><div class="fill" style="width:100%"></div></div><div class="pct">4/4</div></div></td><td>Fully covered</td></tr>
+  <tr><td>Conference</td><td><div class="cov"><div class="track"><div class="fill" style="width:83%"></div></div><div class="pct">5/6</div></div></td><td>—</td></tr>
+  <tr><td>Matrix</td><td><div class="cov"><div class="track"><div class="fill warn" style="width:69%"></div></div><div class="pct">11/16</div></div></td><td>5 drivers untested</td></tr>
+  <tr><td>MediaPlayer</td><td><div class="cov"><div class="track"><div class="fill warn" style="width:60%"></div></div><div class="pct">6/10</div></div></td><td>4 drivers untested</td></tr>
+  <tr><td>Power</td><td><div class="cov"><div class="track"><div class="fill warn" style="width:50%"></div></div><div class="pct">2/4</div></div></td><td>Crestron, iBoot</td></tr>
+  <tr><td>Motor</td><td><div class="cov"><div class="track"><div class="fill warn" style="width:50%"></div></div><div class="pct">3/6</div></div></td><td>3 drivers untested</td></tr>
+  <tr><td>Camera</td><td><div class="cov"><div class="track"><div class="fill warn" style="width:43%"></div></div><div class="pct">3/7</div></div></td><td>Base class, AverVisca</td></tr>
+  <tr><td>Core</td><td><div class="cov"><div class="track"><div class="fill bad" style="width:38%"></div></div><div class="pct">5/13</div></div></td><td>DeviceBase reconciliation, IpComms workers, handler isolation</td></tr>
+  <tr><td><strong>CommunicationClients</strong></td><td><div class="cov"><div class="track"><div class="fill warn" style="width:42%"></div></div><div class="pct">5/12</div></div></td><td>TCP client/server, UDP, REST, WoL covered (2026-06-12); <strong>SSH, MQTT, SNMP, Multicast remain</strong></td></tr>
+  <tr><td>Interface</td><td><div class="cov"><div class="track"><div class="fill bad" style="width:2%"></div></div><div class="pct">0/1</div></div></td><td>TybaTurn2</td></tr>
+  <tr><td>Climate</td><td><div class="cov"><div class="track"><div class="fill bad" style="width:2%"></div></div><div class="pct">0/2</div></div></td><td>TemperzoneUc8 (unpublished)</td></tr>
+</table>
+<p class="muted">Tests are predominantly <em>command-format verification</em> (right bytes sent) rather than <em>behavior under failure</em> (reconnects, timeouts, malformed responses) — a fine base, but the failure-path layer is missing.</p>
+
+<h2>Packaging, CI &amp; documentation gaps</h2>
+<table>
+  <tr><th>Priority</th><th>Gap</th><th>Fix</th></tr>
+  <tr><td><span class="badge high">High</span></td><td>No analyzers / warnings-as-errors</td><td><code>TreatWarningsAsErrors</code> + <code>EnableNETAnalyzers</code> + <code>AnalysisLevel=latest</code> in <code>Directory.Build.props</code></td></tr>
+  <tr><td><span class="badge high">High</span></td><td>No XML docs generated or written (Core ~29&thinsp;% of public members, most domains ~0&thinsp;%)</td><td><code>GenerateDocumentationFile=true</code> + audit public API — consumers get no IntelliSense today</td></tr>
+  <tr><td><span class="badge high">High</span></td><td>CI version-computation mismatch between jobs</td><td>Single <code>compute-version</code> job consumed by both <code>build</code> and <code>publish-nuget</code></td></tr>
+  <tr><td><span class="badge med">Med</span></td><td>No code coverage in CI</td><td>coverlet is already referenced — add <code>--collect:"XPlat Code Coverage"</code> + upload</td></tr>
+  <tr><td><span class="badge med">Med</span></td><td>No CHANGELOG / release notes</td><td>GitHub Releases with auto-generated notes is the cheapest path</td></tr>
+  <tr><td><span class="badge med">Med</span></td><td>No <code>.editorconfig</code>, Dependabot, or <code>global.json</code></td><td>Three one-file additions</td></tr>
+  <tr><td><span class="badge low">Low</span></td><td><code>YYYY.MM.run</code> versioning carries no breaking-change signal</td><td>Document "API unstable", or semver the NuGet.org stable channel</td></tr>
+  <tr><td><span class="badge low">Low</span></td><td>No package validation before publish</td><td><code>dotnet package validate</code> post-pack</td></tr>
+</table>
+
+<h2>Recommended action plan</h2>
+
+<div class="phase">Week 1 — fix confirmed bugs (small diffs)</div>
+<ul class="plan">
+  <li><s><code>AvCodersRestClient.Send(byte[])</code> → encode bytes properly.</s> <span class="badge fixed">✅ Done 2026-06-12</span></li>
+  <li><code>AvCodersMqttClient</code> → <code>.WithCredentials(...)</code>, wire handlers before connecting, handle initial-connect failure.</li>
+  <li><code>PhilipsSICP</code> → bounds-check before <code>response[0]</code> / <code>response[3]</code>.</li>
+  <li>Replace the three blocking <code>.Wait()</code> calls (SSH, MQTT, SamsungMDC) with <code>await</code>.</li>
+</ul>
+
+<div class="phase">Sprint 1 — de-risk the transport layer</div>
+<ul class="plan">
+  <li><s>Create <code>CommunicationClientsTest</code>: reconnect/backoff, send-queue timeout &amp; drop, state transitions, malformed/empty input.</s> <span class="badge fixed">✅ Done 2026-06-12</span> — 27 tests; SSH/MQTT/SNMP/Multicast still pending (need local servers or injection refactoring).</li>
+  <li>Implement <code>IAsyncDisposable</code> on <code>IpComms</code> + concrete clients; delete the finalizers.</li>
+  <li>Add a framing/reassembly layer to the TCP receive path.</li>
+</ul>
+
+<div class="phase">Sprint 2 — harden drivers and parsing</div>
+<ul class="plan">
+  <li>Shared safe-parsing helper; sweep the ~8 drivers with unguarded index access; add "garbage response" parameterized tests per driver.</li>
+  <li>Finish the delegate-field → <code>event</code> migration; exception-isolate every handler invocation (copy the <code>ConnectionState</code> pattern).</li>
+  <li>Synchronize <code>BiampTtp</code> / <code>QsysEcp</code> shared state.</li>
+</ul>
+
+<div class="phase">Ongoing — engineering hygiene</div>
+<ul class="plan">
+  <li>Analyzers + warnings-as-errors, XML docs, coverage in CI, unified version computation, <code>.editorconfig</code>, Dependabot, CHANGELOG.</li>
+</ul>
+
+<h2>Which Claude model to use for the fixes</h2>
+<p>Match the model to the difficulty of each phase rather than using one tier for everything:</p>
+<table>
+  <tr><th>Work</th><th>Model</th><th>Why</th></tr>
+  <tr>
+    <td>Week 1 — confirmed bugs (REST encoding, MQTT credentials, PhilipsSICP bounds check, <code>.Wait()</code> → <code>await</code>)</td>
+    <td><strong>Sonnet 4.6</strong></td>
+    <td>Small, well-specified diffs; this report already says exactly what to change and where. A couple touch async signatures that ripple to callers, so Sonnet is the safe floor over Haiku.</td>
+  </tr>
+  <tr>
+    <td>Sprint 1 — transport layer (<code>IAsyncDisposable</code> migration, TCP framing/reassembly, <code>ThreadWorker</code>/<code>_currentQuery</code> races)</td>
+    <td><strong>Fable 5</strong></td>
+    <td>Cross-cutting lifecycle redesign and concurrency reasoning. A subtle disposal-ordering or interleaving mistake reproduces the exact class of bug being fixed; the framing layer changes the contract between transports and ~50 drivers.</td>
+  </tr>
+  <tr>
+    <td><code>CommunicationClientsTest</code> suite</td>
+    <td><strong>Fable 5</strong> → <strong>Sonnet 4.6</strong></td>
+    <td>Fable 5 designs the deterministic harness (fake transports, controllable clocks, no <code>Thread.Sleep</code>); Sonnet replicates the pattern across the remaining clients — the fan-out is mechanical.</td>
+  </tr>
+  <tr>
+    <td>Sprint 2 — driver sweep &amp; hygiene (safe-parsing helper rollout, delegate-field → <code>event</code> migration, analyzers, <code>.editorconfig</code>, Dependabot, XML docs)</td>
+    <td><strong>Sonnet 4.6</strong></td>
+    <td>High-volume, low-ambiguity edits — best cost/speed trade-off. Caveat: the <code>TreatWarningsAsErrors</code> PR will surface many new warnings; review that triage more carefully.</td>
+  </tr>
+</table>
+<div class="callout note">
+  <strong>Practical workflow:</strong> run the session on Fable 5, keep the concurrency-sensitive edits in the main loop, and
+  delegate the mechanical batches to Sonnet subagents. If using a single model for everything, default to Fable 5 — a botched
+  race-condition fix in a hardware-control library costs more than the savings on the easy diffs.
+</div>
+
+<footer>
+  Generated 2026-06-10 by a five-agent parallel review (core abstractions, transports, drivers, tests, packaging/CI)
+  with post-hoc source verification of high-severity claims. One reviewer finding was rejected as a false positive during
+  verification; all counts reflect verified findings only. Companion document: <code>code-review.md</code>.
+</footer>
+
+</div>
+</body>
+</html>
