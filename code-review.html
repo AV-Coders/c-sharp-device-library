@@ -303,11 +303,11 @@ well-formed, complete messages</strong> — malformed or partial input will cras
   <div class="fix"><strong>Fix:</strong> per-connection reassembly buffer with delimiter- or length-based framing; honor <code>CommandStringFormat</code> when decoding.</div>
 </div>
 
-<div class="finding high">
-  <div class="head"><span class="badge high">High</span><span class="title">Blocking waits on async paths (3 instances)</span></div>
+<div class="finding low">
+  <div class="head"><span class="badge fixed">✅ Fixed 2026-06-12</span><span class="title">Blocking waits on async paths (3 instances)</span></div>
   <div class="loc">AvCodersSshClient.cs:265 · AvCodersMqttClient.cs:62 · Display/SamsungMDC.cs:73–78</div>
-  <div class="body">SSH reconnect calls <code>Stop().Wait()</code> with no timeout; the MQTT disconnect handler blocks MQTTnet's event pipeline with <code>Task.Delay(3s).Wait()</code> inside a retry loop; SamsungMDC's poll loop uses <code>.Wait(token)</code> instead of <code>await</code>.</div>
-  <div class="fix"><strong>Fix:</strong> make these paths async end-to-end; if a sync bridge is unavoidable, bound it with a timeout.</div>
+  <div class="body">SSH reconnect called <code>Stop().Wait()</code> with no timeout; the MQTT disconnect handler blocked MQTTnet's event pipeline with <code>Task.Delay(3s).Wait()</code> inside a retry loop; SamsungMDC's poll loop used <code>.Wait(token)</code> instead of <code>await</code>.</div>
+  <div class="fix"><strong>Resolution:</strong> SSH <code>Reconnect()</code> now uses the TCP client's no-wait shape (swap the stream out, let the workers notice), with <code>Receive</code> hardened to work on a local stream copy — also fixing a pre-existing dispose-under-the-loop race from <code>CheckConnectionState</code>. MQTT's delay is now awaited (the retry-loop-in-handler design remains a recommended <code>ThreadWorker</code> refactor). <code>SamsungMDC.DoPoll</code> is now <code>async Task</code> with awaits, matching <code>PhilipsSICP</code>.</div>
 </div>
 
 <div class="finding high">
@@ -445,7 +445,7 @@ well-formed, complete messages</strong> — malformed or partial input will cras
   <li><s><code>AvCodersRestClient.Send(byte[])</code> → encode bytes properly.</s> <span class="badge fixed">✅ Done 2026-06-12</span></li>
   <li><s><code>AvCodersMqttClient</code> → <code>.WithCredentials(...)</code>, wire handlers before connecting, handle initial-connect failure.</s> <span class="badge fixed">✅ Done 2026-06-12</span></li>
   <li><s><code>PhilipsSICP</code> → bounds-check before <code>response[0]</code> / <code>response[3]</code>.</s> <span class="badge fixed">✅ Done 2026-06-12</span></li>
-  <li>Replace the three blocking <code>.Wait()</code> calls (SSH, MQTT, SamsungMDC) with <code>await</code>.</li>
+  <li><s>Replace the three blocking <code>.Wait()</code> calls (SSH, MQTT, SamsungMDC) with <code>await</code>.</s> <span class="badge fixed">✅ Done 2026-06-12</span></li>
 </ul>
 
 <div class="phase">Sprint 1 — de-risk the transport layer</div>

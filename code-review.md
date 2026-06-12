@@ -55,10 +55,10 @@ These were re-read and confirmed during synthesis, not just reported by a review
 
 **H4. No TCP framing/partial-read handling** — `CommunicationClients/AvCodersTcpClient.cs:50-58` treats each `ReadAsync` result as one complete message and decodes it as ASCII. TCP guarantees neither. Drivers that split on `\r` (e.g. `Matrix/ExtronDtpCpxx.cs:48-65`) will lose sync when a frame straddles two reads. Fix: per-connection reassembly buffer with delimiter- or length-based framing (configurable per driver), and honor `CommandStringFormat` when decoding.
 
-**H5. Blocking waits on async paths** — three instances that can stall or deadlock threads:
-- `AvCodersSshClient.cs:265` — `ReceiveThreadWorker.Stop().Wait()` with no timeout inside reconnect.
-- `AvCodersMqttClient.cs:62` — `Task.Delay(3s).Wait()` inside the MQTT disconnect handler, blocking MQTTnet's event pipeline in a retry loop.
-- `Display/SamsungMDC.cs:73-78` — `Task.Delay(1000, token).Wait(token)` in the poll loop instead of `await`.
+**H5. Blocking waits on async paths** — ✅ **FIXED (2026-06-12)** — three instances that could stall or deadlock threads:
+- `AvCodersSshClient.cs:265` — `ReceiveThreadWorker.Stop().Wait()` with no timeout inside `Reconnect()`. Fixed by adopting the TCP client's shape: the stream is swapped out and disposed without stopping the worker, and `Receive` now works on a local copy of `_stream` with the dispose handler covering both stream and client — which also fixes a pre-existing race where `CheckConnectionState` disposed `_stream`/`_client` under the running receive loop.
+- `AvCodersMqttClient.cs:62` — `Task.Delay(3s).Wait()` inside the (already-async) MQTT disconnect handler → `await Task.Delay(3s)`. The retry-loop-inside-event-handler design remains; moving it to a `ThreadWorker` is still recommended.
+- `Display/SamsungMDC.cs:73-78` — `Task.Delay(1000, token).Wait(token)` ×3 in the poll loop → `DoPoll` is now `async Task` with `await`, matching the `PhilipsSICP` pattern.
 
 **H6. UDP sends fail silently** — `AvCodersUdpClient.cs:100` doesn't wrap `SendAsync` in try/catch; a socket error drops the queued item with no log and no re-queue (the TCP client re-queues on failure — behavior should match). The unsynchronized `_client` null-check at line 61 can also race with `CreateClient()`.
 
@@ -147,7 +147,7 @@ Fix: a shared safe-parsing helper (bounds-checked indexer + `TryParse`) used by 
 1. ~~`AvCodersRestClient.Send(byte[])` → encode bytes properly.~~ ✅ Done 2026-06-12.
 2. ~~`AvCodersMqttClient` → `.WithCredentials(username, password)`, wire handlers before connecting, handle initial-connect failure.~~ ✅ Done 2026-06-12.
 3. ~~`PhilipsSICP` → bounds-check before `response[0]`/`response[3]`.~~ ✅ Done 2026-06-12.
-4. Replace the three blocking `.Wait()` calls (SSH, MQTT, SamsungMDC) with `await`.
+4. ~~Replace the three blocking `.Wait()` calls (SSH, MQTT, SamsungMDC) with `await`.~~ ✅ Done 2026-06-12.
 
 **Sprint 1 — de-risk the transport layer:**
 5. ~~Create `CommunicationClientsTest`: reconnect/backoff, send-queue timeout & drop, connection-state transitions, malformed/empty input.~~ ✅ Done 2026-06-12 (27 tests; SSH/MQTT/SNMP/Multicast still pending — they need local servers or injection refactoring).

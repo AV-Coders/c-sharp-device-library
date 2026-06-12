@@ -57,26 +57,25 @@ public class SamsungMdc : Display
         ];
     }
 
-    protected override Task DoPoll(CancellationToken token)
+    protected override async Task DoPoll(CancellationToken token)
     {
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
             using (PushProperties("DoPoll"))
                 LogDebug("Not polling");
-            return Task.CompletedTask;
+            return;
         }
 
         CommunicationClient.Send(_pollPowerCommand);
-        if (PowerState != PowerState.On) 
-            return Task.CompletedTask;
-        
-        Task.Delay(1000, token).Wait(token);
+        if (PowerState != PowerState.On)
+            return;
+
+        await Task.Delay(1000, token);
         CommunicationClient.Send(_pollInputCommand);
-        Task.Delay(1000, token).Wait(token);
+        await Task.Delay(1000, token);
         CommunicationClient.Send(_pollVolumeCommand);
-        Task.Delay(1000, token).Wait(token);
+        await Task.Delay(1000, token);
         CommunicationClient.Send(_pollMuteCommand);
-        return Task.CompletedTask;
     }
 
     private void SendByteArray(byte[] bytes)

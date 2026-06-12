@@ -48,13 +48,17 @@ public class AvCodersSshClient : SshClientBase
         {
             while (!token.IsCancellationRequested)
             {
-                if (_client.IsConnected && _stream != null)
+                try
                 {
-                    try
+                    // Local copy: Reconnect/CheckConnectionState swap _stream and
+                    // _client without stopping this worker. A disposed stream or
+                    // client lands in the ObjectDisposedException handler below.
+                    var stream = _stream;
+                    if (_client.IsConnected && stream != null)
                     {
-                        if (_stream.DataAvailable)
+                        if (stream.DataAvailable)
                         {
-                            var line = _stream.ReadLine();
+                            var line = stream.ReadLine();
                             if (!string.IsNullOrEmpty(line))
                                 InvokeResponseHandlers(line);
                         }
@@ -63,14 +67,14 @@ public class AvCodersSshClient : SshClientBase
                             await Task.Delay(200, token);
                         }
                     }
-                    catch (Exception e) when (e is ObjectDisposedException)
+                    else
                     {
-                        LogWarning("Stream was disposed, waiting for reconnection");
                         await Task.Delay(TimeSpan.FromSeconds(5), token);
                     }
                 }
-                else
+                catch (Exception e) when (e is ObjectDisposedException)
                 {
+                    LogWarning("Stream or client was disposed, waiting for reconnection");
                     await Task.Delay(TimeSpan.FromSeconds(5), token);
                 }
             }
@@ -262,15 +266,24 @@ public class AvCodersSshClient : SshClientBase
         try
         {
             ConnectionState = ConnectionState.Disconnecting;
-            ReceiveThreadWorker.Stop().Wait();
-            _stream?.Dispose();
-            
+
+            // Swap the stream out before disposing it: the receive loop works on
+            // a local copy and handles disposal, so there is no need to stop the
+            // worker (and block on its in-flight iteration) from here.
+            var oldStream = _stream;
+            _stream = null;
+            if (oldStream != null)
+            {
+                oldStream.ErrorOccurred -= ClientOnErrorOccurred;
+                oldStream.Dispose();
+            }
+
             if (_client.IsConnected)
                 _client.Disconnect();
-            
+
             _client.Dispose();
             _client = new SshClient(CreateConnectionInfo());
-            
+
             ConnectionState = ConnectionState.Disconnected;
             // The worker will handle reconnection
         }

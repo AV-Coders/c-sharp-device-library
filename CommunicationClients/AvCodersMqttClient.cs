@@ -81,7 +81,7 @@ public class AvCodersMqttClient : MqttClient
         while (!_mqttClient.IsConnected)
         {
             ConnectionState = ConnectionState.Disconnected;
-            Task.Delay(TimeSpan.FromSeconds(3)).Wait();
+            await Task.Delay(TimeSpan.FromSeconds(3));
             ConnectionState = ConnectionState.Connecting;
             LogDebug("Reconnecting to MQTT server");
             await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
