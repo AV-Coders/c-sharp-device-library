@@ -122,8 +122,9 @@ dotnet build
 dotnet test
 ```
 
-Most domains have a matching `*Test` xUnit project (tests use Moq); `CommunicationClients`,
-`Interface` and `Climate` are the current exceptions.
+Most domains have a matching `*Test` xUnit project (tests use Moq); `Interface` and
+`Climate` are the current exceptions. `CommunicationClientsTest` exercises the real
+transports against loopback sockets and an in-process HTTP listener (no Moq).
 
 ## Versioning & releases
 
