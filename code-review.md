@@ -4,7 +4,7 @@
 **Scope:** Full repository — Core, CommunicationClients, 13 device-driver domains, 12 test projects, packaging & CI
 **Method:** Five parallel specialist reviews (core abstractions, transports, drivers, tests, packaging/CI), findings spot-verified against source before inclusion
 **Test run:** 988 tests — 987 passed, 1 skipped, 0 failed (~11 s)
-**Update 2026-06-12:** `CommunicationClientsTest` added (27 tests) — suite is now 996 tests, 995 passed, 1 skipped, 0 failed
+**Update 2026-06-12:** `CommunicationClientsTest` added (27 tests) and PhilipsSICP malformed-input tests (5) — suite is now 1001 tests, 1000 passed, 1 skipped, 0 failed
 
 ---
 
@@ -37,7 +37,7 @@ These were re-read and confirmed during synthesis, not just reported by a review
 
 2. ✅ **FIXED (2026-06-12)** — **`AvCodersMqttClient` ignored its `username`/`password` parameters** — `CommunicationClients/AvCodersMqttClient.cs:16-21` accepted credentials but built `MqttClientOptions` without `.WithCredentials(...)`, so authenticated brokers rejected every connection. Now: credentials are applied when a username is supplied; a null/empty username connects anonymously (the CONNECT packet omits the username/password flags entirely, which is what brokers expect — an empty-string username is treated as a failed login by brokers like Mosquitto, and MQTT forbids a password without a username). The parameters are now nullable (`string?`). The startup race was also fixed: handlers are wired **before** the initial connect, which is wrapped to log failures and set `Disconnected` instead of fire-and-forgetting. (The blocking `.Wait()` in the reconnect loop — issue H5 — remains open.)
 
-3. **`PhilipsSICP.HandleResponse` crashes on an empty response** — `Display/PhilipsSICP.cs:34` evaluates `response.Length < response[0]` without first checking `response.Length > 0`; an empty array throws `IndexOutOfRangeException`. The guard is also off by one (it should ensure `response[0]` bytes are actually present) and `response[3]` at line 41 is reachable with a 1–3 byte response.
+3. ✅ **FIXED (2026-06-12)** — **`PhilipsSICP.HandleResponse` crashed on empty/short responses** — `Display/PhilipsSICP.cs:34` evaluated `response.Length < response[0]` without first checking `response.Length > 0` (empty array threw `IndexOutOfRangeException`), and the switch read `response[3]`/`response[4]` even when the declared frame size was tiny. The guard is now `response.Length < 6 || response.Length < response[0]` (a complete SICP reply is at least 6 bytes), with 5 new malformed-input theory tests (empty, 1-byte, undersized-declared, truncated, over-declared frames) in `PhilipsSICPTest`. Noted for later: responses are still not checksum-validated or filtered by monitor ID, and coalesced frames are unhandled (belongs with the H4 transport framing work).
 
 > One reviewer finding was **rejected during verification**: `LGCommercial.cs:101` (`data[1]` after `Split("OK")`) is safe, because line 99 returns early unless the response contains `"OK"`, guaranteeing the split yields ≥ 2 parts.
 
@@ -66,7 +66,7 @@ These were re-read and confirmed during synthesis, not just reported by a review
 
 **H7. Unguarded index access into device responses (cross-driver pattern)** — malformed or truncated responses throw `IndexOutOfRangeException` and kill the parse:
 - `Display/NecUhdExternalControl.cs:104-143` — `response[23]`, `response[13]` with no length validation
-- `Display/PhilipsSICP.cs:34,41` — confirmed above
+- `Display/PhilipsSICP.cs:34,41` — confirmed above (✅ fixed 2026-06-12)
 - `Conference/CiscoRoomOs.cs:308-335` — space-split then positional access without length checks
 - `Display/SonySimpleIPControl.cs:120` — `int.Parse(trimmedResponse.Remove(0, 7))` throws on short input
 
@@ -146,7 +146,7 @@ Fix: a shared safe-parsing helper (bounds-checked indexer + `TryParse`) used by 
 **Week 1 — fix confirmed bugs (small diffs):**
 1. ~~`AvCodersRestClient.Send(byte[])` → encode bytes properly.~~ ✅ Done 2026-06-12.
 2. ~~`AvCodersMqttClient` → `.WithCredentials(username, password)`, wire handlers before connecting, handle initial-connect failure.~~ ✅ Done 2026-06-12.
-3. `PhilipsSICP` → bounds-check before `response[0]`/`response[3]`.
+3. ~~`PhilipsSICP` → bounds-check before `response[0]`/`response[3]`.~~ ✅ Done 2026-06-12.
 4. Replace the three blocking `.Wait()` calls (SSH, MQTT, SamsungMDC) with `await`.
 
 **Sprint 1 — de-risk the transport layer:**
