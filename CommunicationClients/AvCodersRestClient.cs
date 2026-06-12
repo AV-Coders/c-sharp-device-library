@@ -23,7 +23,7 @@ public class AvCodersRestClient : RestComms
     }
 
     public override void Send(string message) => _ = Post(message, "application/json");
-    public override void Send(byte[] bytes) => _ = Post(bytes.ToString() ?? string.Empty, "application/json");
+    public override void Send(byte[] bytes) => _ = Post(Encoding.UTF8.GetString(bytes), "application/json");
 
     public override void AddDefaultHeader(string key, string value) => _headers[key] = value;
 
