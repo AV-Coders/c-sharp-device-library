@@ -1,6 +1,7 @@
 ﻿using Serilog;
 using Serilog.Context;
 using Serilog.Core;
+using Serilog.Core.Enrichers;
 
 namespace AVCoders.Core;
 
@@ -61,21 +62,23 @@ public abstract class LogBase
 
     protected IDisposable PushProperties(string? methodName = null)
     {
-        var disposables = new List<IDisposable>();
+        // Pushed as a single bookmark - individual LogContext.PushProperty bookmarks must be
+        // disposed in reverse order, which DisposableItems does not guarantee.
+        var enrichers = new List<ILogEventEnricher>();
 
         foreach (var property in _logProperties)
         {
-            disposables.Add(LogContext.PushProperty(property.Key, property.Value));
+            enrichers.Add(new PropertyEnricher(property.Key, property.Value));
         }
-        
-        disposables.Add(LogContext.PushProperty("InstanceUid", InstanceUid));
-        disposables.Add(LogContext.PushProperty("Class", GetType().Name));
+
+        enrichers.Add(new PropertyEnricher("InstanceUid", InstanceUid));
+        enrichers.Add(new PropertyEnricher("Class", GetType().Name));
         if(Name != string.Empty)
-            disposables.Add(LogContext.PushProperty("InstanceName", Name));
+            enrichers.Add(new PropertyEnricher("InstanceName", Name));
         if (methodName != null)
-            disposables.Add(LogContext.PushProperty("Method", methodName));
-        
-        return new DisposableItems(disposables);
+            enrichers.Add(new PropertyEnricher("Method", methodName));
+
+        return LogContext.Push(enrichers.ToArray());
     }
 
     protected void LogException(Exception e, string? message = null)
