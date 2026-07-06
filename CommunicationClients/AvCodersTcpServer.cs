@@ -9,17 +9,60 @@ namespace AVCoders.CommunicationClients;
 
 public class AvCodersTcpServer : Core_TcpClient
 {
-    private TcpListener _server;
+    private TcpListener? _server;
+    private volatile bool _listening;
+    private int _bindBackoffMs = 1000; // starts at 1 second
+    private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
     private readonly ConcurrentDictionary<Guid, TcpClient> _clients = new();
 
     public AvCodersTcpServer(ushort port, string name, CommandStringFormat commandStringFormat)
         : base("Any", port, name, commandStringFormat)
     {
-        _server = new TcpListener(IPAddress.Any, port);
-        _server.Start();
-        
+        ConnectionState = ConnectionState.Connecting;
+
         ReceiveThreadWorker.Restart(); // Used to connect to new clients
-        ConnectionStateWorker.Restart();
+        ConnectionStateWorker.Restart(); // Binds the listener, then monitors clients
+    }
+
+    private bool TryStartListener()
+    {
+        using (PushProperties("TryStartListener"))
+        {
+            TcpListener listener = new TcpListener(IPAddress.Any, Port);
+            try
+            {
+                listener.ExclusiveAddressUse = false;
+                listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                listener.Start();
+
+                _server = listener;
+                _listening = true;
+                _bindBackoffMs = 1000;
+                return true;
+            }
+            catch (Exception e)
+            {
+                LogException(e, $"Failed to bind TCP server to port {Port}");
+                try
+                {
+                    listener.Server.Dispose();
+                }
+                catch (Exception disposeException)
+                {
+                    LogException(disposeException);
+                }
+                return false;
+            }
+        }
+    }
+
+    private async Task BindBackoffDelay(CancellationToken token)
+    {
+        // jittered exponential backoff
+        var jitter = Random.Shared.Next(-200, 200);
+        var delay = Math.Min(_bindBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
+        _bindBackoffMs = Math.Min(_bindBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
+        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
     }
 
     public override void Send(string message)
@@ -91,15 +134,54 @@ public class AvCodersTcpServer : Core_TcpClient
     {
         using (PushProperties("Receive"))
         {
-            TcpClient client = await _server.AcceptTcpClientAsync(token);
-            Guid clientId = Guid.NewGuid();
-            _clients.TryAdd(clientId, client);
-            IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? null;
-            LogDebug("Added client {ClientId} - {IpAddress}", clientId, remoteIpEndPoint?.Address);
-            ConnectionState = ConnectionState.Connected;
-            _ = HandleClientAsync(client, clientId, token);
-            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            TcpListener? server = _server;
+            if (!_listening || server == null)
+            {
+                // The ConnectionStateWorker is responsible for (re)binding the listener
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                return;
+            }
+
+            try
+            {
+                TcpClient client = await server.AcceptTcpClientAsync(token);
+                Guid clientId = Guid.NewGuid();
+                _clients.TryAdd(clientId, client);
+                IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? null;
+                LogDebug("Added client {ClientId} - {IpAddress}", clientId, remoteIpEndPoint?.Address);
+                ConnectionState = ConnectionState.Connected;
+                _ = HandleClientAsync(client, clientId, token);
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+            }
+            catch (SocketException e)
+            {
+                HandleDeadListener(e);
+            }
+            catch (ObjectDisposedException e)
+            {
+                HandleDeadListener(e);
+            }
+            catch (InvalidOperationException e)
+            {
+                HandleDeadListener(e);
+            }
         }
+    }
+
+    private void HandleDeadListener(Exception e)
+    {
+        LogException(e, "Listener failed, it will be rebound");
+        _listening = false;
+        try
+        {
+            _server?.Server.Dispose();
+        }
+        catch (Exception disposeException)
+        {
+            LogException(disposeException);
+        }
+        _server = null;
+        ConnectionState = _clients.IsEmpty ? ConnectionState.Error : ConnectionState.Degraded;
     }
 
     protected override async Task CheckConnectionState(CancellationToken token)
@@ -113,6 +195,16 @@ public class AvCodersTcpServer : Core_TcpClient
                 {
                     LogDebug("Removing disconnected client {ClientId}", kvp.Key);
                     client.Dispose();
+                }
+            }
+
+            if (!_listening)
+            {
+                if (!TryStartListener())
+                {
+                    ConnectionState = _clients.IsEmpty ? ConnectionState.Error : ConnectionState.Degraded;
+                    await BindBackoffDelay(token);
+                    return;
                 }
             }
 

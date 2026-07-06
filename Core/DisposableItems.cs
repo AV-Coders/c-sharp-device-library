@@ -4,7 +4,8 @@ public class DisposableItems(IEnumerable<IDisposable> disposables) : IDisposable
 {
     public void Dispose()
     {
-        foreach (var disposable in disposables)
+        // Disposed in reverse so nested scopes (e.g. Serilog LogContext bookmarks) unwind correctly.
+        foreach (var disposable in disposables.Reverse())
         {
             disposable.Dispose();
         }

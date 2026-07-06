@@ -22,7 +22,8 @@ public enum ConnectionState
     Connecting,
     Disconnecting,
     Error,
-    Idle
+    Idle,
+    Degraded // Partially operational, e.g. a server that can't accept new clients but is still serving existing ones.
 }
 
 public enum PowerState
