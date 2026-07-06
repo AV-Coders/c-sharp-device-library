@@ -61,6 +61,9 @@ published as a package.
 
 ## Logging
 
+> Upgrading from a 2026.7.x or earlier (Serilog-based) build? See [MIGRATION.md](MIGRATION.md) —
+> without a one-line startup change, device logging is silently discarded.
+
 `AVCoders.Core` logs through the `Microsoft.Extensions.Logging` (MEL) abstraction — it has
 **no hard dependency on any specific logging framework**. Wire a logger factory **once at
 startup** via the static `LogBase.LoggerFactory`. Until you do, logging is silently
