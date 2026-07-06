@@ -52,6 +52,9 @@ public class AvCodersRestClientTest : IDisposable
         TimeSpan? delayBeforeResponding = null)
     {
         var context = await _listener.GetContextAsync();
+        // Capture everything before Response.Close() - on Windows (http.sys) closing the
+        // response disposes the request, and reading it afterwards throws.
+        string method = context.Request.HttpMethod;
         string body;
         using (var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding))
             body = await reader.ReadToEndAsync();
@@ -72,7 +75,7 @@ public class AvCodersRestClientTest : IDisposable
         await context.Response.OutputStream.WriteAsync(responseBytes);
         context.Response.Close();
 
-        return new CapturedRequest(context.Request.HttpMethod, body, new NameValueCollectionSnapshot(headers));
+        return new CapturedRequest(method, body, new NameValueCollectionSnapshot(headers));
     }
 
     [Fact]
