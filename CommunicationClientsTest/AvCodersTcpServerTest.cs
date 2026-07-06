@@ -19,8 +19,24 @@ public class AvCodersTcpServerTest : IDisposable
 
     private async Task<TcpClient> ConnectClientAsync()
     {
+        // The server binds its listener on the ConnectionStateWorker shortly after
+        // construction, so retry until the port accepts connections.
         var client = new TcpClient();
-        await client.ConnectAsync("127.0.0.1", _port);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        while (true)
+        {
+            try
+            {
+                await client.ConnectAsync("127.0.0.1", _port);
+                break;
+            }
+            catch (SocketException)
+            {
+                if (DateTime.UtcNow > deadline)
+                    throw;
+                await Task.Delay(250);
+            }
+        }
         _testClients.Add(client);
         return client;
     }
