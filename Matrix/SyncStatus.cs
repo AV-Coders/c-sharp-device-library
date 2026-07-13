@@ -66,6 +66,8 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
         get => _streamAddress;
         protected set
         {
+            if (_streamAddress == value)
+                return;
             _streamAddress = value;
             AddEvent(EventType.Other, $"Stream Address Changed to {_streamAddress}");
             StreamChangeHandlers?.Invoke(value);
