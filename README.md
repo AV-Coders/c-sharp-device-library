@@ -61,7 +61,7 @@ published as a package.
 
 ## Logging
 
-> Upgrading from a 2026.7.x or earlier (Serilog-based) build? See [MIGRATION.md](MIGRATION.md) —
+> Upgrading from 2026.6.527 or earlier (a Serilog-based build)? See [MIGRATION.md](MIGRATION.md) —
 > without a one-line startup change, device logging is silently discarded.
 
 `AVCoders.Core` logs through the `Microsoft.Extensions.Logging` (MEL) abstraction — it has
@@ -135,5 +135,5 @@ CI (`.github/workflows/dotnet.yml`) builds, tests, packs every published project
 pushes to GitHub Packages. Versions are `YYYY.MM.<run_number>`:
 
 - Builds from **`main`** are stable releases.
-- Builds from **any other branch** get a `-beta` suffix (e.g. `2026.06.43-beta`) and are
+- Builds from **any other branch** get a `-beta` suffix (e.g. `2026.6.43-beta`) and are
   published as NuGet **prereleases**.

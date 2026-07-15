@@ -5,7 +5,7 @@ name: .NET
 
 on:
   push:
-    branches: [ "main", "decouple-logging-serilog-to-mel" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 

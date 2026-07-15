@@ -1,9 +1,10 @@
-# Migrating from 2026.7.x (Serilog era) to the MEL release
+# Migrating from 2026.6.527 or earlier (Serilog era) to the MEL release
 
 This release removes the library's hard dependency on Serilog. All `AVCoders.*` packages
 now log through the `Microsoft.Extensions.Logging` (MEL) abstraction instead of Serilog's
 static `Log` facade. This guide covers upgrading a consuming program from build
-**2026.7.524** (or any earlier Serilog-era build).
+**2026.6.527** (or any earlier Serilog-era build). The MEL changes first ship in build
+**2026.6.528**; every later build includes them.
 
 > **The one thing you cannot skip:** if your program does not set `LogBase.LoggerFactory`
 > at startup, every device driver logs to `NullLoggerFactory` — **all device logging
@@ -44,7 +45,7 @@ integration) is otherwise unchanged.
 
 ### 2. Add a Serilog package reference if you relied on the transitive one
 
-`AVCoders.Core` 2026.7.x pulled in `Serilog 4.3.0` transitively. That reference is gone.
+`AVCoders.Core` 2026.6.527 and earlier pulled in `Serilog 4.3.0` transitively. That reference is gone.
 If your program uses Serilog APIs but never referenced the package directly, it will stop
 compiling — add explicit references:
 
@@ -98,8 +99,8 @@ Also note:
 ## Versioning note
 
 Package versions are date-based (`YYYY.MM.X`) and do **not** signal breaking changes.
-Pin your current `2026.7.524` reference until you have applied step 1 above; upgrading
-without it produces a program that runs normally but logs nothing from any device.
+Pin your current reference (`2026.6.527` or earlier) until you have applied step 1 above;
+upgrading without it produces a program that runs normally but logs nothing from any device.
 
 ## Checklist
 
