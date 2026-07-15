@@ -1,6 +1,5 @@
 ﻿using System.Text.Json;
 using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Camera;
 
@@ -112,7 +111,7 @@ public class AutomateVX : DeviceBase
         {
             if (!response.IsSuccessStatusCode)
             {
-                Log.Error("1Beyond gave an error status code {code} - {description}\n\n {body}",
+                LogError("1Beyond gave an error status code {code} - {description}\n\n {body}",
                     response.StatusCode, response.StatusCode.ToString(), response.Content.ReadAsStringAsync().Result);
                 return;
             }
@@ -126,7 +125,7 @@ public class AutomateVX : DeviceBase
                 switch (root.TryGetProperty("status", out JsonElement statusElement))
                 {
                     case false:
-                        Log.Error("1Beyond did not return a status");
+                        LogError("1Beyond did not return a status");
                         return;
                     case true:
                         switch (statusElement.GetString())
@@ -137,7 +136,7 @@ public class AutomateVX : DeviceBase
                                 Handle1BeyondError(root);
                                 return;
                             default:
-                                Log.Error("1Beyond returned an unknown status");
+                                LogError("1Beyond returned an unknown status");
                                 return;
                         }
                         break;
@@ -145,7 +144,7 @@ public class AutomateVX : DeviceBase
 
                 if (root.TryGetProperty("token", out JsonElement tokenElement))
                 {
-                    Log.Verbose("1Beyond token received");
+                    LogVerbose("1Beyond token received");
                     _token = tokenElement.GetString() ?? string.Empty;
                     _client.AddDefaultHeader("Authorization", _token);
                     _lastAction.Invoke();
@@ -163,7 +162,7 @@ public class AutomateVX : DeviceBase
                         }
                     }
                     LayoutsChangedHandlers?.Invoke(_layouts);
-                    Log.Verbose("Found {layoutCount} layouts", _layouts.Count);
+                    LogVerbose("Found {layoutCount} layouts", _layouts.Count);
                 }
                 else if (root.TryGetProperty("scenarios", out JsonElement scenariosElement))
                 {
@@ -178,7 +177,7 @@ public class AutomateVX : DeviceBase
                         }
                     }
                     ScenariosChangedHandlers?.Invoke(_scenarios);
-                    Log.Verbose("Found {scenarioCount} scenarios", _scenarios.Count);
+                    LogVerbose("Found {scenarioCount} scenarios", _scenarios.Count);
                 }
                 else if (root.TryGetProperty("message", out JsonElement messageElement))
                 {
@@ -201,7 +200,7 @@ public class AutomateVX : DeviceBase
             }
             catch (JsonException ex)
             {
-                Log.Error(ex, "Failed to parse 1Beyond response: {content}", responseContent);
+                LogError(ex, "Failed to parse 1Beyond response: {content}", responseContent);
             }
         }
     }
@@ -210,10 +209,10 @@ public class AutomateVX : DeviceBase
     {
         if(root.TryGetProperty("status", out JsonElement statusElement))
         {
-            Log.Error("1Beyond returned a status of {status}", statusElement.GetString());
+            LogError("1Beyond returned a status of {status}", statusElement.GetString());
             if (root.TryGetProperty("err", out JsonElement errElement))
             {
-                Log.Error("1Beyond error: {oneBeyondErrorText}", errElement.GetString());
+                LogError("1Beyond error: {oneBeyondErrorText}", errElement.GetString());
                 if (errElement.GetString() == "Unauthorized")
                 {
                     GetToken();
@@ -232,7 +231,7 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("GetToken"))
         {
-            Log.Information("Getting Token from 1Beyond");
+            LogInformation("Getting Token from 1Beyond");
             _client.AddDefaultHeader("Authorization", _encodedUserAndPassword);
             _client.Post(_tokenUri, "", "application/json");
         }
@@ -242,7 +241,7 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("StartAutoSwitch"))
         {
-            Log.Information("Starting auto switch");
+            LogInformation("Starting auto switch");
             _client.Post(_startAutoSwitchUri, "", "application/json");
             _lastAction = StartAutoSwitch;
         }
@@ -252,7 +251,7 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("StopAutoSwitch"))
         {
-            Log.Information("Stopping auto switch");
+            LogInformation("Stopping auto switch");
             _client.Post(_stopAutoSwitchUri, "", "application/json");
             _lastAction = StopAutoSwitch;
         }
@@ -262,7 +261,7 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("GetLayouts"))
         {
-            Log.Information("Getting Layouts");
+            LogInformation("Getting Layouts");
             _client.Post(_getLayoutsUri, "", "application/json");
             _lastAction = GetLayouts;
         }
@@ -272,7 +271,7 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("SetLayout"))
         {
-            Log.Information("Setting Layout to {layoutId}", _layouts[layoutId].Name);
+            LogInformation("Setting Layout to {layoutId}", _layouts[layoutId].Name);
             _client.Post(_changeLayoutUri, $"{{\"id\": \"{_layouts[layoutId].Id}\"}}", "application/json");
             _lastAction = () => SetLayout(layoutId);
         }
@@ -282,7 +281,7 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("GetScenarios"))
         {
-            Log.Information("Getting Scenarios");
+            LogInformation("Getting Scenarios");
             _client.Post(_getScenariosUri, "", "application/json");
             _lastAction = GetLayouts;
         }
@@ -292,7 +291,7 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("SetScenario"))
         {
-            Log.Information("Setting Layout to {layoutId}", _scenarios[scenarioId].Name);
+            LogInformation("Setting Layout to {layoutId}", _scenarios[scenarioId].Name);
             _client.Post(_goToScenarioUri, $"{{\"id\": \"{_scenarios[scenarioId].Id}\"}}", "application/json");
             _lastAction = () => SetScenario(scenarioId);
         }

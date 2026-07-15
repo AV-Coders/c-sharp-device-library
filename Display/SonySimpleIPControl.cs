@@ -1,7 +1,6 @@
 ﻿using System.Text;
 using AVCoders.Core;
 using AVCoders.MediaPlayer;
-using Serilog;
 
 namespace AVCoders.Display;
 
@@ -158,7 +157,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         if (UnsupportedButtons.Contains(button))
         {
             using (PushProperties("SendIRCode"))
-                Log.Warning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
+                LogWarning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
             AddEvent(EventType.Error, $"Unsupported button - {button.ToString()}");
             return;
         }

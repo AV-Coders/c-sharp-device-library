@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Lighting and dimmer drivers for the AV Coders device library, including Clipsal C-Bus, Philips Dynalite (DyNet) and Zigbee2MQTT.</Description>
+        <PackageId>AVCoders.Lighting</PackageId>
         <AssemblyName>AVCoders.Lighting</AssemblyName>
         <RootNamespace>AVCoders.Lighting</RootNamespace>
         <LangVersion>default</LangVersion>

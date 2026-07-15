@@ -2,7 +2,6 @@
 using System.Net.Sockets;
 using Renci.SshNet;
 using Renci.SshNet.Common;
-using Serilog;
 using SshClient = Renci.SshNet.SshClient;
 using SshClientBase = AVCoders.Core.SshClient;
 
@@ -49,13 +48,17 @@ public class AvCodersSshClient : SshClientBase
         {
             while (!token.IsCancellationRequested)
             {
-                if (_client.IsConnected && _stream != null)
+                try
                 {
-                    try
+                    // Local copy: Reconnect/CheckConnectionState swap _stream and
+                    // _client without stopping this worker. A disposed stream or
+                    // client lands in the ObjectDisposedException handler below.
+                    var stream = _stream;
+                    if (_client.IsConnected && stream != null)
                     {
-                        if (_stream.DataAvailable)
+                        if (stream.DataAvailable)
                         {
-                            var line = _stream.ReadLine();
+                            var line = stream.ReadLine();
                             if (!string.IsNullOrEmpty(line))
                                 InvokeResponseHandlers(line);
                         }
@@ -64,14 +67,14 @@ public class AvCodersSshClient : SshClientBase
                             await Task.Delay(200, token);
                         }
                     }
-                    catch (Exception e) when (e is ObjectDisposedException)
+                    else
                     {
-                        Log.Warning("Stream was disposed, waiting for reconnection");
                         await Task.Delay(TimeSpan.FromSeconds(5), token);
                     }
                 }
-                else
+                catch (Exception e) when (e is ObjectDisposedException)
                 {
+                    LogWarning("Stream or client was disposed, waiting for reconnection");
                     await Task.Delay(TimeSpan.FromSeconds(5), token);
                 }
             }
@@ -125,7 +128,7 @@ public class AvCodersSshClient : SshClientBase
             {
                 try
                 {
-                    Log.Warning("Client connected but stream is null, recreating stream");
+                    LogWarning("Client connected but stream is null, recreating stream");
                     await CreateStream(token);
                 }
                 catch (Exception e)
@@ -154,7 +157,7 @@ public class AvCodersSshClient : SshClientBase
                         var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
                         if (age >= QueueTimeout)
                         {
-                            Log.Warning(
+                            LogWarning(
                                 "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
                                 age, QueueTimeout, item.Payload);
                             continue;
@@ -170,7 +173,7 @@ public class AvCodersSshClient : SshClientBase
         }
         catch (ObjectDisposedException)
         {
-            Log.Warning("Client was disposed during send queue processing, waiting for reconnection");
+            LogWarning("Client was disposed during send queue processing, waiting for reconnection");
             await Task.Delay(TimeSpan.FromSeconds(3), token);
         }
     }
@@ -184,13 +187,13 @@ public class AvCodersSshClient : SshClientBase
             await _stream.DisposeAsync();
             _stream = null;
         }
-        Log.Debug("Creating new shell stream");
+        LogDebug("Creating new shell stream");
         _stream = _client.CreateShellStream("dumb", 1000, 1000, 1500, 1000, 8191, _modes);
         _stream.ErrorOccurred += ClientOnErrorOccurred;
         await Task.Delay(200, token);
         ReceiveThreadWorker.Restart();
         ConnectionState = ConnectionState.Connected;
-        Log.Information("Shell stream created successfully");
+        LogInformation("Shell stream created successfully");
         return _stream;
     }
 
@@ -224,14 +227,14 @@ public class AvCodersSshClient : SshClientBase
                 }
                 catch (ObjectDisposedException e)
                 {
-                    Log.Debug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
+                    LogDebug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
                     EnqueueWithCap(message);
                     ConnectionState = ConnectionState.Error;
                 }
             }
             else
             {
-                Log.Debug("Cannot send, not connected or stream unavailable. Queueing message.");
+                LogDebug("Cannot send, not connected or stream unavailable. Queueing message.");
                 EnqueueWithCap(message);
                 ConnectionState = ConnectionState.Error;
             }
@@ -251,7 +254,7 @@ public class AvCodersSshClient : SshClientBase
         {
             _sendQueue.TryDequeue(out _);
             using (PushProperties("EnqueueWithCap"))
-                Log.Warning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+                LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
         }
         _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
     }
@@ -263,15 +266,24 @@ public class AvCodersSshClient : SshClientBase
         try
         {
             ConnectionState = ConnectionState.Disconnecting;
-            ReceiveThreadWorker.Stop().Wait();
-            _stream?.Dispose();
-            
+
+            // Swap the stream out before disposing it: the receive loop works on
+            // a local copy and handles disposal, so there is no need to stop the
+            // worker (and block on its in-flight iteration) from here.
+            var oldStream = _stream;
+            _stream = null;
+            if (oldStream != null)
+            {
+                oldStream.ErrorOccurred -= ClientOnErrorOccurred;
+                oldStream.Dispose();
+            }
+
             if (_client.IsConnected)
                 _client.Disconnect();
-            
+
             _client.Dispose();
             _client = new SshClient(CreateConnectionInfo());
-            
+
             ConnectionState = ConnectionState.Disconnected;
             // The worker will handle reconnection
         }

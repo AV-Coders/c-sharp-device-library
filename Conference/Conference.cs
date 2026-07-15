@@ -1,6 +1,5 @@
 using AVCoders.Core;
 using AVCoders.Dsp;
-using Serilog;
 
 namespace AVCoders.Conference;
 
@@ -37,6 +36,8 @@ public abstract class Conference : DeviceBase
 {
     public CallStatusHandler? CallStatusHandlers;
     public ActiveCallHandler? ActiveCallHandlers;
+    public event Action<CallStatus>? OnCallStatusChanged;
+    public event Action<List<Call>>? OnActiveCallsChanged;
     public readonly Fader OutputVolume;
     public readonly Mute OutputMute;
     public readonly Mute MicrophoneMute;
@@ -57,7 +58,14 @@ public abstract class Conference : DeviceBase
                 return;
             _callStatus = value;
             CallStatusHandlers?.Invoke(value);
+            OnCallStatusChanged?.Invoke(value);
         }
+    }
+
+    protected void RaiseActiveCallsChanged(List<Call> activeCalls)
+    {
+        ActiveCallHandlers?.Invoke(activeCalls);
+        OnActiveCallsChanged?.Invoke(activeCalls);
     }
     
     protected Conference(CommunicationClient client, string name = "Main Codec", int pollTimeInSeconds = 52) 
@@ -77,7 +85,7 @@ public abstract class Conference : DeviceBase
         using (PushProperties("PowerOn"))
         {
             DoPowerOn();
-            Log.Verbose("Turning On");
+            LogVerbose("Turning On");
             DesiredPowerState = PowerState.On;
             PowerState = PowerState.On;
         }
@@ -90,7 +98,7 @@ public abstract class Conference : DeviceBase
         using (PushProperties("PowerOff"))
         {
             DoPowerOff();
-            Log.Verbose("Turning Off");
+            LogVerbose("Turning Off");
             DesiredPowerState = PowerState.Off;
             PowerState = PowerState.Off;
             ActiveCalls.Keys.ToList().ForEach(x =>

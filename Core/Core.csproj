@@ -4,13 +4,15 @@
         <RootNamespace>AVCoders.Core</RootNamespace>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Foundation for the AV Coders device library: LogBase logging with in-memory diagnostics buffers and tracing, DeviceBase power/communication state, and the CommunicationClient and VolumeControl abstractions shared by every driver.</Description>
+        <PackageId>AVCoders.Core</PackageId>
         <AssemblyName>AVCoders.Core</AssemblyName>
         <LangVersion>default</LangVersion>
         <TargetFramework>net8.0</TargetFramework>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="Serilog" Version="4.3.0" />
+      <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
     </ItemGroup>
 
 </Project>

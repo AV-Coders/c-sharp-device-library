@@ -1,7 +1,3 @@
-using Serilog;
-using Serilog.Context;
-using Serilog.Core;
-
 namespace AVCoders.Core;
 
 public abstract class DeviceBase : LogBase, IDevice
@@ -9,6 +5,7 @@ public abstract class DeviceBase : LogBase, IDevice
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public event Action<PowerState>? OnPowerStateChanged;
+    public event Action<CommunicationState>? OnCommunicationStateChanged;
     
     public readonly CommunicationClient CommunicationClient;
     protected PowerState DesiredPowerState = PowerState.Unknown;
@@ -42,6 +39,7 @@ public abstract class DeviceBase : LogBase, IDevice
             _communicationState = value;
             AddEvent(EventType.DriverState, value.ToString());
             CommunicationStateHandlers?.Invoke(CommunicationState);
+            OnCommunicationStateChanged?.Invoke(CommunicationState);
         }
     }
     

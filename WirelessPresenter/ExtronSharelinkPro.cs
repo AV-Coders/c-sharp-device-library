@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
 
 namespace WirelessPresenter;
 
@@ -112,7 +111,7 @@ public class ExtronSharelinkPro : DeviceBase
         {
             try
             {
-                Log.Information("Sending {command}", command);
+                LogInformation("Sending {command}", command);
                 _client.Send(command);
                 CommunicationState = CommunicationState.Okay;
             }

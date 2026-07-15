@@ -3,7 +3,6 @@ using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using AVCoders.Core;
-using Serilog;
 
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 namespace AVCoders.MediaPlayer;
@@ -98,7 +97,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
         if (UnsupportedButtons.Contains(button))
         {
             using (PushProperties("SendIRCode"))
-                Log.Error("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
+                LogError("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
             return;
         }
         string command = button switch

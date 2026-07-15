@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Display;
 
@@ -58,26 +57,25 @@ public class SamsungMdc : Display
         ];
     }
 
-    protected override Task DoPoll(CancellationToken token)
+    protected override async Task DoPoll(CancellationToken token)
     {
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
             using (PushProperties("DoPoll"))
-                Log.Debug("Not polling");
-            return Task.CompletedTask;
+                LogDebug("Not polling");
+            return;
         }
 
         CommunicationClient.Send(_pollPowerCommand);
-        if (PowerState != PowerState.On) 
-            return Task.CompletedTask;
-        
-        Task.Delay(1000, token).Wait(token);
+        if (PowerState != PowerState.On)
+            return;
+
+        await Task.Delay(1000, token);
         CommunicationClient.Send(_pollInputCommand);
-        Task.Delay(1000, token).Wait(token);
+        await Task.Delay(1000, token);
         CommunicationClient.Send(_pollVolumeCommand);
-        Task.Delay(1000, token).Wait(token);
+        await Task.Delay(1000, token);
         CommunicationClient.Send(_pollMuteCommand);
-        return Task.CompletedTask;
     }
 
     private void SendByteArray(byte[] bytes)
@@ -125,7 +123,7 @@ public class SamsungMdc : Display
 
             if (_gather.Count > 1024)
             {
-                Log.Warning("Gather buffer exceeded 1024 bytes, clearing");
+                LogWarning("Gather buffer exceeded 1024 bytes, clearing");
                 _gather.Clear();
                 return;
             }
@@ -151,14 +149,14 @@ public class SamsungMdc : Display
         {
             if (response[0] != 0xAA && response[1] != 0xFF)
             {
-                Log.Warning("The response does not have the correct header");
+                LogWarning("The response does not have the correct header");
                 AddEvent(EventType.Error, "The response does not have the correct header");
                 return;
             }
 
             if (response[4] == 0x4E)
             {
-                Log.Warning("NAK Received");
+                LogWarning("NAK Received");
                 CommunicationState = CommunicationState.Error;
                 return;
             }

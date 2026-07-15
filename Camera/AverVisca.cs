@@ -1,5 +1,4 @@
 using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Camera;
 
@@ -38,19 +37,19 @@ public class AverVisca : SonyVisca, ITrackingCamera
             {
                 case CameraTrackingMode.Auto:
                     SendCommand([_header, 0x01, 0x04, 0x7D, 0x02, 0x00, CommandFooter]);
-                    Log.Verbose("Tracking Mode: Auto");
+                    LogVerbose("Tracking Mode: Auto");
                     break;
                 case CameraTrackingMode.Disabled:
                     SendCommand([_header, 0x01, 0x04, 0x7D, 0x01, 0x00, CommandFooter]);
-                    Log.Verbose("Tracking Mode: Disabled");
+                    LogVerbose("Tracking Mode: Disabled");
                     break;
                 case CameraTrackingMode.TriggerOnce:
                     SendCommand([_header, 0x01, 0x04, 0x7D, 0x00, 0x00, CommandFooter]);
-                    Log.Verbose("Tracking Mode: Trigger Once");
+                    LogVerbose("Tracking Mode: Trigger Once");
                     break;
                 case CameraTrackingMode.Manual:
                     SendCommand([_header, 0x01, 0x04, 0x7D, 0x03, 0x00, CommandFooter]);
-                    Log.Verbose("Tracking Mode: Manual");
+                    LogVerbose("Tracking Mode: Manual");
                     break;
             }
             TrackingMode = mode;

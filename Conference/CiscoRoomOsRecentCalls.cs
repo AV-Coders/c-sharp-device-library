@@ -13,6 +13,7 @@ public class CiscoRoomOsRecentCalls
     private bool _inCallHistoryResult;
     public List<RecentCall> RecentCalls => [.._recentCalls];
     public StringListHandler? CallListUpdatedHandlers;
+    public event Action<List<string>>? OnCallListUpdated;
 
     public CiscoRoomOsRecentCalls(CommunicationClient client, int limit = 30)
     {
@@ -74,6 +75,7 @@ public class CiscoRoomOsRecentCalls
                 .Select(rc => rc.Number)
                 .ToList();
             CallListUpdatedHandlers?.Invoke(numbers);
+            OnCallListUpdated?.Invoke(numbers);
         }
 
         if (response.StartsWith("*e CallHistory Updated"))

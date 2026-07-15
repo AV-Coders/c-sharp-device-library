@@ -1,7 +1,6 @@
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using Serilog;
 
 namespace AVCoders.CommunicationClients;
 
@@ -24,7 +23,7 @@ public class AvCodersRestClient : RestComms
     }
 
     public override void Send(string message) => _ = Post(message, "application/json");
-    public override void Send(byte[] bytes) => _ = Post(bytes.ToString() ?? string.Empty, "application/json");
+    public override void Send(byte[] bytes) => _ = Post(Encoding.UTF8.GetString(bytes), "application/json");
 
     public override void AddDefaultHeader(string key, string value) => _headers[key] = value;
 
@@ -64,7 +63,7 @@ public class AvCodersRestClient : RestComms
                 Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
                 using var request = CreateRequest(HttpMethod.Post, uri);
                 request.Content = new StringContent(payload, Encoding.Default, contentType);
-                Log.Verbose("POST {Uri} - {Payload}", uri, payload);
+                LogVerbose("POST {Uri} - {Payload}", uri, payload);
                 using HttpResponseMessage response = await _httpClient.SendAsync(request);
                 RequestHandlers?.Invoke(payload);
                 await HandleResponse(response);
@@ -94,7 +93,7 @@ public class AvCodersRestClient : RestComms
                 Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
                 using var request = CreateRequest(HttpMethod.Put, uri);
                 request.Content = new StringContent(content, Encoding.Default, contentType);
-                Log.Verbose("PUT {Uri} - {Payload}", uri, content);
+                LogVerbose("PUT {Uri} - {Payload}", uri, content);
                 using HttpResponseMessage response = await _httpClient.SendAsync(request);
                 RequestHandlers?.Invoke(content);
                 await HandleResponse(response);
@@ -123,7 +122,7 @@ public class AvCodersRestClient : RestComms
             {
                 Uri uri = endpoint == null ? _uri : new Uri(_uri, endpoint);
                 using var request = CreateRequest(HttpMethod.Get, uri);
-                Log.Verbose("GET {Uri}", uri);
+                LogVerbose("GET {Uri}", uri);
                 using HttpResponseMessage response = await _httpClient.SendAsync(request);
                 RequestHandlers?.Invoke($"HTTP Get to {uri.AbsolutePath}");
                 await HandleResponse(response);

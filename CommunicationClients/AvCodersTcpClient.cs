@@ -1,8 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Text;
-using Serilog;
-using Serilog.Context;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
 
@@ -191,7 +189,7 @@ public class AvCodersTcpClient : Core_TcpClient
             if (Math.Abs(age) >= QueueTimeout)
             {
                 using (PushProperties("ProcessSendQueue"))
-                    Log.Warning(
+                    LogWarning(
                         "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
                         age, QueueTimeout);
                 continue;
@@ -288,7 +286,7 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             _sendQueue.TryDequeue(out _);
             using (PushProperties("EnqueueWithCap"))
-                Log.Warning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+                LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
         }
         _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
     }

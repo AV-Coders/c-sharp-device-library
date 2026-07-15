@@ -1,5 +1,4 @@
 ﻿using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Motor;
 
@@ -66,7 +65,7 @@ public class ScreenTechnicsConnect : Motor
         {
             Send($"30 {_moduleId}\r");
             CurrentMoveAction = RelayAction.Raise;
-            Log.Verbose("Screen technics will Raise");
+            LogVerbose("Screen technics will Raise");
         }
     }
 
@@ -76,7 +75,7 @@ public class ScreenTechnicsConnect : Motor
         {
             Send($"33 {_moduleId}\r");
             CurrentMoveAction = RelayAction.Lower;
-            Log.Verbose("Screen technics will Lower");
+            LogVerbose("Screen technics will Lower");
         }
     }
 
@@ -86,7 +85,7 @@ public class ScreenTechnicsConnect : Motor
         {
             Send($"36 {_moduleId}\r");
             CurrentMoveAction = RelayAction.None;
-            Log.Verbose("Screen technics will Stop");
+            LogVerbose("Screen technics will Stop");
         }
     }
 }

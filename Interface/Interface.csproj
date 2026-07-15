@@ -3,6 +3,10 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <!-- Explicit PackageId so the published package matches the AVCoders.* family.
+             AssemblyName/RootNamespace stay AvCoders.Interface to avoid breaking existing references. -->
+        <PackageId>AVCoders.Interface</PackageId>
+        <Description>Touch panel and smart-home interface drivers for the AV Coders device library, including the Tyba Turn 2.</Description>
         <AssemblyName>AvCoders.Interface</AssemblyName>
         <RootNamespace>AvCoders.Interface</RootNamespace>
         <LangVersion>default</LangVersion>
@@ -14,7 +18,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Serilog" Version="4.3.1" />
     </ItemGroup>
 
 </Project>

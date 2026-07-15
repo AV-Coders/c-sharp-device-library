@@ -99,7 +99,23 @@ public class PhilipsSICPTest
     public void HandleResponse_UpdatesThePowerState(byte[] response, PowerState expectedState)
     {
         _mockClient.Object.ResponseByteHandlers!.Invoke(response);
-        
+
         Assert.Equal(expectedState, _display.PowerState);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { })]                                  // empty read
+    [InlineData(new byte[] { 0x00 })]                             // single byte
+    [InlineData(new byte[] { 0x02, 0x01 })]                       // declared size matches but frame too short to parse
+    [InlineData(new byte[] { 0x06, 0x01, 0x01, 0x19 })]           // truncated mid-frame
+    [InlineData(new byte[] { 0x07, 0x01, 0x01, 0x19, 0x02, 0x1D })] // declares more bytes than received
+    public void HandleResponse_IgnoresMalformedResponses(byte[] response)
+    {
+        var stateBefore = _display.PowerState;
+
+        var exception = Record.Exception(() => _mockClient.Object.ResponseByteHandlers!.Invoke(response));
+
+        Assert.Null(exception);
+        Assert.Equal(stateBefore, _display.PowerState);
     }
 }

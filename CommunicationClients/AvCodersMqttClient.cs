@@ -1,9 +1,7 @@
-using System.Diagnostics.Tracing;
 using System.Text;
 using MQTTnet;
 using MQTTnet.Exceptions;
 using MQTTnet.Protocol;
-using Serilog;
 using MqttClient = AVCoders.Core.MqttClient;
 
 namespace AVCoders.CommunicationClients;
@@ -15,17 +13,39 @@ public class AvCodersMqttClient : MqttClient
     private readonly Dictionary<string, List<Action<string>>> _handlers = new();
     private readonly object _handlersLock = new();
 
-    public AvCodersMqttClient(string host, ushort port, string username, string password, string name):
+    /// <summary>
+    /// Creates an MQTT client. Pass a null or empty <paramref name="username"/> to connect
+    /// anonymously - the CONNECT packet then omits the username/password flags entirely,
+    /// which is what brokers expect for anonymous sessions. A password without a username
+    /// is invalid in MQTT and is ignored.
+    /// </summary>
+    public AvCodersMqttClient(string host, ushort port, string? username, string? password, string name):
         base(host, port, name)
     {
-        _mqttClientOptions = new MqttClientOptionsBuilder()
-            .WithTcpServer(Host, Port)
-            .Build();
+        var optionsBuilder = new MqttClientOptionsBuilder()
+            .WithTcpServer(Host, Port);
+        if (!string.IsNullOrEmpty(username))
+            optionsBuilder = optionsBuilder.WithCredentials(username, password);
+        _mqttClientOptions = optionsBuilder.Build();
         _mqttClient = new MqttClientFactory().CreateMqttClient();
-        _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
         _mqttClient.ConnectedAsync += RegisterDevicesToMqttServer;
         _mqttClient.DisconnectedAsync += HandleMqttDisconnection;
         _mqttClient.ApplicationMessageReceivedAsync += HandleMqttMessage;
+        ConnectionState = ConnectionState.Connecting;
+        _ = ConnectInitialAsync();
+    }
+
+    private async Task ConnectInitialAsync()
+    {
+        try
+        {
+            await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Initial MQTT connection failed");
+            ConnectionState = ConnectionState.Disconnected;
+        }
     }
     private Task HandleMqttMessage(MqttApplicationMessageReceivedEventArgs arg)
     {
@@ -61,9 +81,9 @@ public class AvCodersMqttClient : MqttClient
         while (!_mqttClient.IsConnected)
         {
             ConnectionState = ConnectionState.Disconnected;
-            Task.Delay(TimeSpan.FromSeconds(3)).Wait();
+            await Task.Delay(TimeSpan.FromSeconds(3));
             ConnectionState = ConnectionState.Connecting;
-            Log.Debug("Reconnecting to MQTT server");
+            LogDebug("Reconnecting to MQTT server");
             await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
         }
     }
@@ -100,7 +120,7 @@ public class AvCodersMqttClient : MqttClient
             }
             catch (MqttClientNotConnectedException e)
             {
-                Log.Verbose($"MqttClientNotConnectedException: {e}", EventLevel.Error);
+                LogVerbose("MqttClientNotConnectedException: {Exception}", e);
                 _ = HandleMqttDisconnection(new MqttClientDisconnectedEventArgs(true, new MqttClientConnectResult(),
                     MqttClientDisconnectReason.UnspecifiedError, String.Empty, [], null));
             }

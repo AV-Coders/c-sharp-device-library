@@ -1,5 +1,4 @@
 using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.Display;
 
@@ -32,9 +31,11 @@ public class PhilipsSICP : Display
     {
         using (PushProperties())
         {
-            if (response.Length < response[0])
+            // A complete reply (size, monitor id, group id, command, data, checksum) is
+            // at least 6 bytes; the leading byte declares the full frame length.
+            if (response.Length < 6 || response.Length < response[0])
             {
-                Log.Warning("The response was too small");
+                LogWarning("The response was too small");
                 AddEvent(EventType.Error, "The response was too small");
                 return;
             }

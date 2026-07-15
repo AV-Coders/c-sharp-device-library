@@ -1,9 +1,4 @@
-using System.Collections;
-using System.Reflection;
-using Serilog;
-using Serilog.Context;
-using Serilog.Core;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 
 namespace AVCoders.Core.Tests;
 
@@ -14,62 +9,96 @@ public class LogBaseTest
         public IDisposable InvokePushProperties(string? methodName = null) => PushProperties(methodName);
     }
 
-    private class CapturingSink : ILogEventSink
+    // Captures BeginScope state so tests can assert what an emitted log event would carry
+    // and that scopes are fully unwound after disposal.
+    private sealed class CapturingLogger : ILogger
     {
-        public readonly List<LogEvent> Events = new();
-        public void Emit(LogEvent logEvent) => Events.Add(logEvent);
+        public readonly List<object> ActiveScopes = new();
+        public readonly List<Dictionary<string, object>> Events = new();
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull
+        {
+            ActiveScopes.Add(state);
+            return new Scope(this, state);
+        }
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var properties = new Dictionary<string, object>();
+            foreach (var scope in ActiveScopes)
+            {
+                if (scope is IEnumerable<KeyValuePair<string, object>> pairs)
+                    foreach (var pair in pairs)
+                        properties[pair.Key] = pair.Value;
+            }
+            Events.Add(properties);
+        }
+
+        private sealed class Scope(CapturingLogger logger, object state) : IDisposable
+        {
+            public void Dispose() => logger.ActiveScopes.Remove(state);
+        }
     }
 
-    private readonly TestLogBase _logBase = new("Test Instance");
-    private readonly CapturingSink _sink = new();
-    private readonly Logger _logger;
+    private sealed class CapturingLoggerFactory(ILogger logger) : ILoggerFactory
+    {
+        public ILogger CreateLogger(string categoryName) => logger;
+        public void AddProvider(ILoggerProvider provider) { }
+        public void Dispose() { }
+    }
+
+    private readonly CapturingLogger _logger = new();
+    private readonly TestLogBase _logBase;
 
     public LogBaseTest()
     {
-        _logger = new LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.Sink(_sink)
-            .CreateLogger();
+        LogBase.LoggerFactory = new CapturingLoggerFactory(_logger);
+        _logBase = new TestLogBase("Test Instance");
     }
 
-    private LogEvent LogAndCapture()
+    private Dictionary<string, object> LogAndCapture()
     {
-        _logger.Information("Canary");
-        return _sink.Events[^1];
+        _logger.Log(LogLevel.Information, default, "Canary", null, (state, _) => state);
+        return _logger.Events[^1];
     }
 
     [Fact]
-    public void PushProperties_AddsPropertiesToTheLogContext()
+    public void PushProperties_AddsPropertiesToTheScope()
     {
         using (_logBase.InvokePushProperties("TestMethod"))
         {
-            var logEvent = LogAndCapture();
+            var properties = LogAndCapture();
 
-            Assert.True(logEvent.Properties.ContainsKey("InstanceUid"));
-            Assert.True(logEvent.Properties.ContainsKey("Class"));
-            Assert.True(logEvent.Properties.ContainsKey("InstanceName"));
-            Assert.True(logEvent.Properties.ContainsKey("Method"));
+            Assert.True(properties.ContainsKey("InstanceUid"));
+            Assert.True(properties.ContainsKey("Class"));
+            Assert.True(properties.ContainsKey("InstanceName"));
+            Assert.True(properties.ContainsKey("Method"));
         }
     }
 
     [Fact]
-    public void PushProperties_Dispose_RemovesAllPropertiesFromTheLogContext()
+    public void PushProperties_Dispose_RemovesAllPropertiesFromTheScope()
     {
         using (_logBase.InvokePushProperties("TestMethod"))
         {
         }
 
-        var logEvent = LogAndCapture();
+        var properties = LogAndCapture();
 
-        Assert.False(logEvent.Properties.ContainsKey("InstanceUid"), "InstanceUid was left on the LogContext after disposal");
-        Assert.False(logEvent.Properties.ContainsKey("Class"), "Class was left on the LogContext after disposal");
-        Assert.False(logEvent.Properties.ContainsKey("InstanceName"), "InstanceName was left on the LogContext after disposal");
-        Assert.False(logEvent.Properties.ContainsKey("Method"), "Method was left on the LogContext after disposal");
+        Assert.False(properties.ContainsKey("InstanceUid"), "InstanceUid was left in scope after disposal");
+        Assert.False(properties.ContainsKey("Class"), "Class was left in scope after disposal");
+        Assert.False(properties.ContainsKey("InstanceName"), "InstanceName was left in scope after disposal");
+        Assert.False(properties.ContainsKey("Method"), "Method was left in scope after disposal");
     }
 
     [Fact]
-    public void PushProperties_Dispose_DoesNotAccumulateEnrichersAcrossRepeatedCalls()
+    public void PushProperties_Dispose_DoesNotAccumulateScopesAcrossRepeatedCalls()
     {
+        int baseline = _logger.ActiveScopes.Count;
+
         for (int i = 0; i < 500; i++)
         {
             using (_logBase.InvokePushProperties("TestMethod"))
@@ -77,56 +106,7 @@ public class LogBaseTest
             }
         }
 
-        var logEvent = LogAndCapture();
-
-        Assert.Empty(logEvent.Properties);
-    }
-
-    [Fact]
-    public void PushProperties_Dispose_LeavesNoEnrichersOnTheLogContextStack()
-    {
-        int baseline = CurrentEnricherStackDepth();
-
-        for (int i = 0; i < 100; i++)
-        {
-            using (_logBase.InvokePushProperties("TestMethod"))
-            {
-            }
-        }
-
-        int depth = CurrentEnricherStackDepth();
-
-        Assert.Equal(baseline, depth);
-    }
-
-    // The event Properties dictionary is keyed by name, so leaked enrichers collide onto the same keys
-    // and their true count is invisible to the tests above. This counts the live enrichers on the
-    // ambient LogContext stack itself, so the test failure shows the scale of the accumulation.
-    private static int CurrentEnricherStackDepth()
-    {
-        var clone = LogContext.Clone();
-        var stackField = clone.GetType()
-            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
-            .FirstOrDefault(f => f.FieldType.Name.Contains("EnricherStack"));
-        if (stackField != null)
-            return CountItems(stackField.GetValue(clone));
-
-        var enrichersProperty = typeof(LogContext)
-            .GetProperty("Enrichers", BindingFlags.Static | BindingFlags.NonPublic);
-        if (enrichersProperty != null)
-            return CountItems(enrichersProperty.GetValue(null));
-
-        throw new InvalidOperationException(
-            "Could not locate the LogContext enricher stack via reflection - Serilog internals may have changed.");
-    }
-
-    private static int CountItems(object? stack)
-    {
-        if (stack == null)
-            return 0;
-        int count = 0;
-        foreach (var _ in (IEnumerable)stack)
-            count++;
-        return count;
+        Assert.Equal(baseline, _logger.ActiveScopes.Count);
+        Assert.Empty(LogAndCapture());
     }
 }

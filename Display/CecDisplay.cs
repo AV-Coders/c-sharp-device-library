@@ -1,6 +1,5 @@
 using AVCoders.Core;
 using AVCoders.MediaPlayer;
-using Serilog;
 
 namespace AVCoders.Display;
 
@@ -187,7 +186,7 @@ public class CecDisplay : Display, ISetTopBox
         {
             if (UnsupportedButtons.Contains(button))
             {
-                Log.Warning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
+                LogWarning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
                 AddEvent(EventType.Error, $"Unsupported button - {button.ToString()}");
                 return;
             }
@@ -209,7 +208,7 @@ public class CecDisplay : Display, ISetTopBox
     public void ToggleSubtitles()
     {
         using (PushProperties("ToggleSubtitles"))
-            Log.Warning("ToggleSubtitles is not supported");
+            LogWarning("ToggleSubtitles is not supported");
         AddEvent(EventType.Error, "ToggleSubtitles is not supported");
     }
 }

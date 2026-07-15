@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Media player, recorder and IPTV drivers for the AV Coders device library, including Lumens, Extron SMP, TriplePlay, Vitec and Exterity.</Description>
+        <PackageId>AVCoders.MediaPlayer</PackageId>
         <AssemblyName>AVCoders.MediaPlayer</AssemblyName>
         <RootNamespace>AVCoders.MediaPlayer</RootNamespace>
         <LangVersion>default</LangVersion>
@@ -15,7 +17,6 @@
 
     <ItemGroup>
       <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-      <PackageReference Include="Serilog" Version="4.3.0" />
     </ItemGroup>
 
 </Project>

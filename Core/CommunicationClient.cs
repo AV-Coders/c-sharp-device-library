@@ -1,6 +1,4 @@
 ﻿using System.Text;
-using Serilog;
-using Serilog.Context;
 
 namespace AVCoders.Core;
 
@@ -76,7 +74,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     {
         using (PushProperties("InvokeRequestHandlers"))
         {
-            Log.Verbose("Sending: {Request}", request);
+            LogVerbose("Sending: {Request}", request);
             try
             {
                 RequestHandlers?.Invoke(request);
@@ -92,7 +90,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     {
         using (PushProperties("InvokeRequestHandlers"))
         {
-            Log.Verbose("Sending bytes: {Request}", BitConverter.ToString(request));
+            LogVerbose("Sending bytes: {Request}", BitConverter.ToString(request));
             try
             {
                 RequestByteHandlers?.Invoke(request);
@@ -108,7 +106,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     {
         using (PushProperties("InvokeResponseHandlers"))
         {
-            Log.Verbose("Received: {Response}", response);
+            LogVerbose("Received: {Response}", response);
             try
             {
                 ResponseHandlers?.Invoke(response);
@@ -125,7 +123,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     {
         using (PushProperties("InvokeResponseHandlers"))
         {
-            Log.Verbose("Received: {Response}", response);
+            LogVerbose("Received: {Response}", response);
             try
             {
                 ResponseHandlers?.Invoke(response);

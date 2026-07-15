@@ -4,6 +4,8 @@
         <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <PackageId>AVCoders.WirelessPresenter</PackageId>
+        <Description>Wireless presentation drivers for the AV Coders device library, including the Extron ShareLink Pro.</Description>
     </PropertyGroup>
 
     <ItemGroup>

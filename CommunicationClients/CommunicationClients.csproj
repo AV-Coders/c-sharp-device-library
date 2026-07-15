@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Transport clients for the AV Coders device library: TCP, UDP, SSH, MQTT, REST, multicast and TCP server connections, plus SNMPv3 and Wake-on-LAN.</Description>
+        <PackageId>AVCoders.CommunicationClients</PackageId>
         <AssemblyName>AVCoders.CommunicationClients</AssemblyName>
         <RootNamespace>AVCoders.CommunicationClients</RootNamespace>
         <LangVersion>default</LangVersion>
@@ -15,7 +17,6 @@
 
     <ItemGroup>
       <PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.7" />
-      <PackageReference Include="Serilog" Version="4.3.0" />
       <PackageReference Include="SSH.NET" Version="2025.1.0" />
     </ItemGroup>
 

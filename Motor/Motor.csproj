@@ -3,6 +3,8 @@
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <Description>Screen, blind and shade motor drivers for the AV Coders device library, including Screen Technics, Grandview, Motolux and Bond.</Description>
+        <PackageId>AVCoders.Motor</PackageId>
         <AssemblyName>AVCoders.Motor</AssemblyName>
         <RootNamespace>AVCoders.Motor</RootNamespace>
         <LangVersion>default</LangVersion>
@@ -14,7 +16,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Serilog" Version="4.3.0" />
     </ItemGroup>
 
 </Project>
