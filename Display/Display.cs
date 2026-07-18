@@ -27,6 +27,9 @@ public abstract class Display : VolumeControl, IDevice
     public event Action<CommunicationState>? OnCommunicationStateChanged;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
+    protected const string PowerStateErrorKey = "power-state";
+    protected const string InputErrorKey = "input";
+    protected const string CommunicationErrorKey = "communication";
 
     protected readonly ThreadWorker PollWorker;
 
@@ -123,6 +126,10 @@ public abstract class Display : VolumeControl, IDevice
                 return;
             _communicationState = value;
             AddEvent(EventType.DriverState,  value.ToString());
+            if (value == CommunicationState.Error)
+                RaisePersistentError(CommunicationErrorKey, "Device communication error");
+            else if (value == CommunicationState.Okay)
+                ClearPersistentError(CommunicationErrorKey);
             CommunicationStateHandlers?.Invoke(value);
             OnCommunicationStateChanged?.Invoke(value);
         }
@@ -141,10 +148,12 @@ public abstract class Display : VolumeControl, IDevice
     {
         using (PushProperties("ProcessPowerResponse"))
         {
-            if (PowerState == DesiredPowerState)
+            if (PowerState == DesiredPowerState || DesiredPowerState == PowerState.Unknown)
+            {
+                ClearPersistentError(PowerStateErrorKey);
                 return;
-            if (DesiredPowerState == PowerState.Unknown)
-                return;
+            }
+            RaisePersistentError(PowerStateErrorKey, $"Power is {PowerState}, should be {DesiredPowerState}");
             LogWarning("{Name} has the incorrect power state - Forcing Power", Name);
             AddEvent(EventType.Power, $"The power state is incorrect, setting to desired power state {_desiredPowerState.ToString()}");
             if (DesiredPowerState == PowerState.Off)
@@ -158,10 +167,12 @@ public abstract class Display : VolumeControl, IDevice
     {
         using (PushProperties("ProcessInputResponse"))
         {
-            if (Input == DesiredInput)
+            if (Input == DesiredInput || DesiredInput == Input.Unknown)
+            {
+                ClearPersistentError(InputErrorKey);
                 return;
-            if (DesiredInput == Input.Unknown)
-                return;
+            }
+            RaisePersistentError(InputErrorKey, $"Input is {Input}, should be {DesiredInput}");
             LogWarning("{Name} has the incorrect input - Forcing Input", Name);
             AddEvent(EventType.Input, $"The input is incorrect, setting to desired input {_desiredInput.ToString()}");
             SetInput(DesiredInput);

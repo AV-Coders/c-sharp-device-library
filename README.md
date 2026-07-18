@@ -97,6 +97,28 @@ of recent `Events` (default 100) and `Errors` (default 10), with `EventsUpdated`
 are adjustable via `SetEventLimit` / `SetErrorLimit`. `LogBaseRegistry` offers an opt-in
 static registry for clearing buffers across many instances at once.
 
+### Active errors
+
+Alongside the historical buffers, every instance exposes the errors affecting it *right
+now*: an `ActiveErrors` snapshot (oldest first) plus an
+`event EventHandler<ActiveErrorsChangedEventArgs> ActiveErrorsChanged`. Errors come in two
+kinds (`ActiveError.Persistence`):
+
+- **Momentary** — e.g. a DSP not answering a poll. Auto-expires after a TTL (default 30 s,
+  adjustable via `DefaultMomentaryErrorTtl` or per raise); re-raising the same error
+  refreshes the TTL instead of duplicating it.
+- **Persistent** — e.g. a display on the wrong input or power state, or
+  `CommunicationState` dropping to `Error`. Stays active until the driver observes the
+  condition recover.
+
+Drivers raise these via `RaiseMomentaryError` / `RaisePersistentError` /
+`ClearPersistentError`; the base classes already cover power-state, input and
+communication-state faults. The list is keyed (re-raising updates rather than duplicates)
+and capped at 50 entries (adjustable via `SetActiveErrorLimit`); when over the cap, the
+oldest momentary entries are evicted first. Raising also lands one entry in the `Events` history
+(`EventType.Error`). TTL expiry fires `ActiveErrorsChanged` from a thread-pool thread, so
+UI consumers should marshal (e.g. Blazor's `InvokeAsync`), as with `EventsUpdated`.
+
 ## Tracing
 
 `LogBase` exposes a static `ActivitySource` (`LogBase.ActivitySourceName` == `"AVCoders.Core"`).

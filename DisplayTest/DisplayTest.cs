@@ -24,9 +24,21 @@ public class DummyDisplay : Display
         ProcessPowerResponse();
     }
 
+    public void PowerOnResponse()
+    {
+        PowerState = PowerState.On;
+        ProcessPowerResponse();
+    }
+
     public void InputHdmi2Response()
     {
         Input = Input.Hdmi2;
+        ProcessInputResponse();
+    }
+
+    public void InputHdmi1Response()
+    {
+        Input = Input.Hdmi1;
         ProcessInputResponse();
     }
 }
@@ -59,6 +71,35 @@ public class DisplayTest
         _display.InputHdmi2Response();
         
         _mockClient.Verify(x => x.Send("Input Hdmi1"), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void ProcessPowerResponse_RaisesAPersistentError_UntilThePowerStateRecovers()
+    {
+        _display.PowerOn();
+
+        _display.PowerOffResponse();
+        var error = Assert.Single(_display.ActiveErrors, e => e.Key == "power-state");
+        Assert.Equal(ErrorPersistence.Persistent, error.Persistence);
+
+        _display.PowerOnResponse();
+        Assert.DoesNotContain(_display.ActiveErrors, e => e.Key == "power-state");
+    }
+
+    [Fact]
+    public void ProcessInputResponse_RaisesAPersistentError_UntilTheInputRecovers()
+    {
+        var changedCount = 0;
+        _display.ActiveErrorsChanged += (_, _) => changedCount++;
+        _display.SetInput(Input.Hdmi1);
+
+        _display.InputHdmi2Response();
+        Assert.Contains(_display.ActiveErrors, e => e.Key == "input");
+        Assert.Equal(1, changedCount);
+
+        _display.InputHdmi1Response();
+        Assert.DoesNotContain(_display.ActiveErrors, e => e.Key == "input");
+        Assert.Equal(2, changedCount);
     }
 
     [Fact]

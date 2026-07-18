@@ -56,6 +56,7 @@ public class QsysEcp : Dsp
     private readonly Dictionary<string, QscInt> _strings = new();
     private readonly Dictionary<string, QscGain> _meters = new();
     private readonly Regex _responseParser;
+    private readonly Regex _badIdParser;
 
     // There is a limit of 4 change groups.
     private const int ChangeGroupGains = 1;
@@ -72,6 +73,7 @@ public class QsysEcp : Dsp
 
         string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]+)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
+        _badIdParser = new Regex("bad_id\\s\"([^\"]+)\"", RegexOptions.None, TimeSpan.FromMilliseconds(30));
 
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -105,6 +107,12 @@ public class QsysEcp : Dsp
                 {
                     CommunicationState = CommunicationState.Error;
                     LogError("Invalid named control found: {Line}", line);
+                    var badId = _badIdParser.Match(line);
+                    if (badId.Success)
+                        RaisePersistentError($"bad-control:{badId.Groups[1].Value}",
+                            $"Invalid named control: {badId.Groups[1].Value}");
+                    else
+                        RaiseMomentaryError($"Invalid named control found: {line}");
                 }
             }
         }
@@ -130,6 +138,7 @@ public class QsysEcp : Dsp
             var matches = _responseParser.Matches(response);
 
             var controlName = matches[0].Groups[1].Value;
+            ClearPersistentError($"bad-control:{controlName}");
             if (_gains.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
                 _gains[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
 

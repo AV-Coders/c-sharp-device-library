@@ -52,4 +52,10 @@ public static class LogBaseRegistry
         foreach (var instance in GetAll())
             instance.SetErrorLimit(limit);
     }
+
+    public static void SetActiveErrorLimits(int limit)
+    {
+        foreach (var instance in GetAll())
+            instance.SetActiveErrorLimit(limit);
+    }
 }

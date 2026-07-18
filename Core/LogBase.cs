@@ -49,6 +49,18 @@ public abstract class LogBase
     public event ActionHandler? EventsUpdated;
     public event ActionHandler? ErrorsUpdated;
 
+    private readonly Dictionary<string, ActiveError> _activeErrors = new();
+    private readonly object _activeErrorsLock = new();
+    // Lazily created on the first momentary error, then quiesced (never disposed) when none remain.
+    // LogBase is not IDisposable — driver instances are process-lifetime, so the timer rooting this
+    // instance is acceptable and a quiescent timer costs nothing.
+    private Timer? _activeErrorExpiryTimer;
+    private int _activeErrorLimit = 50;
+    public event EventHandler<ActiveErrorsChangedEventArgs>? ActiveErrorsChanged;
+
+    /// <summary>TTL applied to momentary errors raised without an explicit TTL.</summary>
+    public TimeSpan DefaultMomentaryErrorTtl { get; set; } = TimeSpan.FromSeconds(30);
+
     public IReadOnlyList<Event> Events
     {
         get { lock (_eventsLock) return _events.ToList(); }
@@ -57,6 +69,15 @@ public abstract class LogBase
     public IReadOnlyList<Error> Errors
     {
         get { lock (_errorsLock) return _errors.ToList(); }
+    }
+
+    /// <summary>
+    /// The errors currently affecting this instance, oldest first. Momentary errors leave the list
+    /// when their TTL lapses; persistent errors leave when the driver clears them on recovery.
+    /// </summary>
+    public IReadOnlyList<ActiveError> ActiveErrors
+    {
+        get { lock (_activeErrorsLock) return _activeErrors.Values.OrderBy(e => e.RaisedAt).ToList(); }
     }
 
     public string Name
@@ -229,6 +250,143 @@ public abstract class LogBase
         }
         ErrorsUpdated?.Invoke();
     }
+
+    /// <summary>
+    /// Raises a momentary error (e.g. a missed poll response) that auto-expires after
+    /// <paramref name="ttl"/> (default <see cref="DefaultMomentaryErrorTtl"/>). Re-raising the same
+    /// <paramref name="key"/> (defaults to the message) refreshes the existing entry's TTL.
+    /// </summary>
+    protected void RaiseMomentaryError(string message, TimeSpan? ttl = null, string? key = null)
+    {
+        key ??= message;
+        var now = DateTimeOffset.UtcNow;
+        bool isNewOrChanged;
+        lock (_activeErrorsLock)
+        {
+            isNewOrChanged = !_activeErrors.TryGetValue(key, out var existing) || existing.Message != message;
+            _activeErrors[key] = new ActiveError(key, message, ErrorPersistence.Momentary, now,
+                now + (ttl ?? DefaultMomentaryErrorTtl));
+            LimitActiveErrors(key);
+            RescheduleExpiry();
+        }
+        if (isNewOrChanged)
+        {
+            LogWarning("{ActiveErrorMessage}", message);
+            AddEvent(EventType.Error, message);
+        }
+        RaiseActiveErrorsChanged();
+    }
+
+    /// <summary>
+    /// Raises a persistent error (e.g. a device stuck on the wrong input) that stays active until
+    /// <see cref="ClearPersistentError"/> is called with the same <paramref name="key"/>.
+    /// Re-raising an unchanged key/message is a no-op, so this is safe to call every poll cycle.
+    /// </summary>
+    protected void RaisePersistentError(string key, string message)
+    {
+        lock (_activeErrorsLock)
+        {
+            if (_activeErrors.TryGetValue(key, out var existing)
+                && existing.Persistence == ErrorPersistence.Persistent && existing.Message == message)
+                return;
+            _activeErrors[key] = new ActiveError(key, message, ErrorPersistence.Persistent,
+                DateTimeOffset.UtcNow, null);
+            LimitActiveErrors(key);
+            RescheduleExpiry();
+        }
+        LogWarning("{ActiveErrorMessage}", message);
+        AddEvent(EventType.Error, message);
+        RaiseActiveErrorsChanged();
+    }
+
+    /// <summary>
+    /// Clears a persistent error once the driver has recovered the condition. Clearing a key that
+    /// isn't active is a no-op, so this is safe to call every poll cycle.
+    /// </summary>
+    protected void ClearPersistentError(string key)
+    {
+        lock (_activeErrorsLock)
+        {
+            if (!_activeErrors.TryGetValue(key, out var existing)
+                || existing.Persistence != ErrorPersistence.Persistent)
+                return;
+            _activeErrors.Remove(key);
+        }
+        LogInformation("Cleared active error {ActiveErrorKey}", key);
+        AddEvent(EventType.Error, $"Cleared: {key}");
+        RaiseActiveErrorsChanged();
+    }
+
+    public void SetActiveErrorLimit(int limit)
+    {
+        lock (_activeErrorsLock)
+        {
+            _activeErrorLimit = limit;
+            LimitActiveErrors(null);
+            RescheduleExpiry();
+        }
+        RaiseActiveErrorsChanged();
+    }
+
+    // Must be called under _activeErrorsLock. Evicts oldest momentary entries first (they would
+    // expire anyway), then oldest persistent ones, but never the just-raised protectedKey.
+    private void LimitActiveErrors(string? protectedKey)
+    {
+        if (_activeErrors.Count <= _activeErrorLimit)
+            return;
+        foreach (var key in _activeErrors.Values
+                     .Where(e => e.Key != protectedKey)
+                     .OrderBy(e => e.Persistence)
+                     .ThenBy(e => e.RaisedAt)
+                     .Take(_activeErrors.Count - _activeErrorLimit)
+                     .Select(e => e.Key)
+                     .ToList())
+            _activeErrors.Remove(key);
+    }
+
+    // Must be called under _activeErrorsLock.
+    private void RescheduleExpiry()
+    {
+        DateTimeOffset? next = null;
+        foreach (var error in _activeErrors.Values)
+        {
+            if (error.ExpiresAt is { } expiry && (next == null || expiry < next))
+                next = expiry;
+        }
+
+        if (next == null)
+        {
+            _activeErrorExpiryTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            return;
+        }
+
+        _activeErrorExpiryTimer ??= new Timer(ExpireActiveErrors, null, Timeout.Infinite, Timeout.Infinite);
+        var due = next.Value - DateTimeOffset.UtcNow;
+        if (due < TimeSpan.Zero)
+            due = TimeSpan.Zero;
+        _activeErrorExpiryTimer.Change(due, Timeout.InfiniteTimeSpan);
+    }
+
+    private void ExpireActiveErrors(object? state)
+    {
+        var removed = false;
+        lock (_activeErrorsLock)
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var key in _activeErrors.Where(kvp => kvp.Value.ExpiresAt <= now)
+                         .Select(kvp => kvp.Key).ToList())
+            {
+                _activeErrors.Remove(key);
+                removed = true;
+            }
+            RescheduleExpiry();
+        }
+        if (removed)
+            RaiseActiveErrorsChanged();
+    }
+
+    private void RaiseActiveErrorsChanged() =>
+        ActiveErrorsChanged?.Invoke(this, new ActiveErrorsChangedEventArgs(ActiveErrors));
 
     private sealed class NullScope : IDisposable
     {

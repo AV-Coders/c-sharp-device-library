@@ -258,9 +258,22 @@ public class QsysEcpTest
     {
         _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\"");
         _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
-        
+
         Assert.Equal(CommunicationState.Error, _dsp.CommunicationState);
         _communicationStateHandler.Verify(x => x.Invoke(CommunicationState.Error));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenABadId_RaisesAPersistentError_ClearedWhenTheControlResponds()
+    {
+        _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
+
+        var error = Assert.Single(_dsp.ActiveErrors, e => e.Key == "bad-control:Zone33BGMMute");
+        Assert.Equal(ErrorPersistence.Persistent, error.Persistence);
+
+        _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\" \"unmuted\" 1 1");
+
+        Assert.DoesNotContain(_dsp.ActiveErrors, e => e.Key == "bad-control:Zone33BGMMute");
     }
 
     [Fact]

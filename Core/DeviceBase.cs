@@ -9,6 +9,8 @@ public abstract class DeviceBase : LogBase, IDevice
     
     public readonly CommunicationClient CommunicationClient;
     protected PowerState DesiredPowerState = PowerState.Unknown;
+    protected const string PowerStateErrorKey = "power-state";
+    protected const string CommunicationErrorKey = "communication";
     
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
@@ -38,11 +40,15 @@ public abstract class DeviceBase : LogBase, IDevice
             
             _communicationState = value;
             AddEvent(EventType.DriverState, value.ToString());
+            if (value == CommunicationState.Error)
+                RaisePersistentError(CommunicationErrorKey, "Device communication error");
+            else if (value == CommunicationState.Okay)
+                ClearPersistentError(CommunicationErrorKey);
             CommunicationStateHandlers?.Invoke(CommunicationState);
             OnCommunicationStateChanged?.Invoke(CommunicationState);
         }
     }
-    
+
     protected DeviceBase(string name, CommunicationClient client) : base(name)
     {
         CommunicationClient = client;
@@ -50,11 +56,15 @@ public abstract class DeviceBase : LogBase, IDevice
 
     protected void ProcessPowerState()
     {
-        if (PowerState == DesiredPowerState)
+        if (PowerState == DesiredPowerState || DesiredPowerState == PowerState.Unknown)
+        {
+            ClearPersistentError(PowerStateErrorKey);
             return;
-        
+        }
+
         using (PushProperties("ProcessPowerState"))
         {
+            RaisePersistentError(PowerStateErrorKey, $"Power is {PowerState}, should be {DesiredPowerState}");
             switch (DesiredPowerState)
             {
                 case PowerState.Off:
