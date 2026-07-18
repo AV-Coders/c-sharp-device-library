@@ -213,7 +213,12 @@ public class ExtronSmp351 : Recorder
                     break;
             }
         }
-        
+        else
+        {
+            return;
+        }
+
+        CommunicationState = CommunicationState.Okay;
     }
 
     private void ProcessUsbStatus(ExtronSmp351UsbPort port, string status)

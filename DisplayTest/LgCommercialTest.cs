@@ -106,6 +106,24 @@ public class LgCommercialTest
         handler.Verify(x => x.Invoke(expectedState));
     }
 
+    [Fact]
+    public void HandleResponse_UpdatesTheCommunicationState()
+    {
+        Assert.Equal(CommunicationState.NotAttempted, _display.CommunicationState);
+
+        _mockClient.Object.ResponseHandlers!.Invoke("a 00 OK01x");
+
+        Assert.Equal(CommunicationState.Okay, _display.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnNgResponse_ReportsAnError()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("a 00 NG01x");
+
+        Assert.Equal(CommunicationState.Error, _display.CommunicationState);
+    }
+
     [Theory]
     [InlineData("b 00 OK90x", Input.Hdmi1)]
     [InlineData("b 00 OK91x", Input.Hdmi2)]

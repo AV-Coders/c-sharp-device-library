@@ -125,6 +125,16 @@ public class NecUhdExternalControlTest
     }
 
     [Fact]
+    public void ResponseHandler_UpdatesTheCommunicationState()
+    {
+        Assert.Equal(CommunicationState.NotAttempted, _display.CommunicationState);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x31, 0x03, 0x74, 0x0D });
+
+        Assert.Equal(CommunicationState.Okay, _display.CommunicationState);
+    }
+
+    [Fact]
     public void ResponseHandler_HandlesPartialPowerResponses()
     {
         var response1 = new byte[]

@@ -59,17 +59,22 @@ public class LumensLc300 : Recorder
             switch (response[0])
             {
                 case EventResponseHeader:
-                    if(response[1] == 0x53 && response[2] == 0x54)
+                    if (response[1] == 0x53 && response[2] == 0x54)
+                    {
+                        CommunicationState = CommunicationState.Okay;
                         TransportState = DecodeTransportState(response[3]);
+                    }
                     break;
                 case Header:
                 {
                     if (response[4] != AckAction)
                     {
+                        CommunicationState = CommunicationState.Error;
                         LogError("Response {response} did not have an ack", BitConverter.ToString(response));
                         return;
                     }
 
+                    CommunicationState = CommunicationState.Okay;
                     if (response.Length != 9)
                         return;
             

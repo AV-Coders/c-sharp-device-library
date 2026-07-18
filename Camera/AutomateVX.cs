@@ -111,6 +111,7 @@ public class AutomateVX : DeviceBase
         {
             if (!response.IsSuccessStatusCode)
             {
+                CommunicationState = CommunicationState.Error;
                 LogError("1Beyond gave an error status code {code} - {description}\n\n {body}",
                     response.StatusCode, response.StatusCode.ToString(), response.Content.ReadAsStringAsync().Result);
                 return;
@@ -131,6 +132,7 @@ public class AutomateVX : DeviceBase
                         switch (statusElement.GetString())
                         {
                             case "OK":
+                                CommunicationState = CommunicationState.Okay;
                                 break;
                             case "Error":
                                 Handle1BeyondError(root);
@@ -207,6 +209,7 @@ public class AutomateVX : DeviceBase
 
     private void Handle1BeyondError(JsonElement root)
     {
+        CommunicationState = CommunicationState.Error;
         if(root.TryGetProperty("status", out JsonElement statusElement))
         {
             LogError("1Beyond returned a status of {status}", statusElement.GetString());

@@ -105,4 +105,37 @@ public class AutomateVxTest
         mockhandler.Verify(x => x.Invoke(2));
         Assert.Equal(2, _automateVx.ActiveLayout);
     }
+
+    [Fact]
+    public void ResponseHandler_UpdatesTheCommunicationState()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK);
+        response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Changed to Layout C\"\n}");
+
+        _mockClient.Object.HttpResponseHandlers!.Invoke(response);
+
+        Assert.Equal(CommunicationState.Okay, _automateVx.CommunicationState);
+    }
+
+    [Fact]
+    public void ResponseHandler_GivenAFailureStatusCode_ReportsAnError()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.InternalServerError);
+        response.Content = new StringContent("Server error");
+
+        _mockClient.Object.HttpResponseHandlers!.Invoke(response);
+
+        Assert.Equal(CommunicationState.Error, _automateVx.CommunicationState);
+    }
+
+    [Fact]
+    public void ResponseHandler_GivenAnErrorStatus_ReportsAnError()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK);
+        response.Content = new StringContent("{\n    \"status\": \"Error\",\n    \"err\": \"Bad token\"\n}");
+
+        _mockClient.Object.HttpResponseHandlers!.Invoke(response);
+
+        Assert.Equal(CommunicationState.Error, _automateVx.CommunicationState);
+    }
 }

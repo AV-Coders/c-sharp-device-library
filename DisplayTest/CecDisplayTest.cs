@@ -87,8 +87,18 @@ public class CecDisplayTest
     public void SetChannel_SendsTheCommand()
     {
         _display.SetChannel(12);
-        
+
         _mockClient.Verify(x => x.Send(new []{'\x40', '\x44', '\x21'}));
         _mockClient.Verify(x => x.Send(new []{'\x40', '\x44', '\x22'}));
+    }
+
+    [Fact]
+    public void HandleResponse_UpdatesTheCommunicationState()
+    {
+        Assert.Equal(CommunicationState.NotAttempted, _display.CommunicationState);
+
+        _mockClient.Object.ResponseHandlers!.Invoke("\x0F\x90\x00");
+
+        Assert.Equal(CommunicationState.Okay, _display.CommunicationState);
     }
 }

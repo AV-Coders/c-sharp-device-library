@@ -118,4 +118,22 @@ public class PhilipsSICPTest
         Assert.Null(exception);
         Assert.Equal(stateBefore, _display.PowerState);
     }
+
+    [Fact]
+    public void HandleResponse_UpdatesTheCommunicationState()
+    {
+        Assert.Equal(CommunicationState.NotAttempted, _display.CommunicationState);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x06, 0x01, 0x01, 0x19, 0x02, 0x1D });
+
+        Assert.Equal(CommunicationState.Okay, _display.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAMalformedResponse_ReportsAnError()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x00 });
+
+        Assert.Equal(CommunicationState.Error, _display.CommunicationState);
+    }
 }

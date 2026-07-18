@@ -97,7 +97,12 @@ public class LGCommercial : Display, ISetTopBox
         using (PushProperties())
         {
             if (!response.Contains($" {_setId:d2} OK"))
+            {
+                if (response.Contains($" {_setId:d2} NG"))
+                    CommunicationState = CommunicationState.Error;
                 return;
+            }
+            CommunicationState = CommunicationState.Okay;
             var data = response.Split("OK");
 
             if (data[0].Contains($"a {_setId:d2} "))

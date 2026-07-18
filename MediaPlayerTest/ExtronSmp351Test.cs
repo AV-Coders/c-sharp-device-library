@@ -131,8 +131,24 @@ public class ExtronSmp351Test
     public void HandleResponse_HandlesFrontUsbStatus(string response, ConnectionState expectedState)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(response);
-        
+
         _mockFrontUsbConnectionStateHandler.Verify(x => x.Invoke(expectedState));
         Assert.Equal(expectedState, _recorder.FrontUsbConnectionState);
+    }
+
+    [Fact]
+    public void HandleResponse_UpdatesTheCommunicationState()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("RcdrY0\r\n");
+
+        Assert.Equal(CommunicationState.Okay, _recorder.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_IgnoresUnknownResponses()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("E22\r\n");
+
+        Assert.NotEqual(CommunicationState.Okay, _recorder.CommunicationState);
     }
 }

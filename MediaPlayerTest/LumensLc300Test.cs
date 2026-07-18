@@ -106,8 +106,23 @@ public class LumensLc300Test
     public void SetVideoSourceId_SendsTheCommand(byte channel, byte index, byte[] expectedCommand)
     {
         _recorder.SetVideoSourceId(channel, index);
-        
-        _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);   
+
+        _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
-    
+
+    [Fact]
+    public void ResponseHandler_UpdatesTheCommunicationState()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x23, 0x53, 0x54, 0x32, 0x0d });
+
+        Assert.Equal(CommunicationState.Okay, _recorder.CommunicationState);
+    }
+
+    [Fact]
+    public void ResponseHandler_GivenANak_ReportsAnError()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x55, 0xf0, 0x06, 0x01, 0x15 });
+
+        Assert.Equal(CommunicationState.Error, _recorder.CommunicationState);
+    }
 }

@@ -21,6 +21,7 @@ public class Zigbee2MqttLight : Light
     {
         using var document = JsonDocument.Parse(valueChange);
         var data = document.RootElement;
+        CommunicationState = CommunicationState.Okay;
         TryToGetBrightness(data);
         TryToGetPowerState(data);
     }

@@ -101,6 +101,7 @@ public class CecDisplay : Display, ISetTopBox
         {
             if (incoming[0] == _responseHeader && incoming[1] == '\x90')
             {
+                CommunicationState = CommunicationState.Okay;
                 PowerState = incoming[2] switch
                 {
                     '\x00' => PowerState.On,

@@ -35,11 +35,13 @@ public class PhilipsSICP : Display
             // at least 6 bytes; the leading byte declares the full frame length.
             if (response.Length < 6 || response.Length < response[0])
             {
+                CommunicationState = CommunicationState.Error;
                 LogWarning("The response was too small");
                 AddEvent(EventType.Error, "The response was too small");
                 return;
             }
 
+            CommunicationState = CommunicationState.Okay;
             switch (response[3])
             {
                 case 0x19:

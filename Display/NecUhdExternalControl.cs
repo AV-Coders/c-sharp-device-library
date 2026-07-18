@@ -106,6 +106,7 @@ public class NecUhdExternalControl : Display
             if (response[12] != 0x44 || response[13] != 0x36)
                 return; // Only care about power responses
 
+            CommunicationState = CommunicationState.Okay;
             switch (response[23])
             {
                 case 0x34:
@@ -123,6 +124,7 @@ public class NecUhdExternalControl : Display
             if (response[8] != 0x30 || response[9] != 0x30 || response[10] != 0x30 || response[11] != 0x30 || response[12] != 0x36)
                 return;
 
+            CommunicationState = CommunicationState.Okay;
             switch (response[13])
             {
                 case 0x30: // Input response

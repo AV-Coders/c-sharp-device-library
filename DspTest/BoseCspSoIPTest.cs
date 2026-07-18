@@ -70,4 +70,12 @@ public class BoseCspSoIPTest
         _dsp.SetValue(GainName, source);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
+
+    [Fact]
+    public void HandleResponse_UpdatesTheCommunicationState()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"GA\"{GainName}\">1=12\r");
+
+        Assert.Equal(CommunicationState.Okay, _dsp.CommunicationState);
+    }
 }

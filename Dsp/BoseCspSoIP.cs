@@ -104,6 +104,8 @@ public class BoseCspSoIP : Dsp
             {
                 _ = line.TrimEnd('\r');
                 var match = _responseParser.Match(line);
+                if (match.Success)
+                    CommunicationState = CommunicationState.Okay;
 
                 if (match.Groups[2].Value == "1" && _gains.ContainsKey(match.Groups[1].Value))
                     _gains[match.Groups[1].Value].SetVolumeFromDb(double.Parse(match.Groups[3].Value));

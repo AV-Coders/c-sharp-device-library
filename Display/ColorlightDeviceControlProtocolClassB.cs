@@ -24,6 +24,7 @@ public class ColorlightDeviceControlProtocolClassB : Display
         {
             if (response.Take(8).ToArray().SequenceEqual(_heartbeatRequest))
             {
+                CommunicationState = CommunicationState.Okay;
                 CommunicationClient.Send(_heartbeatResponse);
             }
         }
