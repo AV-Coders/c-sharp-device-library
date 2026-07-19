@@ -242,6 +242,9 @@ public class ExtronDtpCpxxTest
     [InlineData("HdcpI03*0", 2, ConnectionState.Disconnected)]
     [InlineData("HdcpI04*1", 3, ConnectionState.Connected)]
     [InlineData("HdcpI04*0", 3, ConnectionState.Disconnected)]
+    [InlineData("HdcpI09*2", 8, ConnectionState.Connected)]
+    [InlineData("HdcpI10*1", 9, ConnectionState.Connected)]
+    [InlineData("HdcpI10*0", 9, ConnectionState.Disconnected)]
     public void HandleResponse_SetsInputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionState expected)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);

@@ -71,7 +71,7 @@ public class ExtronDtpCpxx : VideoMatrix
             {
                 var parts = response.TrimStart('H', 'd', 'c', 'p', 'I').TrimEnd('\r').Split('*');
                 int inputNumber = int.Parse(parts[0].TakeWhile(char.IsDigit).ToArray());
-                if (inputNumber <= 0 || inputNumber > ComposedOutputs.Count)
+                if (inputNumber <= 0 || inputNumber > Inputs.Count)
                     return;
 
                 ConnectionState connectionStatus = ConnectionState.Unknown;
