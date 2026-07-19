@@ -75,6 +75,20 @@ public class AvCodersUdpClientTest : IDisposable
     }
 
     [Fact]
+    public async Task Send_AfterConnect_StillDeliversDatagram()
+    {
+        var client = CreateClient();
+        // Connect() reconnects: it closes the old socket and must swap the new one into place,
+        // otherwise sends keep going to the disposed socket and are silently lost.
+        client.Connect();
+
+        client.Send("after reconnect");
+
+        var result = await ReceiveAsync(10);
+        Assert.Equal("after reconnect", Encoding.ASCII.GetString(result.Buffer));
+    }
+
+    [Fact]
     public void Send_AfterDisconnect_QueuesWithoutThrowing()
     {
         var client = CreateClient();

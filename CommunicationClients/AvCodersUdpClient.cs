@@ -58,16 +58,22 @@ public class AvCodersUdpClient : Core_UdpClient
                 return;
             }
 
-            if (_client is not { Available: > 0 })
-            {
-                await Task.Delay(1100, token);
-                return;
-            }
-
             try
             {
+                // Available throws ObjectDisposedException on a closed client, so it must stay
+                // inside the try - anything escaping here permanently kills the receive worker.
+                if (_client is not { Available: > 0 })
+                {
+                    await Task.Delay(1100, token);
+                    return;
+                }
+
                 var received = _client.Receive(ref _ipEndPoint);
                 InvokeResponseHandlers(ConvertByteArrayToString(received), received);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception e)
             {
@@ -97,7 +103,19 @@ public class AvCodersUdpClient : Core_UdpClient
                             age, QueueTimeout);
                     continue;
                 }
-                await _client.SendAsync(item.Payload, token);
+                try
+                {
+                    await _client.SendAsync(item.Payload, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    using (PushProperties("ProcessSendQueue"))
+                        LogException(e, "Failed to send a queued message, dropping it");
+                }
             }
             await Task.Delay(1100, token);
         }
@@ -109,7 +127,8 @@ public class AvCodersUdpClient : Core_UdpClient
         {
             if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
             {
-                CreateClient();
+                _client?.Close();
+                _client = CreateClient();
             }
             await Task.Delay(TimeSpan.FromSeconds(30), token);
         }
@@ -126,12 +145,13 @@ public class AvCodersUdpClient : Core_UdpClient
         ConnectionState = ConnectionState.Disconnecting;
         _client?.Close();
         ConnectionState = ConnectionState.Disconnected;
-        CreateClient();
+        _client = CreateClient();
     }
 
     public override void Disconnect()
     {
         ConnectionState = ConnectionState.Disconnecting;
+        _client?.Close();
         _client = null;
         _ipEndPoint = null;
         ReceiveThreadWorker.Stop();
