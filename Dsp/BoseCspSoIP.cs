@@ -99,49 +99,71 @@ public class BoseCspSoIP : Dsp
     {
         using (PushProperties())
         {
-            var lines = response.Split('\r').ToList();
-            lines.ForEach(line =>
+            foreach (var line in response.Split('\r'))
             {
-                _ = line.TrimEnd('\r');
                 var match = _responseParser.Match(line);
-                if (match.Success)
-                    CommunicationState = CommunicationState.Okay;
+                if (!match.Success)
+                    continue;
+                CommunicationState = CommunicationState.Okay;
 
-                if (match.Groups[2].Value == "1" && _gains.ContainsKey(match.Groups[1].Value))
-                    _gains[match.Groups[1].Value].SetVolumeFromDb(double.Parse(match.Groups[3].Value));
+                var controlName = match.Groups[1].Value;
+                var attribute = match.Groups[2].Value;
+                var value = match.Groups[3].Value;
 
-                if (match.Groups[2].Value == "2" && _mutes.ContainsKey(match.Groups[1].Value))
-                    _mutes[match.Groups[1].Value].MuteState = match.Groups[3].Value switch
-                    {
-                        "O" => MuteState.On,
-                        "F" => MuteState.Off,
-                        _ => MuteState.Unknown
-                    };
-            });
+                // The device echoes the full control name ("Foo Gain", "Foo Selector") but the
+                // dictionaries are keyed by the base name consumers registered with.
+                if (TryStripSuffix(controlName, " Gain", out var gainKey))
+                {
+                    if (attribute == "1" && _gains.TryGetValue(gainKey, out var gain))
+                        gain.SetVolumeFromDb(double.Parse(value));
+                    else if (attribute == "2" && _mutes.TryGetValue(gainKey, out var mute))
+                        mute.MuteState = value switch
+                        {
+                            "O" => MuteState.On,
+                            "F" => MuteState.Off,
+                            _ => MuteState.Unknown
+                        };
+                }
+                else if (TryStripSuffix(controlName, " Selector", out var selectKey))
+                {
+                    if (attribute == "1" && _selects.TryGetValue(selectKey, out var select))
+                        select.Value = value;
+                }
+            }
         }
+    }
+
+    private static bool TryStripSuffix(string name, string suffix, out string baseName)
+    {
+        if (name.Length > suffix.Length && name.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            baseName = name[..^suffix.Length];
+            return true;
+        }
+        baseName = string.Empty;
+        return false;
     }
 
     protected override async Task Poll(CancellationToken token)
     {
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
-        
+
         foreach (string key in _gains.Keys)
         {
             await Task.Delay(30, token);
-            CommunicationClient.Send($"GA\"{key}\">1\r");
-            
+            CommunicationClient.Send($"GA\"{key} Gain\">1\r");
         }
         foreach (string key in _mutes.Keys)
         {
             await Task.Delay(30, token);
-            CommunicationClient.Send($"GA\"{key}>2\r");
+            CommunicationClient.Send($"GA\"{key} Gain\">2\r");
         }
 
         foreach (string key in _selects.Keys)
         {
             await Task.Delay(30, token);
-            CommunicationClient.Send($"GA\"{key}>1\r");
+            CommunicationClient.Send($"GA\"{key} Selector\">1\r");
         }
     }
 
