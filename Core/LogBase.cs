@@ -385,8 +385,27 @@ public abstract class LogBase
             RaiseActiveErrorsChanged();
     }
 
-    private void RaiseActiveErrorsChanged() =>
-        ActiveErrorsChanged?.Invoke(this, new ActiveErrorsChangedEventArgs(ActiveErrors));
+    // Subscribers are invoked individually and guarded: this runs on the expiry Timer thread, where
+    // an unhandled subscriber exception would kill the process, and one faulty subscriber must not
+    // starve the rest.
+    private void RaiseActiveErrorsChanged()
+    {
+        var handlers = ActiveErrorsChanged;
+        if (handlers == null)
+            return;
+        var args = new ActiveErrorsChangedEventArgs(ActiveErrors);
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((EventHandler<ActiveErrorsChangedEventArgs>)handler)(this, args);
+            }
+            catch (Exception e)
+            {
+                LogException(e, "An ActiveErrorsChanged handler threw an exception");
+            }
+        }
+    }
 
     private sealed class NullScope : IDisposable
     {

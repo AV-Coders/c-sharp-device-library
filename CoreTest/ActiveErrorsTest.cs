@@ -209,6 +209,41 @@ public class ActiveErrorsTest
     }
 
     [Fact]
+    public void ActiveErrorsChanged_SubscriberThrowing_DoesNotPropagate_AndOthersStillRun()
+    {
+        _logBase.ActiveErrorsChanged += (_, _) => throw new InvalidOperationException("Bad subscriber");
+        var secondSubscriberRan = false;
+        _logBase.ActiveErrorsChanged += (_, _) => secondSubscriberRan = true;
+
+        _logBase.Persistent("input", "Wrong input");
+
+        Assert.True(secondSubscriberRan);
+        Assert.Single(_logBase.Errors, e => e.Exception is InvalidOperationException);
+    }
+
+    [Fact]
+    public async Task ActiveErrorsChanged_SubscriberThrowingOnExpiry_DoesNotKillTheTimerCallback()
+    {
+        _logBase.ActiveErrorsChanged += (_, e) =>
+        {
+            if (e.ActiveErrors.Count == 0)
+                throw new InvalidOperationException("Bad subscriber");
+        };
+        var expired = new TaskCompletionSource();
+        _logBase.ActiveErrorsChanged += (_, e) =>
+        {
+            if (e.ActiveErrors.Count == 0)
+                expired.TrySetResult();
+        };
+
+        _logBase.Momentary("A poll was missed", TimeSpan.FromMilliseconds(100));
+
+        await expired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(_logBase.ActiveErrors);
+        Assert.Single(_logBase.Errors, e => e.Exception is InvalidOperationException);
+    }
+
+    [Fact]
     public void ActiveErrors_AreOrderedByRaisedAt()
     {
         _logBase.Persistent("first", "First error");
