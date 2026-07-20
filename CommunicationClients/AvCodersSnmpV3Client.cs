@@ -81,11 +81,11 @@ public class AvCodersSnmpV3Client : CommunicationClient
         }
     }
     
-    public List<Variable> Set(string oid, string value) => Set(oid, new OctetString(value));
-    
-    public List<Variable> Set(string oid, int value) => Set(oid, new Integer32(value));
+    public virtual List<Variable> Set(string oid, string value) => Set(oid, new OctetString(value));
 
-    public List<Variable> Get(string oid)
+    public virtual List<Variable> Set(string oid, int value) => Set(oid, new Integer32(value));
+
+    public virtual List<Variable> Get(string oid)
     {
         try
         {
@@ -125,7 +125,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
         }
     }
 
-    public List<Variable> Walk(string oid)
+    public virtual List<Variable> Walk(string oid)
     {
         try
         {

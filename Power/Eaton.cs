@@ -22,27 +22,24 @@ public class EatonOutlet : Outlet
         PowerState = currentState;   
     }
 
+    // The expected state is set immediately and the PDU's poll worker confirms or
+    // corrects it on its next cycle — no blocking sleeps on the calling thread.
     public override void PowerOn()
     {
         _pdu.PowerOn(this);
-        Thread.Sleep(5000);
-        PowerState = _pdu.GetPowerState(this);
+        PowerState = PowerState.On;
     }
 
     public override void PowerOff()
     {
         _pdu.PowerOff(this);
-        Thread.Sleep(5000);
-        PowerState = _pdu.GetPowerState(this);
+        PowerState = PowerState.Off;
     }
 
     public override void Reboot()
     {
         _pdu.Cycle(this);
-        Thread.Sleep(5000);
-        PowerState = _pdu.GetPowerState(this);
-        Thread.Sleep(5000);
-        PowerState = _pdu.GetPowerState(this);
+        PowerState = PowerState.Off;
     }
 }
 
@@ -89,7 +86,15 @@ public class EatonPdu : Pdu
         ClearOutlets();
         for (int i = 1; i < 9; i++)
         {
-            string name = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.2.1.{i}")[0].Data.ToString();
+            var response = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.2.1.{i}");
+            if (response.Count == 0)
+            {
+                // Leave the worker running so initialisation retries from scratch next cycle.
+                AddEvent(EventType.Error, $"Could not read the name of outlet {i}");
+                CommunicationState = CommunicationState.Error;
+                return Task.CompletedTask;
+            }
+            string name = response[0].Data.ToString();
             AddOutlet(new EatonOutlet(name, this, i, 1));
             AddEvent(EventType.DriverState, $"Outlet {name} created");
         }
@@ -136,11 +141,17 @@ public class EatonPdu : Pdu
     public PowerState GetPowerState(EatonOutlet outlet)
     {
         var response = _client.Get($".1.3.6.1.4.1.850.1.1.3.4.3.3.1.1.4.{outlet.DeviceIndex}.{outlet.OutletNumber}");
+        if (response.Count == 0)
+        {
+            CommunicationState = CommunicationState.Error;
+            return PowerState.Unknown;
+        }
+        CommunicationState = CommunicationState.Okay;
         return response[0].Data.ToString() switch
         {
             "1" => PowerState.Off,
             "2" => PowerState.On,
             _ => PowerState.Unknown
-        }; 
+        };
     }
 }
