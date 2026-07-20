@@ -39,7 +39,7 @@ public record VitecServerChannel(
 
 public class VitecServer : LogBase
 {
-    private readonly Dictionary<int, string> _channelMap = new ();
+    private Dictionary<int, string> _channelMap = new ();
     private ThreadWorker _pollChannelsWorker;
     private readonly Dictionary<string, int> _currentChannelMap = new();
 
@@ -51,14 +51,10 @@ public class VitecServer : LogBase
         _channelUri = new Uri($"http://{host}/api/public/control/devices/commands/channel", UriKind.Absolute);
         _getChannelsUri = new Uri($"http://{host}/api/public/control/channels", UriKind.Absolute);
         _pollChannelsWorker = new ThreadWorker(PollChannels, TimeSpan.FromHours(2));
-        PollChannels(default);
+        _pollChannelsWorker.Restart();
     }
 
-    private Task PollChannels(CancellationToken token)
-    {
-        Get(_getChannelsUri);
-        return Task.CompletedTask;
-    }
+    private Task PollChannels(CancellationToken token) => Get(_getChannelsUri);
 
     private bool ValidateCertificate(HttpRequestMessage arg1, X509Certificate2? arg2, X509Chain? arg3,
         SslPolicyErrors arg4) => true;
@@ -108,12 +104,11 @@ public class VitecServer : LogBase
             {
                 return;
             }
-            _channelMap.Clear();
-
-            vitecServerChannels.ForEach(channelInfo =>
-            {
-                _channelMap.Add(channelInfo.Number, channelInfo.Uri);
-            });
+            // Built aside and swapped so readers never see a half-populated map, and a
+            // duplicate channel number updates the entry instead of throwing.
+            var newChannelMap = new Dictionary<int, string>();
+            vitecServerChannels.ForEach(channelInfo => newChannelMap[channelInfo.Number] = channelInfo.Uri);
+            _channelMap = newChannelMap;
         }
     }
 
@@ -124,37 +119,55 @@ public class VitecServer : LogBase
 
     public void SetChannel(int channelNumber, string deviceMac)
     {
-        Post(_channelUri,$"{{\n  \"devices\": [\n    \"{deviceMac}\"\n  ],\n  \"uri\": \"{_channelMap[channelNumber]}\",\n  \"isFullScreen\": 0,\n  \"params\": {{}}\n}}");
+        if (!_channelMap.TryGetValue(channelNumber, out var channelUri))
+        {
+            using (PushProperties())
+                LogError("Channel {ChannelNumber} is not in the channel list", channelNumber);
+            return;
+        }
+        Post(_channelUri,$"{{\n  \"devices\": [\n    \"{deviceMac}\"\n  ],\n  \"uri\": \"{channelUri}\",\n  \"isFullScreen\": 0,\n  \"params\": {{}}\n}}");
         _currentChannelMap[deviceMac] = channelNumber;
     }
 
     public void ChannelUp(string deviceMac)
     {
-        int newChannelIndex = 0;
         List<int> channels = _channelMap.Keys.ToList();
-        
+        if (channels.Count == 0)
+        {
+            using (PushProperties())
+                LogWarning("Ignoring channel up, the channel list is empty");
+            return;
+        }
+
+        int newChannelIndex = 0;
         if (_currentChannelMap.TryGetValue(deviceMac, out var currentChannel))
         {
             newChannelIndex = channels.IndexOf(currentChannel) + 1;
-            if (newChannelIndex < -1 || newChannelIndex > channels.Count)
+            if (newChannelIndex >= channels.Count)
                 newChannelIndex = 0;
         }
-        
+
         SetChannel(channels[newChannelIndex], deviceMac);
     }
 
     public void ChannelDown(string deviceMac)
     {
-        int newChannelIndex = 0;
         List<int> channels = _channelMap.Keys.ToList();
-        
+        if (channels.Count == 0)
+        {
+            using (PushProperties())
+                LogWarning("Ignoring channel down, the channel list is empty");
+            return;
+        }
+
+        int newChannelIndex = 0;
         if (_currentChannelMap.TryGetValue(deviceMac, out var currentChannel))
         {
             newChannelIndex = channels.IndexOf(currentChannel) - 1;
-            if (newChannelIndex < -1 || newChannelIndex > channels.Count)
+            if (newChannelIndex < 0)
                 newChannelIndex = channels.Count - 1;
         }
-        
+
         SetChannel(channels[newChannelIndex], deviceMac);
     }
 }
