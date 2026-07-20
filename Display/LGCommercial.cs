@@ -81,8 +81,7 @@ public class LGCommercial : Display, ISetTopBox
         CommunicationClient.ResponseHandlers += HandleResponse;
         _setId = setId;
         if (mac != null)
-            _wolPacket = BuildMagicPacket(ParseMacAddress(mac));
-
+            _wolPacket = TryBuildWolPacket(mac);
     }
 
     protected override void HandleConnectionState(ConnectionState connectionState)
@@ -147,49 +146,56 @@ public class LGCommercial : Display, ISetTopBox
 
     private void SendCommand(string header, string value) => CommunicationClient.Send($"{header} {_setId:d2} {value}\r");
 
-    protected override Task DoPoll(CancellationToken token)
+    protected override async Task DoPoll(CancellationToken token)
     {
-        PowerState = CommunicationClient.ConnectionState switch
+        // PowerState is only updated from ka poll responses (see HandleResponse) - a
+        // dropped connection does not mean the display is off, and a display with
+        // PM Mode set to Screen Off Always stays connected while off.
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
         {
-            ConnectionState.Connected => PowerState.On,
-            _ => PowerState.Off
-        };
-        if (PowerState != DesiredPowerState)
-        {
-            ProcessPowerResponse();
+            // A display in deep standby (PM Mode: Power Off) drops the connection when
+            // off, so a pending power-on can only be honoured by continuing to wake it.
+            if (DesiredPowerState == PowerState.On)
+            {
+                RaisePersistentError(PowerStateErrorKey, "Power should be On but the display is not connected");
+                SendWol();
+            }
+            return;
         }
 
-        if (PowerState != PowerState.On)
-        {
-            return Task.CompletedTask;
-        }
-        
         SendCommand(_powerHeader, _pollArgument);
-        Task.Delay(1000, token).Wait(token);
+        await Task.Delay(1000, token);
         SendCommand(_inputHeader, _pollArgument);
-        Task.Delay(1000, token).Wait(token);
+        await Task.Delay(1000, token);
         SendCommand(_volumeHeader, _pollArgument);
-        Task.Delay(1000, token).Wait(token);
+        await Task.Delay(1000, token);
         SendCommand(_muteHeader,  _pollArgument);
-        
-        return Task.CompletedTask;
     }
 
     private void SendWol()
     {
         if (_wolPacket == null)
             return;
-        using var client = new UdpClient();
-        for (int i = 0; i < 3; i++)
+        _ = Task.Run(async () =>
         {
-            client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 7));
-            Task.Delay(75);
-            client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 9));
-            Task.Delay(300);
-        }
+            try
+            {
+                using var client = new UdpClient();
+                for (int i = 0; i < 3; i++)
+                {
+                    client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 7));
+                    await Task.Delay(75);
+                    client.Send(_wolPacket, new IPEndPoint(IPAddress.Broadcast, 9));
+                    await Task.Delay(300);
+                }
+            }
+            catch (Exception e)
+            {
+                LogException(e, "Failed to send the Wake-on-LAN packets");
+            }
+        });
     }
-    
-        
+
     private byte[] BuildMagicPacket(byte[] macAddress)
     {
         if (macAddress.Length != 6) throw new ArgumentException();
@@ -210,17 +216,24 @@ public class LGCommercial : Display, ISetTopBox
         return magic.ToArray();
     }
 
-    private static byte[] ParseMacAddress(string text, char[]? separator = null)
+    // Accepts AA:BB:CC:DD:EE:FF, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff and bare AABBCCDDEEFF
+    // forms. A bad MAC disables Wake-on-LAN with a logged error instead of throwing out
+    // of the constructor during program startup.
+    private byte[]? TryBuildWolPacket(string mac)
     {
-        separator ??= [':', '-'];
-        string[] tokens = text.Split(separator);
-
-        byte[] bytes = new byte[6];
-        for (int i = 0; i < 6; i++)
+        var hex = new string(mac.Where(Uri.IsHexDigit).ToArray());
+        if (hex.Length != 12)
         {
-            bytes[i] = Convert.ToByte(tokens[i], 16);
+            using (PushProperties("TryBuildWolPacket"))
+                LogError("'{Mac}' is not a valid MAC address, Wake-on-LAN is disabled for this display", mac);
+            AddEvent(EventType.Error, $"'{mac}' is not a valid MAC address, Wake-on-LAN is disabled");
+            return null;
         }
-        return bytes;
+
+        var bytes = new byte[6];
+        for (var i = 0; i < 6; i++)
+            bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+        return BuildMagicPacket(bytes);
     }
 
     protected override void DoPowerOn()

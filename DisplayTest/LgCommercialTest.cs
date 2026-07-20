@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.Reflection;
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 using AVCoders.MediaPlayer;
 using Moq;
@@ -28,6 +29,57 @@ public class LgCommercialTest
         _display = new LGCommercial(_mockClient.Object, "Test display", "00-00-00-00-00-00",null, 0);
     }
     
+    private static void SetConnectionState(Mock<TcpClient> mock, ConnectionState state) =>
+        typeof(CommunicationClient).GetField("_connectionState", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(mock.Object, state);
+
+    private Task InvokeDoPoll() =>
+        (Task)typeof(LGCommercial).GetMethod("DoPoll", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(_display, [CancellationToken.None])!;
+
+    [Theory]
+    [InlineData("AA:BB:CC:DD:EE:FF")]
+    [InlineData("AA-BB-CC-DD-EE-FF")]
+    [InlineData("aabb.ccdd.eeff")]
+    [InlineData("AABBCCDDEEFF")]
+    [InlineData("not a mac")]
+    public void Constructor_ToleratesCommonMacFormats(string mac)
+    {
+        var exception = Record.Exception(() =>
+            new LGCommercial(TestFactory.CreateTcpClient().Object, "Mac test display", mac, null, 0));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task Poll_WhileDisconnected_LeavesPowerStateAlone()
+    {
+        SetConnectionState(_mockClient, ConnectionState.Disconnected);
+        _display.PowerOn();
+
+        await InvokeDoPoll();
+
+        // The old poll equated disconnected with off, flipping the state and re-firing
+        // the power command every cycle.
+        Assert.Equal(PowerState.On, _display.PowerState);
+        _mockClient.Verify(x => x.Send("ka 00 FF\r"), Times.Never);
+    }
+
+    [Fact]
+    public async Task Poll_WhileConnected_TrustsThePowerResponse_EvenWhenTheScreenIsOff()
+    {
+        SetConnectionState(_mockClient, ConnectionState.Connected);
+        _mockClient.Object.ResponseHandlers!.Invoke("a 00 OK00x");
+        Assert.Equal(PowerState.Off, _display.PowerState);
+
+        await InvokeDoPoll();
+
+        // The old poll forced PowerState.On whenever the connection was up, which lies
+        // for displays with PM Mode set to Screen Off Always.
+        Assert.Equal(PowerState.Off, _display.PowerState);
+        _mockClient.Verify(x => x.Send("ka 00 FF\r"), Times.AtLeastOnce);
+    }
+
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
