@@ -11,6 +11,10 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly AsyncLocal<bool> _isWorkerTask = new();
 
+    // Receive workers run with little or no sleep; without a floor on the failure path, an
+    // action that throws instantly (e.g. on a disposed socket) would spin and flood the log.
+    private static readonly TimeSpan MinimumFailureBackoff = TimeSpan.FromSeconds(1);
+
     public bool IsRunning
     {
         get 
@@ -27,6 +31,26 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
 
     public async Task Restart()
     {
+        if (_isWorkerTask.Value)
+        {
+            _cancellationTokenSource?.Cancel();
+            _ = Task.Run(async () =>
+            {
+                _isWorkerTask.Value = false;
+                await _lock.WaitAsync();
+                try
+                {
+                    await StopInternal();
+                    StartInternal();
+                }
+                finally
+                {
+                    _lock.Release();
+                }
+            });
+            return;
+        }
+
         await _lock.WaitAsync();
         try
         {
@@ -96,7 +120,24 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
                 {
                     if (_waitFirst)
                         await Task.Delay(sleepTime, token);
-                    await action.Invoke(token);
+                    try
+                    {
+                        await action.Invoke(token);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        // The worker was stopped; exit via the outer catch.
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        // Includes cancellation-shaped exceptions from the action's own internals
+                        // (e.g. an HttpClient timeout) — they are failures, not a stop request.
+                        LogException(e,
+                            $"ThreadWorker has encountered an exception while running {action.Method.Name} in {action.Target?.GetType().Name ?? "*Class could not be determined*"}");
+                        if (sleepTime < MinimumFailureBackoff)
+                            await Task.Delay(MinimumFailureBackoff, token);
+                    }
                     if (!_waitFirst)
                         await Task.Delay(sleepTime, token);
                 }
@@ -107,8 +148,8 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
             }
             catch (Exception e)
             {
-                LogException(e,
-                    $"ThreadWorker has encountered an exception while running {action.Method.Name} in {action.Target?.GetType().Name ?? "*Class could not be determined*"}");
+                // Last resort — nothing in the loop should reach here.
+                LogException(e, "ThreadWorker loop terminated unexpectedly");
             }
             finally
             {
