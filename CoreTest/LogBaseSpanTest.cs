@@ -16,8 +16,17 @@ public class LogBaseSpanTest : IDisposable
         }
     }
 
+    // The listener is global to the shared ActivitySource, so parallel test classes can
+    // start spans while an assertion enumerates - guard the list and assert on snapshots.
     private readonly List<Activity> _started = [];
+    private readonly object _startedLock = new();
     private readonly ActivityListener _listener;
+
+    private List<Activity> Started()
+    {
+        lock (_startedLock)
+            return _started.ToList();
+    }
 
     public LogBaseSpanTest()
     {
@@ -25,7 +34,11 @@ public class LogBaseSpanTest : IDisposable
         {
             ShouldListenTo = source => source.Name == LogBase.ActivitySourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStarted = _started.Add
+            ActivityStarted = activity =>
+            {
+                lock (_startedLock)
+                    _started.Add(activity);
+            }
         };
         ActivitySource.AddActivityListener(_listener);
     }
@@ -39,7 +52,7 @@ public class LogBaseSpanTest : IDisposable
 
         new Device("Projector").DoWork();
 
-        var methodSpan = Assert.Single(_started, a => a.OperationName == "Device.DoWork");
+        var methodSpan = Assert.Single(Started(), a => a.OperationName == "Device.DoWork");
         Assert.Equal(parent!.SpanId, methodSpan.ParentSpanId);
         Assert.Equal(parent.TraceId, methodSpan.TraceId);
         Assert.Equal("Projector", methodSpan.GetTagItem("InstanceName"));
@@ -53,6 +66,6 @@ public class LogBaseSpanTest : IDisposable
         // No parent Activity.Current — the method span becomes a root span, still recorded.
         new Device("Projector").DoWork();
 
-        Assert.Contains(_started, a => a.OperationName == "Device.DoWork" && a.Parent == null);
+        Assert.Contains(Started(), a => a.OperationName == "Device.DoWork" && a.Parent == null);
     }
 }

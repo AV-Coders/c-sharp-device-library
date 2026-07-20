@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AVCoders.Core.Tests;
 
@@ -10,15 +11,23 @@ public class LogBaseTest
     }
 
     // Captures BeginScope state so tests can assert what an emitted log event would carry
-    // and that scopes are fully unwound after disposal.
+    // and that scopes are fully unwound after disposal. LogBase.LoggerFactory is static,
+    // so background threads from parallel test classes can log concurrently - all list
+    // access is locked.
     private sealed class CapturingLogger : ILogger
     {
-        public readonly List<object> ActiveScopes = new();
-        public readonly List<Dictionary<string, object>> Events = new();
+        private readonly object _lock = new();
+        private readonly List<object> _activeScopes = new();
+        private readonly List<Dictionary<string, object>> _events = new();
+
+        public int ActiveScopeCount { get { lock (_lock) return _activeScopes.Count; } }
+
+        public Dictionary<string, object> LastEvent { get { lock (_lock) return _events[^1]; } }
 
         public IDisposable BeginScope<TState>(TState state) where TState : notnull
         {
-            ActiveScopes.Add(state);
+            lock (_lock)
+                _activeScopes.Add(state);
             return new Scope(this, state);
         }
 
@@ -27,25 +36,36 @@ public class LogBaseTest
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            var properties = new Dictionary<string, object>();
-            foreach (var scope in ActiveScopes)
+            lock (_lock)
             {
-                if (scope is IEnumerable<KeyValuePair<string, object>> pairs)
-                    foreach (var pair in pairs)
-                        properties[pair.Key] = pair.Value;
+                var properties = new Dictionary<string, object>();
+                foreach (var scope in _activeScopes)
+                {
+                    if (scope is IEnumerable<KeyValuePair<string, object>> pairs)
+                        foreach (var pair in pairs)
+                            properties[pair.Key] = pair.Value;
+                }
+                _events.Add(properties);
             }
-            Events.Add(properties);
         }
 
         private sealed class Scope(CapturingLogger logger, object state) : IDisposable
         {
-            public void Dispose() => logger.ActiveScopes.Remove(state);
+            public void Dispose()
+            {
+                lock (logger._lock)
+                    logger._activeScopes.Remove(state);
+            }
         }
     }
 
+    // Only this test class's own TestLogBase captures - every other LogBase constructed
+    // while this factory is installed (workers and drivers from parallel test classes)
+    // gets a NullLogger, so their scopes cannot pollute or race the assertions.
     private sealed class CapturingLoggerFactory(ILogger logger) : ILoggerFactory
     {
-        public ILogger CreateLogger(string categoryName) => logger;
+        public ILogger CreateLogger(string categoryName) =>
+            categoryName.Contains(nameof(LogBaseTest)) ? logger : NullLogger.Instance;
         public void AddProvider(ILoggerProvider provider) { }
         public void Dispose() { }
     }
@@ -62,7 +82,7 @@ public class LogBaseTest
     private Dictionary<string, object> LogAndCapture()
     {
         _logger.Log(LogLevel.Information, default, "Canary", null, (state, _) => state);
-        return _logger.Events[^1];
+        return _logger.LastEvent;
     }
 
     [Fact]
@@ -97,7 +117,7 @@ public class LogBaseTest
     [Fact]
     public void PushProperties_Dispose_DoesNotAccumulateScopesAcrossRepeatedCalls()
     {
-        int baseline = _logger.ActiveScopes.Count;
+        int baseline = _logger.ActiveScopeCount;
 
         for (int i = 0; i < 500; i++)
         {
@@ -106,7 +126,7 @@ public class LogBaseTest
             }
         }
 
-        Assert.Equal(baseline, _logger.ActiveScopes.Count);
+        Assert.Equal(baseline, _logger.ActiveScopeCount);
         Assert.Empty(LogAndCapture());
     }
 }
