@@ -1,4 +1,8 @@
 using System.Net;
+using System.Net.Security;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace AVCoders.CommunicationClients.Tests;
@@ -171,5 +175,54 @@ public class AvCodersRestClientTest : IDisposable
 
         Assert.Equal(ConnectionState.Error, client.ConnectionState);
         await serve; // let the listener finish so teardown is clean
+    }
+
+    private static X509Certificate2 CreateSelfSignedCertificate(string commonName = "RestClientTest")
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest($"CN={commonName}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+    }
+
+    private static bool Validate(AvCodersRestClient client, X509Certificate2? certificate, SslPolicyErrors errors)
+    {
+        var method = typeof(AvCodersRestClient).GetMethod("ValidateCertificate",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        using var request = new HttpRequestMessage();
+        return (bool)method.Invoke(client, [request, certificate, null, errors])!;
+    }
+
+    [Fact]
+    public void CertificateValidation_AcceptsUntrustedCertificates_ByDefault()
+    {
+        using var certificate = CreateSelfSignedCertificate();
+        var client = CreateClient();
+
+        Assert.True(Validate(client, certificate, SslPolicyErrors.RemoteCertificateChainErrors));
+    }
+
+    [Fact]
+    public void CertificateValidation_RejectsUntrustedCertificates_InStrictMode()
+    {
+        using var certificate = CreateSelfSignedCertificate();
+        var client = new AvCodersRestClient("127.0.0.1", _port, "https", "StrictClient",
+            allowUntrustedCertificates: false);
+
+        Assert.False(Validate(client, certificate, SslPolicyErrors.RemoteCertificateChainErrors));
+        Assert.True(Validate(client, certificate, SslPolicyErrors.None));
+    }
+
+    [Fact]
+    public void CertificateValidation_WithAPinnedThumbprint_AcceptsOnlyTheMatchingCertificate()
+    {
+        using var pinned = CreateSelfSignedCertificate("PinnedDevice");
+        using var imposter = CreateSelfSignedCertificate("Imposter");
+        // Deliberately messy formatting - the thumbprint should be normalised.
+        var thumbprint = string.Join(":", pinned.Thumbprint.ToLowerInvariant().Chunk(2).Select(c => new string(c)));
+        var client = new AvCodersRestClient("127.0.0.1", _port, "https", "PinnedClient",
+            pinnedCertificateThumbprint: thumbprint);
+
+        Assert.True(Validate(client, pinned, SslPolicyErrors.RemoteCertificateChainErrors));
+        Assert.False(Validate(client, imposter, SslPolicyErrors.RemoteCertificateChainErrors));
     }
 }
