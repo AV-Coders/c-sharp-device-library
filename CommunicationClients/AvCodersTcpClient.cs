@@ -9,6 +9,7 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersTcpClient : Core_TcpClient
 {
     private readonly object _clientLock = new();
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private TcpClient? _client;
     private NetworkStream? _stream;
     private readonly ConcurrentQueue<QueuedPayload<byte[]>> _sendQueue = new();
@@ -242,41 +243,23 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         using (PushProperties("Send"))
         {
-            if (IsConnected())
+            if (!IsConnected())
             {
-                try
-                {
-                    SafeWriteAsync(bytes, CancellationToken.None).GetAwaiter().GetResult();
-                    InvokeRequestHandlers(bytes);
-                    return;
-                }
-                catch (IOException e)
-                {
-                    LogException(e);
-                    EnqueueWithCap(bytes);
-                    Reconnect();
-                }
-                catch (ObjectDisposedException e)
-                {
-                    LogException(e);
-                    EnqueueWithCap(bytes);
-                    Reconnect();
-                }
-                catch (SocketException e)
-                {
-                    LogException(e);
-                    EnqueueWithCap(bytes);
-                    Reconnect();
-                }
-                catch (Exception e)
-                {
-                    LogException(e);
-                    EnqueueWithCap(bytes);
-                    Reconnect();
-                }
+                EnqueueWithCap(bytes);
+                return;
             }
 
-            EnqueueWithCap(bytes);
+            try
+            {
+                SafeWriteAsync(bytes, CancellationToken.None).GetAwaiter().GetResult();
+                InvokeRequestHandlers(bytes);
+            }
+            catch (Exception e)
+            {
+                LogException(e);
+                EnqueueWithCap(bytes);
+                Reconnect();
+            }
         }
     }
 
@@ -295,6 +278,8 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         _sendQueue.Clear();
         ConnectionStateWorker.Restart();
+        ReceiveThreadWorker.Restart();
+        SendQueueWorker.Restart();
     }
 
     public override void Reconnect()
@@ -308,6 +293,8 @@ public class AvCodersTcpClient : Core_TcpClient
     public override void Disconnect()
     {
         ConnectionStateWorker.Stop();
+        ReceiveThreadWorker.Stop();
+        SendQueueWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
         DestroyClientSafely();
         ConnectionState = ConnectionState.Disconnected;
@@ -425,8 +412,24 @@ public class AvCodersTcpClient : Core_TcpClient
         if (streamLocal == null || socketLocal == null || !IsSocketHealthy(socketLocal))
             throw new SocketException((int)SocketError.NotConnected);
 
-        streamLocal.WriteTimeout = (int)WriteTimeout.TotalMilliseconds;
-        await streamLocal.WriteAsync(payload.AsMemory(0, payload.Length), token);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeoutCts.CancelAfter(WriteTimeout);
+        try
+        {
+            await _writeLock.WaitAsync(timeoutCts.Token);
+            try
+            {
+                await streamLocal.WriteAsync(payload.AsMemory(0, payload.Length), timeoutCts.Token);
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new IOException($"Write timed out after {WriteTimeout.TotalSeconds}s");
+        }
     }
     
     public void SetReceiveBufferSize(ushort bufferSize)
