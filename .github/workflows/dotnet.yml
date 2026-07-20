@@ -25,33 +25,31 @@ jobs:
         echo "Building version $VERSION"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-    - uses: actions/checkout@master
-    
+    - uses: actions/checkout@v4
+
     - name: Setup .NET
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: | 
-          6.0.x
-          8.0.x
-    
-    - name: Restore dependencies
-      run: dotnet restore
-    
-    - name: Build
-      run: dotnet build --no-restore
-    
-    - name: Test
-      run: dotnet test --no-build --verbosity normal
-    
+        dotnet-version: 8.0.x
+
     - name: Setup Github Packages
       run: dotnet nuget add source --username ant-car --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/AV-Coders/index.json"
 
-    - name: Pack NuGet packages
-      run: dotnet pack "C Sharp Device Library.sln" --output /home/runner/work/c-sharp-device-library/package /p:Version=${{ steps.version.outputs.version }} --configuration Release
+    - name: Restore dependencies
+      run: dotnet restore
 
-    - name: Publish to GitHub Packages 
-      run: dotnet nuget push /home/runner/work/c-sharp-device-library/package/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }}  --source "github"
-      
+    - name: Build
+      run: dotnet build --no-restore
+
+    - name: Test
+      run: dotnet test --no-build --verbosity normal
+
+    - name: Pack NuGet packages
+      run: dotnet pack "C Sharp Device Library.sln" --output ./package /p:Version=${{ steps.version.outputs.version }} --configuration Release
+
+    - name: Publish to GitHub Packages
+      run: dotnet nuget push ./package/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }} --source "github"
+
     - name: Notify on Error
       uses: skitionek/notify-microsoft-teams@master
       if: failure()
