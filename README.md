@@ -118,6 +118,9 @@ and capped at 50 entries (adjustable via `SetActiveErrorLimit`); when over the c
 oldest momentary entries are evicted first. Raising also lands one entry in the `Events` history
 (`EventType.Error`). TTL expiry fires `ActiveErrorsChanged` from a thread-pool thread, so
 UI consumers should marshal (e.g. Blazor's `InvokeAsync`), as with `EventsUpdated`.
+Subscribers are invoked individually and exceptions they throw are caught and routed to
+the instance's `Errors` buffer/log — one faulty subscriber can neither crash the process
+nor stop the remaining subscribers from being notified.
 
 ## Tracing
 
