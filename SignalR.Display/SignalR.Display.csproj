@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Description>SignalR hub and bridge for AV Coders displays: power, input, volume and mute broadcast to connected UIs.</Description>
+        <PackageId>AVCoders.SignalR.Display</PackageId>
+        <AssemblyName>AVCoders.SignalR.Display</AssemblyName>
+        <RootNamespace>AVCoders.SignalR.Display</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Display\Display.csproj" />
+      <ProjectReference Include="..\Core\Core.csproj" />
+      <FrameworkReference Include="Microsoft.AspNetCore.App" />
+      <PackageReference Include="Serilog" Version="4.3.1" />
+    </ItemGroup>
+
+</Project>

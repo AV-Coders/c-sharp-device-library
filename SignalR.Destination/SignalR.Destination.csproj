@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Description>SignalR hub and destination definitions for AV routing UIs, including the routed source and video mute state.</Description>
+        <PackageId>AVCoders.SignalR.Destination</PackageId>
+        <AssemblyName>AVCoders.SignalR.Destination</AssemblyName>
+        <RootNamespace>AVCoders.SignalR.Destination</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Core\Core.csproj" />
+      <FrameworkReference Include="Microsoft.AspNetCore.App" />
+      <PackageReference Include="Serilog" Version="4.3.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\SignalR.Source\SignalR.Source.csproj" />
+    </ItemGroup>
+
+</Project>

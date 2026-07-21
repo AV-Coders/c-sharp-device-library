@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Description>SignalR hub and bridge for AV Coders cameras: power, preset recall and tracking mode broadcast to connected UIs.</Description>
+        <PackageId>AVCoders.SignalR.Camera</PackageId>
+        <AssemblyName>AVCoders.SignalR.Camera</AssemblyName>
+        <RootNamespace>AVCoders.SignalR.Camera</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Camera\Camera.csproj" />
+      <ProjectReference Include="..\Core\Core.csproj" />
+      <FrameworkReference Include="Microsoft.AspNetCore.App" />
+      <PackageReference Include="Serilog" Version="4.3.1" />
+    </ItemGroup>
+
+</Project>
