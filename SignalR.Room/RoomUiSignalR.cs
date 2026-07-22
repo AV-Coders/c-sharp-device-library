@@ -1,6 +1,5 @@
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
 
 namespace AVCoders.SignalR.Room;
 
@@ -34,7 +33,7 @@ public class RoomUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOn"))
         {
-            Log.Information("Powering on room");
+            LogInformation("Powering on room");
             _roomManager.PowerOn();
         }
     }
@@ -43,7 +42,7 @@ public class RoomUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOff"))
         {
-            Log.Information("Powering off room");
+            LogInformation("Powering off room");
             _roomManager.PowerOff();
         }
     }

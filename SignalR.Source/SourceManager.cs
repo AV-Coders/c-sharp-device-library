@@ -1,5 +1,4 @@
 using AVCoders.Core;
-using Serilog;
 
 namespace AVCoders.SignalR.Source;
 
@@ -54,7 +53,7 @@ public class SourceManager : DeviceBase
             try
             {
                 _currentSourceIndex = sourceIndex;
-                Log.Debug($"Setting source to {_sources[sourceIndex].Name}, index {sourceIndex}");
+                LogDebug("Setting source to {SourceName}, index {SourceIndex}", _sources[sourceIndex].Name, sourceIndex);
                 CurrentSource = _sources[sourceIndex].SourceId;
                 OnSourceIndexChanged?.Invoke(sourceIndex);
                 OnSourceChanged?.Invoke(CurrentSource);

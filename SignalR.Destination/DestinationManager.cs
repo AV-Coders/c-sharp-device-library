@@ -1,6 +1,5 @@
 using AVCoders.Core;
 using AVCoders.SignalR.Source;
-using Serilog;
 
 namespace AVCoders.SignalR.Destination;
 
@@ -53,10 +52,10 @@ public class DestinationManager : DeviceBase
                 var source = _sourceManager.Sources.FirstOrDefault(s => s.SourceId == sourceId);
                 if (source is null)
                 {
-                    Log.Warning("Source {SourceId} not in source list, ignoring route on destination {Name}", sourceId, Name);
+                    LogWarning("Source {SourceId} not in source list, ignoring route on destination {Name}", sourceId, Name);
                     return;
                 }
-                Log.Debug("Routing source {SourceId} to destination {Name}", sourceId, Name);
+                LogDebug("Routing source {SourceId} to destination {Name}", sourceId, Name);
                 CurrentSource = source;
                 PowerState = sourceId == "None" ? PowerState.Off : PowerState.On;
                 OnDestinationChanged?.Invoke(Snapshot);
@@ -73,7 +72,7 @@ public class DestinationManager : DeviceBase
         using (PushProperties("SetVideoMute"))
         {
             VideoMute = muted;
-            Log.Debug("Video mute on destination {Name} set to {Muted}", Name, muted);
+            LogDebug("Video mute on destination {Name} set to {Muted}", Name, muted);
             OnDestinationChanged?.Invoke(Snapshot);
         }
     }

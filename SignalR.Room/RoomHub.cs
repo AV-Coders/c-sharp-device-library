@@ -1,14 +1,17 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
-using Serilog.Context;
+using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Room;
 
 public class RoomHub : Hub<IRoomHub>
 {
     private static readonly ConcurrentDictionary<string, RoomManager> RoomManagers = new();
+
+    // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
+    // startup, regardless of when this type is first touched. CreateLogger caches per category.
+    private static ILogger Logger => LogBase.LoggerFactory.CreateLogger<RoomHub>();
 
     public static void RegisterRoomManager(string groupName, RoomManager roomManager)
     {
@@ -32,7 +35,7 @@ public class RoomHub : Hub<IRoomHub>
         if (RoomManagers.TryGetValue(groupName, out var roomManager))
             Dispatch(groupName, "PowerOn", () =>
             {
-                Log.Information("Powering on {Group}", groupName);
+                Logger.LogInformation("Powering on {Group}", groupName);
                 roomManager.PowerOn();
             });
     }
@@ -42,7 +45,7 @@ public class RoomHub : Hub<IRoomHub>
         if (RoomManagers.TryGetValue(groupName, out var roomManager))
             Dispatch(groupName, "PowerOnWithArgs", () =>
             {
-                Log.Information("Powering on {Group} with {@Args}", groupName, args);
+                Logger.LogInformation("Powering on {Group} with {@Args}", groupName, args);
                 roomManager.PowerOnWithArgs(args ?? new Dictionary<string, string>());
             });
     }
@@ -52,7 +55,7 @@ public class RoomHub : Hub<IRoomHub>
         if (RoomManagers.TryGetValue(groupName, out var roomManager))
             Dispatch(groupName, "PowerOff", () =>
             {
-                Log.Information("Powering off {Group}", groupName);
+                Logger.LogInformation("Powering off {Group}", groupName);
                 roomManager.PowerOff();
             });
     }
@@ -62,7 +65,7 @@ public class RoomHub : Hub<IRoomHub>
         if (RoomManagers.TryGetValue(groupName, out var roomManager))
             Dispatch(groupName, "PowerOffWithArgs", () =>
             {
-                Log.Information("Powering off {Group} with {@Args}", groupName, args);
+                Logger.LogInformation("Powering off {Group} with {@Args}", groupName, args);
                 roomManager.PowerOffWithArgs(args ?? new Dictionary<string, string>());
             });
     }
@@ -75,7 +78,8 @@ public class RoomHub : Hub<IRoomHub>
     {
         _ = Task.Run(() =>
         {
-            using (LogContext.PushProperty(LogBase.MethodProperty, methodName))
+            using (Logger.BeginScope(new Dictionary<string, object>
+                   { ["Class"] = nameof(RoomHub), [LogBase.MethodProperty] = methodName }))
             {
                 try
                 {
@@ -83,7 +87,7 @@ public class RoomHub : Hub<IRoomHub>
                 }
                 catch (Exception e)
                 {
-                    Log.Error(e, "{Method} failed for group {Group}", methodName, groupName);
+                    Logger.LogError(e, "{Method} failed for group {Group}", methodName, groupName);
                 }
             }
         });

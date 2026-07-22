@@ -1,7 +1,6 @@
 using AVCoders.Camera;
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
 
 namespace AVCoders.SignalR.Camera;
 
@@ -39,7 +38,7 @@ public class CameraUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOn"))
         {
-            Log.Information("Turning on camera");
+            LogInformation("Turning on camera");
             _cameraManager.PowerOn();
         }
     }
@@ -48,7 +47,7 @@ public class CameraUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOff"))
         {
-            Log.Information("Turning off camera");
+            LogInformation("Turning off camera");
             _cameraManager.PowerOff();
         }
     }

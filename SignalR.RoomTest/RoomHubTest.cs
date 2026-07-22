@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
-using Serilog;
-using Serilog.Core;
-using Serilog.Events;
+using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Room.Tests;
 
@@ -230,12 +228,9 @@ public class RoomHubTest
     {
         // A device/subscriber fault must not vanish on the dropped Task (M1): the
         // fire-and-forget dispatch captures it as a backend Error log.
-        var captured = new ConcurrentQueue<LogEvent>();
-        var original = Log.Logger;
-        Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Verbose()
-            .WriteTo.Sink(new CapturingSink(captured))
-            .CreateLogger();
+        var captured = new ConcurrentQueue<CapturedLog>();
+        var original = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = new CapturingLoggerFactory(captured);
         try
         {
             _manager.OnPowerOnRequested += _ => throw new InvalidOperationException("device fault");
@@ -245,19 +240,32 @@ public class RoomHubTest
 
             Assert.Null(exception); // fire-and-forget: nothing surfaces to the caller
             WaitFor(() => captured.Any(e =>
-                e.Level == LogEventLevel.Error &&
+                e.Level == LogLevel.Error &&
                 e.Exception is InvalidOperationException &&
-                e.RenderMessage().Contains(_groupName)));
+                e.Message.Contains(_groupName)));
         }
         finally
         {
-            Log.Logger = original;
+            LogBase.LoggerFactory = original;
         }
     }
 
-    private sealed class CapturingSink(ConcurrentQueue<LogEvent> events) : ILogEventSink
+    private sealed record CapturedLog(LogLevel Level, Exception? Exception, string Message);
+
+    private sealed class CapturingLoggerFactory(ConcurrentQueue<CapturedLog> events) : ILoggerFactory
     {
-        public void Emit(LogEvent logEvent) => events.Enqueue(logEvent);
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(events);
+        public void AddProvider(ILoggerProvider provider) { }
+        public void Dispose() { }
+
+        private sealed class CapturingLogger(ConcurrentQueue<CapturedLog> events) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => true;
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                events.Enqueue(new CapturedLog(logLevel, exception, formatter(state, exception)));
+        }
     }
 
     private static void WaitFor(Func<bool> predicate, int timeoutMs = 2000)

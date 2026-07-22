@@ -1,14 +1,17 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
-using Serilog.Context;
+using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Source;
 
 public class SourceHub : Hub<ISourceHub>
 {
     private static readonly ConcurrentDictionary<string, SourceManager> SourceManagers = new();
+
+    // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
+    // startup, regardless of when this type is first touched. CreateLogger caches per category.
+    private static ILogger Logger => LogBase.LoggerFactory.CreateLogger<SourceHub>();
 
     public static void RegisterSourceManager(string groupName, SourceManager sourceManager)
     {
@@ -34,7 +37,7 @@ public class SourceHub : Hub<ISourceHub>
         if (SourceManagers.TryGetValue(groupName, out var sourceManager))
             Dispatch(groupName, "SelectSource", () =>
             {
-                Log.Verbose("Selecting source {Index} for group {Group}", sourceIndex, groupName);
+                Logger.LogTrace("Selecting source {Index} for group {Group}", sourceIndex, groupName);
                 sourceManager.SetCurrentSource(sourceIndex);
             });
     }
@@ -49,7 +52,8 @@ public class SourceHub : Hub<ISourceHub>
     {
         _ = Task.Run(() =>
         {
-            using (LogContext.PushProperty(LogBase.MethodProperty, methodName))
+            using (Logger.BeginScope(new Dictionary<string, object>
+                   { ["Class"] = nameof(SourceHub), [LogBase.MethodProperty] = methodName }))
             {
                 try
                 {
@@ -57,7 +61,7 @@ public class SourceHub : Hub<ISourceHub>
                 }
                 catch (Exception e)
                 {
-                    Log.Error(e, "{Method} failed for group {Group}", methodName, groupName);
+                    Logger.LogError(e, "{Method} failed for group {Group}", methodName, groupName);
                 }
             }
         });

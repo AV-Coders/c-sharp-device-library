@@ -14,7 +14,6 @@
       <ProjectReference Include="..\Display\Display.csproj" />
       <ProjectReference Include="..\Core\Core.csproj" />
       <FrameworkReference Include="Microsoft.AspNetCore.App" />
-      <PackageReference Include="Serilog" Version="4.3.1" />
     </ItemGroup>
 
 </Project>

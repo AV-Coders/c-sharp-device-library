@@ -2,14 +2,17 @@ using System.Collections.Concurrent;
 using AVCoders.Core;
 using AVCoders.Display;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
-using Serilog.Context;
+using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Display;
 
 public class DisplayHub : Hub<IDisplayHub>
 {
     private static readonly ConcurrentDictionary<string, DisplayManager> DisplayManagers = new();
+
+    // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
+    // startup, regardless of when this type is first touched. CreateLogger caches per category.
+    private static ILogger Logger => LogBase.LoggerFactory.CreateLogger<DisplayHub>();
 
     public static void RegisterDisplayManager(string groupName, DisplayManager displayManager)
     {
@@ -52,16 +55,17 @@ public class DisplayHub : Hub<IDisplayHub>
 
         _ = Task.Run(() =>
         {
-            using (LogContext.PushProperty(LogBase.MethodProperty, methodName))
+            using (Logger.BeginScope(new Dictionary<string, object>
+                   { ["Class"] = nameof(DisplayHub), [LogBase.MethodProperty] = methodName }))
             {
                 try
                 {
-                    Log.Verbose("{MethodName} on display {Group}", methodName, groupName);
+                    Logger.LogTrace("{MethodName} on display {Group}", methodName, groupName);
                     action(displayManager);
                 }
                 catch (Exception e)
                 {
-                    Log.Error(e, "{MethodName} failed on display {Group}", methodName, groupName);
+                    Logger.LogError(e, "{MethodName} failed on display {Group}", methodName, groupName);
                 }
             }
         });

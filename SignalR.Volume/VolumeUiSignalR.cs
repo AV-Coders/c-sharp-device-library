@@ -1,6 +1,5 @@
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
 
 namespace AVCoders.SignalR.Volume;
 
@@ -35,7 +34,7 @@ public class VolumeUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOn"))
         {
-            Log.Information("Turning on volume controls");
+            LogInformation("Turning on volume controls");
             _volumeManager.PowerOn();
         }
     }
@@ -44,7 +43,7 @@ public class VolumeUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOff"))
         {
-            Log.Information("Turning off volume controls");
+            LogInformation("Turning off volume controls");
             _volumeManager.PowerOff();
         }
     }

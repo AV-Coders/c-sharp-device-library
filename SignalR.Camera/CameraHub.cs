@@ -2,14 +2,17 @@
 using AVCoders.Camera;
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
-using Serilog.Context;
+using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Camera;
 
 public class CameraHub : Hub<ICameraHub>
 {
     private static readonly ConcurrentDictionary<string, CameraManager> CameraManagers = new();
+
+    // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
+    // startup, regardless of when this type is first touched. CreateLogger caches per category.
+    private static ILogger Logger => LogBase.LoggerFactory.CreateLogger<CameraHub>();
     
     public static void RegisterCameraManager(string groupName, CameraManager cameraManager)
     {
@@ -40,7 +43,7 @@ public class CameraHub : Hub<ICameraHub>
         if (CameraManagers.TryGetValue(groupName, out var cameraManager))
             Dispatch(groupName, "RecallPreset", () =>
             {
-                Log.Verbose("Recalling preset {Index} on camera {Group}", index, groupName);
+                Logger.LogTrace("Recalling preset {Index} on camera {Group}", index, groupName);
                 cameraManager.RecallPreset(index);
             });
     }
@@ -50,7 +53,7 @@ public class CameraHub : Hub<ICameraHub>
         if (CameraManagers.TryGetValue(groupName, out var cameraManager))
             Dispatch(groupName, "SavePreset", () =>
             {
-                Log.Verbose("Saving preset {Index} on camera {Group}", index, groupName);
+                Logger.LogTrace("Saving preset {Index} on camera {Group}", index, groupName);
                 cameraManager.SavePreset(index);
             });
     }
@@ -71,7 +74,7 @@ public class CameraHub : Hub<ICameraHub>
         if (CameraManagers.TryGetValue(groupName, out var cameraManager))
             Dispatch(groupName, methodName, () =>
             {
-                Log.Verbose("{MethodName} on camera {Group}", methodName, groupName);
+                Logger.LogTrace("{MethodName} on camera {Group}", methodName, groupName);
                 action(cameraManager);
             });
     }
@@ -84,7 +87,8 @@ public class CameraHub : Hub<ICameraHub>
     {
         _ = Task.Run(() =>
         {
-            using (LogContext.PushProperty(LogBase.MethodProperty, methodName))
+            using (Logger.BeginScope(new Dictionary<string, object>
+                   { ["Class"] = nameof(CameraHub), [LogBase.MethodProperty] = methodName }))
             {
                 try
                 {
@@ -92,7 +96,7 @@ public class CameraHub : Hub<ICameraHub>
                 }
                 catch (Exception e)
                 {
-                    Log.Error(e, "{Method} failed for group {Group}", methodName, groupName);
+                    Logger.LogError(e, "{Method} failed for group {Group}", methodName, groupName);
                 }
             }
         });

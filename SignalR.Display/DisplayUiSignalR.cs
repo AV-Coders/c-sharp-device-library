@@ -1,7 +1,6 @@
 using AVCoders.Core;
 using AVCoders.Display;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
 
 namespace AVCoders.SignalR.Display;
 
@@ -39,7 +38,7 @@ public class DisplayUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOn"))
         {
-            Log.Information("Turning on display");
+            LogInformation("Turning on display");
             _displayManager.PowerOn();
         }
     }
@@ -48,7 +47,7 @@ public class DisplayUiSignalR : DeviceBase
     {
         using (PushProperties("PowerOff"))
         {
-            Log.Information("Turning off display");
+            LogInformation("Turning off display");
             _displayManager.PowerOff();
         }
     }

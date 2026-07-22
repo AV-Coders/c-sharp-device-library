@@ -1,14 +1,17 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
-using Serilog;
-using Serilog.Context;
+using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Destination;
 
 public class DestinationHub : Hub<IDestinationHub>
 {
     private static readonly ConcurrentDictionary<string, DestinationManager> DestinationManagers = new();
+
+    // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
+    // startup, regardless of when this type is first touched. CreateLogger caches per category.
+    private static ILogger Logger => LogBase.LoggerFactory.CreateLogger<DestinationHub>();
 
     public static void RegisterDestinationManager(string groupName, DestinationManager destinationManager)
     {
@@ -31,7 +34,7 @@ public class DestinationHub : Hub<IDestinationHub>
         if (DestinationManagers.TryGetValue(groupName, out var destinationManager))
             Dispatch(groupName, "RouteSource", () =>
             {
-                Log.Verbose("Routing source {SourceId} to destination {Group}", sourceId, groupName);
+                Logger.LogTrace("Routing source {SourceId} to destination {Group}", sourceId, groupName);
                 destinationManager.RouteSource(sourceId);
             });
     }
@@ -41,7 +44,7 @@ public class DestinationHub : Hub<IDestinationHub>
         if (DestinationManagers.TryGetValue(groupName, out var destinationManager))
             Dispatch(groupName, "SetVideoMute", () =>
             {
-                Log.Verbose("Setting video mute on destination {Group} to {Muted}", groupName, muted);
+                Logger.LogTrace("Setting video mute on destination {Group} to {Muted}", groupName, muted);
                 destinationManager.SetVideoMute(muted);
             });
     }
@@ -54,7 +57,8 @@ public class DestinationHub : Hub<IDestinationHub>
     {
         _ = Task.Run(() =>
         {
-            using (LogContext.PushProperty(LogBase.MethodProperty, methodName))
+            using (Logger.BeginScope(new Dictionary<string, object>
+                   { ["Class"] = nameof(DestinationHub), [LogBase.MethodProperty] = methodName }))
             {
                 try
                 {
@@ -62,7 +66,7 @@ public class DestinationHub : Hub<IDestinationHub>
                 }
                 catch (Exception e)
                 {
-                    Log.Error(e, "{Method} failed for group {Group}", methodName, groupName);
+                    Logger.LogError(e, "{Method} failed for group {Group}", methodName, groupName);
                 }
             }
         });
