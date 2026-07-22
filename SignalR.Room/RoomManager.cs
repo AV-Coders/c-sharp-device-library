@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AVCoders.Core;
 
 namespace AVCoders.SignalR.Room;
@@ -5,7 +6,7 @@ namespace AVCoders.SignalR.Room;
 public class RoomManager : DeviceBase
 {
     private readonly DeviceBase _device;
-    private readonly Dictionary<string, string> _properties = [];
+    private readonly ConcurrentDictionary<string, string> _properties = new();
 
     public event Action<string, string>? OnPropertyChanged;
     public event Action<Dictionary<string, string>>? OnPowerOnRequested;

@@ -108,6 +108,23 @@ public class RoomManagerTest
     }
 
     [Fact]
+    public void ConcurrentSetPropertyAndSnapshot_DoesNotThrow()
+    {
+        // SetProperty writes from device-callback threads while JoinGroup
+        // copy-enumerates via the Properties getter on a dispatch thread:
+        // against a plain Dictionary this throws/corrupts intermittently,
+        // against the ConcurrentDictionary it is safe. Guards against
+        // regressing M2.
+        var exception = Record.Exception(() => Parallel.For(0, 10_000, i =>
+        {
+            _manager.SetProperty($"key-{i % 20}", $"value-{i}");
+            _ = _manager.Properties;
+        }));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public void PowerOnWithArgs_RaisesPowerOnRequestedWithArgs()
     {
         var handler = new Mock<Action<Dictionary<string, string>>>();
