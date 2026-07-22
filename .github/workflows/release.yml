@@ -78,11 +78,11 @@ jobs:
       id: publish
       run: dotnet nuget push ./package/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
 
-    - name: Tag the release commit
+    - name: Tag and create the GitHub release
       id: tag
-      run: |
-        git tag "${{ steps.version.outputs.version }}"
-        git push origin "refs/tags/${{ steps.version.outputs.version }}"
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: gh release create "${{ steps.version.outputs.version }}" --target "${{ github.sha }}" --title "${{ steps.version.outputs.version }}" --generate-notes ./package/*.nupkg
 
     - name: Notify on Error
       uses: skitionek/notify-microsoft-teams@master
