@@ -8,7 +8,7 @@ Touch panel and smart-home interface drivers for the [AV Coders device library](
 dotnet add package AVCoders.Interface
 ```
 
-Published to GitHub Packages — add the `https://nuget.pkg.github.com/AV-Coders/index.json` source first. See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
+Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Interface). See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
 
 ## Drivers
 

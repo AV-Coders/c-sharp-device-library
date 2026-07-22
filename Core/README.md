@@ -8,7 +8,7 @@ Foundation for the [AV Coders device library](https://github.com/AV-Coders/c-sha
 dotnet add package AVCoders.Core
 ```
 
-Published to GitHub Packages — add the `https://nuget.pkg.github.com/AV-Coders/index.json` source first. See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
+Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Core). See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
 
 ## What's inside
 

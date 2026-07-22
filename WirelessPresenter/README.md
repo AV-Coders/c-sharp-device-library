@@ -8,7 +8,7 @@ Wireless presentation drivers for the [AV Coders device library](https://github.
 dotnet add package AVCoders.WirelessPresenter
 ```
 
-Published to GitHub Packages — add the `https://nuget.pkg.github.com/AV-Coders/index.json` source first. See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
+Published to [nuget.org](https://www.nuget.org/packages/AVCoders.WirelessPresenter). See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
 
 ## Drivers
 

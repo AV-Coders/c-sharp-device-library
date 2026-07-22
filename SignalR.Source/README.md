@@ -8,7 +8,7 @@ SignalR hub and source definitions for AV routing UIs. Part of the [AV Coders de
 dotnet add package AVCoders.SignalR.Source
 ```
 
-Available from the AV Coders GitHub Packages feed (`https://nuget.pkg.github.com/AV-Coders/index.json`) and nuget.org. MIT licensed.
+Published to [nuget.org](https://www.nuget.org/packages/AVCoders.SignalR.Source). See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
 
 ## What's inside
 

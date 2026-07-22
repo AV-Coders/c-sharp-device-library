@@ -8,7 +8,7 @@ SignalR hub and bridge for room state. Part of the [AV Coders device library](ht
 dotnet add package AVCoders.SignalR.Room
 ```
 
-Available from the AV Coders GitHub Packages feed (`https://nuget.pkg.github.com/AV-Coders/index.json`) and nuget.org. MIT licensed.
+Published to [nuget.org](https://www.nuget.org/packages/AVCoders.SignalR.Room). See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
 
 ## What's inside
 

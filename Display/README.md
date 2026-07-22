@@ -8,7 +8,7 @@ Display, projector and LED-wall drivers for the [AV Coders device library](https
 dotnet add package AVCoders.Display
 ```
 
-Published to GitHub Packages — add the `https://nuget.pkg.github.com/AV-Coders/index.json` source first. See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
+Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Display). See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
 
 ## Drivers
 

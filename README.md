@@ -5,7 +5,8 @@ abstractions for controlling audio-visual hardware (displays, cameras, DSPs, mat
 switchers, PDUs, conferencing codecs, lighting, motors and more) over TCP, UDP, SSH,
 serial, REST, MQTT, multicast and SNMP.
 
-Each device domain ships as its own NuGet package (published to GitHub Packages) on top
+Each device domain ships as its own NuGet package (published to
+[nuget.org](https://www.nuget.org/profiles/AV-Coders)) on top
 of a shared `AVCoders.Core` foundation. Targets **.NET 8.0**.
 
 ## How it works
@@ -156,9 +157,15 @@ transports against loopback sockets and an in-process HTTP listener (no Moq).
 
 ## Versioning & releases
 
-CI (`.github/workflows/dotnet.yml`) builds, tests, packs every published project and
-pushes to GitHub Packages. Versions are `YYYY.MM.<run_number>`:
+Two workflows publish packages:
 
-- Builds from **`main`** are stable releases.
-- Builds from **any other branch** get a `-beta` suffix (e.g. `2026.6.43-beta`) and are
-  published as NuGet **prereleases**.
+- **CI** (`.github/workflows/dotnet.yml`) runs on every push and PR: it builds, tests,
+  packs every published project and pushes `YYYY.MM.<run_number>-beta` **prereleases to
+  GitHub Packages**. That feed requires GitHub authentication, so it's effectively
+  internal — used for CI and dogfooding, not distribution.
+- **Releases** (`.github/workflows/release.yml`) are manually triggered from `main`
+  (and require a passing CI run for that commit). They publish stable
+  `YYYY.M.<release_count_this_month>` packages to
+  [nuget.org](https://www.nuget.org/profiles/AV-Coders) via trusted publishing (OIDC).
+  This is the public channel — `dotnet add package AVCoders.<Name>` needs no extra
+  source configuration.

@@ -8,7 +8,7 @@ SignalR hub and bridge for AV Coders displays: power, input, volume and mute. Pa
 dotnet add package AVCoders.SignalR.Display
 ```
 
-Available from the AV Coders GitHub Packages feed (`https://nuget.pkg.github.com/AV-Coders/index.json`) and nuget.org. MIT licensed.
+Published to [nuget.org](https://www.nuget.org/packages/AVCoders.SignalR.Display). See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for details.
 
 ## What's inside
 
