@@ -27,9 +27,9 @@ public abstract class Display : VolumeControl, IDevice
     public event Action<CommunicationState>? OnCommunicationStateChanged;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
-    protected const string PowerStateErrorKey = "power-state";
-    protected const string InputErrorKey = "input";
-    protected const string CommunicationErrorKey = "communication";
+    protected const string PowerStateIssueKey = "power-state";
+    protected const string InputIssueKey = "input";
+    protected const string CommunicationIssueKey = "communication";
 
     protected readonly ThreadWorker PollWorker;
 
@@ -127,9 +127,9 @@ public abstract class Display : VolumeControl, IDevice
             _communicationState = value;
             AddEvent(EventType.DriverState,  value.ToString());
             if (value == CommunicationState.Error)
-                RaisePersistentError(CommunicationErrorKey, "Device communication error");
+                RaiseOngoingIssue(CommunicationIssueKey, "Device communication error", IssueSeverity.Critical);
             else if (value == CommunicationState.Okay)
-                ClearPersistentError(CommunicationErrorKey);
+                ResolveIssue(CommunicationIssueKey);
             CommunicationStateHandlers?.Invoke(value);
             OnCommunicationStateChanged?.Invoke(value);
         }
@@ -150,10 +150,10 @@ public abstract class Display : VolumeControl, IDevice
         {
             if (PowerState == DesiredPowerState || DesiredPowerState == PowerState.Unknown)
             {
-                ClearPersistentError(PowerStateErrorKey);
+                ResolveIssue(PowerStateIssueKey);
                 return;
             }
-            RaisePersistentError(PowerStateErrorKey, $"Power is {PowerState}, should be {DesiredPowerState}");
+            RaiseOngoingIssue(PowerStateIssueKey, $"Power is {PowerState}, should be {DesiredPowerState}");
             LogWarning("{Name} has the incorrect power state - Forcing Power", Name);
             AddEvent(EventType.Power, $"The power state is incorrect, setting to desired power state {_desiredPowerState.ToString()}");
             if (DesiredPowerState == PowerState.Off)
@@ -169,10 +169,10 @@ public abstract class Display : VolumeControl, IDevice
         {
             if (Input == DesiredInput || DesiredInput == Input.Unknown)
             {
-                ClearPersistentError(InputErrorKey);
+                ResolveIssue(InputIssueKey);
                 return;
             }
-            RaisePersistentError(InputErrorKey, $"Input is {Input}, should be {DesiredInput}");
+            RaiseOngoingIssue(InputIssueKey, $"Input is {Input}, should be {DesiredInput}");
             LogWarning("{Name} has the incorrect input - Forcing Input", Name);
             AddEvent(EventType.Input, $"The input is incorrect, setting to desired input {_desiredInput.ToString()}");
             SetInput(DesiredInput);

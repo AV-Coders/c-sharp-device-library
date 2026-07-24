@@ -53,7 +53,7 @@ public class ExtronIn18Xx : VideoMatrix
             }
             else if (value.StartsWith("IN18"))
             {
-                Inputs.Clear();
+                Inputs.DeregisterAndClear();
                 for (int i = 0; i < int.Parse(value[4..]); i++)
                 {
                     Inputs.Add(new ExtronMatrixInput("TBC", i));

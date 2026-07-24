@@ -54,3 +54,25 @@ public class ExtronMatrixOutput(string name, int number)
         Secondary.SetName($"{name} - B");
     }
 }
+
+public static class ExtronMatrixEndpointListExtensions
+{
+    // These lists are rebuilt at runtime (e.g. on reconnect); the discarded endpoints must leave
+    // LogBaseRegistry or the auto-registration in LogBase roots them for the process lifetime.
+    public static void DeregisterAndClear(this List<ExtronMatrixInput> inputs)
+    {
+        foreach (var input in inputs)
+            LogBaseRegistry.Deregister(input);
+        inputs.Clear();
+    }
+
+    public static void DeregisterAndClear(this List<ExtronMatrixOutput> outputs)
+    {
+        foreach (var output in outputs)
+        {
+            LogBaseRegistry.Deregister(output.Primary);
+            LogBaseRegistry.Deregister(output.Secondary);
+        }
+        outputs.Clear();
+    }
+}

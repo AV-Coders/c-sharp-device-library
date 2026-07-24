@@ -9,8 +9,8 @@ public abstract class DeviceBase : LogBase, IDevice
     
     public readonly CommunicationClient CommunicationClient;
     protected PowerState DesiredPowerState = PowerState.Unknown;
-    protected const string PowerStateErrorKey = "power-state";
-    protected const string CommunicationErrorKey = "communication";
+    protected const string PowerStateIssueKey = "power-state";
+    protected const string CommunicationIssueKey = "communication";
     
     private PowerState _powerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
@@ -41,9 +41,9 @@ public abstract class DeviceBase : LogBase, IDevice
             _communicationState = value;
             AddEvent(EventType.DriverState, value.ToString());
             if (value == CommunicationState.Error)
-                RaisePersistentError(CommunicationErrorKey, "Device communication error");
+                RaiseOngoingIssue(CommunicationIssueKey, "Device communication error", IssueSeverity.Critical);
             else if (value == CommunicationState.Okay)
-                ClearPersistentError(CommunicationErrorKey);
+                ResolveIssue(CommunicationIssueKey);
             CommunicationStateHandlers?.Invoke(CommunicationState);
             OnCommunicationStateChanged?.Invoke(CommunicationState);
         }
@@ -58,13 +58,13 @@ public abstract class DeviceBase : LogBase, IDevice
     {
         if (PowerState == DesiredPowerState || DesiredPowerState == PowerState.Unknown)
         {
-            ClearPersistentError(PowerStateErrorKey);
+            ResolveIssue(PowerStateIssueKey);
             return;
         }
 
         using (PushProperties("ProcessPowerState"))
         {
-            RaisePersistentError(PowerStateErrorKey, $"Power is {PowerState}, should be {DesiredPowerState}");
+            RaiseOngoingIssue(PowerStateIssueKey, $"Power is {PowerState}, should be {DesiredPowerState}");
             switch (DesiredPowerState)
             {
                 case PowerState.Off:

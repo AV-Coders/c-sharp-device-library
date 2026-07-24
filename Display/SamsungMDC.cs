@@ -28,6 +28,8 @@ public class SamsungMdc : Display
     private readonly byte[] _pollInputCommand;
     private readonly byte[] _pollVolumeCommand;
     private readonly byte[] _pollMuteCommand;
+    private const string UnansweredVolumeIssueKey = "unanswered-volume";
+    private bool _volumePollPending;
 
 
     public SamsungMdc(CommunicationClient communicationClient, byte displayId, string name, Input? defaultInput) : 
@@ -73,6 +75,10 @@ public class SamsungMdc : Display
         await Task.Delay(1000, token);
         CommunicationClient.Send(_pollInputCommand);
         await Task.Delay(1000, token);
+        if (_volumePollPending)
+            RaiseMomentaryIssue("The volume poll was not answered", key: UnansweredVolumeIssueKey,
+                escalateAfter: 3);
+        _volumePollPending = true;
         CommunicationClient.Send(_pollVolumeCommand);
         await Task.Delay(1000, token);
         CommunicationClient.Send(_pollMuteCommand);
@@ -188,6 +194,8 @@ public class SamsungMdc : Display
                     break;
                 case VolumeControlCommand:
                     Volume = response[6];
+                    _volumePollPending = false;
+                    ResolveIssue(UnansweredVolumeIssueKey);
                     break;
                 case MuteControlCommand:
                     AudioMute = response[6] switch

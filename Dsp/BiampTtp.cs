@@ -142,8 +142,8 @@ public class BiampTtp : Dsp
 
             if (_currentQuery != null)
             {
-                RaiseMomentaryError($"The query {_currentQuery.DspCommand.Trim()} was not answered",
-                    key: "unanswered-query");
+                RaiseMomentaryIssue($"The query {_currentQuery.DspCommand.Trim()} was not answered",
+                    key: "unanswered-query", escalateAfter: 3);
                 LogWarning("The query {query} was not answered, momentarily slowing down", _currentQuery.DspCommand);
                 _pendingQueries.Enqueue(_currentQuery);
                 await Task.Delay(TimeSpan.FromSeconds(1), token);
@@ -316,6 +316,7 @@ public class BiampTtp : Dsp
                     break;
             }
 
+            ResolveIssue("unanswered-query");
             _currentQuery = null;
         }
     }

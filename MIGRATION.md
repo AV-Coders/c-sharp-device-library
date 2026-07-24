@@ -1,3 +1,37 @@
+# Migrating to the Issues release (ActiveErrors removed)
+
+This release replaces the `ActiveError` system on `LogBase` with an issue/incident model.
+An issue has a status — **Ongoing** (affecting the device now, until the driver resolves
+it), **Momentary** (a one-off incident, instantly historical) or **Resolved** (a recovered
+ongoing issue, kept as history) — plus a severity (`Minor`/`Major`/`Critical`) and a
+stable `Id` for correlating with external systems such as ticketing. The momentary TTL
+and its expiry timer are gone: momentary issues are recorded permanently (coalesced per
+key with an occurrence count) instead of appearing for 30 seconds and vanishing.
+
+| Before                                     | After                                                          |
+| ------------------------------------------ | -------------------------------------------------------------- |
+| `RaisePersistentError(key, msg)`           | `RaiseOngoingIssue(key, msg, severity = Major)`                |
+| `ClearPersistentError(key)`                | `ResolveIssue(key)` (entry stays, with `Status == Resolved`)   |
+| `RaiseMomentaryError(msg, ttl, key)`       | `RaiseMomentaryIssue(msg, key, severity = Minor, escalateAfter)` — no TTL |
+| `ActiveErrors`                             | `OngoingIssues` (current) / `Issues` (full history)            |
+| `ActiveErrorsChanged`                      | `IssuesChanged` (adds `ChangedIssue` + `IssueChangeKind`)      |
+| `ActiveError` / `ErrorPersistence`         | `Issue` / `IssueStatus` (+ `IssueSeverity`)                    |
+| `SetActiveErrorLimit(s)`                   | `SetIssueLimit(s)`                                             |
+| `DefaultMomentaryErrorTtl`                 | *(removed — momentary issues no longer expire)*                |
+
+New in the same release:
+
+- **Escalation:** `RaiseMomentaryIssue(..., escalateAfter: n)` raises an ongoing issue
+  after `n` consecutive momentary raises of the key; `ResolveIssue(key)` on a successful
+  response resolves it and resets the count.
+- **Auto-registration:** every `LogBase` now registers itself with `LogBaseRegistry` on
+  construction (previously opt-in and unused). `LogBaseRegistry.GetOngoingIssues()` and
+  `LogBaseRegistry.OngoingIssuesChanged` provide the aggregate dashboard view. Transiently
+  created `LogBase` objects must call `LogBaseRegistry.Deregister` on teardown to avoid
+  being rooted for the process lifetime.
+
+The historical `Errors`/`LogException` and `Events` buffers are unchanged.
+
 # Migrating from 2026.6.527 or earlier (Serilog era) to the MEL release
 
 This release removes the library's hard dependency on Serilog. All `AVCoders.*` packages

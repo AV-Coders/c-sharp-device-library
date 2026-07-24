@@ -49,17 +49,13 @@ public abstract class LogBase
     public event ActionHandler? EventsUpdated;
     public event ActionHandler? ErrorsUpdated;
 
-    private readonly Dictionary<string, ActiveError> _activeErrors = new();
-    private readonly object _activeErrorsLock = new();
-    // Lazily created on the first momentary error, then quiesced (never disposed) when none remain.
-    // LogBase is not IDisposable — driver instances are process-lifetime, so the timer rooting this
-    // instance is acceptable and a quiescent timer costs nothing.
-    private Timer? _activeErrorExpiryTimer;
-    private int _activeErrorLimit = 50;
-    public event EventHandler<ActiveErrorsChangedEventArgs>? ActiveErrorsChanged;
-
-    /// <summary>TTL applied to momentary errors raised without an explicit TTL.</summary>
-    public TimeSpan DefaultMomentaryErrorTtl { get; set; } = TimeSpan.FromSeconds(30);
+    private readonly List<Issue> _issues = [];
+    // Consecutive momentary raises per key since the last ResolveIssue(key) — drives escalation.
+    // Distinct from Issue.OccurrenceCount, which is cumulative and never resets.
+    private readonly Dictionary<string, int> _consecutiveMomentary = new();
+    private readonly object _issuesLock = new();
+    private int _issueLimit = 50;
+    public event EventHandler<IssuesChangedEventArgs>? IssuesChanged;
 
     public IReadOnlyList<Event> Events
     {
@@ -71,13 +67,16 @@ public abstract class LogBase
         get { lock (_errorsLock) return _errors.ToList(); }
     }
 
-    /// <summary>
-    /// The errors currently affecting this instance, oldest first. Momentary errors leave the list
-    /// when their TTL lapses; persistent errors leave when the driver clears them on recovery.
-    /// </summary>
-    public IReadOnlyList<ActiveError> ActiveErrors
+    /// <summary>The full bounded issue history — ongoing, momentary and resolved entries, oldest first.</summary>
+    public IReadOnlyList<Issue> Issues
     {
-        get { lock (_activeErrorsLock) return _activeErrors.Values.OrderBy(e => e.RaisedAt).ToList(); }
+        get { lock (_issuesLock) return _issues.ToList(); }
+    }
+
+    /// <summary>The issues currently affecting this instance, oldest first.</summary>
+    public IReadOnlyList<Issue> OngoingIssues
+    {
+        get { lock (_issuesLock) return _issues.Where(i => i.Status == IssueStatus.Ongoing).ToList(); }
     }
 
     public string Name
@@ -96,6 +95,9 @@ public abstract class LogBase
     {
         _name = name;
         _logger = LoggerFactory.CreateLogger(GetType());
+        // Instances are process-lifetime in this library's model; transiently-created inheritors
+        // must call LogBaseRegistry.Deregister on teardown or they stay rooted here.
+        LogBaseRegistry.Register(this);
     }
 
     public void AddLogProperty(string name, string value)
@@ -252,157 +254,182 @@ public abstract class LogBase
     }
 
     /// <summary>
-    /// Raises a momentary error (e.g. a missed poll response) that auto-expires after
-    /// <paramref name="ttl"/> (default <see cref="DefaultMomentaryErrorTtl"/>). Re-raising the same
-    /// <paramref name="key"/> (defaults to the message) refreshes the existing entry's TTL.
+    /// Records a momentary issue (e.g. a missed poll response). Momentary issues are instantly
+    /// historical — they never appear in <see cref="OngoingIssues"/>. Re-raising while the latest
+    /// entry for <paramref name="key"/> (defaults to the message) is momentary coalesces into it,
+    /// bumping <see cref="Issue.OccurrenceCount"/> and <see cref="Issue.LastRaisedAt"/>.
+    /// When <paramref name="escalateAfter"/> is supplied, that many consecutive momentary raises of
+    /// the key without an intervening <see cref="ResolveIssue"/> raises an ongoing issue under the
+    /// same key, one severity level higher — call <see cref="ResolveIssue"/> on every successful
+    /// response so recovery both resolves the ongoing issue and resets the count.
     /// </summary>
-    protected void RaiseMomentaryError(string message, TimeSpan? ttl = null, string? key = null)
+    protected void RaiseMomentaryIssue(string message, string? key = null,
+        IssueSeverity severity = IssueSeverity.Minor, int? escalateAfter = null)
     {
         key ??= message;
         var now = DateTimeOffset.UtcNow;
+        Issue momentary;
+        IssueChangeKind kind;
         bool isNewOrChanged;
-        lock (_activeErrorsLock)
+        Issue? escalated = null;
+        lock (_issuesLock)
         {
-            isNewOrChanged = !_activeErrors.TryGetValue(key, out var existing) || existing.Message != message;
-            _activeErrors[key] = new ActiveError(key, message, ErrorPersistence.Momentary, now,
-                now + (ttl ?? DefaultMomentaryErrorTtl));
-            LimitActiveErrors(key);
-            RescheduleExpiry();
+            var last = _issues.FindLastIndex(i => i.Key == key);
+            if (last >= 0 && _issues[last].Status == IssueStatus.Momentary)
+            {
+                var existing = _issues[last];
+                isNewOrChanged = existing.Message != message || existing.Severity != severity;
+                momentary = existing with
+                {
+                    Message = message, Severity = severity, LastRaisedAt = now,
+                    OccurrenceCount = existing.OccurrenceCount + 1
+                };
+                _issues[last] = momentary;
+                kind = IssueChangeKind.Updated;
+            }
+            else
+            {
+                isNewOrChanged = true;
+                momentary = new Issue(Guid.NewGuid(), key, message, IssueStatus.Momentary, severity,
+                    now, now, 1, null);
+                _issues.Add(momentary);
+                LimitIssues(momentary);
+                kind = IssueChangeKind.Raised;
+            }
+
+            var consecutive = _consecutiveMomentary.GetValueOrDefault(key) + 1;
+            _consecutiveMomentary[key] = consecutive;
+            if (escalateAfter is { } threshold && consecutive >= threshold
+                && _issues.FindLastIndex(i => i.Key == key && i.Status == IssueStatus.Ongoing) < 0)
+            {
+                escalated = new Issue(Guid.NewGuid(), key,
+                    $"{message} ({consecutive} consecutive occurrences)", IssueStatus.Ongoing,
+                    Escalate(severity), now, now, 1, null);
+                _issues.Add(escalated);
+                LimitIssues(escalated);
+            }
         }
         if (isNewOrChanged)
         {
-            LogWarning("{ActiveErrorMessage}", message);
+            LogWarning("{IssueMessage}", message);
             AddEvent(EventType.Error, message);
         }
-        RaiseActiveErrorsChanged();
+        RaiseIssuesChanged(momentary, kind);
+        if (escalated != null)
+        {
+            LogWarning("{IssueMessage}", escalated.Message);
+            AddEvent(EventType.Error, escalated.Message);
+            RaiseIssuesChanged(escalated, IssueChangeKind.Raised);
+        }
     }
 
     /// <summary>
-    /// Raises a persistent error (e.g. a device stuck on the wrong input) that stays active until
-    /// <see cref="ClearPersistentError"/> is called with the same <paramref name="key"/>.
-    /// Re-raising an unchanged key/message is a no-op, so this is safe to call every poll cycle.
+    /// Raises an ongoing issue (e.g. a device stuck on the wrong input) that stays in
+    /// <see cref="OngoingIssues"/> until <see cref="ResolveIssue"/> is called with the same
+    /// <paramref name="key"/>. Re-raising an unchanged key/message/severity is a no-op, so this is
+    /// safe to call every poll cycle; a changed message or severity updates the entry in place.
     /// </summary>
-    protected void RaisePersistentError(string key, string message)
+    protected void RaiseOngoingIssue(string key, string message, IssueSeverity severity = IssueSeverity.Major)
     {
-        lock (_activeErrorsLock)
+        var now = DateTimeOffset.UtcNow;
+        Issue issue;
+        IssueChangeKind kind;
+        lock (_issuesLock)
         {
-            if (_activeErrors.TryGetValue(key, out var existing)
-                && existing.Persistence == ErrorPersistence.Persistent && existing.Message == message)
-                return;
-            _activeErrors[key] = new ActiveError(key, message, ErrorPersistence.Persistent,
-                DateTimeOffset.UtcNow, null);
-            LimitActiveErrors(key);
-            RescheduleExpiry();
-        }
-        LogWarning("{ActiveErrorMessage}", message);
-        AddEvent(EventType.Error, message);
-        RaiseActiveErrorsChanged();
-    }
-
-    /// <summary>
-    /// Clears a persistent error once the driver has recovered the condition. Clearing a key that
-    /// isn't active is a no-op, so this is safe to call every poll cycle.
-    /// </summary>
-    protected void ClearPersistentError(string key)
-    {
-        lock (_activeErrorsLock)
-        {
-            if (!_activeErrors.TryGetValue(key, out var existing)
-                || existing.Persistence != ErrorPersistence.Persistent)
-                return;
-            _activeErrors.Remove(key);
-        }
-        LogInformation("Cleared active error {ActiveErrorKey}", key);
-        AddEvent(EventType.Error, $"Cleared: {key}");
-        RaiseActiveErrorsChanged();
-    }
-
-    public void SetActiveErrorLimit(int limit)
-    {
-        lock (_activeErrorsLock)
-        {
-            _activeErrorLimit = limit;
-            LimitActiveErrors(null);
-            RescheduleExpiry();
-        }
-        RaiseActiveErrorsChanged();
-    }
-
-    // Must be called under _activeErrorsLock. Evicts oldest momentary entries first (they would
-    // expire anyway), then oldest persistent ones, but never the just-raised protectedKey.
-    private void LimitActiveErrors(string? protectedKey)
-    {
-        if (_activeErrors.Count <= _activeErrorLimit)
-            return;
-        foreach (var key in _activeErrors.Values
-                     .Where(e => e.Key != protectedKey)
-                     .OrderBy(e => e.Persistence)
-                     .ThenBy(e => e.RaisedAt)
-                     .Take(_activeErrors.Count - _activeErrorLimit)
-                     .Select(e => e.Key)
-                     .ToList())
-            _activeErrors.Remove(key);
-    }
-
-    // Must be called under _activeErrorsLock.
-    private void RescheduleExpiry()
-    {
-        DateTimeOffset? next = null;
-        foreach (var error in _activeErrors.Values)
-        {
-            if (error.ExpiresAt is { } expiry && (next == null || expiry < next))
-                next = expiry;
-        }
-
-        if (next == null)
-        {
-            _activeErrorExpiryTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-            return;
-        }
-
-        _activeErrorExpiryTimer ??= new Timer(ExpireActiveErrors, null, Timeout.Infinite, Timeout.Infinite);
-        var due = next.Value - DateTimeOffset.UtcNow;
-        if (due < TimeSpan.Zero)
-            due = TimeSpan.Zero;
-        _activeErrorExpiryTimer.Change(due, Timeout.InfiniteTimeSpan);
-    }
-
-    private void ExpireActiveErrors(object? state)
-    {
-        var removed = false;
-        lock (_activeErrorsLock)
-        {
-            var now = DateTimeOffset.UtcNow;
-            foreach (var key in _activeErrors.Where(kvp => kvp.Value.ExpiresAt <= now)
-                         .Select(kvp => kvp.Key).ToList())
+            var index = _issues.FindLastIndex(i => i.Key == key && i.Status == IssueStatus.Ongoing);
+            if (index >= 0)
             {
-                _activeErrors.Remove(key);
-                removed = true;
+                var existing = _issues[index];
+                if (existing.Message == message && existing.Severity == severity)
+                    return;
+                issue = existing with { Message = message, Severity = severity, LastRaisedAt = now };
+                _issues[index] = issue;
+                kind = IssueChangeKind.Updated;
             }
-            RescheduleExpiry();
+            else
+            {
+                issue = new Issue(Guid.NewGuid(), key, message, IssueStatus.Ongoing, severity,
+                    now, now, 1, null);
+                _issues.Add(issue);
+                LimitIssues(issue);
+                kind = IssueChangeKind.Raised;
+            }
         }
-        if (removed)
-            RaiseActiveErrorsChanged();
+        LogWarning("{IssueMessage}", message);
+        AddEvent(EventType.Error, message);
+        RaiseIssuesChanged(issue, kind);
     }
 
-    // Subscribers are invoked individually and guarded: this runs on the expiry Timer thread, where
-    // an unhandled subscriber exception would kill the process, and one faulty subscriber must not
-    // starve the rest.
-    private void RaiseActiveErrorsChanged()
+    /// <summary>
+    /// Resolves an ongoing issue once the driver has observed the condition recover. The entry stays
+    /// in <see cref="Issues"/> with <see cref="IssueStatus.Resolved"/> and its original
+    /// <see cref="Issue.Id"/>; a later re-raise of the key is a new issue. Also resets the
+    /// consecutive-failure count used by escalation, so this is safe (and intended) to call on every
+    /// successful response.
+    /// </summary>
+    protected void ResolveIssue(string key)
     {
-        var handlers = ActiveErrorsChanged;
+        Issue resolved;
+        lock (_issuesLock)
+        {
+            _consecutiveMomentary.Remove(key);
+            var index = _issues.FindLastIndex(i => i.Key == key && i.Status == IssueStatus.Ongoing);
+            if (index < 0)
+                return;
+            resolved = _issues[index] with { Status = IssueStatus.Resolved, ResolvedAt = DateTimeOffset.UtcNow };
+            _issues[index] = resolved;
+        }
+        LogInformation("Resolved issue {IssueKey}", key);
+        AddEvent(EventType.Error, $"Resolved: {key}");
+        RaiseIssuesChanged(resolved, IssueChangeKind.Resolved);
+    }
+
+    public void SetIssueLimit(int limit)
+    {
+        lock (_issuesLock)
+        {
+            _issueLimit = limit;
+            LimitIssues(null);
+        }
+        RaiseIssuesChanged(null, IssueChangeKind.Trimmed);
+    }
+
+    private static IssueSeverity Escalate(IssueSeverity severity) =>
+        severity == IssueSeverity.Critical ? IssueSeverity.Critical : severity + 1;
+
+    // Must be called under _issuesLock. Evicts historical entries (momentary/resolved) first, oldest
+    // first, then ongoing ones, but never the just-raised protectedIssue.
+    private void LimitIssues(Issue? protectedIssue)
+    {
+        if (_issues.Count <= _issueLimit)
+            return;
+        foreach (var issue in _issues
+                     .Where(i => i.Id != protectedIssue?.Id)
+                     .OrderBy(i => i.Status == IssueStatus.Ongoing)
+                     .ThenBy(i => i.RaisedAt)
+                     .Take(_issues.Count - _issueLimit)
+                     .ToList())
+            _issues.Remove(issue);
+    }
+
+    // Subscribers are invoked individually and guarded: these fire on driver comm/poll threads,
+    // where an unhandled subscriber exception would kill the worker, and one faulty subscriber must
+    // not starve the rest (the registry is a permanent subscriber).
+    private void RaiseIssuesChanged(Issue? changedIssue, IssueChangeKind kind)
+    {
+        var handlers = IssuesChanged;
         if (handlers == null)
             return;
-        var args = new ActiveErrorsChangedEventArgs(ActiveErrors);
+        var args = new IssuesChangedEventArgs(changedIssue, kind, Issues);
         foreach (var handler in handlers.GetInvocationList())
         {
             try
             {
-                ((EventHandler<ActiveErrorsChangedEventArgs>)handler)(this, args);
+                ((EventHandler<IssuesChangedEventArgs>)handler)(this, args);
             }
             catch (Exception e)
             {
-                LogException(e, "An ActiveErrorsChanged handler threw an exception");
+                LogException(e, "An IssuesChanged handler threw an exception");
             }
         }
     }

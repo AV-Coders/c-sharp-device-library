@@ -95,33 +95,72 @@ Each log line is automatically scoped with the instance's `Class`, `InstanceName
 Independently of the sink, every `LogBase` instance keeps a bounded in-memory ring buffer
 of recent `Events` (default 100) and `Errors` (default 10), with `EventsUpdated` /
 `ErrorsUpdated` change events — handy for driving a status UI without a log sink. Limits
-are adjustable via `SetEventLimit` / `SetErrorLimit`. `LogBaseRegistry` offers an opt-in
-static registry for clearing buffers across many instances at once.
+are adjustable via `SetEventLimit` / `SetErrorLimit`.
 
-### Active errors
+### Issues
 
-Alongside the historical buffers, every instance exposes the errors affecting it *right
-now*: an `ActiveErrors` snapshot (oldest first) plus an
-`event EventHandler<ActiveErrorsChangedEventArgs> ActiveErrorsChanged`. Errors come in two
-kinds (`ActiveError.Persistence`):
+Every instance keeps a bounded list of the issues (incidents) its driver has raised: an
+`Issues` history plus an `OngoingIssues` view of what's wrong *right now*, and an
+`event EventHandler<IssuesChangedEventArgs> IssuesChanged`. Each `Issue` has a status:
 
-- **Momentary** — e.g. a DSP not answering a poll. Auto-expires after a TTL (default 30 s,
-  adjustable via `DefaultMomentaryErrorTtl` or per raise); re-raising the same error
-  refreshes the TTL instead of duplicating it.
-- **Persistent** — e.g. a display on the wrong input or power state, or
-  `CommunicationState` dropping to `Error`. Stays active until the driver observes the
-  condition recover.
+- **Ongoing** — e.g. a display on the wrong input or power state, or `CommunicationState`
+  dropping to `Error`. Stays in `OngoingIssues` until the driver observes the condition
+  recover and calls `ResolveIssue`.
+- **Momentary** — e.g. a DSP not answering one poll. Instantly historical; never counted
+  as ongoing. Repeated raises of the same key coalesce into one entry, bumping
+  `OccurrenceCount` and `LastRaisedAt`.
+- **Resolved** — a formerly ongoing issue that has recovered. It stays in `Issues` (with
+  `ResolvedAt` set) as history; a later re-raise of the key is a new issue.
 
-Drivers raise these via `RaiseMomentaryError` / `RaisePersistentError` /
-`ClearPersistentError`; the base classes already cover power-state, input and
-communication-state faults. The list is keyed (re-raising updates rather than duplicates)
-and capped at 50 entries (adjustable via `SetActiveErrorLimit`); when over the cap, the
-oldest momentary entries are evicted first. Raising also lands one entry in the `Events` history
-(`EventType.Error`). TTL expiry fires `ActiveErrorsChanged` from a thread-pool thread, so
-UI consumers should marshal (e.g. Blazor's `InvokeAsync`), as with `EventsUpdated`.
-Subscribers are invoked individually and exceptions they throw are caught and routed to
-the instance's `Errors` buffer/log — one faulty subscriber can neither crash the process
-nor stop the remaining subscribers from being notified.
+Each issue also carries an `IssueSeverity` (`Minor`/`Major`/`Critical` — momentary raises
+default to Minor, ongoing to Major) and a stable `Id` assigned at creation and preserved
+through updates and resolution, so external systems can correlate by it.
+
+Drivers raise these via `RaiseMomentaryIssue` / `RaiseOngoingIssue` / `ResolveIssue`; the
+base classes already cover power-state, input and communication-state faults. Repeated
+momentary failures can auto-escalate: pass `escalateAfter: n` and, after `n` consecutive
+momentary raises of the key without an intervening `ResolveIssue`, an ongoing issue is
+raised under the same key one severity level higher. Call `ResolveIssue` on every
+successful response — it resolves the escalated issue *and* resets the consecutive count,
+and is a no-op otherwise.
+
+The list is capped at 50 entries (adjustable via `SetIssueLimit`); when over the cap,
+historical (momentary/resolved) entries are evicted before ongoing ones, oldest first.
+Raising or resolving also lands one entry in the `Events` history (`EventType.Error`).
+
+`IssuesChangedEventArgs` carries the `ChangedIssue` and an `IssueChangeKind`
+(`Raised`/`Updated`/`Resolved`/`Trimmed`), so per-device integrations react without
+diffing snapshots. Wiring a ticketing system to a device looks like:
+
+```csharp
+device.IssuesChanged += (_, e) =>
+{
+    if (e.Kind == IssueChangeKind.Raised && e.ChangedIssue!.Status == IssueStatus.Ongoing)
+        tickets.Open(e.ChangedIssue.Id, e.ChangedIssue.Message, e.ChangedIssue.Severity);
+    else if (e.Kind == IssueChangeKind.Resolved)
+        tickets.Close(e.ChangedIssue!.Id);
+};
+```
+
+Events fire on driver comm/poll threads, so UI consumers should marshal (e.g. Blazor's
+`InvokeAsync`), as with `EventsUpdated`. Subscribers are invoked individually and
+exceptions they throw are caught and routed to the instance's `Errors` buffer/log — one
+faulty subscriber can neither crash the process nor stop the remaining subscribers from
+being notified.
+
+### The registry (dashboards)
+
+Every `LogBase` auto-registers with the static `LogBaseRegistry` on construction. The
+registry is the dashboard view: `LogBaseRegistry.GetOngoingIssues()` returns every ongoing
+issue across every instance (as `SourcedIssue` pairs), and
+`LogBaseRegistry.OngoingIssuesChanged` fires — with the aggregate snapshot and the
+originating instance as sender — whenever any instance's ongoing set changes
+(momentary-only changes are skipped). Registry subscribers must handle their own
+exceptions; the registry swallows them. The registry also fans out maintenance calls
+(`ClearEvents`, `ClearErrors`, `SetEventLimits`, `SetErrorLimits`, `SetIssueLimits`).
+
+Registration roots the instance for the life of the process, which matches how drivers are
+used; anything created transiently must call `LogBaseRegistry.Deregister` on teardown.
 
 ## Tracing
 

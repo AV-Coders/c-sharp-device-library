@@ -157,7 +157,7 @@ public class LGCommercial : Display, ISetTopBox
             // off, so a pending power-on can only be honoured by continuing to wake it.
             if (DesiredPowerState == PowerState.On)
             {
-                RaisePersistentError(PowerStateErrorKey, "Power should be On but the display is not connected");
+                RaiseOngoingIssue(PowerStateIssueKey, "Power should be On but the display is not connected");
                 SendWol();
             }
             return;

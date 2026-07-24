@@ -176,7 +176,7 @@ public class ExtronDtpCpxx : VideoMatrix
             {
                 var inputString = response.Split(' ')[1].TrimEnd('\r');
                 var inputCount = inputString.Length;
-                Inputs.Clear();
+                Inputs.DeregisterAndClear();
 
                 while (Inputs.Count < inputCount)
                 {
@@ -211,10 +211,10 @@ public class ExtronDtpCpxx : VideoMatrix
                         "Unable to determine the number of inputs or outputs. Please check the model number and try again.");
 
                 if (Inputs.Count > inputCount)
-                    Inputs.Clear();
+                    Inputs.DeregisterAndClear();
 
                 if (ComposedOutputs.Count > outputCount)
-                    ComposedOutputs.Clear();
+                    ComposedOutputs.DeregisterAndClear();
 
                 while (Inputs.Count < inputCount)
                 {

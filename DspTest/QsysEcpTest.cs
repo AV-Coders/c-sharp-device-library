@@ -264,16 +264,18 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void HandleResponse_GivenABadId_RaisesAPersistentError_ClearedWhenTheControlResponds()
+    public void HandleResponse_GivenABadId_RaisesAnOngoingIssue_ResolvedWhenTheControlResponds()
     {
         _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
 
-        var error = Assert.Single(_dsp.ActiveErrors, e => e.Key == "bad-control:Zone33BGMMute");
-        Assert.Equal(ErrorPersistence.Persistent, error.Persistence);
+        var issue = Assert.Single(_dsp.OngoingIssues, i => i.Key == "bad-control:Zone33BGMMute");
+        Assert.Equal(IssueStatus.Ongoing, issue.Status);
 
         _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\" \"unmuted\" 1 1");
 
-        Assert.DoesNotContain(_dsp.ActiveErrors, e => e.Key == "bad-control:Zone33BGMMute");
+        Assert.DoesNotContain(_dsp.OngoingIssues, i => i.Key == "bad-control:Zone33BGMMute");
+        Assert.Contains(_dsp.Issues,
+            i => i.Key == "bad-control:Zone33BGMMute" && i.Status == IssueStatus.Resolved);
     }
 
     [Fact]
