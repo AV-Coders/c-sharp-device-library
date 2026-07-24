@@ -110,11 +110,13 @@ public class AvCodersRestClient : RestComms
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e, "POST request timed out");
+                ReportConnectionFailure($"The POST request to {Host}:{Port} timed out");
             }
             catch (Exception e)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e);
+                ReportConnectionFailure(DescribeConnectionError(e));
             }
         }
     }
@@ -143,11 +145,13 @@ public class AvCodersRestClient : RestComms
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e, "PUT request timed out");
+                ReportConnectionFailure($"The PUT request to {Host}:{Port} timed out");
             }
             catch (Exception e)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e);
+                ReportConnectionFailure(DescribeConnectionError(e));
             }
         }
     }
@@ -172,11 +176,13 @@ public class AvCodersRestClient : RestComms
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e, "GET request timed out");
+                ReportConnectionFailure($"The GET request to {Host}:{Port} timed out");
             }
             catch (Exception e)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e);
+                ReportConnectionFailure(DescribeConnectionError(e));
             }
         }
     }

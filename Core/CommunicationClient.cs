@@ -1,11 +1,16 @@
-﻿using System.Text;
+﻿using System.Net.Sockets;
+using System.Text;
 
 namespace AVCoders.Core;
 
 public abstract class CommunicationClient(string name, string host, ushort port, CommandStringFormat commandStringFormat) : LogBase(name)
 {
+    public const string ConnectionIssueKey = "connection";
+
     private string _host = host;
     private ushort _port = port;
+    private readonly object _connectionIssueLock = new();
+    private DateTimeOffset? _connectionFailingSince;
     public StringHandler? RequestHandlers;
     public ByteHandler? RequestByteHandlers;
     public StringHandler? ResponseHandlers;
@@ -35,6 +40,12 @@ public abstract class CommunicationClient(string name, string host, ushort port,
             if(_connectionState == value)
                 return;
             _connectionState = value;
+            if (value == ConnectionState.Connected)
+            {
+                lock (_connectionIssueLock)
+                    _connectionFailingSince = null;
+                ResolveIssue(ConnectionIssueKey);
+            }
             try
             {
                 ConnectionStateHandlers?.Invoke(value);
@@ -45,6 +56,54 @@ public abstract class CommunicationClient(string name, string host, ushort port,
             }
         }
     }
+
+    /// <summary>
+    /// How long connection failures may persist before <see cref="ReportConnectionFailure"/>
+    /// escalates them to an ongoing issue.
+    /// </summary>
+    public TimeSpan ConnectionIssueThreshold { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Records a failed connection attempt as a momentary issue with a human-readable
+    /// <paramref name="reason"/> (see <see cref="DescribeConnectionError"/>). Once failures have
+    /// persisted for <see cref="ConnectionIssueThreshold"/>, an ongoing issue is raised under the
+    /// same key; it resolves automatically when <see cref="ConnectionState"/> becomes Connected.
+    /// </summary>
+    protected void ReportConnectionFailure(string reason)
+    {
+        DateTimeOffset failingSince;
+        lock (_connectionIssueLock)
+        {
+            _connectionFailingSince ??= DateTimeOffset.UtcNow;
+            failingSince = _connectionFailingSince.Value;
+        }
+        RaiseMomentaryIssue(reason, key: ConnectionIssueKey);
+        if (DateTimeOffset.UtcNow - failingSince >= ConnectionIssueThreshold)
+            RaiseOngoingIssue(ConnectionIssueKey,
+                $"Unable to connect since {failingSince.ToLocalTime():HH:mm:ss}. {reason}",
+                IssueSeverity.Critical);
+    }
+
+    /// <summary>Turns a connection exception into a human-readable failure reason.</summary>
+    protected string DescribeConnectionError(Exception e) => e switch
+    {
+        SocketException s => s.SocketErrorCode switch
+        {
+            SocketError.TimedOut => $"The connection to {Host}:{Port} timed out",
+            SocketError.HostNotFound => $"The host {Host} was not found",
+            SocketError.ConnectionRefused => $"{Host}:{Port} refused the connection",
+            SocketError.HostUnreachable => $"The host {Host} is unreachable",
+            SocketError.NetworkUnreachable => $"The network is unreachable trying to reach {Host}",
+            SocketError.ConnectionReset => $"The connection to {Host}:{Port} was reset",
+            _ => $"The connection to {Host}:{Port} failed: {s.Message}"
+        },
+        HttpRequestException { InnerException: SocketException inner } => DescribeConnectionError(inner),
+        HttpRequestException h => $"The request to {Host}:{Port} failed: {h.Message}",
+        TimeoutException => $"The connection to {Host}:{Port} timed out",
+        OperationCanceledException => $"The connection attempt to {Host}:{Port} timed out",
+        _ when e.InnerException is SocketException inner => DescribeConnectionError(inner),
+        _ => $"The connection to {Host}:{Port} failed: {e.Message}"
+    };
 
     /// <summary>
     /// A no-op CommunicationClient used to indicate that there is no real communication backend.

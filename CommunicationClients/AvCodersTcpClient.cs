@@ -141,29 +141,16 @@ public class AvCodersTcpClient : Core_TcpClient
                 ConnectionState = ConnectionState.Connected;
                 ReceiveThreadWorker.Restart();
             }
-            catch (OperationCanceledException e)
+            catch (OperationCanceledException e) when (token.IsCancellationRequested)
             {
-                LogException(e);
-                ConnectionState = ConnectionState.Disconnected;
-            }
-            catch (SocketException e)
-            {
-                LogException(e);
-                ConnectionState = ConnectionState.Disconnected;
-            }
-            catch (IOException e)
-            {
-                LogException(e);
-                ConnectionState = ConnectionState.Disconnected;
-            }
-            catch (ObjectDisposedException e)
-            {
+                // Shutting down - not a connection failure.
                 LogException(e);
                 ConnectionState = ConnectionState.Disconnected;
             }
             catch (Exception e)
             {
                 LogException(e);
+                ReportConnectionFailure(DescribeConnectionError(e));
                 ConnectionState = ConnectionState.Disconnected;
             }
 

@@ -105,20 +105,16 @@ public class AvCodersSshClient : SshClientBase
                     await CreateStream(token);
                     ConnectionState = ConnectionState.Connected;
                 }
-                catch (Exception e) when (e is SshOperationTimeoutException 
-                                              or SshAuthenticationException 
-                                              or SshConnectionException 
-                                              or ObjectDisposedException 
-                                              or InvalidOperationException 
-                                              or SocketException 
-                                              or ProxyException)
+                catch (OperationCanceledException e) when (token.IsCancellationRequested)
                 {
-                    ConnectionState = ConnectionState.Disconnected;
+                    // Shutting down - not a connection failure.
                     LogException(e);
+                    ConnectionState = ConnectionState.Disconnected;
                 }
                 catch (Exception e)
                 {
                     LogException(e);
+                    ReportConnectionFailure(DescribeSshConnectionError(e));
                     ConnectionState = ConnectionState.Disconnected;
                 }
 
@@ -196,6 +192,15 @@ public class AvCodersSshClient : SshClientBase
         LogInformation("Shell stream created successfully");
         return _stream;
     }
+
+    private string DescribeSshConnectionError(Exception e) => e switch
+    {
+        SshAuthenticationException => $"SSH authentication to {Host} was rejected for user {_username}",
+        SshOperationTimeoutException => $"The SSH connection to {Host}:{Port} timed out",
+        SshConnectionException { InnerException: SocketException inner } => DescribeConnectionError(inner),
+        SshConnectionException s => $"The SSH connection to {Host}:{Port} failed: {s.Message}",
+        _ => DescribeConnectionError(e)
+    };
 
     private void AuthenticationMethodOnAuthenticationPrompt(object? sender, AuthenticationPromptEventArgs e)
     {

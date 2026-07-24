@@ -44,6 +44,7 @@ public class AvCodersMqttClient : MqttClient
         catch (Exception e)
         {
             LogException(e, "Initial MQTT connection failed");
+            ReportConnectionFailure(DescribeConnectionError(e));
             ConnectionState = ConnectionState.Disconnected;
         }
     }
@@ -84,7 +85,16 @@ public class AvCodersMqttClient : MqttClient
             await Task.Delay(TimeSpan.FromSeconds(3));
             ConnectionState = ConnectionState.Connecting;
             LogDebug("Reconnecting to MQTT server");
-            await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
+            try
+            {
+                await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
+            }
+            catch (Exception e)
+            {
+                // Without this catch a failed attempt would end the loop and reconnection stops.
+                LogException(e, "MQTT reconnection attempt failed");
+                ReportConnectionFailure(DescribeConnectionError(e));
+            }
         }
     }
 

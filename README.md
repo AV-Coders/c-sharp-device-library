@@ -117,7 +117,13 @@ default to Minor, ongoing to Major) and a stable `Id` assigned at creation and p
 through updates and resolution, so external systems can correlate by it.
 
 Drivers raise these via `RaiseMomentaryIssue` / `RaiseOngoingIssue` / `ResolveIssue`; the
-base classes already cover power-state, input and communication-state faults. Repeated
+base classes already cover power-state, input and communication-state faults. The TCP, SSH,
+MQTT and REST communication clients report each failed connection attempt as a momentary
+issue with a human-readable reason ("The connection to 10.0.0.1:4999 timed out", "The host
+avr.local was not found", "10.0.0.1:23 refused the connection", …) under the key
+`connection`; once failures have persisted for two minutes
+(`CommunicationClient.ConnectionIssueThreshold`), a Critical ongoing issue is raised and
+automatically resolved when the client connects. Repeated
 momentary failures can auto-escalate: pass `escalateAfter: n` and, after `n` consecutive
 momentary raises of the key without an intervening `ResolveIssue`, an ongoing issue is
 raised under the same key one severity level higher. Call `ResolveIssue` on every
