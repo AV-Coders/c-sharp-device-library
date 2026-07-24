@@ -9,7 +9,15 @@ public class NavigatorTunnel : CommunicationClient
         ConnectionState = ConnectionState.Disconnected;
     }
 
-    public void SetConnectionState(ConnectionState state) { ConnectionState = state; }
+    public void SetConnectionState(ConnectionState state)
+    {
+        // NavDeviceBase calls this every failing poll cycle. Report before the deduping
+        // ConnectionState setter so repeated failures keep feeding the momentary issue and
+        // the ConnectionIssueThreshold escalation; the Connected transition resolves it.
+        if (state is ConnectionState.Disconnected or ConnectionState.Error)
+            ReportConnectionFailure($"{Name} at {Host} is not responding via the Navigator tunnel");
+        ConnectionState = state;
+    }
 
     public override void Send(string message) { }
 

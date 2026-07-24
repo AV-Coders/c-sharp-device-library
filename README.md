@@ -118,10 +118,11 @@ through updates and resolution, so external systems can correlate by it.
 
 Drivers raise these via `RaiseMomentaryIssue` / `RaiseOngoingIssue` / `ResolveIssue`; the
 base classes already cover power-state, input and communication-state faults. The TCP, SSH,
-MQTT and REST communication clients report each failed connection attempt as a momentary
+MQTT, REST and SNMPv3 communication clients report each failed connection attempt as a momentary
 issue with a human-readable reason ("The connection to 10.0.0.1:4999 timed out", "The host
 avr.local was not found", "10.0.0.1:23 refused the connection", …) under the key
-`connection`; once failures have persisted for two minutes
+`connection`, as does the Navigator tunnel when a NAV endpoint stops answering polls; once
+failures have persisted for two minutes
 (`CommunicationClient.ConnectionIssueThreshold`), a Critical ongoing issue is raised and
 automatically resolved when the client connects. Repeated
 momentary failures can auto-escalate: pass `escalateAfter: n` and, after `n` consecutive
