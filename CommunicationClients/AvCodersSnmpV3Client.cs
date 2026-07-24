@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using Lextm.SharpSnmpLib;
 using Lextm.SharpSnmpLib.Messaging;
 using Lextm.SharpSnmpLib.Security;
+using SnmpTimeoutException = Lextm.SharpSnmpLib.Messaging.TimeoutException;
 
 namespace AVCoders.CommunicationClients;
 
@@ -76,10 +77,19 @@ public class AvCodersSnmpV3Client : CommunicationClient
         catch (Exception e)
         {
             LogException(e, $"SNMP SET failed for OID {oid}");
+            ReportConnectionFailure(DescribeSnmpConnectionError(e));
             ConnectionState = ConnectionState.Error;
             return [];
         }
     }
+
+    // The ErrorStatus paths deliberately do not report a connection failure - the device
+    // responded; those are SNMP-level errors, not reachability problems.
+    private string DescribeSnmpConnectionError(Exception e) => e switch
+    {
+        SnmpTimeoutException => $"The SNMP request to {Host}:{Port} timed out",
+        _ => DescribeConnectionError(e)
+    };
     
     public virtual List<Variable> Set(string oid, string value) => Set(oid, new OctetString(value));
 
@@ -120,6 +130,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
         catch (Exception e)
         {
             LogException(e, $"SNMP GET failed for OID {oid}");
+            ReportConnectionFailure(DescribeSnmpConnectionError(e));
             ConnectionState = ConnectionState.Error;
             return [];
         }
@@ -155,6 +166,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
         catch (Exception e)
         {
             LogException(e, $"SNMP WALK failed for OID {oid}");
+            ReportConnectionFailure(DescribeSnmpConnectionError(e));
             ConnectionState = ConnectionState.Error;
             return [];
         }
