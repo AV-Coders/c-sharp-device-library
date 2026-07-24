@@ -51,7 +51,10 @@ public abstract class LogBase
 
     private readonly List<Issue> _issues = [];
     // Consecutive momentary raises per key since the last ResolveIssue(key) — drives escalation.
-    // Distinct from Issue.OccurrenceCount, which is cumulative and never resets.
+    // Distinct from Issue.OccurrenceCount, which is cumulative and never resets. Capped: drivers
+    // that key by message (e.g. one key per bad response line) would otherwise grow this
+    // dictionary for the life of the process.
+    private const int ConsecutiveMomentaryKeyLimit = 200;
     private readonly Dictionary<string, int> _consecutiveMomentary = new();
     private readonly object _issuesLock = new();
     private int _issueLimit = 50;
@@ -298,6 +301,8 @@ public abstract class LogBase
             }
 
             var consecutive = _consecutiveMomentary.GetValueOrDefault(key) + 1;
+            if (consecutive == 1 && _consecutiveMomentary.Count >= ConsecutiveMomentaryKeyLimit)
+                _consecutiveMomentary.Remove(_consecutiveMomentary.Keys.First());
             _consecutiveMomentary[key] = consecutive;
             if (escalateAfter is { } threshold && consecutive >= threshold
                 && _issues.FindLastIndex(i => i.Key == key && i.Status == IssueStatus.Ongoing) < 0)

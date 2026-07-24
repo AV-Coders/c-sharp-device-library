@@ -361,6 +361,33 @@ public class IssuesTest
     }
 
     [Fact]
+    public void ConsecutiveMomentaryTracking_IsCappedAt200Keys()
+    {
+        _logBase.Momentary("A failed", key: "a", escalateAfter: 3);
+        _logBase.Momentary("A failed", key: "a", escalateAfter: 3);
+        // 200 distinct keys evict "a" (the oldest entry) from the consecutive-count dictionary.
+        for (var i = 0; i < 200; i++)
+            _logBase.Momentary($"flood {i}", key: $"flood-{i}");
+
+        // Without the eviction this third raise would reach the threshold and escalate.
+        _logBase.Momentary("A failed", key: "a", escalateAfter: 3);
+
+        Assert.Empty(_logBase.OngoingIssues);
+    }
+
+    [Fact]
+    public void ConsecutiveMomentaryTracking_StillEscalates_ForKeysRaisedAfterTheCapWasHit()
+    {
+        for (var i = 0; i < 250; i++)
+            _logBase.Momentary($"flood {i}", key: $"flood-{i}");
+
+        for (var i = 0; i < 3; i++)
+            _logBase.Momentary("B failed", key: "b", escalateAfter: 3);
+
+        Assert.Single(_logBase.OngoingIssues, i => i.Key == "b");
+    }
+
+    [Fact]
     public void RaiseMomentaryIssue_WithoutEscalateAfter_NeverEscalates()
     {
         for (var i = 0; i < 10; i++)
