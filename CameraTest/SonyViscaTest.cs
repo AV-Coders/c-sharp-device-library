@@ -177,6 +177,57 @@ public class SonyViscaSerialTest
         
         mockPresetCleared.Verify(x => x.Invoke(), Times.Once);
     }
+
+    [Theory]
+    [InlineData(new byte[] { 0x90, 0x41, 0xFF })]
+    [InlineData(new byte[] { 0x90, 0x42, 0xFF })]
+    [InlineData(new byte[] { 0x90, 0x51, 0xFF })]
+    [InlineData(new byte[] { 0x90, 0x52, 0xFF })]
+    public void HandleResponse_AckAndCompletion_SetCommunicationStateOkay(byte[] response)
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response);
+
+        Assert.Equal(CommunicationState.Okay, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_Error_SetsCommunicationStateError()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x61, 0x41, 0xFF]);
+
+        Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+    }
+
+    [Theory]
+    [InlineData(0x02, PowerState.On)]
+    [InlineData(0x03, PowerState.Off)]
+    public void HandleResponse_PowerInquiryReply_SetsPowerState(byte value, PowerState expectedState)
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x50, value, 0xFF]);
+
+        Assert.Equal(expectedState, _viscaCamera.PowerState);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 0x90 })]
+    [InlineData(new byte[] { 0xFF })]
+    [InlineData(new byte[] { 0x90, 0x41, 0x00 })]
+    public void HandleResponse_MalformedResponse_DoesNotThrow(byte[] response)
+    {
+        var exception = Record.Exception(() => _mockClient.Object.ResponseByteHandlers!.Invoke(response));
+
+        Assert.Null(exception);
+        Assert.Equal(PowerState.Unknown, _viscaCamera.PowerState);
+    }
+
+    [Fact]
+    public void HandleResponse_MultipleMessages_ProcessesAll()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x61, 0x41, 0xFF]);
+
+        Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+    }
 }
 
 public class SonyViscaIpTest
@@ -218,8 +269,58 @@ public class SonyViscaIpTest
             [0x01, 0x00, 0x00, 0x09, 0xff, 0xff, 0xff, 0x00, 0x81, 0x01, 0x06, 0x01, 0x04, 0x04, 0x02, 0x03, 0xff];
 
         _viscaCamera.PanTiltRight();
-            
+
         _mockClient.Verify(x => x.Send(expectedString), Times.Once);
     }
 
+    [Fact]
+    public void HandleResponse_Ack_SetsCommunicationStateOkay()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x2E, 0x90, 0x42, 0xFF]);
+
+        Assert.Equal(CommunicationState.Okay, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_Error_SetsCommunicationStateError()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x01, 0x90, 0x61, 0x41, 0xFF]);
+
+        Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_MultipleMessages_ProcessesAll()
+    {
+        byte[] ackThenCompletion =
+        [
+            0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x2E, 0x90, 0x42, 0xFF,
+            0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x2E, 0x90, 0x52, 0xFF
+        ];
+        var exception = Record.Exception(() => _mockClient.Object.ResponseByteHandlers!.Invoke(ackThenCompletion));
+
+        Assert.Null(exception);
+        Assert.Equal(CommunicationState.Okay, _viscaCamera.CommunicationState);
+    }
+
+    [Theory]
+    [InlineData(0x02, PowerState.On)]
+    [InlineData(0x03, PowerState.Off)]
+    public void HandleResponse_PowerInquiryReply_SetsPowerState(byte value, PowerState expectedState)
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x05, 0x90, 0x50, value, 0xFF]);
+
+        Assert.Equal(expectedState, _viscaCamera.PowerState);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x01, 0x11, 0x00, 0x04 })]
+    [InlineData(new byte[] { 0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x01, 0x90, 0x61 })]
+    public void HandleResponse_TruncatedFrame_DoesNotThrow(byte[] response)
+    {
+        var exception = Record.Exception(() => _mockClient.Object.ResponseByteHandlers!.Invoke(response));
+
+        Assert.Null(exception);
+        Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+    }
 }

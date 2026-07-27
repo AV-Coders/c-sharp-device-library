@@ -14,31 +14,72 @@ public class SonyVisca : CameraBase
     private byte _zoomInSpeed;
     private byte _zoomOutSpeed;
     private byte _sequenceNumber;
-    private static readonly byte[] SequenceHeader = [0xFF, 0xFF, 0xFF];
     protected byte _header;
     protected static readonly byte CommandFooter = 0xFF;
+    private const int IpHeaderLength = 8;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
+    private readonly ThreadWorker _pollWorker;
 
-    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01)
+    private static readonly Dictionary<byte, string> ErrorMessages = new Dictionary<byte, string>
+    {
+        { 0x01, "Message length error" },
+        { 0x02, "Syntax error" },
+        { 0x03, "Command buffer full" },
+        { 0x04, "Command cancelled" },
+        { 0x05, "No socket" },
+        { 0x41, "Command not executable" }
+    };
+
+    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01, int pollTime = 30)
         : base(name, client, presetNames)
     {
         _useIpHeaders = useIpHeaders;
         SetCameraId(cameraId);
-        SetCameraId(cameraId);
-        CommunicationClient.ResponseHandlers += HandleResponse;
+        CommunicationClient.ResponseByteHandlers += HandleResponse;
         _panSpeed = 0x04;
         _tiltSpeed = 0x04;
         _zoomInSpeed = 0x23;
         _zoomOutSpeed = 0x33;
         CommunicationState = CommunicationState.NotAttempted;
         _sequenceNumber = 0x00;
-        _useIpHeaders = useIpHeaders;
         _ipHeaders.Add(PayloadType.ViscaCommand, [0x01, 0x00]);
         _ipHeaders.Add(PayloadType.ViscaInquiry, [0x01, 0x10]);
         _ipHeaders.Add(PayloadType.ViscaReply, [0x01, 0x11]);
         _ipHeaders.Add(PayloadType.DeviceSetting, [0x01, 0x10]);
         _ipHeaders.Add(PayloadType.ControlCommand, [0x02, 0x00]);
         _ipHeaders.Add(PayloadType.ControlReply, [0x02, 0x01]);
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
+        _pollWorker.Restart();
+    }
+
+    private Task Poll(CancellationToken token)
+    {
+        using (PushProperties("Poll"))
+        {
+            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+                return Task.CompletedTask;
+
+            SendInquiry([_header, 0x09, 0x04, 0x00, CommandFooter]);
+        }
+        return Task.CompletedTask;
+    }
+
+    private void SendInquiry(byte[] bytes)
+    {
+        try
+        {
+            if (_useIpHeaders)
+            {
+                CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaInquiry, bytes));
+                return;
+            }
+            CommunicationClient.Send(bytes);
+        }
+        catch (Exception e)
+        {
+            LogException(e);
+            CommunicationState = CommunicationState.Error;
+        }
     }
 
     protected void SendCommand(byte[] bytes)
@@ -201,9 +242,93 @@ public class SonyVisca : CameraBase
         AddEvent(EventType.Preset, $"Preset {presetName} saved");
     }
 
-    private void HandleResponse(string response)
+    private void HandleResponse(byte[] response)
     {
-        //TODO: Handle responses
+        using (PushProperties("HandleResponse"))
+        {
+            var index = 0;
+            while (index < response.Length)
+            {
+                if (_useIpHeaders)
+                {
+                    if (response.Length - index < IpHeaderLength)
+                    {
+                        ReportMalformedResponse(response);
+                        return;
+                    }
+                    var payloadLength = response[index + 2] << 8 | response[index + 3];
+                    if (response.Length - index - IpHeaderLength < payloadLength)
+                    {
+                        ReportMalformedResponse(response);
+                        return;
+                    }
+                    ProcessViscaPayload(response[(index + IpHeaderLength)..(index + IpHeaderLength + payloadLength)]);
+                    index += IpHeaderLength + payloadLength;
+                }
+                else
+                {
+                    var footerIndex = Array.IndexOf(response, CommandFooter, index);
+                    if (footerIndex < 0)
+                    {
+                        ReportMalformedResponse(response);
+                        return;
+                    }
+                    ProcessViscaPayload(response[index..(footerIndex + 1)]);
+                    index = footerIndex + 1;
+                }
+            }
+        }
+    }
+
+    private void ProcessViscaPayload(byte[] payload)
+    {
+        if (payload.Length < 3 || payload[^1] != CommandFooter)
+        {
+            ReportMalformedResponse(payload);
+            return;
+        }
+
+        switch (payload[1] & 0xF0)
+        {
+            case 0x40:
+                CommunicationState = CommunicationState.Okay;
+                LogVerbose("Command acknowledged");
+                break;
+            case 0x50:
+                CommunicationState = CommunicationState.Okay;
+                if (payload.Length == 3)
+                {
+                    LogVerbose("Command complete");
+                    return;
+                }
+                // The power inquiry is the only inquiry this driver sends
+                PowerState = payload[2] switch
+                {
+                    0x02 => PowerState.On,
+                    0x03 => PowerState.Off,
+                    _ => PowerState
+                };
+                ProcessPowerState();
+                break;
+            case 0x60:
+                var errorMessage = ErrorMessages.TryGetValue(payload[2], out var message)
+                    ? message
+                    : $"Unknown error 0x{payload[2]:X2}";
+                LogError("The camera reported an error: {error} ({response})", errorMessage, BitConverter.ToString(payload));
+                AddEvent(EventType.Error, errorMessage);
+                CommunicationState = CommunicationState.Error;
+                break;
+            default:
+                LogWarning("Unhandled response {response}", BitConverter.ToString(payload));
+                break;
+        }
+    }
+
+    private void ReportMalformedResponse(byte[] response)
+    {
+        CommunicationState = CommunicationState.Error;
+        LogWarning("The response was malformed: {response}", BitConverter.ToString(response));
+        AddEvent(EventType.Error, "The response was malformed");
     }
 
     public override void SetAutoFocus(PowerState state)
