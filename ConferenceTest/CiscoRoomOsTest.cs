@@ -38,11 +38,17 @@ public class CiscoRoomOsTest
             "xFeedback register /Status/Standby",
             "xFeedback register /Status/Call",
             "xFeedback Register Configuration/Conference/AutoAnswer/Mode",
+            "xFeedback register /Status/Video/Input/Connector",
+            "xFeedback register /Status/Video/Input/Source",
+            "xFeedback register /Status/Video/Output/Connector",
             "xStatus Standby",
             "xStatus Call",
             "xStatus SIP Registration URI",
+            "xStatus Video Input Connector",
+            "xStatus Video Input Source",
+            "xStatus Video Output Connector",
             "xConfiguration Conference AutoAnswer Mode",
-        }.ForEach(s => 
+        }.ForEach(s =>
             _mockClient.Verify(x => x.Send($"{s}\r\n")));
 
         Assert.StartsWith("xCommand Peripherals Connect ID: AV-Coders-RoomOS-Module Type: ControlSystem", (string) _mockClient.Invocations[0].Arguments[0]);
@@ -378,6 +384,227 @@ public class CiscoRoomOsTest
 
         Assert.Equal(expectedState, _codec.AutoAnswerState);
         mockHandler.Verify(x => x.Invoke(expectedState));
+    }
+
+    [Theory]
+    [InlineData("OK", ConnectionState.Connected)]
+    [InlineData("Unstable", ConnectionState.Degraded)]
+    [InlineData("Unsupported", ConnectionState.Error)]
+    [InlineData("Unknown", ConnectionState.Disconnected)]
+    [InlineData("NotFound", ConnectionState.Disconnected)]
+    [InlineData("DetectingFormat", ConnectionState.Connecting)]
+    public void VideoInputSignalStateResponse_UpdatesInputConnectionStatus(string response, ConnectionState expectedState)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"*s Video Input Connector 1 SignalState: {response}\n");
+
+        Assert.Equal(expectedState, _codec.GetVideoInput(1).InputConnectionStatus);
+    }
+
+    [Fact]
+    public void VideoInputDisconnectedResponse_UpdatesInputConnectionStatus()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("*s Video Input Connector 2 SignalState: OK\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("*s Video Input Connector 2 Connected: False\n");
+
+        Assert.Equal(ConnectionState.Disconnected, _codec.GetVideoInput(2).InputConnectionStatus);
+    }
+
+    [Fact]
+    public void VideoInputSourceResolutionResponses_UpdateInputResolution()
+    {
+        new List<string>
+        {
+            "*s Video Input Source 1 Resolution Height: 1080\n",
+            "*s Video Input Source 1 Resolution RefreshRate: 60\n",
+            "*s Video Input Source 1 Resolution Width: 1920\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Equal("1920x1080@60", _codec.GetVideoInput(1).InputResolution);
+    }
+
+    [Fact]
+    public void VideoInputSourceResolutionResponses_UseTheConnectorMapping()
+    {
+        new List<string>
+        {
+            "*s Video Input Connector 3 SourceId: 2\n",
+            "*s Video Input Source 2 Resolution Height: 2160\n",
+            "*s Video Input Source 2 Resolution RefreshRate: 30\n",
+            "*s Video Input Source 2 Resolution Width: 3840\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Equal("3840x2160@30", _codec.GetVideoInput(3).InputResolution);
+        Assert.Equal(string.Empty, _codec.GetVideoInput(2).InputResolution);
+    }
+
+    [Fact]
+    public void VideoInputDisconnect_ClearsTheResolution()
+    {
+        new List<string>
+        {
+            "*s Video Input Connector 1 SignalState: OK\n",
+            "*s Video Input Source 1 Resolution Height: 1080\n",
+            "*s Video Input Source 1 Resolution RefreshRate: 60\n",
+            "*s Video Input Source 1 Resolution Width: 1920\n",
+            "*s Video Input Connector 1 Connected: False\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Equal(string.Empty, _codec.GetVideoInput(1).InputResolution);
+    }
+
+    [Fact]
+    public void VideoInputResponses_NotifySubscribers()
+    {
+        var handler = new Mock<SyncInfoHandler>();
+        _codec.GetVideoInput(1).InputStatusChangedHandlers += handler.Object;
+
+        _mockClient.Object.ResponseHandlers!.Invoke("*s Video Input Connector 1 SignalState: OK\n");
+
+        handler.Verify(x => x.Invoke(ConnectionState.Connected, string.Empty, HdcpStatus.Unknown), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("True", ConnectionState.Connected)]
+    [InlineData("False", ConnectionState.Disconnected)]
+    public void VideoOutputConnectedResponse_UpdatesOutputConnectionStatus(string response, ConnectionState expectedState)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"*s Video Output Connector 1 Connected: {response}\n");
+
+        Assert.Equal(expectedState, _codec.GetVideoOutput(1).OutputConnectionStatus);
+    }
+
+    [Fact]
+    public void VideoOutputResolutionResponses_UpdateOutputResolution()
+    {
+        new List<string>
+        {
+            "*s Video Output Connector 2 Resolution Height: 1080\n",
+            "*s Video Output Connector 2 Resolution RefreshRate: 50\n",
+            "*s Video Output Connector 2 Resolution Width: 1920\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Equal("1920x1080@50", _codec.GetVideoOutput(2).OutputResolution);
+    }
+
+    [Fact]
+    public void VideoResponses_PopulateTheConnectorLists()
+    {
+        new List<string>
+        {
+            "*s Video Input Connector 1 SignalState: OK\n",
+            "*s Video Input Connector 2 SignalState: Unknown\n",
+            "*s Video Output Connector 1 Connected: True\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Equal(2, _codec.GetVideoInputs().Count);
+        Assert.Single(_codec.GetVideoOutputs());
+        Assert.Equal(AVEndpointType.Encoder, _codec.GetVideoInputs()[0].DeviceType);
+        Assert.Equal(AVEndpointType.Decoder, _codec.GetVideoOutputs()[0].DeviceType);
+    }
+
+    [Theory]
+    [InlineData("Active", HdcpStatus.Active)]
+    [InlineData("Inactive", HdcpStatus.Available)]
+    [InlineData("Unsupported", HdcpStatus.NotSupported)]
+    public void VideoOutputHdcpStateResponse_UpdatesOutputHdcpStatus(string response, HdcpStatus expectedStatus)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"*s Video Output Connector 1 HDCP State: {response}\n");
+
+        Assert.Equal(expectedStatus, _codec.GetVideoOutput(1).OutputHdcpStatus);
+    }
+
+    [Fact]
+    public void VideoInputHdcpStateResponse_UpdatesInputHdcpStatus()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("*s Video Input Connector 5 HDCP State: Active\n");
+
+        Assert.Equal(HdcpStatus.Active, _codec.GetVideoInput(5).InputHdcpStatus);
+    }
+
+    [Fact]
+    public void UnrelatedVideoResponses_AreIgnored()
+    {
+        new List<string>
+        {
+            "*s Video Input MainVideoSource: 1\n",
+            "*s Video Monitors: Single\n",
+            "*s Video Input Source 3 (ghost=True)\n",
+            "*s Video Input Source 1 Availability: Idle\n",
+            "*s Video Input Source 1 FormatStatus: Ok\n",
+            "*s Video Input Source 1 MediaChannelId: 118\n",
+            "*s Video Output Connector 1 Type: HDMI\n",
+            "*s Video Output Connector 1 MonitorRole: First\n",
+            "*s Video Output Connector 1 ConnectedDevice CEC 1 DeviceType: \"Unknown\"\n",
+            "*s Video Output Connector 1 ConnectedDevice Name: \"Extron HDMI\"\n",
+            "*s Video Output Connector 1 ConnectedDevice PreferredFormat: \"1920x1080@60Hz\"\n",
+            "*s Video Output Connector 1 ConnectedDevice SupportedFormat Res_1920_1080_60: True\n",
+            "*s Video Output Connector 1 HDCP Version: None\n",
+            "*s Video Output Connector 1 TouchInput Enabled: False\n",
+            "*s Video Input Connector 1 Type: HDMI\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Empty(_codec.GetVideoInputs().FindAll(x => x.InputConnectionStatus != ConnectionState.Unknown));
+        Assert.Empty(_codec.GetVideoOutputs().FindAll(x => x.OutputConnectionStatus != ConnectionState.Unknown));
+    }
+
+    [Fact]
+    public void VideoInputHotplugFeedback_TracksTheConnectionStates()
+    {
+        var states = new List<ConnectionState>();
+        _codec.GetVideoInput(1).InputStatusChangedHandlers += (state, _, _) => states.Add(state);
+
+        new List<string>
+        {
+            "*s Video Input Connector 1 Connected: False\n",
+            "*s Video Input Connector 1 SignalState: NotFound\n",
+            "*s Video Input Connector 1 Connected: True\n",
+            "*s Video Input Connector 1 SignalState: DetectingFormat\n",
+            "*s Video Input Connector 1 SignalState: NotFound\n",
+            "*s Video Input Connector 1 SignalState: DetectingFormat\n",
+            "*s Video Input Connector 1 SignalState: OK\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Equal(ConnectionState.Connected, _codec.GetVideoInput(1).InputConnectionStatus);
+        Assert.Equal(new List<ConnectionState>
+        {
+            ConnectionState.Disconnected,
+            ConnectionState.Connecting,
+            ConnectionState.Disconnected,
+            ConnectionState.Connecting,
+            ConnectionState.Connected
+        }, states);
+    }
+
+    [Fact]
+    public void VideoStatusDump_PopulatesAConnector()
+    {
+        new List<string>
+        {
+            "*s Video Input Connector 1 Connected: True\n",
+            "*s Video Input Connector 1 SignalState: OK\n",
+            "*s Video Input Connector 1 SourceId: 1\n",
+            "*s Video Input Connector 1 Type: HDMI\n",
+            "*s Video Input Source 1 Availability: Idle\n",
+            "*s Video Input Source 1 ConnectorId: 1\n",
+            "*s Video Input Source 1 FormatStatus: Ok\n",
+            "*s Video Input Source 1 MediaChannelId: 118\n",
+            "*s Video Input Source 1 Resolution Height: 1080\n",
+            "*s Video Input Source 1 Resolution RefreshRate: 60\n",
+            "*s Video Input Source 1 Resolution Width: 1920\n",
+            "*s Video Output Connector 3 Connected: False\n",
+            "*s Video Output Connector 3 ConnectedDevice PreferredFormat: \"-1x-1@-1Hz\"\n",
+            "*s Video Output Connector 3 ConnectedDevice ScreenSize: -1\n",
+            "*s Video Output Connector 3 HDCP State: Unsupported\n",
+            "*s Video Output Connector 3 Resolution Height: 0\n",
+            "*s Video Output Connector 3 Resolution RefreshRate: 0\n",
+            "*s Video Output Connector 3 Resolution Width: 0\n"
+        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Equal(ConnectionState.Connected, _codec.GetVideoInput(1).InputConnectionStatus);
+        Assert.Equal("1920x1080@60", _codec.GetVideoInput(1).InputResolution);
+        Assert.Equal(ConnectionState.Disconnected, _codec.GetVideoOutput(3).OutputConnectionStatus);
+        Assert.Equal(string.Empty, _codec.GetVideoOutput(3).OutputResolution);
+        Assert.Equal(HdcpStatus.NotSupported, _codec.GetVideoOutput(3).OutputHdcpStatus);
     }
 
     [Fact]

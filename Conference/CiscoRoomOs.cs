@@ -62,6 +62,9 @@ public class CiscoRoomOs : Conference
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
+    private readonly Dictionary<int, CiscoRoomOsVideoInput> _videoInputs = new();
+    private readonly Dictionary<int, CiscoRoomOsVideoOutput> _videoOutputs = new();
+    private readonly Dictionary<int, int> _sourceIdToConnectorId = new();
     private bool _forceDoNotDisturb = true;
     private PowerState _doNotDisturbState = PowerState.Unknown;
     private PowerState _desiredDoNotDisturbState = PowerState.Unknown;
@@ -122,11 +125,17 @@ public class CiscoRoomOs : Conference
           SendCommand("xFeedback register /Status/Call");
           SendCommand("xFeedback register /Status/Audio/Volume");
           SendCommand("xFeedback Register Configuration/Conference/AutoAnswer/Mode");
+          SendCommand("xFeedback register /Status/Video/Input/Connector");
+          SendCommand("xFeedback register /Status/Video/Input/Source");
+          SendCommand("xFeedback register /Status/Video/Output/Connector");
           SendCommand("xStatus Standby");
           SendCommand("xStatus Conference DoNotDisturb");
           SendCommand("xStatus Call");
           SendCommand("xStatus Audio Volume");
           SendCommand("xStatus SIP Registration URI");
+          SendCommand("xStatus Video Input Connector");
+          SendCommand("xStatus Video Input Source");
+          SendCommand("xStatus Video Output Connector");
           SendCommand("xConfiguration Conference AutoAnswer Mode");
         }
         catch (Exception e)
@@ -246,6 +255,9 @@ public class CiscoRoomOs : Conference
               ProcessCallResponse(responses);
               RaiseActiveCallsChanged(GetActiveCalls());
               return;
+            case "Video":
+              ProcessVideoResponse(responses);
+              return;
             case "Audio" when responses[2] == "Volume:":
               OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
               return;
@@ -302,6 +314,135 @@ public class CiscoRoomOs : Conference
           "The current Do Not Disturb state ({IncorrectDoNotDisturbState}) is not what's expected ({DesiredDoNotDisturbState}), forcing state",
           DoNotDisturbState.ToString(), _desiredDoNotDisturbState.ToString());
         SetDoNotDisturbState(_desiredDoNotDisturbState);
+      }
+    }
+
+    public CiscoRoomOsVideoInput GetVideoInput(int connectorId)
+    {
+      if (_videoInputs.TryGetValue(connectorId, out var input))
+        return input;
+      input = new CiscoRoomOsVideoInput($"{Name} Video Input {connectorId}", connectorId);
+      _videoInputs[connectorId] = input;
+      return input;
+    }
+
+    public CiscoRoomOsVideoOutput GetVideoOutput(int connectorId)
+    {
+      if (_videoOutputs.TryGetValue(connectorId, out var output))
+        return output;
+      output = new CiscoRoomOsVideoOutput($"{Name} Video Output {connectorId}", connectorId);
+      _videoOutputs[connectorId] = output;
+      return output;
+    }
+
+    public List<SyncStatus> GetVideoInputs() => _videoInputs.OrderBy(x => x.Key).Select(SyncStatus (x) => x.Value).ToList();
+
+    public List<SyncStatus> GetVideoOutputs() => _videoOutputs.OrderBy(x => x.Key).Select(SyncStatus (x) => x.Value).ToList();
+
+    private void ProcessVideoResponse(string[] responses)
+    {
+      if (responses.Length < 7)
+        return;
+      if (!int.TryParse(responses[4], out var number))
+        return;
+      switch (responses[2])
+      {
+        case "Input" when responses[3] == "Connector":
+          ProcessVideoInputConnectorResponse(GetVideoInput(number), responses);
+          return;
+        case "Input" when responses[3] == "Source":
+          ProcessVideoInputSourceResponse(number, responses);
+          return;
+        case "Output" when responses[3] == "Connector":
+          ProcessVideoOutputConnectorResponse(GetVideoOutput(number), responses);
+          return;
+      }
+    }
+
+    private void ProcessVideoInputConnectorResponse(CiscoRoomOsVideoInput input, string[] responses)
+    {
+      switch (responses[5])
+      {
+        case "Connected:":
+          if (responses[6].Contains("False"))
+            input.SetConnectionState(ConnectionState.Disconnected);
+          return;
+        case "SignalState:":
+          input.SetConnectionState(responses[6].Trim() switch
+          {
+            "OK" => ConnectionState.Connected,
+            "DetectingFormat" => ConnectionState.Connecting,
+            "Unstable" => ConnectionState.Degraded,
+            "Unsupported" => ConnectionState.Error,
+            _ => ConnectionState.Disconnected
+          });
+          return;
+        case "SourceId:":
+          if (int.TryParse(responses[6], out var sourceId))
+            _sourceIdToConnectorId[sourceId] = input.ConnectorId;
+          return;
+        case "HDCP" when responses.Length >= 8 && responses[6] == "State:":
+          input.SetHdcpStatus(ParseHdcpState(responses[7]));
+          return;
+      }
+    }
+
+    private static HdcpStatus ParseHdcpState(string value) => value.Trim() switch
+    {
+      "Active" => HdcpStatus.Active,
+      "Inactive" => HdcpStatus.Available,
+      "Unsupported" => HdcpStatus.NotSupported,
+      _ => HdcpStatus.Unknown
+    };
+
+    private void ProcessVideoInputSourceResponse(int sourceId, string[] responses)
+    {
+      switch (responses[5])
+      {
+        case "ConnectorId:":
+          if (int.TryParse(responses[6], out var connectorId))
+            _sourceIdToConnectorId[sourceId] = connectorId;
+          return;
+        case "Resolution" when responses.Length >= 8:
+          var connector = GetVideoInput(_sourceIdToConnectorId.GetValueOrDefault(sourceId, sourceId));
+          SetResolutionPart(connector, responses[6], responses[7]);
+          return;
+      }
+    }
+
+    private void ProcessVideoOutputConnectorResponse(CiscoRoomOsVideoOutput output, string[] responses)
+    {
+      switch (responses[5])
+      {
+        case "Connected:":
+          output.SetConnectionState(responses[6].Contains("True")
+            ? ConnectionState.Connected
+            : ConnectionState.Disconnected);
+          return;
+        case "Resolution" when responses.Length >= 8:
+          SetResolutionPart(output, responses[6], responses[7]);
+          return;
+        case "HDCP" when responses.Length >= 8 && responses[6] == "State:":
+          output.SetHdcpStatus(ParseHdcpState(responses[7]));
+          return;
+      }
+    }
+
+    private static void SetResolutionPart(CiscoRoomOsVideoConnector connector, string dimension, string value)
+    {
+      if (!int.TryParse(value.Trim(), out var parsed))
+        return;
+      switch (dimension)
+      {
+        case "Height:":
+          connector.SetResolutionHeight(parsed);
+          return;
+        case "Width:":
+          connector.SetResolutionWidth(parsed);
+          return;
+        case "RefreshRate:":
+          connector.SetResolutionRefreshRate(parsed);
+          return;
       }
     }
 
