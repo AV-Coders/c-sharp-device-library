@@ -1,3 +1,14 @@
+# Migrating to the release where SyncStatus moved to AVCoders.Core
+
+`SyncStatus` and its supporting types (`AVEndpointType`, `HdcpStatus`, `SyncInfoHandler`,
+`AddressChangeHandler`) moved from the `AVCoders.Matrix` package/namespace to
+`AVCoders.Core`, so non-matrix drivers (starting with the Cisco RoomOS codec's video
+connectors) can expose sync status without depending on the matrix package. The types
+themselves are unchanged.
+
+If your program references any of these types, change `using AVCoders.Matrix;` to
+`using AVCoders.Core;` in those files (files using both namespaces need no change).
+
 # Migrating to the Issues release (ActiveErrors removed)
 
 This release replaces the `ActiveError` system on `LogBase` with an issue/incident model.

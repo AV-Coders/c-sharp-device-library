@@ -1,6 +1,4 @@
-﻿using AVCoders.Core;
-
-namespace AVCoders.Matrix;
+namespace AVCoders.Core;
 
 public enum AVEndpointType
 {
@@ -26,17 +24,17 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
     private string _inputResolution = string.Empty;
     private HdcpStatus _inputHdcpStatus = HdcpStatus.Unknown;
     public SyncInfoHandler? InputStatusChangedHandlers;
-    
+
     private ConnectionState _outputConnectionStatus;
     private string _outputResolution = string.Empty;
     private HdcpStatus _outputHdcpStatus = HdcpStatus.Unknown;
     public SyncInfoHandler? OutputStatusChangedHandlers;
-    
+
     private string _streamAddress = string.Empty;
     public AddressChangeHandler? StreamChangeHandlers;
-    
+
     public readonly AVEndpointType DeviceType = type;
-    
+
     public ConnectionState DeviceConnectionState
     {
         get => _deviceConnectionState;
@@ -61,8 +59,8 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             InputStatusChangedHandlers?.Invoke(_inputConnectionStatus, _inputResolution, _inputHdcpStatus);
         }
     }
-    
-    public string StreamAddress { 
+
+    public string StreamAddress {
         get => _streamAddress;
         protected set
         {
@@ -112,7 +110,7 @@ public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(nam
             OutputStatusChangedHandlers?.Invoke(_outputConnectionStatus, _outputResolution, _outputHdcpStatus);
         }
     }
-    
+
     public HdcpStatus InputHdcpStatus
     {
         get => _inputHdcpStatus;

@@ -2,6 +2,8 @@
 
 public delegate void ActionHandler();
 
+public delegate void AddressChangeHandler(string streamAddress);
+
 public delegate void BoolHandler(bool value);
 
 public delegate void ByteHandler(byte[] response);
