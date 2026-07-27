@@ -15,6 +15,14 @@ public class CiscoRoomOsPhonebookParserTest
     }
 
     [Fact]
+    public void Parser_RequestsThePhonebook_OnANewCodecSession()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+
+        _mockClient.Verify(x => x.Send("xCommand Phonebook Search PhonebookType: Corporate Offset:0 Limit: 300\n"));
+    }
+
+    [Fact]
     public void PhonebookFolders_AreParsedCorrectly()
     {
         new List<string>

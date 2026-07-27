@@ -17,6 +17,15 @@ public class CiscoRoomOsRecentCallsTest
     }
 
     [Fact]
+    public void Module_RegistersAndRequestsHistory_OnANewCodecSession()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+
+        _mockClient.Verify(x => x.Send("xFeedback Register Event/CallHistory/Updated\n"));
+        _mockClient.Verify(x => x.Send("xCommand CallHistory Get Limit:30\n"));
+    }
+
+    [Fact]
     public void Module_RequestsHistory_WhenNotifiedOfAnUpdate()
     {
         _mockClient.Object.ResponseHandlers!.Invoke("*e CallHistory Updated");

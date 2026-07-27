@@ -125,6 +125,9 @@ public class AvCodersSshClient : SshClientBase
                 try
                 {
                     LogWarning("Client connected but stream is null, recreating stream");
+                    // A new stream is a new remote CLI session; drop out of Connected first so
+                    // the transition back fires ConnectionStateHandlers and subscribers re-initialise.
+                    ConnectionState = ConnectionState.Connecting;
                     await CreateStream(token);
                 }
                 catch (Exception e)

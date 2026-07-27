@@ -44,11 +44,11 @@ public class CiscoRoomOsPhonebookParserIntegrationTest
                       }
                   });
 
-        // 2. Trigger Connection
-        mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
-        
-        // Wait for the 5s delay and the full chain of automated requests/responses to complete
-        await Task.Delay(6000);
+        // 2. Trigger a new codec CLI session
+        mockClient.Object.ResponseHandlers?.Invoke("*r Login successful\n");
+
+        // Wait for the full chain of automated requests/responses to complete
+        await Task.Delay(500);
 
         // 3. Verification
         var rootFolder = (CiscoRoomOsPhonebookFolder)parser.PhoneBook;

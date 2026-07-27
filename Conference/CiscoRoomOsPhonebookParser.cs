@@ -36,18 +36,8 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
         PhoneBook = new CiscoRoomOsPhonebookFolder("Top Level", string.Empty, string.Empty, []);
 
         communicationClient.ResponseHandlers += HandleResponse;
-        communicationClient.ConnectionStateHandlers += HandleConnectionState;
-    }
-
-    private void HandleConnectionState(ConnectionState connectionState)
-    {
-        if (connectionState != ConnectionState.Connected)
-            return;
-        Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(5));
+        if (communicationClient.ConnectionState == ConnectionState.Connected)
             RequestPhonebook();
-        });
     }
 
     public override void RequestPhonebook()
@@ -60,6 +50,13 @@ public class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
     private void HandleResponse(string response)
     {
+        // A new CLI session; request the phonebook once the codec declares itself ready.
+        if (response.StartsWith("*r Login successful"))
+        {
+            RequestPhonebook();
+            return;
+        }
+
         using (PushProperties("HandlePhonebookSearchResponse"))
         {
             if (response.Contains("** end"))

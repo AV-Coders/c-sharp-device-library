@@ -20,20 +20,26 @@ public class CiscoRoomOsRecentCalls
         _limit = limit;
         _client = client;
         _client.ResponseHandlers += HandleResponse;
-        _client.ConnectionStateHandlers += HandleConnectionState;
-        HandleConnectionState(_client.ConnectionState);
+        if (_client.ConnectionState == ConnectionState.Connected)
+            Reinitialise();
     }
 
-    private void HandleConnectionState(ConnectionState connectionState)
+    // The codec announces every new CLI session with *r Login successful - feedback
+    // registrations don't survive across sessions, so that line is the re-register trigger.
+    private void Reinitialise()
     {
-        if (connectionState != ConnectionState.Connected)
-            return;
         _client.Send("xFeedback Register Event/CallHistory/Updated\n");
         _client.Send($"xCommand CallHistory Get Limit:{_limit}\n");
     }
 
     private void HandleResponse(string response)
     {
+        if (response.StartsWith("*r Login successful"))
+        {
+            Reinitialise();
+            return;
+        }
+
         if (response.StartsWith("*r CallHistoryGetResult (status=OK):"))
         {
             _recentCalls.Clear();
