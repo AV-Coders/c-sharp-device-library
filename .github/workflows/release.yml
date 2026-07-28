@@ -50,7 +50,10 @@ jobs:
         dotnet-version: 8.0.x
 
     - name: Setup Github Packages
-      run: dotnet nuget add source --username ant-car --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/AV-Coders/index.json"
+      env:
+        # Passed via the environment so the secret never appears in the shell command line (S7636).
+        FEED_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: dotnet nuget add source --username ant-car --password "$FEED_TOKEN" --store-password-in-clear-text --name github "https://nuget.pkg.github.com/AV-Coders/index.json"
 
     - name: Restore dependencies
       id: restore
@@ -69,14 +72,16 @@ jobs:
       run: dotnet pack "C Sharp Device Library.sln" --output ./package /p:Version=${{ steps.version.outputs.version }} --configuration Release
 
     - name: NuGet login
-      uses: NuGet/login@v1
+      uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
       id: nuget-login
       with:
         user: ${{ secrets.NUGET_USER }}
 
     - name: Publish to nuget.org
       id: publish
-      run: dotnet nuget push ./package/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+      env:
+        NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+      run: dotnet nuget push ./package/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
 
     - name: Tag and create the GitHub release
       id: tag
@@ -85,7 +90,7 @@ jobs:
       run: gh release create "${{ steps.version.outputs.version }}" --target "${{ github.sha }}" --title "${{ steps.version.outputs.version }}" --generate-notes ./package/*.nupkg
 
     - name: Notify on Error
-      uses: skitionek/notify-microsoft-teams@master
+      uses: skitionek/notify-microsoft-teams@216b8b28967e7e89b0b64b81dc94aeae90e642ab # v1.3.0
       if: failure()
       with:
         webhook_url: ${{ secrets.MSTEAMS_WEBHOOK }}
