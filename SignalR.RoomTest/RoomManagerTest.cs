@@ -64,7 +64,7 @@ public class RoomManagerTest
     [Fact]
     public void Properties_DefaultsToEmpty()
     {
-        Assert.Empty(_manager.Properties);
+        Assert.Empty(_manager.GetProperties());
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class RoomManagerTest
     {
         _manager.SetProperty("status", "in-meeting");
 
-        Assert.Equal("in-meeting", _manager.Properties["status"]);
+        Assert.Equal("in-meeting", _manager.GetProperties()["status"]);
     }
 
     [Fact]
@@ -81,8 +81,8 @@ public class RoomManagerTest
         _manager.SetProperty("status", "in-meeting");
         _manager.SetProperty("status", "available");
 
-        Assert.Equal("available", _manager.Properties["status"]);
-        Assert.Single(_manager.Properties);
+        Assert.Equal("available", _manager.GetProperties()["status"]);
+        Assert.Single(_manager.GetProperties());
     }
 
     [Fact]
@@ -100,11 +100,11 @@ public class RoomManagerTest
     public void Properties_ReturnsCopyNotReference()
     {
         _manager.SetProperty("status", "in-meeting");
-        var snapshot = _manager.Properties;
+        var snapshot = _manager.GetProperties();
 
         snapshot["status"] = "tampered";
 
-        Assert.Equal("in-meeting", _manager.Properties["status"]);
+        Assert.Equal("in-meeting", _manager.GetProperties()["status"]);
     }
 
     [Fact]
@@ -118,7 +118,7 @@ public class RoomManagerTest
         var exception = Record.Exception(() => Parallel.For(0, 10_000, i =>
         {
             _manager.SetProperty($"key-{i % 20}", $"value-{i}");
-            _ = _manager.Properties;
+            _ = _manager.GetProperties();
         }));
 
         Assert.Null(exception);

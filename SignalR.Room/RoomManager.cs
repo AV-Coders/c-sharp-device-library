@@ -12,7 +12,8 @@ public class RoomManager : DeviceBase
     public event Action<Dictionary<string, string>>? OnPowerOnRequested;
     public event Action<Dictionary<string, string>>? OnPowerOffRequested;
 
-    public Dictionary<string, string> Properties => new(_properties);
+    /// <summary>Snapshot of the room's properties. A method so the copy cost is visible at the call site (S2365).</summary>
+    public Dictionary<string, string> GetProperties() => new(_properties);
 
     public RoomManager(DeviceBase device)
         : base(device.Name, CommunicationClient.None)

@@ -26,13 +26,13 @@ public class IssuesTest
 
         _logBase.Ongoing("input", "Wrong input");
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal("input", issue.Key);
         Assert.Equal("Wrong input", issue.Message);
         Assert.Equal(IssueStatus.Ongoing, issue.Status);
         Assert.Equal(IssueSeverity.Major, issue.Severity);
         Assert.Null(issue.ResolvedAt);
-        Assert.Single(_logBase.OngoingIssues, i => i.Key == "input");
+        Assert.Single(_logBase.GetOngoingIssues(), i => i.Key == "input");
         Assert.NotNull(reported);
         Assert.Equal(IssueChangeKind.Raised, reported!.Kind);
         Assert.Equal(issue, reported.ChangedIssue);
@@ -48,7 +48,7 @@ public class IssuesTest
         _logBase.Ongoing("input", "Wrong input");
         _logBase.Ongoing("input", "Wrong input");
 
-        Assert.Single(_logBase.Issues);
+        Assert.Single(_logBase.GetIssues());
         Assert.Equal(1, changedCount);
     }
 
@@ -60,10 +60,10 @@ public class IssuesTest
         _logBase.IssuesChanged += (_, e) => { changedCount++; lastArgs = e; };
 
         _logBase.Ongoing("input", "Wrong input");
-        var original = Assert.Single(_logBase.Issues);
+        var original = Assert.Single(_logBase.GetIssues());
         _logBase.Ongoing("input", "Still the wrong input");
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal("Still the wrong input", issue.Message);
         Assert.Equal(IssueStatus.Ongoing, issue.Status);
         Assert.Equal(original.Id, issue.Id);
@@ -78,7 +78,7 @@ public class IssuesTest
         _logBase.Ongoing("input", "Wrong input");
         _logBase.Ongoing("input", "Wrong input", IssueSeverity.Critical);
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal(IssueSeverity.Critical, issue.Severity);
     }
 
@@ -89,14 +89,14 @@ public class IssuesTest
         _logBase.IssuesChanged += (_, e) => lastArgs = e;
 
         _logBase.Ongoing("input", "Wrong input");
-        var raised = Assert.Single(_logBase.Issues);
+        var raised = Assert.Single(_logBase.GetIssues());
         _logBase.Resolve("input");
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal(IssueStatus.Resolved, issue.Status);
         Assert.NotNull(issue.ResolvedAt);
         Assert.Equal(raised.Id, issue.Id);
-        Assert.Empty(_logBase.OngoingIssues);
+        Assert.Empty(_logBase.GetOngoingIssues());
         Assert.Equal(IssueChangeKind.Resolved, lastArgs!.Kind);
         Assert.Equal(issue, lastArgs.ChangedIssue);
     }
@@ -132,7 +132,7 @@ public class IssuesTest
 
         _logBase.Resolve("poll");
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal(IssueStatus.Momentary, issue.Status);
         Assert.Null(issue.ResolvedAt);
     }
@@ -141,16 +141,16 @@ public class IssuesTest
     public void RaiseOngoingIssue_AfterResolve_CreatesANewEntry()
     {
         _logBase.Ongoing("input", "Wrong input");
-        var first = Assert.Single(_logBase.Issues);
+        var first = Assert.Single(_logBase.GetIssues());
         _logBase.Resolve("input");
 
         _logBase.Ongoing("input", "Wrong input again");
 
-        Assert.Equal(2, _logBase.Issues.Count);
-        Assert.Single(_logBase.Issues, i => i.Status == IssueStatus.Resolved);
-        var second = Assert.Single(_logBase.Issues, i => i.Status == IssueStatus.Ongoing);
+        Assert.Equal(2, _logBase.GetIssues().Count);
+        Assert.Single(_logBase.GetIssues(), i => i.Status == IssueStatus.Resolved);
+        var second = Assert.Single(_logBase.GetIssues(), i => i.Status == IssueStatus.Ongoing);
         Assert.NotEqual(first.Id, second.Id);
-        Assert.Single(_logBase.OngoingIssues);
+        Assert.Single(_logBase.GetOngoingIssues());
     }
 
     [Fact]
@@ -158,12 +158,12 @@ public class IssuesTest
     {
         _logBase.Momentary("Missed a poll");
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal(IssueStatus.Momentary, issue.Status);
         Assert.Equal(IssueSeverity.Minor, issue.Severity);
         Assert.Equal("Missed a poll", issue.Key);
         Assert.Equal(1, issue.OccurrenceCount);
-        Assert.Empty(_logBase.OngoingIssues);
+        Assert.Empty(_logBase.GetOngoingIssues());
     }
 
     [Fact]
@@ -173,11 +173,11 @@ public class IssuesTest
         _logBase.IssuesChanged += (_, e) => lastArgs = e;
 
         _logBase.Momentary("Query A was not answered", key: "poll");
-        var first = Assert.Single(_logBase.Issues);
+        var first = Assert.Single(_logBase.GetIssues());
         _logBase.Momentary("Query B was not answered", key: "poll");
         _logBase.Momentary("Query C was not answered", key: "poll");
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal(3, issue.OccurrenceCount);
         Assert.Equal("Query C was not answered", issue.Message);
         Assert.Equal(first.Id, issue.Id);
@@ -193,8 +193,8 @@ public class IssuesTest
         _logBase.Momentary("Something else", key: "other");
         _logBase.Momentary("Missed a poll", key: "poll");
 
-        Assert.Equal(2, _logBase.Issues.Count);
-        var poll = Assert.Single(_logBase.Issues, i => i.Key == "poll");
+        Assert.Equal(2, _logBase.GetIssues().Count);
+        var poll = Assert.Single(_logBase.GetIssues(), i => i.Key == "poll");
         Assert.Equal(2, poll.OccurrenceCount);
     }
 
@@ -217,7 +217,7 @@ public class IssuesTest
         for (var i = 0; i < 60; i++)
             _logBase.Momentary($"error {i}");
 
-        Assert.Equal(50, _logBase.Issues.Count);
+        Assert.Equal(50, _logBase.GetIssues().Count);
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public class IssuesTest
         _logBase.Ongoing("communication", "Comms error");
         _logBase.Ongoing("input", "Wrong input");
 
-        Assert.Equal(new[] { "communication", "input" }, _logBase.Issues.Select(i => i.Key));
+        Assert.Equal(new[] { "communication", "input" }, _logBase.GetIssues().Select(i => i.Key));
     }
 
     [Fact]
@@ -239,8 +239,8 @@ public class IssuesTest
         _logBase.Ongoing("input", "Wrong input");
         _logBase.Momentary("Missed a poll", key: "poll");
 
-        Assert.Contains(_logBase.Issues, i => i.Key == "poll");
-        Assert.Equal(2, _logBase.Issues.Count);
+        Assert.Contains(_logBase.GetIssues(), i => i.Key == "poll");
+        Assert.Equal(2, _logBase.GetIssues().Count);
     }
 
     [Fact]
@@ -253,7 +253,7 @@ public class IssuesTest
         _logBase.IssuesChanged += (_, e) => lastArgs = e;
         _logBase.SetIssueLimit(1);
 
-        var issue = Assert.Single(_logBase.Issues);
+        var issue = Assert.Single(_logBase.GetIssues());
         Assert.Equal("input", issue.Key);
         Assert.NotNull(lastArgs);
         Assert.Equal(IssueChangeKind.Trimmed, lastArgs!.Kind);
@@ -279,7 +279,7 @@ public class IssuesTest
         _logBase.Ongoing("first", "First issue");
         _logBase.Ongoing("second", "Second issue");
 
-        Assert.Equal(new[] { "first", "second" }, _logBase.Issues.Select(i => i.Key));
+        Assert.Equal(new[] { "first", "second" }, _logBase.GetIssues().Select(i => i.Key));
     }
 
     [Fact]
@@ -288,7 +288,7 @@ public class IssuesTest
         _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
         _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
 
-        Assert.Empty(_logBase.OngoingIssues);
+        Assert.Empty(_logBase.GetOngoingIssues());
     }
 
     [Fact]
@@ -300,13 +300,13 @@ public class IssuesTest
         for (var i = 0; i < 3; i++)
             _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
 
-        var ongoing = Assert.Single(_logBase.OngoingIssues);
+        var ongoing = Assert.Single(_logBase.GetOngoingIssues());
         Assert.Equal("poll", ongoing.Key);
         Assert.Equal("Missed a poll (3 consecutive occurrences)", ongoing.Message);
         Assert.Equal(IssueSeverity.Major, ongoing.Severity);
         Assert.Equal(IssueChangeKind.Raised, lastArgs!.Kind);
         Assert.Equal(ongoing, lastArgs.ChangedIssue);
-        Assert.Equal(2, _logBase.Issues.Count);
+        Assert.Equal(2, _logBase.GetIssues().Count);
     }
 
     [Fact]
@@ -315,7 +315,7 @@ public class IssuesTest
         for (var i = 0; i < 5; i++)
             _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
 
-        Assert.Single(_logBase.OngoingIssues);
+        Assert.Single(_logBase.GetOngoingIssues());
     }
 
     [Fact]
@@ -327,7 +327,7 @@ public class IssuesTest
         _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
         _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
 
-        Assert.Empty(_logBase.OngoingIssues);
+        Assert.Empty(_logBase.GetOngoingIssues());
     }
 
     [Fact]
@@ -335,15 +335,15 @@ public class IssuesTest
     {
         for (var i = 0; i < 3; i++)
             _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
-        var first = Assert.Single(_logBase.OngoingIssues);
+        var first = Assert.Single(_logBase.GetOngoingIssues());
         _logBase.Resolve("poll");
 
         for (var i = 0; i < 3; i++)
             _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
 
-        var second = Assert.Single(_logBase.OngoingIssues);
+        var second = Assert.Single(_logBase.GetOngoingIssues());
         Assert.NotEqual(first.Id, second.Id);
-        Assert.Single(_logBase.Issues, i => i.Status == IssueStatus.Resolved);
+        Assert.Single(_logBase.GetIssues(), i => i.Status == IssueStatus.Resolved);
     }
 
     [Fact]
@@ -355,9 +355,9 @@ public class IssuesTest
             _logBase.Momentary("Critical blip", key: "critical", severity: IssueSeverity.Critical, escalateAfter: 3);
 
         Assert.Equal(IssueSeverity.Major,
-            Assert.Single(_logBase.OngoingIssues, i => i.Key == "minor").Severity);
+            Assert.Single(_logBase.GetOngoingIssues(), i => i.Key == "minor").Severity);
         Assert.Equal(IssueSeverity.Critical,
-            Assert.Single(_logBase.OngoingIssues, i => i.Key == "critical").Severity);
+            Assert.Single(_logBase.GetOngoingIssues(), i => i.Key == "critical").Severity);
     }
 
     [Fact]
@@ -372,7 +372,7 @@ public class IssuesTest
         // Without the eviction this third raise would reach the threshold and escalate.
         _logBase.Momentary("A failed", key: "a", escalateAfter: 3);
 
-        Assert.Empty(_logBase.OngoingIssues);
+        Assert.Empty(_logBase.GetOngoingIssues());
     }
 
     [Fact]
@@ -384,7 +384,7 @@ public class IssuesTest
         for (var i = 0; i < 3; i++)
             _logBase.Momentary("B failed", key: "b", escalateAfter: 3);
 
-        Assert.Single(_logBase.OngoingIssues, i => i.Key == "b");
+        Assert.Single(_logBase.GetOngoingIssues(), i => i.Key == "b");
     }
 
     [Fact]
@@ -393,7 +393,7 @@ public class IssuesTest
         for (var i = 0; i < 10; i++)
             _logBase.Momentary("Missed a poll", key: "poll");
 
-        Assert.Empty(_logBase.OngoingIssues);
+        Assert.Empty(_logBase.GetOngoingIssues());
     }
 
     [Fact]

@@ -99,18 +99,20 @@ are adjustable via `SetEventLimit` / `SetErrorLimit`.
 
 ### Issues
 
-Every instance keeps a bounded list of the issues (incidents) its driver has raised: an
-`Issues` history plus an `OngoingIssues` view of what's wrong *right now*, and an
-`event EventHandler<IssuesChangedEventArgs> IssuesChanged`. Each `Issue` has a status:
+Every instance keeps a bounded list of the issues (incidents) its driver has raised:
+`GetIssues()` (the history) plus `GetOngoingIssues()` (what's wrong *right now*), and an
+`event EventHandler<IssuesChangedEventArgs> IssuesChanged`. These are methods rather than
+properties because each call returns an immutable snapshot (cached until the next change) —
+the cost is visible at the call site. Each `Issue` has a status:
 
 - **Ongoing** — e.g. a display on the wrong input or power state, or `CommunicationState`
-  dropping to `Error`. Stays in `OngoingIssues` until the driver observes the condition
-  recover and calls `ResolveIssue`.
+  dropping to `Error`. Stays in `GetOngoingIssues()` until the driver observes the
+  condition recover and calls `ResolveIssue`.
 - **Momentary** — e.g. a DSP not answering one poll. Instantly historical; never counted
   as ongoing. Repeated raises of the same key coalesce into one entry, bumping
   `OccurrenceCount` and `LastRaisedAt`.
-- **Resolved** — a formerly ongoing issue that has recovered. It stays in `Issues` (with
-  `ResolvedAt` set) as history; a later re-raise of the key is a new issue.
+- **Resolved** — a formerly ongoing issue that has recovered. It stays in the history (with
+  `ResolvedAt` set); a later re-raise of the key is a new issue.
 
 Each issue also carries an `IssueSeverity` (`Minor`/`Major`/`Critical` — momentary raises
 default to Minor, ongoing to Major) and a stable `Id` assigned at creation and preserved

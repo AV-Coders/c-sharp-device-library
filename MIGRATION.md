@@ -24,7 +24,7 @@ key with an occurrence count) instead of appearing for 30 seconds and vanishing.
 | `RaisePersistentError(key, msg)`           | `RaiseOngoingIssue(key, msg, severity = Major)`                |
 | `ClearPersistentError(key)`                | `ResolveIssue(key)` (entry stays, with `Status == Resolved`)   |
 | `RaiseMomentaryError(msg, ttl, key)`       | `RaiseMomentaryIssue(msg, key, severity = Minor, escalateAfter)` — no TTL |
-| `ActiveErrors`                             | `OngoingIssues` (current) / `Issues` (full history)            |
+| `ActiveErrors`                             | `GetOngoingIssues()` (current) / `GetIssues()` (full history)  |
 | `ActiveErrorsChanged`                      | `IssuesChanged` (adds `ChangedIssue` + `IssueChangeKind`)      |
 | `ActiveError` / `ErrorPersistence`         | `Issue` / `IssueStatus` (+ `IssueSeverity`)                    |
 | `SetActiveErrorLimit(s)`                   | `SetIssueLimit(s)`                                             |

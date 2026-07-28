@@ -141,7 +141,7 @@ public class LogBaseRegistryTest : IDisposable
         LogBaseRegistry.SetIssueLimits(1);
         try
         {
-            Assert.Single(_logBase.Issues);
+            Assert.Single(_logBase.GetIssues());
         }
         finally
         {

@@ -56,7 +56,7 @@ public static class LogBaseRegistry
 
     /// <summary>All ongoing issues across every registered instance, paired with their source.</summary>
     public static IReadOnlyList<SourcedIssue> GetOngoingIssues() =>
-        GetAll().SelectMany(i => i.OngoingIssues.Select(issue => new SourcedIssue(i, issue))).ToList();
+        GetAll().SelectMany(i => i.GetOngoingIssues().Select(issue => new SourcedIssue(i, issue))).ToList();
 
     public static void ClearEvents()
     {

@@ -1,4 +1,4 @@
-﻿using AVCoders.Core;
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
@@ -79,12 +79,12 @@ public class DisplayTest
         _display.PowerOn();
 
         _display.PowerOffResponse();
-        var issue = Assert.Single(_display.OngoingIssues, i => i.Key == "power-state");
+        var issue = Assert.Single(_display.GetOngoingIssues(), i => i.Key == "power-state");
         Assert.Equal(IssueStatus.Ongoing, issue.Status);
 
         _display.PowerOnResponse();
-        Assert.DoesNotContain(_display.OngoingIssues, i => i.Key == "power-state");
-        Assert.Contains(_display.Issues, i => i.Key == "power-state" && i.Status == IssueStatus.Resolved);
+        Assert.DoesNotContain(_display.GetOngoingIssues(), i => i.Key == "power-state");
+        Assert.Contains(_display.GetIssues(), i => i.Key == "power-state" && i.Status == IssueStatus.Resolved);
     }
 
     [Fact]
@@ -95,11 +95,11 @@ public class DisplayTest
         _display.SetInput(Input.Hdmi1);
 
         _display.InputHdmi2Response();
-        Assert.Contains(_display.OngoingIssues, i => i.Key == "input");
+        Assert.Contains(_display.GetOngoingIssues(), i => i.Key == "input");
         Assert.Equal(1, changedCount);
 
         _display.InputHdmi1Response();
-        Assert.DoesNotContain(_display.OngoingIssues, i => i.Key == "input");
+        Assert.DoesNotContain(_display.GetOngoingIssues(), i => i.Key == "input");
         Assert.Equal(2, changedCount);
     }
 

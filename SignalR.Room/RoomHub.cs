@@ -26,7 +26,7 @@ public class RoomHub : Hub<IRoomHub>
         if (RoomManagers.TryGetValue(groupName, out var roomManager))
         {
             await Clients.Caller.OnPowerStateChanged(roomManager.PowerState);
-            await Clients.Caller.OnPropertiesSnapshot(roomManager.Properties);
+            await Clients.Caller.OnPropertiesSnapshot(roomManager.GetProperties());
         }
     }
 

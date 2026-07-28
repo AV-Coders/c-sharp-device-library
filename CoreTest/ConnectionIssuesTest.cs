@@ -24,11 +24,11 @@ public class ConnectionIssuesTest
     {
         _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
 
-        var issue = Assert.Single(_client.Issues);
+        var issue = Assert.Single(_client.GetIssues());
         Assert.Equal(CommunicationClient.ConnectionIssueKey, issue.Key);
         Assert.Equal(IssueStatus.Momentary, issue.Status);
         Assert.Equal("The connection to 10.0.0.1:4999 timed out", issue.Message);
-        Assert.Empty(_client.OngoingIssues);
+        Assert.Empty(_client.GetOngoingIssues());
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public class ConnectionIssuesTest
         _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
         _client.ReportFailure("10.0.0.1:4999 refused the connection");
 
-        var issue = Assert.Single(_client.Issues);
+        var issue = Assert.Single(_client.GetIssues());
         Assert.Equal(2, issue.OccurrenceCount);
         Assert.Equal("10.0.0.1:4999 refused the connection", issue.Message);
     }
@@ -48,7 +48,7 @@ public class ConnectionIssuesTest
         for (var i = 0; i < 10; i++)
             _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
 
-        Assert.Empty(_client.OngoingIssues);
+        Assert.Empty(_client.GetOngoingIssues());
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class ConnectionIssuesTest
 
         _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
 
-        var ongoing = Assert.Single(_client.OngoingIssues);
+        var ongoing = Assert.Single(_client.GetOngoingIssues());
         Assert.Equal(CommunicationClient.ConnectionIssueKey, ongoing.Key);
         Assert.Equal(IssueSeverity.Critical, ongoing.Severity);
         Assert.StartsWith("Unable to connect since", ongoing.Message);
@@ -70,18 +70,18 @@ public class ConnectionIssuesTest
     {
         _client.ConnectionIssueThreshold = TimeSpan.Zero;
         _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
-        var first = Assert.Single(_client.OngoingIssues);
+        var first = Assert.Single(_client.GetOngoingIssues());
 
         _client.SetConnectionState(ConnectionState.Connected);
 
-        Assert.Empty(_client.OngoingIssues);
-        Assert.Contains(_client.Issues,
+        Assert.Empty(_client.GetOngoingIssues());
+        Assert.Contains(_client.GetIssues(),
             i => i.Key == CommunicationClient.ConnectionIssueKey && i.Status == IssueStatus.Resolved);
 
         _client.SetConnectionState(ConnectionState.Disconnected);
         _client.ReportFailure("10.0.0.1:4999 refused the connection");
 
-        var second = Assert.Single(_client.OngoingIssues);
+        var second = Assert.Single(_client.GetOngoingIssues());
         Assert.NotEqual(first.Id, second.Id);
     }
 
@@ -90,7 +90,7 @@ public class ConnectionIssuesTest
     {
         _client.SetConnectionState(ConnectionState.Connected);
 
-        Assert.Empty(_client.Issues);
+        Assert.Empty(_client.GetIssues());
     }
 
     [Theory]

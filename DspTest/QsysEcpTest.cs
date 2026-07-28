@@ -1,4 +1,4 @@
-﻿using AVCoders.Core;
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
@@ -268,13 +268,13 @@ public class QsysEcpTest
     {
         _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
 
-        var issue = Assert.Single(_dsp.OngoingIssues, i => i.Key == "bad-control:Zone33BGMMute");
+        var issue = Assert.Single(_dsp.GetOngoingIssues(), i => i.Key == "bad-control:Zone33BGMMute");
         Assert.Equal(IssueStatus.Ongoing, issue.Status);
 
         _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\" \"unmuted\" 1 1");
 
-        Assert.DoesNotContain(_dsp.OngoingIssues, i => i.Key == "bad-control:Zone33BGMMute");
-        Assert.Contains(_dsp.Issues,
+        Assert.DoesNotContain(_dsp.GetOngoingIssues(), i => i.Key == "bad-control:Zone33BGMMute");
+        Assert.Contains(_dsp.GetIssues(),
             i => i.Key == "bad-control:Zone33BGMMute" && i.Status == IssueStatus.Resolved);
     }
 

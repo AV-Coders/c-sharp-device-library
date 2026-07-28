@@ -56,6 +56,8 @@ public abstract class LogBase
     // dictionary for the life of the process.
     private const int ConsecutiveMomentaryKeyLimit = 200;
     private readonly Dictionary<string, int> _consecutiveMomentary = new();
+    private IReadOnlyList<Issue>? _issuesSnapshot;
+    private IReadOnlyList<Issue>? _ongoingIssuesSnapshot;
     private readonly object _issuesLock = new();
     private int _issueLimit = 50;
     public event EventHandler<IssuesChangedEventArgs>? IssuesChanged;
@@ -70,16 +72,30 @@ public abstract class LogBase
         get { lock (_errorsLock) return _errors.ToList(); }
     }
 
-    /// <summary>The full bounded issue history — ongoing, momentary and resolved entries, oldest first.</summary>
-    public IReadOnlyList<Issue> Issues
+    /// <summary>
+    /// The full bounded issue history — ongoing, momentary and resolved entries, oldest first.
+    /// Returns an immutable snapshot, cached until the next mutation — repeated calls between
+    /// changes return the same instance. A method rather than a property so the snapshot cost
+    /// is visible at the call site (S2365).
+    /// </summary>
+    public IReadOnlyList<Issue> GetIssues()
     {
-        get { lock (_issuesLock) return _issues.ToList(); }
+        lock (_issuesLock)
+            return _issuesSnapshot ??= _issues.ToList();
     }
 
-    /// <summary>The issues currently affecting this instance, oldest first.</summary>
-    public IReadOnlyList<Issue> OngoingIssues
+    /// <summary>The issues currently affecting this instance, oldest first. Snapshot semantics as <see cref="GetIssues"/>.</summary>
+    public IReadOnlyList<Issue> GetOngoingIssues()
     {
-        get { lock (_issuesLock) return _issues.Where(i => i.Status == IssueStatus.Ongoing).ToList(); }
+        lock (_issuesLock)
+            return _ongoingIssuesSnapshot ??= _issues.Where(i => i.Status == IssueStatus.Ongoing).ToList();
+    }
+
+    // Must be called under _issuesLock, at every point _issues actually changes.
+    private void InvalidateIssueSnapshots()
+    {
+        _issuesSnapshot = null;
+        _ongoingIssuesSnapshot = null;
     }
 
     public string Name
@@ -313,6 +329,7 @@ public abstract class LogBase
                 _issues.Add(escalated);
                 LimitIssues(escalated);
             }
+            InvalidateIssueSnapshots();
         }
         if (isNewOrChanged)
         {
@@ -359,6 +376,7 @@ public abstract class LogBase
                 LimitIssues(issue);
                 kind = IssueChangeKind.Raised;
             }
+            InvalidateIssueSnapshots();
         }
         LogWarning("{IssueMessage}", message);
         AddEvent(EventType.Error, message);
@@ -383,6 +401,7 @@ public abstract class LogBase
                 return;
             resolved = _issues[index] with { Status = IssueStatus.Resolved, ResolvedAt = DateTimeOffset.UtcNow };
             _issues[index] = resolved;
+            InvalidateIssueSnapshots();
         }
         LogInformation("Resolved issue {IssueKey}", key);
         AddEvent(EventType.Error, $"Resolved: {key}");
@@ -395,6 +414,7 @@ public abstract class LogBase
         {
             _issueLimit = limit;
             LimitIssues(null);
+            InvalidateIssueSnapshots();
         }
         RaiseIssuesChanged(null, IssueChangeKind.Trimmed);
     }
@@ -425,7 +445,7 @@ public abstract class LogBase
         var handlers = IssuesChanged;
         if (handlers == null)
             return;
-        var args = new IssuesChangedEventArgs(changedIssue, kind, Issues);
+        var args = new IssuesChangedEventArgs(changedIssue, kind, GetIssues());
         foreach (var handler in handlers.GetInvocationList())
         {
             try
