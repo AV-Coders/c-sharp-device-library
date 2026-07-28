@@ -33,11 +33,14 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     {
         if (_isWorkerTask.Value)
         {
-            _cancellationTokenSource?.Cancel();
+            if (_cancellationTokenSource is { } cts)
+                await cts.CancelAsync();
+            // CancellationToken.None: this restart task must run to completion even though the
+            // worker's own token was just cancelled.
             _ = Task.Run(async () =>
             {
                 _isWorkerTask.Value = false;
-                await _lock.WaitAsync();
+                await _lock.WaitAsync(CancellationToken.None);
                 try
                 {
                     await StopInternal();
@@ -47,7 +50,7 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
                 {
                     _lock.Release();
                 }
-            });
+            }, CancellationToken.None);
             return;
         }
 
@@ -67,7 +70,8 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     {
         if (_isWorkerTask.Value)
         {
-            _cancellationTokenSource?.Cancel();
+            if (_cancellationTokenSource is { } cts)
+                await cts.CancelAsync();
             return;
         }
 
@@ -111,51 +115,58 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     {
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
-        _task = Task.Run(async () =>
+        _task = Task.Run(() => RunLoop(token), token);
+    }
+
+    private async Task RunLoop(CancellationToken token)
+    {
+        _isWorkerTask.Value = true;
+        try
         {
-            _isWorkerTask.Value = true;
-            try
+            while (!token.IsCancellationRequested)
             {
-                while (!token.IsCancellationRequested)
-                {
-                    if (_waitFirst)
-                        await Task.Delay(sleepTime, token);
-                    try
-                    {
-                        await action.Invoke(token);
-                    }
-                    catch (OperationCanceledException) when (token.IsCancellationRequested)
-                    {
-                        // The worker was stopped; exit via the outer catch.
-                        throw;
-                    }
-                    catch (Exception e)
-                    {
-                        // Includes cancellation-shaped exceptions from the action's own internals
-                        // (e.g. an HttpClient timeout) — they are failures, not a stop request.
-                        LogException(e,
-                            $"ThreadWorker has encountered an exception while running {action.Method.Name} in {action.Target?.GetType().Name ?? "*Class could not be determined*"}");
-                        if (sleepTime < MinimumFailureBackoff)
-                            await Task.Delay(MinimumFailureBackoff, token);
-                    }
-                    if (!_waitFirst)
-                        await Task.Delay(sleepTime, token);
-                }
+                if (_waitFirst)
+                    await Task.Delay(sleepTime, token);
+                await RunActionOnce(token);
+                if (!_waitFirst)
+                    await Task.Delay(sleepTime, token);
             }
-            catch (OperationCanceledException)
-            {
-                // Task was cancelled
-            }
-            catch (Exception e)
-            {
-                // Last resort — nothing in the loop should reach here.
-                LogException(e, "ThreadWorker loop terminated unexpectedly");
-            }
-            finally
-            {
-                _isWorkerTask.Value = false;
-            }
-        }, token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Task was cancelled
+        }
+        catch (Exception e)
+        {
+            // Last resort — nothing in the loop should reach here.
+            LogException(e, "ThreadWorker loop terminated unexpectedly");
+        }
+        finally
+        {
+            _isWorkerTask.Value = false;
+        }
+    }
+
+    private async Task RunActionOnce(CancellationToken token)
+    {
+        try
+        {
+            await action.Invoke(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // The worker was stopped; exit via RunLoop's outer catch.
+            throw;
+        }
+        catch (Exception e)
+        {
+            // Includes cancellation-shaped exceptions from the action's own internals
+            // (e.g. an HttpClient timeout) — they are failures, not a stop request.
+            LogException(e,
+                $"ThreadWorker has encountered an exception while running {action.Method.Name} in {action.Target?.GetType().Name ?? "*Class could not be determined*"}");
+            if (sleepTime < MinimumFailureBackoff)
+                await Task.Delay(MinimumFailureBackoff, token);
+        }
     }
 
     ~ThreadWorker()

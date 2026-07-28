@@ -48,47 +48,43 @@ public class CiscoRoomOsRecentCalls
         }
 
         if (response.StartsWith("*r CallHistoryGetResult Entry "))
-        {
-            var parts = response.Split(' ');
-            if (parts.Length >= 4 && int.TryParse(parts[3], out var index))
-            {
-                while (_recentCalls.Count <= index)
-                {
-                    _recentCalls.Add(new RecentCall(string.Empty, string.Empty));
-                }
-
-                if (response.Contains("CallbackNumber:"))
-                {
-                    var number = response.Split('"')[1];
-                    var existing = _recentCalls[index];
-                    _recentCalls[index] = existing with { Number = number };
-                }
-                else if (response.Contains("DisplayName:"))
-                {
-                    var name = response.Split('"')[1];
-                    var existing = _recentCalls[index];
-                    _recentCalls[index] = existing with { Name = name };
-                }
-            }
-        }
+            ProcessEntry(response);
 
         // End of a generic result set; only act if we are in the middle of CallHistory parsing
         if (response.StartsWith("** end") && _inCallHistoryResult)
-        {
-            _inCallHistoryResult = false;
-            var numbers = _recentCalls
-                .Where(rc => !string.IsNullOrEmpty(rc.Number))
-                .Select(rc => rc.Number)
-                .ToList();
-            CallListUpdatedHandlers?.Invoke(numbers);
-            OnCallListUpdated?.Invoke(numbers);
-        }
+            PublishCallList();
 
         if (response.StartsWith("*e CallHistory Updated"))
         {
             _client.Send($"xCommand CallHistory Get Limit:{_limit}\n");
         }
-            
-            
+    }
+
+    private void ProcessEntry(string response)
+    {
+        var parts = response.Split(' ');
+        if (parts.Length < 4 || !int.TryParse(parts[3], out var index))
+            return;
+
+        while (_recentCalls.Count <= index)
+        {
+            _recentCalls.Add(new RecentCall(string.Empty, string.Empty));
+        }
+
+        if (response.Contains("CallbackNumber:"))
+            _recentCalls[index] = _recentCalls[index] with { Number = response.Split('"')[1] };
+        else if (response.Contains("DisplayName:"))
+            _recentCalls[index] = _recentCalls[index] with { Name = response.Split('"')[1] };
+    }
+
+    private void PublishCallList()
+    {
+        _inCallHistoryResult = false;
+        var numbers = _recentCalls
+            .Where(rc => !string.IsNullOrEmpty(rc.Number))
+            .Select(rc => rc.Number)
+            .ToList();
+        CallListUpdatedHandlers?.Invoke(numbers);
+        OnCallListUpdated?.Invoke(numbers);
     }
 }

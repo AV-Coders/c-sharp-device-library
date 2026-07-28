@@ -236,7 +236,10 @@ public class CameraHubTest
     [Fact]
     public void SetTracking_UnknownGroup_DoesNotThrow()
     {
-        _harness.Hub.SetTracking($"missing-{Guid.NewGuid()}", CameraTrackingMode.Auto);
+        var exception = Record.Exception(() =>
+            _harness.Hub.SetTracking($"missing-{Guid.NewGuid()}", CameraTrackingMode.Auto));
+
+        Assert.Null(exception);
     }
 
     private static void WaitFor(Func<bool> predicate, int timeoutMs = 2000)

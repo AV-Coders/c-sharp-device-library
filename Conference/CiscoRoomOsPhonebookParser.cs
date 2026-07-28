@@ -15,7 +15,9 @@ public record CiscoRoomOsPhonebookContactMethod(string ContactMethodId, string N
 public record CiscoRoomOsPhonebookContact(string Name, string ContactId, List<PhonebookNumber> ContactMethods)
     : PhonebookContact(Name, ContactMethods);
 
-public class CiscoRoomOsPhonebookParser : PhonebookParserBase
+// Sealed so the constructor's RequestPhonebook call cannot dispatch to a subclass override
+// running before that subclass's constructor (S1699).
+public sealed class CiscoRoomOsPhonebookParser : PhonebookParserBase
 {
     private readonly string _phonebookType;
 

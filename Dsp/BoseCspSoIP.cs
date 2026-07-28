@@ -100,37 +100,41 @@ public class BoseCspSoIP : Dsp
         using (PushProperties())
         {
             foreach (var line in response.Split('\r'))
-            {
-                var match = _responseParser.Match(line);
-                if (!match.Success)
-                    continue;
-                CommunicationState = CommunicationState.Okay;
-
-                var controlName = match.Groups[1].Value;
-                var attribute = match.Groups[2].Value;
-                var value = match.Groups[3].Value;
-
-                // The device echoes the full control name ("Foo Gain", "Foo Selector") but the
-                // dictionaries are keyed by the base name consumers registered with.
-                if (TryStripSuffix(controlName, " Gain", out var gainKey))
-                {
-                    if (attribute == "1" && _gains.TryGetValue(gainKey, out var gain))
-                        gain.SetVolumeFromDb(double.Parse(value));
-                    else if (attribute == "2" && _mutes.TryGetValue(gainKey, out var mute))
-                        mute.MuteState = value switch
-                        {
-                            "O" => MuteState.On,
-                            "F" => MuteState.Off,
-                            _ => MuteState.Unknown
-                        };
-                }
-                else if (TryStripSuffix(controlName, " Selector", out var selectKey))
-                {
-                    if (attribute == "1" && _selects.TryGetValue(selectKey, out var select))
-                        select.Value = value;
-                }
-            }
+                ProcessLine(line);
         }
+    }
+
+    private void ProcessLine(string line)
+    {
+        var match = _responseParser.Match(line);
+        if (!match.Success)
+            return;
+        CommunicationState = CommunicationState.Okay;
+
+        var controlName = match.Groups[1].Value;
+        var attribute = match.Groups[2].Value;
+        var value = match.Groups[3].Value;
+
+        // The device echoes the full control name ("Foo Gain", "Foo Selector") but the
+        // dictionaries are keyed by the base name consumers registered with.
+        if (TryStripSuffix(controlName, " Gain", out var gainKey))
+            ProcessGainResponse(gainKey, attribute, value);
+        else if (TryStripSuffix(controlName, " Selector", out var selectKey)
+                 && attribute == "1" && _selects.TryGetValue(selectKey, out var select))
+            select.Value = value;
+    }
+
+    private void ProcessGainResponse(string gainKey, string attribute, string value)
+    {
+        if (attribute == "1" && _gains.TryGetValue(gainKey, out var gain))
+            gain.SetVolumeFromDb(double.Parse(value));
+        else if (attribute == "2" && _mutes.TryGetValue(gainKey, out var mute))
+            mute.MuteState = value switch
+            {
+                "O" => MuteState.On,
+                "F" => MuteState.Off,
+                _ => MuteState.Unknown
+            };
     }
 
     private static bool TryStripSuffix(string name, string suffix, out string baseName)
