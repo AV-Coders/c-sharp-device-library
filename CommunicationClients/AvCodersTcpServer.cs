@@ -198,14 +198,11 @@ public class AvCodersTcpServer : Core_TcpClient
                 }
             }
 
-            if (!_listening)
+            if (!_listening && !TryStartListener())
             {
-                if (!TryStartListener())
-                {
-                    ConnectionState = _clients.IsEmpty ? ConnectionState.Error : ConnectionState.Degraded;
-                    await BindBackoffDelay(token);
-                    return;
-                }
+                ConnectionState = _clients.IsEmpty ? ConnectionState.Error : ConnectionState.Degraded;
+                await BindBackoffDelay(token);
+                return;
             }
 
             ConnectionState = _clients.IsEmpty ? ConnectionState.Disconnected : ConnectionState.Connected;

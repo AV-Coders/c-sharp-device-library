@@ -20,13 +20,13 @@ public class AvCodersMulticastClientTest
 
     [Fact]
     [Trait("Category", "Network")]
-    public void Constructor_DoesNotThrow_WhenPortIsInUse()
+    public async Task Constructor_DoesNotThrow_WhenPortIsInUse()
     {
         var blocker = OccupyUdpPort(out var port);
         try
         {
             var client = new AvCodersMulticastClient(MulticastGroup, port, "test");
-            Thread.Sleep(500); // Let the worker attempt (and fail) the bind
+            await Task.Delay(500); // Let the worker attempt (and fail) the bind
             Assert.NotEqual(ConnectionState.Connected, client.ConnectionState);
             client.Send("x"); // Must not throw while unbound
         }

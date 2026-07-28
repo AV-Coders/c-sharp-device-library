@@ -410,7 +410,7 @@ public class CiscoRoomOs : Conference
       }
     }
 
-    private void ProcessVideoOutputConnectorResponse(CiscoRoomOsVideoOutput output, string[] responses)
+    private static void ProcessVideoOutputConnectorResponse(CiscoRoomOsVideoOutput output, string[] responses)
     {
       switch (responses[5])
       {

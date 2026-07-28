@@ -157,13 +157,13 @@ public class AvCodersTcpServerResilienceTest
     }
 
     [Fact]
-    public void Constructor_DoesNotThrow_WhenPortIsInUse()
+    public async Task Constructor_DoesNotThrow_WhenPortIsInUse()
     {
         var blocker = OccupyPort(out var port);
         try
         {
             var server = new AvCodersTcpServer(port, "test", CommandStringFormat.Ascii);
-            Thread.Sleep(500); // Let the worker attempt (and fail) the bind
+            await Task.Delay(500); // Let the worker attempt (and fail) the bind
             Assert.NotEqual(ConnectionState.Connected, server.ConnectionState);
             server.Send("x"); // Must not throw while unbound
         }

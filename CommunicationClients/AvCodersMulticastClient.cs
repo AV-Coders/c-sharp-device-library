@@ -180,17 +180,14 @@ public class AvCodersMulticastClient : IMulticastClient
                 bound = _client != null;
             }
 
-            if (!bound)
+            if (!bound && !TryBind())
             {
-                if (!TryBind())
-                {
-                    // jittered exponential backoff
-                    var jitter = Random.Shared.Next(-200, 200);
-                    var delay = Math.Min(_bindBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
-                    _bindBackoffMs = Math.Min(_bindBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
-                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
-                    return;
-                }
+                // jittered exponential backoff
+                var jitter = Random.Shared.Next(-200, 200);
+                var delay = Math.Min(_bindBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
+                _bindBackoffMs = Math.Min(_bindBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
+                return;
             }
 
             await Task.Delay(TimeSpan.FromSeconds(30), token);

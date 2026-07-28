@@ -18,7 +18,6 @@ public class SonyVisca : CameraBase
     protected static readonly byte CommandFooter = 0xFF;
     private const int IpHeaderLength = 8;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
-    private readonly ThreadWorker _pollWorker;
 
     private static readonly Dictionary<byte, string> ErrorMessages = new Dictionary<byte, string>
     {
@@ -48,8 +47,9 @@ public class SonyVisca : CameraBase
         _ipHeaders.Add(PayloadType.DeviceSetting, [0x01, 0x10]);
         _ipHeaders.Add(PayloadType.ControlCommand, [0x02, 0x00]);
         _ipHeaders.Add(PayloadType.ControlReply, [0x02, 0x01]);
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
-        _pollWorker.Restart();
+        // Local rather than a field (S1450): the worker's running task keeps it alive.
+        var pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
+        pollWorker.Restart();
     }
 
     private Task Poll(CancellationToken token)
