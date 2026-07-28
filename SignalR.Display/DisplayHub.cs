@@ -6,6 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Display;
 
+// SignalR only dispatches public instance methods, so hub methods must stay instance
+// methods even when they touch no instance state - making them static breaks client calls.
+#pragma warning disable S2325 // Methods should be static
 public class DisplayHub : Hub<IDisplayHub>
 {
     private static readonly ConcurrentDictionary<string, DisplayManager> DisplayManagers = new();

@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using AVCoders.Camera;
 using AVCoders.Core;
 using Microsoft.AspNetCore.SignalR;
@@ -6,6 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Camera;
 
+// SignalR only dispatches public instance methods, so hub methods must stay instance
+// methods even when they touch no instance state - making them static breaks client calls.
+#pragma warning disable S2325 // Methods should be static
 public class CameraHub : Hub<ICameraHub>
 {
     private static readonly ConcurrentDictionary<string, CameraManager> CameraManagers = new();
