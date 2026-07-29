@@ -16,9 +16,9 @@ public class AvCodersUdpClientTest : IDisposable
         _port = (ushort)((IPEndPoint)_server.Client.LocalEndPoint!).Port;
     }
 
-    private AvCodersUdpClient CreateClient()
+    private AvCodersUdpClient CreateClient(CommandStringFormat format = CommandStringFormat.Ascii)
     {
-        _client = new AvCodersUdpClient("127.0.0.1", _port, "TestUdpClient", CommandStringFormat.Ascii);
+        _client = new AvCodersUdpClient("127.0.0.1", _port, "TestUdpClient", format);
         return _client;
     }
 
@@ -72,6 +72,38 @@ public class AvCodersUdpClientTest : IDisposable
 
         await TestNetwork.WaitUntilAsync(() => responseBytes != null, 15, "byte response handler never invoked");
         Assert.Equal(payload, responseBytes);
+    }
+
+    [Fact]
+    public async Task Receive_AsciiClient_InvokesStringHandlersWithDecodedText()
+    {
+        string? response = null;
+        var client = CreateClient();
+        client.ResponseHandlers += text => response = text;
+
+        client.Send("ping");
+        var request = await ReceiveAsync(10);
+        var payload = Encoding.ASCII.GetBytes("SYSTEM STATUS = 0\r");
+        await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
+
+        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
+        Assert.Equal("SYSTEM STATUS = 0\r", response);
+    }
+
+    [Fact]
+    public async Task Receive_HexClient_InvokesStringHandlersWithHexDump()
+    {
+        string? response = null;
+        var client = CreateClient(CommandStringFormat.Hex);
+        client.ResponseHandlers += text => response = text;
+
+        client.Send("ping");
+        var request = await ReceiveAsync(10);
+        var payload = new byte[] { 0x01, 0xAA, 0xFF };
+        await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
+
+        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
+        Assert.Equal(@"\x01 \xAA \xFF", response);
     }
 
     [Fact]

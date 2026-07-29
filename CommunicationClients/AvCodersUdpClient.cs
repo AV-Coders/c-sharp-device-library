@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Net;
+using System.Text;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
 
@@ -69,7 +70,12 @@ public class AvCodersUdpClient : Core_UdpClient
                 }
 
                 var received = _client.Receive(ref _ipEndPoint);
-                InvokeResponseHandlers(ConvertByteArrayToString(received), received);
+                // Ascii clients get the decoded text (matching the TCP client);
+                // Hex clients keep the \xNN dump for binary protocols.
+                var response = CommandStringFormat == CommandStringFormat.Ascii
+                    ? Encoding.ASCII.GetString(received)
+                    : ConvertByteArrayToString(received);
+                InvokeResponseHandlers(response, received);
             }
             catch (OperationCanceledException)
             {
