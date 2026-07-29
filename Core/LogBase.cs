@@ -408,6 +408,11 @@ public abstract class LogBase
         RaiseIssuesChanged(resolved, IssueChangeKind.Resolved);
     }
 
+    protected void RaiseQueryFailure(string subject) =>
+        RaiseMomentaryIssue($"There was an error getting the {subject}", key: $"{subject} query", escalateAfter: 3);
+
+    protected void ResolveQueryFailure(string subject) => ResolveIssue($"{subject} query");
+
     public void SetIssueLimit(int limit)
     {
         lock (_issuesLock)

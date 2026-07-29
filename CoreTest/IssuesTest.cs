@@ -14,9 +14,48 @@ public class IssuesTest
             RaiseOngoingIssue(key, message, severity);
 
         public void Resolve(string key) => ResolveIssue(key);
+
+        public void QueryFailure(string subject) => RaiseQueryFailure(subject);
+
+        public void QuerySuccess(string subject) => ResolveQueryFailure(subject);
     }
 
     private readonly TestLogBase _logBase = new("Test");
+
+    [Fact]
+    public void RaiseQueryFailure_RaisesAMomentaryIssue()
+    {
+        _logBase.QueryFailure("volume");
+
+        var issue = Assert.Single(_logBase.GetIssues(), i => i.Key == "volume query");
+        Assert.Equal("There was an error getting the volume", issue.Message);
+        Assert.Equal(IssueStatus.Momentary, issue.Status);
+        Assert.Empty(_logBase.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void RaiseQueryFailure_EscalatesToOngoing_AfterThreeConsecutiveFailures()
+    {
+        _logBase.QueryFailure("volume");
+        _logBase.QueryFailure("volume");
+        _logBase.QueryFailure("volume");
+
+        Assert.Contains(_logBase.GetOngoingIssues(), i => i.Key == "volume query");
+
+        _logBase.QuerySuccess("volume");
+        Assert.Empty(_logBase.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void ResolveQueryFailure_ResetsTheEscalationCount()
+    {
+        _logBase.QueryFailure("volume");
+        _logBase.QueryFailure("volume");
+        _logBase.QuerySuccess("volume");
+        _logBase.QueryFailure("volume");
+
+        Assert.Empty(_logBase.GetOngoingIssues());
+    }
 
     [Fact]
     public void RaiseOngoingIssue_AddsEntry_AndFiresChanged()
