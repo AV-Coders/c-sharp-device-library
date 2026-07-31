@@ -17,9 +17,20 @@ public class LumensCL511 : CameraBase
         _autoTuneAfterZoom = autoTuneAfterZoom;
     }
 
-    public override void PowerOn() => CommunicationClient.Send([0xA0, 0xB1, 0x01, 0x00, 0x00, 0xAF]);
+    // The device has no power feedback, so the state is set optimistically.
+    public override void PowerOn()
+    {
+        CommunicationClient.Send([0xA0, 0xB1, 0x01, 0x00, 0x00, 0xAF]);
+        DesiredPowerState = PowerState.On;
+        PowerState = PowerState.On;
+    }
 
-    public override void PowerOff() => CommunicationClient.Send([0xA0, 0xB1, 0x00, 0x00, 0x00, 0xAF]);
+    public override void PowerOff()
+    {
+        CommunicationClient.Send([0xA0, 0xB1, 0x00, 0x00, 0x00, 0xAF]);
+        DesiredPowerState = PowerState.Off;
+        PowerState = PowerState.Off;
+    }
 
     protected override void DoZoomStop()
     {

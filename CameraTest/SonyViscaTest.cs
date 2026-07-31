@@ -24,12 +24,36 @@ public class SonyViscaSerialTest
     }
 
     [Fact]
+    public void PowerOn_SetsTheDesiredPowerState()
+    {
+        var desiredStates = new List<PowerState>();
+        _viscaCamera.OnDesiredPowerStateChanged += state => desiredStates.Add(state);
+
+        _viscaCamera.PowerOn();
+
+        Assert.Equal(PowerState.On, _viscaCamera.DesiredPowerState);
+        Assert.Equal([PowerState.On], desiredStates);
+    }
+
+    [Fact]
     public void PowerOff_SendsTheCommand()
     {
         byte[] expectedCommand = [0x81, 0x01, 0x04, 0x00, 0x03, 0xFF];
         _viscaCamera.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
+    }
+
+    [Fact]
+    public void PowerOff_SetsTheDesiredPowerState()
+    {
+        var desiredStates = new List<PowerState>();
+        _viscaCamera.OnDesiredPowerStateChanged += state => desiredStates.Add(state);
+
+        _viscaCamera.PowerOff();
+
+        Assert.Equal(PowerState.Off, _viscaCamera.DesiredPowerState);
+        Assert.Equal([PowerState.Off], desiredStates);
     }
 
     [Fact]

@@ -158,14 +158,12 @@ public class SonyVisca : CameraBase
     {
         SendCommand([_header, 0x01, 0x04, 0x00, 0x03, CommandFooter]);
         DesiredPowerState = PowerState.Off;
-        AddEvent(EventType.Power, nameof(PowerState.Off));
     }
 
     public override void PowerOn()
     {
         SendCommand([_header, 0x01, 0x04, 0x00, 0x02, CommandFooter]);
         DesiredPowerState = PowerState.On;
-        AddEvent(EventType.Power, nameof(PowerState.On));
     }
     
     protected override void DoZoomStop()

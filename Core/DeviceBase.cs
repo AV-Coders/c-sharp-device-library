@@ -4,17 +4,19 @@ public abstract class DeviceBase : LogBase, IDevice
 {
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
+    public PowerStateHandler? DesiredPowerStateHandlers;
     public event Action<PowerState>? OnPowerStateChanged;
+    public event Action<PowerState>? OnDesiredPowerStateChanged;
     public event Action<CommunicationState>? OnCommunicationStateChanged;
-    
+
     public readonly CommunicationClient CommunicationClient;
-    protected PowerState DesiredPowerState = PowerState.Unknown;
     protected const string PowerStateIssueKey = "power-state";
     protected const string CommunicationIssueKey = "communication";
-    
+
     private PowerState _powerState = PowerState.Unknown;
+    private PowerState _desiredPowerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
-    
+
 
     public PowerState PowerState
     {
@@ -27,6 +29,20 @@ public abstract class DeviceBase : LogBase, IDevice
             AddEvent(EventType.Power, value.ToString());
             PowerStateHandlers?.Invoke(PowerState);
             OnPowerStateChanged?.Invoke(PowerState);
+        }
+    }
+
+    public PowerState DesiredPowerState
+    {
+        get => _desiredPowerState;
+        protected set
+        {
+            if (value == _desiredPowerState)
+                return;
+            _desiredPowerState = value;
+            AddEvent(EventType.Power, $"Desired power state is now {value.ToString()}");
+            DesiredPowerStateHandlers?.Invoke(value);
+            OnDesiredPowerStateChanged?.Invoke(value);
         }
     }
 
