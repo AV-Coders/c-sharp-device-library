@@ -60,7 +60,7 @@ public abstract class CameraBase(string name, CommunicationClient client, Dictio
 
     public abstract void SetAutoFocus(PowerState state);
 
-    public void RecallPreset(int presetNumber)
+    public virtual void RecallPreset(int presetNumber)
     {
         DoRecallPreset(presetNumber);
         LastRecalledPreset = presetNumber;

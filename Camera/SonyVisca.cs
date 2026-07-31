@@ -18,6 +18,11 @@ public class SonyVisca : CameraBase
     protected static readonly byte CommandFooter = 0xFF;
     private const int IpHeaderLength = 8;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
+    private record PendingCommand(string Description, Action? OnCompleted);
+
+    private readonly bool _deviceSendsResponses;
+    private readonly Dictionary<byte, PendingCommand> _pendingCommands = new Dictionary<byte, PendingCommand>();
+    private PendingCommand? _lastCommand;
 
     private static readonly Dictionary<byte, string> ErrorMessages = new Dictionary<byte, string>
     {
@@ -29,10 +34,11 @@ public class SonyVisca : CameraBase
         { 0x41, "Command not executable" }
     };
 
-    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01, int pollTime = 30)
+    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01, int pollTime = 30, bool deviceSendsResponses = true)
         : base(name, client, presetNames)
     {
         _useIpHeaders = useIpHeaders;
+        _deviceSendsResponses = deviceSendsResponses;
         SetCameraId(cameraId);
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         _panSpeed = 0x04;
@@ -82,16 +88,22 @@ public class SonyVisca : CameraBase
         }
     }
 
-    protected void SendCommand(byte[] bytes)
+    protected void SendCommand(byte[] bytes, string? description = null, Action? onCompleted = null)
     {
         try
         {
             CommunicationState = CommunicationState.Okay;
+            var pending = description == null ? null : new PendingCommand(description, onCompleted);
             if (_useIpHeaders)
             {
+                if (pending == null)
+                    _pendingCommands.Remove(_sequenceNumber);
+                else
+                    _pendingCommands[_sequenceNumber] = pending;
                 CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaCommand, bytes));
                 return;
             }
+            _lastCommand = pending;
             CommunicationClient.Send(bytes);
         }
         catch (Exception e)
@@ -228,17 +240,31 @@ public class SonyVisca : CameraBase
         }
     }
 
+    public override void RecallPreset(int presetNumber)
+    {
+        DoRecallPreset(presetNumber);
+        if (!_deviceSendsResponses)
+            LastRecalledPreset = presetNumber;
+    }
+
     public override void DoRecallPreset(int presetNumber)
     {
-        SendCommand([_header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter]);
         var presetName = PresetNames.TryGetValue(presetNumber, out var name) ? name : presetNumber.ToString();
-        AddEvent(EventType.Preset, $"Preset {presetName} recalled");
+        void Confirm()
+        {
+            LastRecalledPreset = presetNumber;
+            AddEvent(EventType.Preset, $"Preset {presetName} recalled");
+        }
+        SendCommand([_header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter], $"recall preset {presetName}",
+            _deviceSendsResponses ? Confirm : null);
+        if (!_deviceSendsResponses)
+            AddEvent(EventType.Preset, $"Preset {presetName} recalled");
     }
 
     public override void SavePreset(int presetNumber)
     {
-        SendCommand([_header, 0x01, 0x04, 0x3f, 0x01, (byte)presetNumber, CommandFooter]);
         var presetName = PresetNames.TryGetValue(presetNumber, out var name) ? name : presetNumber.ToString();
+        SendCommand([_header, 0x01, 0x04, 0x3f, 0x01, (byte)presetNumber, CommandFooter], $"save preset {presetName}");
         AddEvent(EventType.Preset, $"Preset {presetName} saved");
     }
 
@@ -262,7 +288,8 @@ public class SonyVisca : CameraBase
                         ReportMalformedResponse(response);
                         return;
                     }
-                    ProcessViscaPayload(response[(index + IpHeaderLength)..(index + IpHeaderLength + payloadLength)]);
+                    ProcessViscaPayload(response[(index + IpHeaderLength)..(index + IpHeaderLength + payloadLength)],
+                        response[index + 7]);
                     index += IpHeaderLength + payloadLength;
                 }
                 else
@@ -280,7 +307,7 @@ public class SonyVisca : CameraBase
         }
     }
 
-    private void ProcessViscaPayload(byte[] payload)
+    private void ProcessViscaPayload(byte[] payload, byte? sequenceNumber = null)
     {
         if (payload.Length < 3 || payload[^1] != CommandFooter)
         {
@@ -298,6 +325,7 @@ public class SonyVisca : CameraBase
                 CommunicationState = CommunicationState.Okay;
                 if (payload.Length == 3)
                 {
+                    ConsumePendingCommand(sequenceNumber)?.OnCompleted?.Invoke();
                     LogVerbose("Command complete");
                     return;
                 }
@@ -314,6 +342,9 @@ public class SonyVisca : CameraBase
                 var errorMessage = ErrorMessages.TryGetValue(payload[2], out var message)
                     ? message
                     : $"Unknown error 0x{payload[2]:X2}";
+                var failedCommand = ConsumePendingCommand(sequenceNumber);
+                if (failedCommand != null)
+                    errorMessage = $"Unable to {failedCommand.Description}: {errorMessage}";
                 LogError("The camera reported an error: {error} ({response})", errorMessage, BitConverter.ToString(payload));
                 AddEvent(EventType.Error, errorMessage);
                 CommunicationState = CommunicationState.Error;
@@ -322,6 +353,15 @@ public class SonyVisca : CameraBase
                 LogWarning("Unhandled response {response}", BitConverter.ToString(payload));
                 break;
         }
+    }
+
+    private PendingCommand? ConsumePendingCommand(byte? sequenceNumber)
+    {
+        if (sequenceNumber is { } sequence)
+            return _pendingCommands.Remove(sequence, out var pending) ? pending : null;
+        var last = _lastCommand;
+        _lastCommand = null;
+        return last;
     }
 
     private void ReportMalformedResponse(byte[] response)

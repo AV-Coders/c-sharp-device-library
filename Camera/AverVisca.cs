@@ -24,8 +24,8 @@ public class AverVisca : SonyVisca, ITrackingCamera
 
     public event Action<CameraTrackingMode>? OnTrackingModeChange;
 
-    public AverVisca(CommunicationClient client, string name, Dictionary<int, string> presetNames, bool useIpHeaders = false, byte cameraId = 1) :
-        base(client, useIpHeaders, name, presetNames, cameraId)
+    public AverVisca(CommunicationClient client, string name, Dictionary<int, string> presetNames, bool useIpHeaders = false, byte cameraId = 1, bool deviceSendsResponses = true) :
+        base(client, useIpHeaders, name, presetNames, cameraId, deviceSendsResponses: deviceSendsResponses)
     {
     }
 

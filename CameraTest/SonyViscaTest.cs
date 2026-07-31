@@ -158,6 +158,7 @@ public class SonyViscaSerialTest
         _viscaCamera.OnPresetCleared += mockPresetCleared.Object;
         _viscaCamera.OnPresetRecalled  += mockPresetRecalled.Object;
         _viscaCamera.RecallPreset(0);
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
         _viscaCamera.PanTiltStop();
         
         mockPresetCleared.Verify(x => x.Invoke(), Times.Once);
@@ -171,7 +172,8 @@ public class SonyViscaSerialTest
         Mock<Action> mockPresetCleared = new Mock<Action>();
         _viscaCamera.OnPresetCleared += mockPresetCleared.Object;
         _viscaCamera.RecallPreset(0);
-        
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
+
         _viscaCamera.PanTiltStop();
         _viscaCamera.PanTiltStop();
         
@@ -196,6 +198,74 @@ public class SonyViscaSerialTest
         _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x61, 0x41, 0xFF]);
 
         Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorAfterRecallPreset_ReportsThePreset()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x62, 0x41, 0xFF]);
+
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == "Unable to recall preset Lectern: Command not executable");
+    }
+
+    [Fact]
+    public void RecallPreset_WithoutAResponse_DoesNotReportTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        Assert.Equal(CameraBase.NoActivePreset, _viscaCamera.LastRecalledPreset);
+        Assert.DoesNotContain(_viscaCamera.Events, e => e.Type == EventType.Preset);
+    }
+
+    [Fact]
+    public void RecallPreset_AfterCompletion_ReportsTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void RecallPreset_AfterAnError_DoesNotReportTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x62, 0x41, 0xFF]);
+
+        Assert.Equal(CameraBase.NoActivePreset, _viscaCamera.LastRecalledPreset);
+        Assert.DoesNotContain(_viscaCamera.Events, e => e.Type == EventType.Preset);
+    }
+
+    [Fact]
+    public void RecallPreset_WhenTheDeviceDoesNotSendResponses_ReportsTheRecallImmediately()
+    {
+        var camera = new SonyVisca(_mockClient.Object, false, "Test Cam",
+            new Dictionary<int, string> { { 1, "Lectern" } }, deviceSendsResponses: false);
+
+        camera.RecallPreset(1);
+
+        Assert.Equal(1, camera.LastRecalledPreset);
+        Assert.Contains(camera.Events,
+            e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorAfterACompletedRecall_ReportsTheGenericError()
+    {
+        _viscaCamera.RecallPreset(1);
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x61, 0x41, 0xFF]);
+
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == "Command not executable");
     }
 
     [Theory]
@@ -287,6 +357,55 @@ public class SonyViscaIpTest
         _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x01, 0x90, 0x61, 0x41, 0xFF]);
 
         Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorEchoingARecallSequenceNumber_ReportsThePreset()
+    {
+        _viscaCamera.RecallPreset(1);
+        _viscaCamera.PowerOn();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x62, 0x41, 0xFF]);
+
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == "Unable to recall preset Lectern: Command not executable");
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorEchoingAnUnrelatedSequenceNumber_ReportsTheGenericError()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x07, 0x90, 0x61, 0x41, 0xFF]);
+
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == "Command not executable");
+    }
+
+    [Fact]
+    public void RecallPreset_AfterACompletionEchoingItsSequenceNumber_ReportsTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([
+            0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x41, 0xFF,
+            0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x51, 0xFF
+        ]);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void RecallPreset_AfterAnError_DoesNotReportTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x62, 0x41, 0xFF]);
+
+        Assert.Equal(CameraBase.NoActivePreset, _viscaCamera.LastRecalledPreset);
+        Assert.DoesNotContain(_viscaCamera.Events, e => e.Type == EventType.Preset);
     }
 
     [Fact]
