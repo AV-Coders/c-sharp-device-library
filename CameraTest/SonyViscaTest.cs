@@ -257,6 +257,40 @@ public class SonyViscaSerialTest
     }
 
     [Fact]
+    public void RecallPreset_AfterACompletionWithoutAnAck_ReportsTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x51, 0xFF]);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void RecallPreset_AfterAnAckWithoutACompletion_ReportsTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF]);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void RecallPreset_AfterAckAndCompletion_ReportsTheRecallOnce()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
+
+        Assert.Single(_viscaCamera.Events, e => e.Type == EventType.Preset);
+    }
+
+    [Fact]
     public void RecallPreset_AfterAnError_DoesNotReportTheRecall()
     {
         _viscaCamera.RecallPreset(1);
@@ -419,6 +453,42 @@ public class SonyViscaIpTest
         Assert.Equal(1, _viscaCamera.LastRecalledPreset);
         Assert.Contains(_viscaCamera.Events,
             e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void RecallPreset_AfterACompletionWithoutAnAck_ReportsTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x51, 0xFF]);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void RecallPreset_AfterAnAckEchoingItsSequenceNumber_ReportsTheRecall()
+    {
+        _viscaCamera.RecallPreset(1);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x41, 0xFF]);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorAfterAnAckedRecall_ReportsThePreset()
+    {
+        _viscaCamera.RecallPreset(1);
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x41, 0xFF]);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x62, 0x04, 0xFF]);
+
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == "Unable to recall preset Lectern: Command cancelled");
     }
 
     [Fact]

@@ -317,6 +317,7 @@ public class SonyVisca : CameraBase
         {
             case 0x40:
                 CommunicationState = CommunicationState.Okay;
+                InvokePendingCallback(sequenceNumber);
                 LogVerbose("Command acknowledged");
                 break;
             case 0x50:
@@ -351,6 +352,22 @@ public class SonyVisca : CameraBase
                 LogWarning("Unhandled response {response}", BitConverter.ToString(payload));
                 break;
         }
+    }
+
+    private void InvokePendingCallback(byte? sequenceNumber)
+    {
+        if (sequenceNumber is { } sequence)
+        {
+            if (!_pendingCommands.TryGetValue(sequence, out var pending) || pending.OnCompleted == null)
+                return;
+            _pendingCommands[sequence] = pending with { OnCompleted = null };
+            pending.OnCompleted.Invoke();
+            return;
+        }
+        if (_lastCommand?.OnCompleted is not { } onCompleted)
+            return;
+        _lastCommand = _lastCommand with { OnCompleted = null };
+        onCompleted.Invoke();
     }
 
     private PendingCommand? ConsumePendingCommand(byte? sequenceNumber)
