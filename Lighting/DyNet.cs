@@ -9,8 +9,75 @@ public class DyNet : DeviceBase
     private const byte Broadcast = 0xFF;
     //From https://docs.dynalite.com/system-builder/latest/quick_start/dynet_opcodes.html
     
+    private readonly List<byte> _gather = new();
+
     public DyNet(CommunicationClient commsClient, string name) : base(name, commsClient)
     {
+        CommunicationClient.ResponseByteHandlers += HandleResponse;
+    }
+
+    private void HandleResponse(byte[] response)
+    {
+        using (PushProperties())
+        {
+            _gather.AddRange(response);
+
+            if (_gather.Count > 1024)
+            {
+                LogWarning("Gather buffer exceeded 1024 bytes, clearing");
+                _gather.Clear();
+                return;
+            }
+
+            while (true)
+            {
+                while (_gather.Count > 0 && _gather[0] != _syncByteLogicalAddressingScheme)
+                    _gather.RemoveAt(0);
+
+                if (_gather.Count < 8)
+                    return;
+
+                byte[] frame = _gather.Take(8).ToArray();
+                if (CalculateChecksum(frame.Take(7).ToArray()) != frame[7])
+                {
+                    // A sync byte mid-frame, or a corrupt frame - realign on the next candidate
+                    _gather.RemoveAt(0);
+                    continue;
+                }
+
+                _gather.RemoveRange(0, 8);
+                ProcessFrame(frame);
+            }
+        }
+    }
+
+    private void ProcessFrame(byte[] frame)
+    {
+        byte area = frame[1];
+        byte bank = frame[5];
+        switch (frame[3])
+        {
+            case <= 0x03:
+                AddEvent(EventType.Preset, $"Area {area} recalled preset {bank * 8 + frame[3] + 1}");
+                break;
+            case >= 0x0A and <= 0x0D:
+                AddEvent(EventType.Preset, $"Area {area} recalled preset {bank * 8 + frame[3] - 0x0A + 5}");
+                break;
+            case 0x63:
+                AddEvent(EventType.Preset, $"Current preset requested for area {area}");
+                break;
+            case 0x76:
+                AddEvent(EventType.Level, frame[2] == Broadcast
+                    ? $"Area {area} stopped fading"
+                    : $"Area {area} channel {frame[2] + 1} stopped fading");
+                break;
+            case 0x79:
+                // Levels are inverted on the wire - 0x01 is 100%, 0xFF is 0%
+                int percentage = (int)Math.Round((255 - frame[2]) / 2.54);
+                double seconds = (frame[5] << 8 | frame[4]) * 20 / 1000.0;
+                AddEvent(EventType.Level, $"Area {area} fading to {percentage}% over {seconds}s");
+                break;
+        }
     }
 
     public void SelectCurrentPreset(byte area, byte preset, byte rampTimeIn100thsOfASecond = 0x64)
@@ -81,9 +148,10 @@ public class DyNet : DeviceBase
 
     private byte GetLevelFromPercentage(int level)
     {
-        if(level > 100)
+        if(level < 0 || level > 100)
             throw new ArgumentOutOfRangeException(nameof(level), "Level must be between 0 and 100.");
-        return (byte)(level * 2.55);
+        // Levels are inverted on the wire - 0x01 is 100%, 0xFF is 0%
+        return (byte)Math.Round(255 - level * 2.54);
     }
 
     private byte GetByteForPreset(int preset)
