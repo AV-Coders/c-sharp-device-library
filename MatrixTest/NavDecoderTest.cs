@@ -28,7 +28,15 @@ public class NavDecoderTest
     {
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
         theAction.Invoke("VidI1*HdcpI2*HdcpO2*ResI1920x1080@60*AudI1*StrmI1*Lnk1*Dec");
-        _outputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080@60", HdcpStatus.Unknown));
+        _outputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080@60", HdcpStatus.Available));
+    }
+
+    [Fact]
+    public void ResponseHandler_ProcessesGeneralSystemInfoWithNoSignal()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("VidI0*HdcpI1*HdcpO0*ResI0x0@0*AudI0*StrmI0*Lnk1*Dec");
+        _outputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Disconnected, "", HdcpStatus.Unknown));
     }
 
     [Fact]
@@ -111,8 +119,8 @@ public class NavDecoderTest
     }
     
     [Theory]
-    [InlineData("HdcpO0", HdcpStatus.NotSupported)]
-    [InlineData("HdcpO1", HdcpStatus.Active)]
+    [InlineData("HdcpO1", HdcpStatus.NotSupported)]
+    [InlineData("HdcpO2", HdcpStatus.Available)]
     public void ResponseHandler_ProcessesHDCPStatus(string response, HdcpStatus expectedState)
     {
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];

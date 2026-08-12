@@ -15,6 +15,7 @@ public enum HdcpStatus
     NotSupported,
     Available,
     Active,
+    Inactive,
 }
 
 public abstract class SyncStatus(string name, AVEndpointType type) : LogBase(name)

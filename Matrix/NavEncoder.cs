@@ -34,32 +34,32 @@ public class NavEncoder : NavDeviceBase
         }
         else if (response.StartsWith("HdcpI"))
         {
-            // HdcpI0
-            // HdcpI1
-            InputHdcpStatus = response.Remove(0, 5) == "1" ? HdcpStatus.Active : HdcpStatus.NotSupported;
+            InputHdcpStatus = ParseSourceHdcpStatus(response.Remove(0, 5));
         }
-        
+
     }
 
     protected override void ProcessConcatenatedResponse(string response)
     {
-        if (!response.Contains('I'))
-            return;
-        var kvp = response.Split('I');
-        switch (kvp[0])
+        if (response.StartsWith("SigI"))
+            InputConnectionStatus = response[4..] == "1" ? ConnectionState.Connected : ConnectionState.Disconnected;
+        else if (response.StartsWith("HdcpI"))
+            InputHdcpStatus = ParseSourceHdcpStatus(response[5..]);
+        else if (response.StartsWith("HdcpO"))
+            OutputHdcpStatus = ParseSinkHdcpStatus(response[5..]);
+        else if (response.StartsWith("ResI"))
         {
-            case "Res":
-                if (kvp[1].Contains("NOT DETECTED"))
-                {
-                    InputConnectionStatus = ConnectionState.Disconnected;
-                    InputResolution = string.Empty;
-                }
-                else
-                {
-                    InputConnectionStatus = ConnectionState.Connected;
-                    InputResolution = kvp[1];
-                }
-                break;
+            var resolution = response[4..];
+            if (resolution.Contains("NOT DETECTED") || resolution.StartsWith("0x0"))
+            {
+                InputConnectionStatus = ConnectionState.Disconnected;
+                InputResolution = string.Empty;
+            }
+            else
+            {
+                InputConnectionStatus = ConnectionState.Connected;
+                InputResolution = resolution;
+            }
         }
     }
 }

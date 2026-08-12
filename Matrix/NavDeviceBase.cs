@@ -138,6 +138,22 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
     protected abstract void ProcessConcatenatedResponse(string response);
 
+    protected static HdcpStatus ParseSourceHdcpStatus(string value) => value switch
+    {
+        "2" => HdcpStatus.Active,
+        "1" => HdcpStatus.Inactive,
+        "0" => HdcpStatus.Unknown,
+        _ => HdcpStatus.Unknown
+    };
+
+    protected static HdcpStatus ParseSinkHdcpStatus(string value) => value switch
+    {
+        "2" => HdcpStatus.Available,
+        "1" => HdcpStatus.NotSupported,
+        "0" => HdcpStatus.Unknown,
+        _ => HdcpStatus.Unknown
+    };
+
     public string GetLetterForDeviceType()
     {
         return DeviceType switch
