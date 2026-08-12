@@ -117,6 +117,7 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         {
             DeviceNumber = int.Parse(payload.Replace("Dnum", string.Empty));
             Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", PreHandleResponse);
+            Navigator.QueryEndpointState(this);
         }
 
         else if (payload.StartsWith("Inf98*"))

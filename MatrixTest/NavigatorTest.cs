@@ -67,6 +67,56 @@ public class NavigatorTest
     }
 
     [Fact]
+    public void ConnectionState_SeedsSystemState()
+    {
+        _mockSshClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+
+        _mockSshClient.Verify(x => x.Send($"{EscapeHeader}3CV\r"));
+        _mockSshClient.Verify(x => x.Send($"{EscapeHeader}Inventory*I*RPRT\r"));
+        _mockSshClient.Verify(x => x.Send($"{EscapeHeader}Inventory*O*RPRT\r"));
+        _mockSshClient.Verify(x => x.Send($"{EscapeHeader}Ties*A*RPRT\r"));
+    }
+
+    [Fact]
+    public void ResponseHandler_AppliesInventoryReports()
+    {
+        var decoder = new NavDecoder("Decoder", "10.1.3.207", _navigator);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("{10.1.3.207}Dnum3");
+
+        _mockSshClient.Object.ResponseHandlers!.Invoke("Rprt*Inventory*O*112");
+        Assert.Equal(ConnectionState.Disconnected, decoder.DeviceConnectionState);
+
+        _mockSshClient.Object.ResponseHandlers!.Invoke("Rprt*Inventory*O*111");
+        Assert.Equal(ConnectionState.Connected, decoder.DeviceConnectionState);
+    }
+
+    [Fact]
+    public void ResponseHandler_ForwardsTieReportRowsToTheOutput()
+    {
+        Mock<Action<string>> mockResponseHandler = new Mock<Action<string>>();
+        _navigator.RegisterDevice("0671o", mockResponseHandler.Object);
+
+        _mockSshClient.Object.ResponseHandlers!.Invoke("671\t663\t661");
+        mockResponseHandler.Verify(x => x.Invoke("In663 Vid"));
+        mockResponseHandler.Verify(x => x.Invoke("In661 Aud"));
+
+        _mockSshClient.Object.ResponseHandlers!.Invoke("671\t---\t----");
+        mockResponseHandler.Verify(x => x.Invoke("In0 Vid"));
+        mockResponseHandler.Verify(x => x.Invoke("In0 Aud"));
+    }
+
+    [Fact]
+    public void DeviceNumberDiscovery_QueriesEndpointState()
+    {
+        var decoder = new NavDecoder("Decoder", "10.1.3.207", _navigator);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("{10.1.3.207}Dnum671");
+
+        _mockSshClient.Verify(x => x.Send($"{EscapeHeader}P*671oDEVP\r"));
+        _mockSshClient.Verify(x => x.Send($"{EscapeHeader}671%\r"));
+        _mockSshClient.Verify(x => x.Send($"{EscapeHeader}671$\r"));
+    }
+
+    [Fact]
     public void RouteAv_SendsTheCommand()
     {
         _navigator.RouteAV(1, 101);

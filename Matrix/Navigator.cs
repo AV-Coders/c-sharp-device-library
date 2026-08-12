@@ -45,6 +45,25 @@ public class Navigator : VideoMatrix
         if (connectionState != ConnectionState.Connected)
             return;
         CommunicationClient.Send($"{EscapeHeader}3CV\r");
+        SeedSystemState();
+    }
+
+    public void SeedSystemState()
+    {
+        CommunicationClient.Send($"{EscapeHeader}Inventory*I*RPRT\r");
+        CommunicationClient.Send($"{EscapeHeader}Inventory*O*RPRT\r");
+        CommunicationClient.Send($"{EscapeHeader}Ties*A*RPRT\r");
+    }
+
+    public virtual void QueryEndpointState(NavDeviceBase endpoint)
+    {
+        if (endpoint.DeviceNumber == 0)
+            return;
+        CommunicationClient.Send($"{EscapeHeader}P*{endpoint.DeviceNumber}{endpoint.GetLetterForDeviceType()}DEVP\r");
+        if (endpoint.DeviceType != AVEndpointType.Decoder)
+            return;
+        CommunicationClient.Send($"{EscapeHeader}{endpoint.DeviceNumber}%\r");
+        CommunicationClient.Send($"{EscapeHeader}{endpoint.DeviceNumber}$\r");
     }
 
     private void HandleResponse(string response)
@@ -61,6 +80,10 @@ public class Navigator : VideoMatrix
                 HandleTieResponse(response);
             else if (response.StartsWith("Devp"))
                 HandleDevicePresenceResponse(response);
+            else if (response.StartsWith("Rprt*Inventory*"))
+                HandleInventoryReport(response);
+            else if (response.Contains('\t'))
+                HandleTieReportRow(response);
             else if (response.Length == 3 && response.StartsWith('E') && char.IsDigit(response[1]) && char.IsDigit(response[2]))
                 LogWarning("The Navigator rejected a command: {ErrorCode} - {ErrorMeaning}", response,
                     ErrorDescriptions.GetValueOrDefault(response, "Unknown error"));
@@ -95,6 +118,45 @@ public class Navigator : VideoMatrix
                 break;
         }
     }
+
+    private void HandleInventoryReport(string response)
+    {
+        var parts = response.Split('*');
+        if (parts.Length != 4)
+            return;
+        CommunicationState = CommunicationState.Okay;
+        List<NavDeviceBase> endpoints = parts[2] switch
+        {
+            "I" => [.._inputs],
+            "O" => [.._outputs],
+            _ => []
+        };
+        var inventory = parts[3];
+        foreach (var endpoint in endpoints)
+        {
+            if (endpoint.DeviceNumber == 0 || endpoint.DeviceNumber > inventory.Length)
+                continue;
+            var state = inventory[endpoint.DeviceNumber - 1];
+            if (state == '0')
+                continue;
+            var tunnel = (NavigatorTunnel)endpoint.CommunicationClient;
+            tunnel.SetConnectionState(state == '1' ? ConnectionState.Connected : ConnectionState.Disconnected);
+        }
+    }
+
+    private void HandleTieReportRow(string response)
+    {
+        var parts = response.Split('\t');
+        if (parts.Length != 3 || !int.TryParse(parts[0], out var outputNumber))
+            return;
+        CommunicationState = CommunicationState.Okay;
+        if (!_callbacks.TryGetValue($"{outputNumber:D4}o", out Action<string>? action))
+            return;
+        action.Invoke($"In{ParseTieReportInput(parts[1])} Vid");
+        action.Invoke($"In{ParseTieReportInput(parts[2])} Aud");
+    }
+
+    private static string ParseTieReportInput(string value) => value.All(c => c == '-') ? "0" : value;
 
     private NavDeviceBase? FindEndpoint(string endpointId)
     {
