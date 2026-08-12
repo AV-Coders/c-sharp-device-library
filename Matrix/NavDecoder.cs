@@ -6,8 +6,17 @@ public class NavDecoder : NavDeviceBase
 {
     public MuteStateHandler? AudioMuteStateHandlers;
     public MuteStateHandler? VideoMuteStateHandlers;
+    protected const string VideoRouteIssueKey = "video-tie";
+    protected const string AudioRouteIssueKey = "audio-tie";
     private MuteState _audioMuteState = MuteState.Unknown;
     private MuteState _videoMuteState = MuteState.Unknown;
+    private int? _desiredVideoInput;
+    private int? _desiredAudioInput;
+    private int? _currentVideoInput;
+    private int? _currentAudioInput;
+
+    public int? DesiredVideoInput => _desiredVideoInput;
+    public int? DesiredAudioInput => _desiredAudioInput;
     
     public MuteState AudioMute
     {
@@ -54,8 +63,8 @@ public class NavDecoder : NavDeviceBase
                 LogWarning("Not requesting a route as my device number is 0");
                 return;
             }
+            UpdateDesiredRoute(deviceId, deviceId);
             Navigator.RouteAV(deviceId, DeviceNumber);
-            
         }
     }
 
@@ -69,12 +78,58 @@ public class NavDecoder : NavDeviceBase
                 return;
             }
 
+            UpdateDesiredRoute(deviceId, null);
             Navigator.RouteVideo(deviceId, DeviceNumber);
         }
     }
 
-    public void SetInput(NavEncoder encoder) => Navigator.RouteAV(encoder.DeviceNumber, DeviceNumber);
-    
+    public void SetAudio(int deviceId)
+    {
+        using (PushProperties())
+        {
+            if (DeviceNumber == 0)
+            {
+                LogWarning("Not requesting an audio route as my device number is 0");
+                return;
+            }
+
+            UpdateDesiredRoute(null, deviceId);
+            Navigator.RouteAudio(deviceId, DeviceNumber);
+        }
+    }
+
+    public void SetInput(NavEncoder encoder)
+    {
+        UpdateDesiredRoute(encoder.DeviceNumber, encoder.DeviceNumber);
+        Navigator.RouteAV(encoder.DeviceNumber, DeviceNumber);
+    }
+
+    internal void UpdateDesiredRoute(int? videoInput, int? audioInput)
+    {
+        if (videoInput != null)
+            _desiredVideoInput = videoInput;
+        if (audioInput != null)
+            _desiredAudioInput = audioInput;
+    }
+
+    private void ProcessRouteState()
+    {
+        if (_desiredVideoInput != null && _currentVideoInput != null)
+        {
+            if (_currentVideoInput == _desiredVideoInput)
+                ResolveIssue(VideoRouteIssueKey);
+            else
+                RaiseOngoingIssue(VideoRouteIssueKey, $"Video input is {_currentVideoInput}, should be {_desiredVideoInput}");
+        }
+        if (_desiredAudioInput != null && _currentAudioInput != null)
+        {
+            if (_currentAudioInput == _desiredAudioInput)
+                ResolveIssue(AudioRouteIssueKey);
+            else
+                RaiseOngoingIssue(AudioRouteIssueKey, $"Audio input is {_currentAudioInput}, should be {_desiredAudioInput}");
+        }
+    }
+
 
     public void SetAudioMute(MuteState muteState)
     {
@@ -89,6 +144,7 @@ public class NavDecoder : NavDeviceBase
     protected override Task Poll(CancellationToken arg)
     {
         Send($"I");
+        ProcessRouteState();
         return Task.CompletedTask;
     }
 
@@ -98,8 +154,31 @@ public class NavDecoder : NavDeviceBase
         {
             if (response.StartsWith("In"))
             {
-                var streamId = response.Split(' ')[0][2..];
-                StreamAddress = streamId;
+                var parts = response.Split(' ');
+                if (parts.Length < 2 || parts[1] == "Usb")
+                    return;
+                var streamId = parts[0][2..];
+                switch (parts[1])
+                {
+                    case "All":
+                        StreamAddress = streamId;
+                        if (int.TryParse(streamId, out var avInput))
+                        {
+                            _currentVideoInput = avInput;
+                            _currentAudioInput = avInput;
+                        }
+                        break;
+                    case "Vid":
+                        StreamAddress = streamId;
+                        if (int.TryParse(streamId, out var videoInput))
+                            _currentVideoInput = videoInput;
+                        break;
+                    case "Aud":
+                        if (int.TryParse(streamId, out var audioInput))
+                            _currentAudioInput = audioInput;
+                        break;
+                }
+                ProcessRouteState();
                 return;
             }
 

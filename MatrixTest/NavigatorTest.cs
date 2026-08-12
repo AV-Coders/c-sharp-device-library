@@ -26,10 +26,84 @@ public class NavigatorTest
     }
 
     [Fact]
+    public void ResponseHandler_ForwardsTieResponsesToTheOutput()
+    {
+        Mock<Action<string>> mockResponseHandler = new Mock<Action<string>>();
+        _navigator.RegisterDevice("0671o", mockResponseHandler.Object);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("Out671 In663 All");
+
+        mockResponseHandler.Verify(x => x.Invoke("In663 All"));
+    }
+
+    [Fact]
+    public void ResponseHandler_ForwardsUntieResponsesToTheOutput()
+    {
+        Mock<Action<string>> mockResponseHandler = new Mock<Action<string>>();
+        _navigator.RegisterDevice("0661o", mockResponseHandler.Object);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("Out661 In00 All");
+
+        mockResponseHandler.Verify(x => x.Invoke("In00 All"));
+    }
+
+    [Fact]
+    public void ResponseHandler_IgnoresUnregisteredTieResponses()
+    {
+        _mockSshClient.Object.ResponseHandlers!.Invoke("Out999 In1 All");
+        _mockSshClient.Object.ResponseHandlers!.Invoke("In0i Usb");
+        _mockSshClient.Object.ResponseHandlers!.Invoke("E10");
+    }
+
+    [Fact]
+    public void ResponseHandler_AppliesDevicePresenceUpdates()
+    {
+        var decoder = new NavDecoder("Decoder", "10.1.3.207", _navigator);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("{10.1.3.207}Dnum671");
+
+        _mockSshClient.Object.ResponseHandlers!.Invoke("DevpP*671o*0");
+        Assert.Equal(ConnectionState.Disconnected, decoder.DeviceConnectionState);
+
+        _mockSshClient.Object.ResponseHandlers!.Invoke("DevpP*671o*1");
+        Assert.Equal(ConnectionState.Connected, decoder.DeviceConnectionState);
+    }
+
+    [Fact]
     public void RouteAv_SendsTheCommand()
     {
         _navigator.RouteAV(1, 101);
         _mockSshClient.Verify(x => x.Send($"{EscapeHeader}1*101!\r"));
+    }
+
+    [Fact]
+    public void RouteAv_TracksTheDesiredRouteOnTheDecoder()
+    {
+        var decoder = new NavDecoder("Decoder", "10.1.3.207", _navigator);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("{10.1.3.207}Dnum671");
+
+        _navigator.RouteAV(5, 671);
+        Assert.Equal(5, decoder.DesiredVideoInput);
+        Assert.Equal(5, decoder.DesiredAudioInput);
+    }
+
+    [Fact]
+    public void RouteVideo_TracksTheDesiredRouteOnTheDecoder()
+    {
+        var decoder = new NavDecoder("Decoder", "10.1.3.207", _navigator);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("{10.1.3.207}Dnum671");
+
+        _navigator.RouteVideo(5, 671);
+        Assert.Equal(5, decoder.DesiredVideoInput);
+        Assert.Null(decoder.DesiredAudioInput);
+    }
+
+    [Fact]
+    public void RouteAudio_TracksTheDesiredRouteOnTheDecoder()
+    {
+        var decoder = new NavDecoder("Decoder", "10.1.3.207", _navigator);
+        _mockSshClient.Object.ResponseHandlers!.Invoke("{10.1.3.207}Dnum671");
+
+        _navigator.RouteAudio(5, 671);
+        Assert.Null(decoder.DesiredVideoInput);
+        Assert.Equal(5, decoder.DesiredAudioInput);
     }
 
     [Fact]

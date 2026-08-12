@@ -97,6 +97,65 @@ public class NavDecoderTest
     }
 
     [Fact]
+    public void SetInput_RaisesIssuesWhenTheRouteDoesNotMatch()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+        _navDecoder.SetInput(663);
+        theAction.Invoke("In662 All");
+
+        Assert.Contains(_navDecoder.GetOngoingIssues(), x => x.Key == "video-tie");
+        Assert.Contains(_navDecoder.GetOngoingIssues(), x => x.Key == "audio-tie");
+    }
+
+    [Fact]
+    public void SetInput_ResolvesTheIssuesWhenTheRouteMatches()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+        _navDecoder.SetInput(663);
+        theAction.Invoke("In662 All");
+        theAction.Invoke("In663 All");
+
+        Assert.DoesNotContain(_navDecoder.GetOngoingIssues(), x => x.Key == "video-tie");
+        Assert.DoesNotContain(_navDecoder.GetOngoingIssues(), x => x.Key == "audio-tie");
+    }
+
+    [Fact]
+    public void SetInput_DoesNotRaiseAnIssueBeforeARouteIsRequested()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("In662 All");
+
+        Assert.Empty(_navDecoder.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void SetInput_TracksAudioBreakawaySeparately()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+        _navDecoder.SetInput(663);
+        theAction.Invoke("In663 All");
+        theAction.Invoke("In661 Aud");
+
+        Assert.DoesNotContain(_navDecoder.GetOngoingIssues(), x => x.Key == "video-tie");
+        Assert.Contains(_navDecoder.GetOngoingIssues(), x => x.Key == "audio-tie");
+    }
+
+    [Fact]
+    public void SetAudio_SendsTheCommandAndTracksTheRoute()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+        _navDecoder.SetAudio(661);
+        _navigatorMock.Verify(x => x.RouteAudio(661, 101));
+
+        theAction.Invoke("In661 Aud");
+        Assert.DoesNotContain(_navDecoder.GetOngoingIssues(), x => x.Key == "audio-tie");
+    }
+
+    [Fact]
     public void SetInput_SendsTheDerouteCommand()
     {
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];

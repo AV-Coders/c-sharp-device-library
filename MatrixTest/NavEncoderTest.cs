@@ -38,6 +38,15 @@ public class NavEncoderTest
         _inputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Disconnected, "", HdcpStatus.Inactive));
     }
 
+    [Fact]
+    public void ResponseHandler_ProcessesGeneralSystemInfoWithNoInputConnected()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("SigI0*HdcpI0*HdcpO0*ResINOT DETECTED*AudI1*StrmI1*Lnk1*Enc");
+
+        _inputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Disconnected, "", HdcpStatus.Unknown));
+    }
+
     [Theory]
     [InlineData("In00 0", ConnectionState.Disconnected)]
     [InlineData("In00 1", ConnectionState.Connected)]

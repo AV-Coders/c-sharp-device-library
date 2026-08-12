@@ -15,6 +15,19 @@ public class Navigator : VideoMatrix
     private readonly List<NavEncoder> _inputs = [];
     private readonly List<NavDecoder> _outputs = [];
 
+    private static readonly Dictionary<string, string> ErrorDescriptions = new()
+    {
+        { "E10", "Invalid command" },
+        { "E12", "Invalid port number" },
+        { "E13", "Invalid parameter" },
+        { "E14", "Invalid for this port configuration" },
+        { "E17", "Invalid command for signal type" },
+        { "E22", "Busy" },
+        { "E24", "Privilege violation" },
+        { "E25", "Device not present" },
+        { "E28", "Bad file name or file not found" },
+    };
+
 
     public Navigator(string name, SshClient sshClient) : base(0, sshClient, name)
     {
@@ -44,11 +57,75 @@ public class Navigator : VideoMatrix
                 _unansweredDeviceForwards = 0;
                 CommunicationState = CommunicationState.Okay;
             }
+            else if (response.StartsWith("Out"))
+                HandleTieResponse(response);
+            else if (response.StartsWith("Devp"))
+                HandleDevicePresenceResponse(response);
+            else if (response.Length == 3 && response.StartsWith('E') && char.IsDigit(response[1]) && char.IsDigit(response[2]))
+                LogWarning("The Navigator rejected a command: {ErrorCode} - {ErrorMeaning}", response,
+                    ErrorDescriptions.GetValueOrDefault(response, "Unknown error"));
         }
     }
-    public override void RouteAV(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}!\r");
-    public override void RouteAudio(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}$\r");
-    public override void RouteVideo(int input, int output) => CommunicationClient.Send($"{EscapeHeader}{input}*{output}%\r");
+
+    private void HandleTieResponse(string response)
+    {
+        var parts = response.Split(' ');
+        if (parts.Length != 3 || !int.TryParse(parts[0][3..], out var outputNumber))
+            return;
+        CommunicationState = CommunicationState.Okay;
+        if (_callbacks.TryGetValue($"{outputNumber:D4}o", out Action<string>? action))
+            action.Invoke($"{parts[1]} {parts[2]}");
+    }
+
+    private void HandleDevicePresenceResponse(string response)
+    {
+        var parts = response.Split('*');
+        if (parts.Length != 3)
+            return;
+        CommunicationState = CommunicationState.Okay;
+        var endpoint = FindEndpoint(parts[1]);
+        if (endpoint == null)
+            return;
+        switch (parts[0])
+        {
+            case "DevpP":
+            case "DevpC":
+                var tunnel = (NavigatorTunnel)endpoint.CommunicationClient;
+                tunnel.SetConnectionState(parts[2] == "1" ? ConnectionState.Connected : ConnectionState.Disconnected);
+                break;
+        }
+    }
+
+    private NavDeviceBase? FindEndpoint(string endpointId)
+    {
+        if (endpointId.Length < 2 || !int.TryParse(endpointId[..^1], out var deviceNumber))
+            return null;
+        return endpointId[^1] switch
+        {
+            'i' => _inputs.FirstOrDefault(x => x.DeviceNumber == deviceNumber),
+            'o' => _outputs.FirstOrDefault(x => x.DeviceNumber == deviceNumber),
+            _ => null
+        };
+    }
+    public override void RouteAV(int input, int output)
+    {
+        FindDecoder(output)?.UpdateDesiredRoute(input, input);
+        CommunicationClient.Send($"{EscapeHeader}{input}*{output}!\r");
+    }
+
+    public override void RouteAudio(int input, int output)
+    {
+        FindDecoder(output)?.UpdateDesiredRoute(null, input);
+        CommunicationClient.Send($"{EscapeHeader}{input}*{output}$\r");
+    }
+
+    public override void RouteVideo(int input, int output)
+    {
+        FindDecoder(output)?.UpdateDesiredRoute(input, null);
+        CommunicationClient.Send($"{EscapeHeader}{input}*{output}%\r");
+    }
+
+    private NavDecoder? FindDecoder(int outputNumber) => _outputs.FirstOrDefault(x => x.DeviceNumber == outputNumber);
     
     public void RouteUsb(NavDeviceBase host, NavDeviceBase device)
     {
@@ -105,8 +182,8 @@ public class Navigator : VideoMatrix
     public override int NumberOfOutputs { get => _outputs.Count; }
     public override int NumberOfInputs { get => _inputs.Count; }
     public override bool RequiresOutputSpecification { get => true; }
-    public override bool SupportsVideoBreakaway { get => false; }
-    public override bool SupportsAudioBreakaway { get => false; }
+    public override bool SupportsVideoBreakaway { get => true; }
+    public override bool SupportsAudioBreakaway { get => true; }
     
     public override List<SyncStatus> GetInputs() => [.._inputs];
     public override List<SyncStatus> GetOutputs() => [.._outputs];
