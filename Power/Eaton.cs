@@ -53,12 +53,12 @@ public class EatonPdu : Pdu
     public EatonPdu(string name, AvCodersSnmpV3Client client) : base(name, client)
     {
         _client = client;
+        CommunicationState = CommunicationState.Unknown;
         _waitForConnectionWorker = new ThreadWorker(Initialise, TimeSpan.FromSeconds(12));
         _waitForConnectionWorker.Restart();
-        
+
         _pollWorker =  new ThreadWorker(Poll, TimeSpan.FromSeconds(12), true);
         _pollWorker.Restart();
-        CommunicationState = CommunicationState.Unknown;
     }
 
     private Task Poll(CancellationToken token)
