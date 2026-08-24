@@ -517,8 +517,8 @@ public class CiscoRoomOs : Conference
 
     public void SetDoNotDisturbState(PowerState state)
     {
+      _desiredDoNotDisturbState = state;
       SendCommand($"xCommand Conference DoNotDisturb {(state == PowerState.On ? "Activate": "Deactivate")}");
       DoNotDisturbState = state;
-      _desiredDoNotDisturbState = state;
     }
   }
