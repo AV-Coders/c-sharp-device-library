@@ -12,7 +12,7 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Power). See the
 
 ## Drivers
 
-- `EatonPdu`, `EatonOutlet` — Eaton (SNMP)
+- `TrippLitePdu`, `TrippLiteOutlet` — Tripp Lite / Eaton PowerAlert units (SNMPv3), including ATS models. Discovers the outlet count, names and controllability from the device, polls outlet states with a single walk, and on ATS models reports input feed voltages, the active source and a power-redundancy issue when a feed is lost. Replaces the former `EatonPdu`/`EatonOutlet`, which hardcoded eight outlets and spoke the Tripp Lite MIB despite the name.
 - `ServerEdgePdu`, `ServerEdgeOutlet` — ServerEdge (REST)
 
 ## Usage

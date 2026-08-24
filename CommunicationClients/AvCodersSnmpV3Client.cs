@@ -14,9 +14,16 @@ public class AvCodersSnmpV3Client : CommunicationClient
     private readonly SHA1AuthenticationProvider _auth;
     private readonly AESPrivacyProvider _priv;
     private IPEndPoint? _host;
+    private readonly object _engineLock = new();
+    private ReportMessage? _engineReport;
+    private DateTime _engineDiscoveredAt;
 
     private const int DefaultDiscoveryTimeout = 1000;
     private const int DefaultRequestTimeout = 1000;
+
+    // SNMPv3 agents accept a cached engine time for 150 seconds; refresh well inside that
+    // window so a cached report never triggers a notInTimeWindow round-trip.
+    private static readonly TimeSpan EngineReportLifetime = TimeSpan.FromSeconds(60);
 
     public AvCodersSnmpV3Client(string name, string host, ushort port, string username, string auth, string priv)
         : base(name, host, port, CommandStringFormat.Ascii)
@@ -43,14 +50,53 @@ public class AvCodersSnmpV3Client : CommunicationClient
         return _host;
     }
 
+    private ReportMessage GetEngineReport(IPEndPoint host)
+    {
+        lock (_engineLock)
+        {
+            if (_engineReport != null && DateTime.UtcNow - _engineDiscoveredAt < EngineReportLifetime)
+                return _engineReport;
+            Discovery discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
+            _engineReport = discovery.GetResponse(DefaultDiscoveryTimeout, host);
+            _engineDiscoveredAt = DateTime.UtcNow;
+            return _engineReport;
+        }
+    }
+
+    private void InvalidateEngineReport()
+    {
+        lock (_engineLock)
+            _engineReport = null;
+    }
+
+    // A stale cached report (agent rebooted, engine boots changed) makes the agent answer
+    // with a report PDU or nothing; rediscover once and retry before failing the operation.
+    private ISnmpMessage GetResponseWithRetry(IPEndPoint host, Func<ReportMessage, ISnmpMessage> createRequest)
+    {
+        try
+        {
+            var reply = createRequest(GetEngineReport(host)).GetResponse(DefaultRequestTimeout, host);
+            if (reply is ReportMessage)
+                throw new SnmpException("The agent returned a report message");
+            return reply;
+        }
+        catch
+        {
+            InvalidateEngineReport();
+            var reply = createRequest(GetEngineReport(host)).GetResponse(DefaultRequestTimeout, host);
+            if (reply is ReportMessage)
+                throw new SnmpException("The agent returned a report message after engine rediscovery");
+            return reply;
+        }
+    }
+
     private List<Variable> Set(string oid, ISnmpData value)
     {
         try
         {
             var host = ResolveHost();
-            Discovery discovery = Messenger.GetNextDiscovery(SnmpType.SetRequestPdu);
-            ReportMessage reportMessage = discovery.GetResponse(DefaultDiscoveryTimeout, host);
-            SetRequestMessage request = new SetRequestMessage(
+            InvokeRequestHandlers($"SET OID: {oid}, Value: {value}");
+            var reply = GetResponseWithRetry(host, report => new SetRequestMessage(
                 VersionCode.V3,
                 Messenger.NextMessageId,
                 Messenger.NextRequestId,
@@ -59,9 +105,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
                 [new Variable(new ObjectIdentifier(oid), value)],
                 _priv,
                 Messenger.MaxMessageSize,
-                reportMessage);
-            InvokeRequestHandlers($"SET OID: {oid}, Value: {value}");
-            var reply = request.GetResponse(DefaultRequestTimeout, host);
+                report));
             if (reply.Pdu().ErrorStatus != Integer32.Zero)
             {
                 LogError("Error in Set response for OID {oid}: {status}, index: {index}", oid, reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
@@ -100,9 +144,8 @@ public class AvCodersSnmpV3Client : CommunicationClient
         try
         {
             var host = ResolveHost();
-            Discovery discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
-            ReportMessage reportMessage = discovery.GetResponse(DefaultDiscoveryTimeout, host);
-            GetRequestMessage request = new GetRequestMessage(
+            InvokeRequestHandlers($"GET OID: {oid}");
+            var reply = GetResponseWithRetry(host, report => new GetRequestMessage(
                 VersionCode.V3,
                 Messenger.NextMessageId,
                 Messenger.NextRequestId,
@@ -111,9 +154,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
                 [new Variable(new ObjectIdentifier(oid))],
                 _priv,
                 Messenger.MaxMessageSize,
-                reportMessage);
-            InvokeRequestHandlers($"GET OID: {oid}");
-            var reply = request.GetResponse(DefaultRequestTimeout, host);
+                report));
             if (reply.Pdu().ErrorStatus != Integer32.Zero)
             {
                 LogError("Error in response {status}, {index}", reply.Pdu().ErrorStatus, reply.Pdu().ErrorIndex);
@@ -141,27 +182,18 @@ public class AvCodersSnmpV3Client : CommunicationClient
         try
         {
             var host = ResolveHost();
-            Discovery discovery = Messenger.GetNextDiscovery(SnmpType.GetRequestPdu);
-            ReportMessage report = discovery.GetResponse(DefaultDiscoveryTimeout, host);
-
-            ObjectIdentifier startOid = new ObjectIdentifier(oid);
-
-            IList<Variable> results = new List<Variable>();
-            Messenger.BulkWalk(
-                VersionCode.V3,
-                host,
-                _username,
-                OctetString.Empty,  // contextName
-                startOid,
-                results,
-                60000,  // timeout in milliseconds
-                10,     // maxRepetitions (how many variables to retrieve per request)
-                WalkMode.WithinSubtree,
-                _priv,
-                report);
-
+            List<Variable> results;
+            try
+            {
+                results = DoWalk(host, oid);
+            }
+            catch
+            {
+                InvalidateEngineReport();
+                results = DoWalk(host, oid);
+            }
             ConnectionState = ConnectionState.Connected;
-            return results.ToList();
+            return results;
         }
         catch (Exception e)
         {
@@ -170,6 +202,24 @@ public class AvCodersSnmpV3Client : CommunicationClient
             ConnectionState = ConnectionState.Error;
             return [];
         }
+    }
+
+    private List<Variable> DoWalk(IPEndPoint host, string oid)
+    {
+        IList<Variable> results = new List<Variable>();
+        Messenger.BulkWalk(
+            VersionCode.V3,
+            host,
+            _username,
+            OctetString.Empty,  // contextName
+            new ObjectIdentifier(oid),
+            results,
+            10000,  // timeout in milliseconds
+            10,     // maxRepetitions (how many variables to retrieve per request)
+            WalkMode.WithinSubtree,
+            _priv,
+            GetEngineReport(host));
+        return results.ToList();
     }
 
     /// <summary>

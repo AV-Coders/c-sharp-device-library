@@ -49,7 +49,7 @@ display.PowerOn();
 | `AVCoders.Camera` | PTZ cameras & auto-tracking | `SonyVisca`, `AverVisca` (`ITrackingCamera`), `LumensCL511`, `AutomateVX` (1Beyond) |
 | `AVCoders.Conference` | Conferencing codecs & phonebooks | `CiscoRoomOs` (+ output/mic faders), `CiscoRoomOsPhonebookParser` |
 | `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `BoseCspSoIP` |
-| `AVCoders.Power` | PDUs / outlets | `EatonPdu`/`EatonOutlet` (SNMP), `ServerEdgePdu`/`ServerEdgeOutlet` (REST) |
+| `AVCoders.Power` | PDUs / outlets | `TrippLitePdu`/`TrippLiteOutlet` (SNMPv3, Tripp Lite / Eaton PowerAlert incl. ATS models), `ServerEdgePdu`/`ServerEdgeOutlet` (REST) |
 | `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer`, `ExterityTci` |
 | `AVCoders.Motor` | Screens / blinds / shades | `ScreenTechnicsConnect`, `Grandview`, `MotoluxBlindTransmitter`, `BondDevice`/`BondGroup` |
 | `AVCoders.Lighting` | Lighting & dimmers | `CBusLight`, `DyNet` (Dynalite), `Zigbee2MqttLight` |
