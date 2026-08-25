@@ -69,25 +69,46 @@ public class AvCodersSnmpV3Client : CommunicationClient
             _engineReport = null;
     }
 
+    private const string SysUpTimeOid = "1.3.6.1.2.1.1.3.0";
+
+    private static readonly Dictionary<string, string> UsmStatsReasons = new()
+    {
+        ["1.3.6.1.6.3.15.1.1.1.0"] = "The agent rejected the SNMPv3 security level",
+        ["1.3.6.1.6.3.15.1.1.2.0"] = "The request was outside the agent's SNMPv3 time window",
+        ["1.3.6.1.6.3.15.1.1.3.0"] = "The agent does not know the SNMPv3 username",
+        ["1.3.6.1.6.3.15.1.1.4.0"] = "The agent does not recognise the SNMPv3 engine id",
+        ["1.3.6.1.6.3.15.1.1.5.0"] = "SNMPv3 authentication failed - the auth password is wrong",
+        ["1.3.6.1.6.3.15.1.1.6.0"] = "The agent could not decrypt the request - the privacy password is wrong",
+    };
+
     // A stale cached report (agent rebooted, engine boots changed) makes the agent answer
     // with a report PDU or nothing; rediscover once and retry before failing the operation.
-    private ISnmpMessage GetResponseWithRetry(IPEndPoint host, Func<ReportMessage, ISnmpMessage> createRequest)
+    private ISnmpMessage GetResponseWithRetry(IPEndPoint host, string oid, Func<ReportMessage, ISnmpMessage> createRequest)
     {
         try
         {
-            var reply = createRequest(GetEngineReport(host)).GetResponse(DefaultRequestTimeout, host);
-            if (reply is ReportMessage)
-                throw new SnmpException("The agent returned a report message");
-            return reply;
+            return Validate(createRequest(GetEngineReport(host)).GetResponse(DefaultRequestTimeout, host), oid);
         }
         catch
         {
             InvalidateEngineReport();
-            var reply = createRequest(GetEngineReport(host)).GetResponse(DefaultRequestTimeout, host);
-            if (reply is ReportMessage)
-                throw new SnmpException("The agent returned a report message after engine rediscovery");
-            return reply;
+            return Validate(createRequest(GetEngineReport(host)).GetResponse(DefaultRequestTimeout, host), oid);
         }
+    }
+
+    // Bad credentials come back as a decodable reply whose varbind is a usmStats counter with
+    // ErrorStatus 0 - without these checks that parses as a successful poll of garbage data.
+    private static ISnmpMessage Validate(ISnmpMessage reply, string requestedOid)
+    {
+        var variables = reply.Pdu().Variables;
+        var answeredOid = variables.Count > 0 ? variables[0].Id.ToString() : null;
+        if (answeredOid != null && UsmStatsReasons.TryGetValue(answeredOid, out var reason))
+            throw new SnmpException(reason);
+        if (reply is ReportMessage)
+            throw new SnmpException("The agent rejected the request with a report message");
+        if (answeredOid != null && answeredOid != requestedOid.TrimStart('.'))
+            throw new SnmpException($"The agent answered for OID {answeredOid} instead of {requestedOid}");
+        return reply;
     }
 
     private List<Variable> Set(string oid, ISnmpData value)
@@ -96,7 +117,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
         {
             var host = ResolveHost();
             InvokeRequestHandlers($"SET OID: {oid}, Value: {value}");
-            var reply = GetResponseWithRetry(host, report => new SetRequestMessage(
+            var reply = GetResponseWithRetry(host, oid, report => new SetRequestMessage(
                 VersionCode.V3,
                 Messenger.NextMessageId,
                 Messenger.NextRequestId,
@@ -145,7 +166,7 @@ public class AvCodersSnmpV3Client : CommunicationClient
         {
             var host = ResolveHost();
             InvokeRequestHandlers($"GET OID: {oid}");
-            var reply = GetResponseWithRetry(host, report => new GetRequestMessage(
+            var reply = GetResponseWithRetry(host, oid, report => new GetRequestMessage(
                 VersionCode.V3,
                 Messenger.NextMessageId,
                 Messenger.NextRequestId,
@@ -192,6 +213,19 @@ public class AvCodersSnmpV3Client : CommunicationClient
                 InvalidateEngineReport();
                 results = DoWalk(host, oid);
             }
+            // BulkWalk swallows SNMPv3 rejection reports and returns an empty list, which is
+            // indistinguishable from an empty subtree; a validated get separates the two.
+            if (results.Count == 0)
+                GetResponseWithRetry(host, SysUpTimeOid, report => new GetRequestMessage(
+                    VersionCode.V3,
+                    Messenger.NextMessageId,
+                    Messenger.NextRequestId,
+                    _username,
+                    OctetString.Empty,
+                    [new Variable(new ObjectIdentifier(SysUpTimeOid))],
+                    _priv,
+                    Messenger.MaxMessageSize,
+                    report));
             ConnectionState = ConnectionState.Connected;
             return results;
         }
