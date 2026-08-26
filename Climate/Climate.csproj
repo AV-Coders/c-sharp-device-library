@@ -1,11 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <!-- Not published as a NuGet package; excluded from solution-wide pack. -->
-        <IsPackable>false</IsPackable>
+        <Description>Climate and HVAC drivers for the AV Coders device library, including the Temperzone UC8 unit controller over Modbus RTU.</Description>
+        <PackageId>AVCoders.Climate</PackageId>
+        <AssemblyName>AVCoders.Climate</AssemblyName>
+        <RootNamespace>AVCoders.Climate</RootNamespace>
+        <LangVersion>default</LangVersion>
+        <TargetFramework>net8.0</TargetFramework>
     </PropertyGroup>
 
     <ItemGroup>

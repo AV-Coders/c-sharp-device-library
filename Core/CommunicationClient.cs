@@ -198,23 +198,30 @@ public abstract class CommunicationClient(string name, string host, ushort port,
 public abstract class ModbusClient(String name, string host, ushort port, CommandStringFormat commandStringFormat)
     : CommunicationClient(name, host, port, commandStringFormat)
 {
-    public abstract void ReadCoil(int coil);
-    public abstract void ReadRegister(int register);
-    public abstract void ReadRegisters(List<int> registers);
-    public abstract void WriteRegister(int register, int value);
-    public abstract void WriteRegisters(Dictionary<int, int> value);
+    public abstract Task<bool[]> ReadCoils(byte deviceId, ushort startCoil, ushort count, CancellationToken token = default);
+    public abstract Task<ushort[]> ReadHoldingRegisters(byte deviceId, ushort startRegister, ushort count, CancellationToken token = default);
+    public abstract Task WriteCoil(byte deviceId, ushort coil, bool value, CancellationToken token = default);
+    public abstract Task WriteCoils(byte deviceId, ushort startCoil, bool[] values, CancellationToken token = default);
+    public abstract Task WriteRegister(byte deviceId, ushort register, ushort value, CancellationToken token = default);
+    public abstract Task WriteRegisters(byte deviceId, ushort startRegister, ushort[] values, CancellationToken token = default);
+}
+
+public class ModbusException(byte functionCode, byte exceptionCode, string message) : Exception(message)
+{
+    public byte FunctionCode { get; } = functionCode;
+    public byte ExceptionCode { get; } = exceptionCode;
 }
 
 public abstract class ModbusRtuClient(String name, string host, ushort port)
     : ModbusClient(name, host, port, CommandStringFormat.Hex)
 {
-    
+
 }
 
 public abstract class ModbusAsciiClient(String name, string host, ushort port)
     : ModbusClient(name, host, port, CommandStringFormat.Hex)
 {
-    
+
 }
 
 public abstract class SerialClient(string name, string host, ushort port, CommandStringFormat commandStringFormat)
