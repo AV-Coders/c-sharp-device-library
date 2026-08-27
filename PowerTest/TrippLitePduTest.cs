@@ -24,6 +24,16 @@ public class TrippLitePduTest
     private const string InputVoltageColumn = $"{AtsBranch}.3.1.2.1.5.1";
     private const string OutputVoltageOid = $"{AtsBranch}.3.2.1.1.4.1.1";
     private const string OutputPowerOid = $"{AtsBranch}.2.1.1.9.1";
+    private const string EnvirosenseBranch = "1.3.6.1.4.1.850.1.1.3.3";
+    private const string SensorTypeOid = "1.3.6.1.4.1.850.1.1.1.2.1.3.2";
+    private const string SensorModelOid = "1.3.6.1.4.1.850.1.1.1.2.1.5.2";
+    private const string SensorNameOid = "1.3.6.1.4.1.850.1.1.1.2.1.6.2";
+    private const string SensorTempSupportedOid = $"{EnvirosenseBranch}.1.2.1.1.2";
+    private const string SensorHumiditySupportedOid = $"{EnvirosenseBranch}.1.2.1.2.2";
+    private const string SensorTemperatureOid = $"{EnvirosenseBranch}.3.1.1.1.2";
+    private const string SensorTemperatureAlarmOid = $"{EnvirosenseBranch}.3.1.1.3.2";
+    private const string SensorHumidityOid = $"{EnvirosenseBranch}.3.2.1.1.2";
+    private const string SensorHumidityAlarmOid = $"{EnvirosenseBranch}.3.2.1.2.2";
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
 
@@ -63,6 +73,18 @@ public class TrippLitePduTest
         _mockClient.Setup(c => c.Get(OutputPowerOid)).Returns(SnmpResult(new Gauge32(120)));
         _mockClient.Setup(c => c.Set(It.IsAny<string>(), It.IsAny<int>()))
             .Returns(SnmpResult(new Integer32(0)));
+    }
+
+    private void StubTemperatureSensor()
+    {
+        _mockClient.Setup(c => c.Get(DeviceCountOid)).Returns(SnmpResult(new Gauge32(2)));
+        _mockClient.Setup(c => c.Get(SensorTypeOid)).Returns(SnmpResult(new ObjectIdentifier(EnvirosenseBranch)));
+        _mockClient.Setup(c => c.Get(SensorModelOid)).Returns(SnmpResult(new OctetString("E2MT")));
+        _mockClient.Setup(c => c.Get(SensorNameOid)).Returns(SnmpResult(new OctetString("Sensor0333")));
+        _mockClient.Setup(c => c.Get(SensorTempSupportedOid)).Returns(SnmpResult(new Integer32(1)));
+        _mockClient.Setup(c => c.Get(SensorHumiditySupportedOid)).Returns(SnmpResult(new Integer32(2)));
+        _mockClient.Setup(c => c.Get(SensorTemperatureOid)).Returns(SnmpResult(new Integer32(218)));
+        _mockClient.Setup(c => c.Get(SensorTemperatureAlarmOid)).Returns(SnmpResult(new Integer32(2)));
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, string failureMessage)
@@ -166,6 +188,122 @@ public class TrippLitePduTest
         await WaitUntilAsync(
             () => pdu.GetOngoingIssues().All(issue => !issue.Message.Contains("redundancy is lost")),
             "The redundancy issue was never resolved");
+    }
+
+    [Fact]
+    public async Task Poll_ReadsTheTemperatureSensor()
+    {
+        StubHealthyAtsPdu();
+        StubTemperatureSensor();
+
+        var pdu = await CreateInitialisedPdu();
+
+        await WaitUntilAsync(() => pdu.SensorReadings.Count == 1, "The sensor reading was never populated");
+        Assert.Equal(new TrippLiteSensorReading("Sensor0333", "E2MT", 21.8f, null, false), pdu.SensorReadings[0]);
+        Assert.Equal(10, pdu.Outlets.Count);
+    }
+
+    [Fact]
+    public async Task Poll_WithASensorAlarm_RaisesAndResolvesTheIssue()
+    {
+        StubHealthyAtsPdu();
+        StubTemperatureSensor();
+        var pdu = await CreateInitialisedPdu();
+        _mockClient.Setup(c => c.Get(SensorTemperatureAlarmOid)).Returns(SnmpResult(new Integer32(1)));
+
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().Any(issue => issue.Message.Contains("Sensor0333")),
+            "The sensor alarm issue was never raised");
+        await WaitUntilAsync(() => pdu.SensorReadings.Count == 1 && pdu.SensorReadings[0].InAlarm,
+            "The reading never reported the alarm");
+
+        _mockClient.Setup(c => c.Get(SensorTemperatureAlarmOid)).Returns(SnmpResult(new Integer32(2)));
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().All(issue => !issue.Message.Contains("Sensor0333")),
+            "The sensor alarm issue was never resolved");
+    }
+
+    [Fact]
+    public async Task Poll_WithAnUnansweredSensorQuery_ReportsAnError()
+    {
+        StubHealthyAtsPdu();
+        StubTemperatureSensor();
+        var pdu = await CreateInitialisedPdu();
+        await WaitUntilAsync(() => pdu.SensorReadings.Count == 1, "The sensor reading was never populated");
+        _mockClient.Setup(c => c.Get(SensorTemperatureOid)).Returns([]);
+
+        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error,
+            "The failed sensor poll was never reported");
+    }
+
+    [Fact]
+    public async Task Poll_ReadsAHumiditySensor()
+    {
+        StubHealthyAtsPdu();
+        StubTemperatureSensor();
+        _mockClient.Setup(c => c.Get(SensorHumiditySupportedOid)).Returns(SnmpResult(new Integer32(1)));
+        _mockClient.Setup(c => c.Get(SensorHumidityOid)).Returns(SnmpResult(new Integer32(45)));
+        _mockClient.Setup(c => c.Get(SensorHumidityAlarmOid)).Returns(SnmpResult(new Integer32(2)));
+
+        var pdu = await CreateInitialisedPdu();
+
+        await WaitUntilAsync(() => pdu.SensorReadings.Count == 1, "The sensor reading was never populated");
+        Assert.Equal(new TrippLiteSensorReading("Sensor0333", "E2MT", 21.8f, 45, false), pdu.SensorReadings[0]);
+    }
+
+    [Fact]
+    public async Task Poll_WithAnUnansweredAlarmQuery_DoesNotResolveTheAlarm()
+    {
+        StubHealthyAtsPdu();
+        StubTemperatureSensor();
+        var pdu = await CreateInitialisedPdu();
+        _mockClient.Setup(c => c.Get(SensorTemperatureAlarmOid)).Returns(SnmpResult(new Integer32(1)));
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().Any(issue => issue.Message.Contains("Sensor0333")),
+            "The sensor alarm issue was never raised");
+
+        _mockClient.Setup(c => c.Get(SensorTemperatureAlarmOid)).Returns([]);
+
+        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error,
+            "The failed alarm poll was never reported");
+        Assert.Contains(pdu.GetOngoingIssues(), issue => issue.Message.Contains("Sensor0333"));
+    }
+
+    [Fact]
+    public async Task Initialise_WithAnUnansweredSensorCapabilityQuery_ReportsErrorAndRetries()
+    {
+        StubHealthyAtsPdu();
+        StubTemperatureSensor();
+        _mockClient.Setup(c => c.Get(SensorTempSupportedOid)).Returns([]);
+
+        var pdu = new TrippLitePdu("Test PDU", _mockClient.Object, PollInterval);
+
+        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error,
+            "The failed sensor discovery was never reported");
+
+        _mockClient.Setup(c => c.Get(SensorTempSupportedOid)).Returns(SnmpResult(new Integer32(1)));
+        await WaitUntilAsync(() => pdu.SensorReadings.Count == 1,
+            "The sensor was never discovered after the capability query recovered");
+    }
+
+    [Fact]
+    public async Task Reinitialise_WithTheSensorRemoved_ResolvesItsAlarm()
+    {
+        StubHealthyAtsPdu();
+        StubTemperatureSensor();
+        var pdu = await CreateInitialisedPdu();
+        _mockClient.Setup(c => c.Get(SensorTemperatureAlarmOid)).Returns(SnmpResult(new Integer32(1)));
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().Any(issue => issue.Message.Contains("Sensor0333")),
+            "The sensor alarm issue was never raised");
+
+        _mockClient.Setup(c => c.Get(DeviceCountOid)).Returns(SnmpResult(new Gauge32(1)));
+        pdu.Reinitialise();
+
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().All(issue => !issue.Message.Contains("Sensor0333")),
+            "The orphaned sensor alarm was never resolved");
+        await WaitUntilAsync(() => pdu.SensorReadings.Count == 0, "The removed sensor's reading was never dropped");
     }
 
     [Fact]
