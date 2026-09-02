@@ -1,4 +1,4 @@
-﻿using AVCoders.Core;
+using AVCoders.Core;
 
 namespace AVCoders.Display;
 
@@ -6,7 +6,7 @@ public delegate void InputHandler(Input input);
 
 public abstract class Display : VolumeControl, IDevice
 {
-    public List<Input> SupportedInputs { get; }
+    public IReadOnlyList<Input> SupportedInputs { get; private set; }
     public readonly CommunicationClient CommunicationClient;
     public readonly CommandStringFormat CommandStringFormat;
     private Input _input = Input.Unknown;
@@ -25,11 +25,14 @@ public abstract class Display : VolumeControl, IDevice
     public event Action<Input>? OnInputChanged;
     public event Action<Input>? OnDesiredInputChanged;
     public event Action<CommunicationState>? OnCommunicationStateChanged;
+    public event Action<IReadOnlyList<Input>>? OnSupportedInputsChanged;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
     protected MuteState DesiredVideoMute = MuteState.Unknown;
     protected const string PowerStateIssueKey = "power-state";
     protected const string InputIssueKey = "input";
     protected const string CommunicationIssueKey = "communication";
+    protected const int MaxTransitionPolls = 5;
+    private int _transitionPolls;
 
     protected readonly ThreadWorker PollWorker;
 
@@ -47,11 +50,21 @@ public abstract class Display : VolumeControl, IDevice
         new Thread(_ =>
         {
             Thread.Sleep(1000);
-            PollWorker.Restart();
+            RestartPolling();
         }).Start();
     }
 
     protected abstract void HandleConnectionState(ConnectionState connectionState);
+
+    protected virtual void RestartPolling() => PollWorker.Restart();
+
+    protected void SetSupportedInputs(IReadOnlyList<Input> inputs)
+    {
+        if (SupportedInputs.SequenceEqual(inputs))
+            return;
+        SupportedInputs = inputs;
+        OnSupportedInputsChanged?.Invoke(inputs);
+    }
 
     public Input Input
     {
@@ -148,7 +161,10 @@ public abstract class Display : VolumeControl, IDevice
     {
         using (PushProperties("ProcessPowerResponse"))
         {
-            if (PowerState == DesiredPowerState || DesiredPowerState == PowerState.Unknown)
+            if (!IsPowerTransitioning())
+                _transitionPolls = 0;
+            if (PowerState == DesiredPowerState || DesiredPowerState == PowerState.Unknown
+                || (IsPowerTransitioning() && ++_transitionPolls <= MaxTransitionPolls))
             {
                 ResolveIssue(PowerStateIssueKey);
                 return;
@@ -163,6 +179,11 @@ public abstract class Display : VolumeControl, IDevice
         }
     }
     
+    // Warming and cooling can't be interrupted, so neither is forced or flagged; the first On/Off
+    // answer after the transition triggers the force if the state is still wrong. A projector that
+    // reports a transition for more than MaxTransitionPolls polls is treated as stuck.
+    private bool IsPowerTransitioning() => PowerState is PowerState.Warming or PowerState.Cooling;
+
     protected void ProcessInputResponse()
     {
         using (PushProperties("ProcessInputResponse"))
@@ -170,6 +191,11 @@ public abstract class Display : VolumeControl, IDevice
             if (Input == DesiredInput || DesiredInput == Input.Unknown)
             {
                 ResolveIssue(InputIssueKey);
+                return;
+            }
+            if (!SupportedInputs.Contains(DesiredInput))
+            {
+                RaiseOngoingIssue(InputIssueKey, $"Desired input {DesiredInput} is not supported by this display", IssueSeverity.Minor);
                 return;
             }
             RaiseOngoingIssue(InputIssueKey, $"Input is {Input}, should be {DesiredInput}");
@@ -181,7 +207,7 @@ public abstract class Display : VolumeControl, IDevice
 
     public void TogglePower()
     {
-        if(PowerState == PowerState.On)
+        if (PowerState is PowerState.On or PowerState.Warming)
             PowerOff();
         else
             PowerOn();
@@ -225,7 +251,7 @@ public abstract class Display : VolumeControl, IDevice
 
     protected abstract void DoSetInput(Input input);
 
-    public void SetVolume(int volume)
+    public virtual void SetVolume(int volume)
     {
         using (PushProperties("SetVolume"))
         {

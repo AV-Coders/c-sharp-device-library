@@ -6,12 +6,13 @@ namespace AVCoders.SignalR.Display;
 public class DisplayManager : DeviceBase
 {
     private readonly AVCoders.Display.Display _display;
-    public List<Input> SupportedInputs => _display.SupportedInputs;
+    public IReadOnlyList<Input> SupportedInputs => _display.SupportedInputs;
     public Input Input => _display.Input;
     public int Volume => _display.Volume;
     public MuteState AudioMute => _display.AudioMute;
 
     public event Action<Input>? OnInputChanged;
+    public event Action<IReadOnlyList<Input>>? OnSupportedInputsChanged;
     public event Action<int>? OnVolumeChanged;
     public event Action<MuteState>? OnAudioMuteChanged;
 
@@ -20,6 +21,7 @@ public class DisplayManager : DeviceBase
         _display = display;
         _display.PowerStateHandlers += x => PowerState = x;
         _display.InputHandlers += x => OnInputChanged?.Invoke(x);
+        _display.OnSupportedInputsChanged += x => OnSupportedInputsChanged?.Invoke(x);
         _display.VolumeLevelHandlers += x => OnVolumeChanged?.Invoke(x);
         _display.MuteStateHandlers += x => OnAudioMuteChanged?.Invoke(x);
     }

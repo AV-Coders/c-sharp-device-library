@@ -51,7 +51,7 @@ public class DisplayHubTest
     {
         await _harness.Hub.JoinGroup($"missing-{Guid.NewGuid()}");
 
-        _harness.CallerMock.Verify(c => c.OnSupportedInputsChanged(It.IsAny<List<Input>>()), Times.Never);
+        _harness.CallerMock.Verify(c => c.OnSupportedInputsChanged(It.IsAny<IReadOnlyList<Input>>()), Times.Never);
         _harness.CallerMock.Verify(c => c.OnPowerStateChanged(It.IsAny<PowerState>()), Times.Never);
     }
 

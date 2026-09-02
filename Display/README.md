@@ -34,4 +34,6 @@ display.OnPowerStateChanged += state => Console.WriteLine($"Power: {state}");
 display.PowerOn();
 ```
 
+`PjLink` discovers the projector's inputs from `INST`/`INNM` on class-2 projectors and rebuilds `SupportedInputs` (raising `OnSupportedInputsChanged`) once the first complete name pass lands. Until then the constructor map applies (default `31→Hdmi1`, `32→Hdmi2`, ...), so pass an explicit `inputMap` when the projector's HDMI codes differ (e.g. Epson uses 32/33/36) and the input must be right from the very first command.
+
 See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for logging, tracing and the full architecture overview.

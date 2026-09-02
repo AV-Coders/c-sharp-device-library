@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -61,6 +61,17 @@ public abstract class LogBase
     private readonly object _issuesLock = new();
     private int _issueLimit = 50;
     public event EventHandler<IssuesChangedEventArgs>? IssuesChanged;
+
+    private readonly List<DeviceDetail> _details = [];
+    private readonly object _detailsLock = new();
+    private IReadOnlyList<DeviceDetail>? _detailsSnapshot;
+    public event ActionHandler? DetailsUpdated;
+
+    /// <summary>Device-reported facts (serial, firmware, lamp hours...) in first-set order; a cached snapshot like <see cref="GetIssues"/>.</summary>
+    public IReadOnlyList<DeviceDetail> Details
+    {
+        get { lock (_detailsLock) return _detailsSnapshot ??= _details.ToList(); }
+    }
 
     public IReadOnlyList<Event> Events
     {
@@ -406,6 +417,55 @@ public abstract class LogBase
         LogInformation("Resolved issue {IssueKey}", key);
         AddEvent(EventType.Error, $"Resolved: {key}");
         RaiseIssuesChanged(resolved, IssueChangeKind.Resolved);
+    }
+
+    protected void SetDetail(string label, string value, DetailTone tone = DetailTone.Normal)
+    {
+        lock (_detailsLock)
+        {
+            var index = _details.FindIndex(d => d.Label == label);
+            if (index >= 0)
+            {
+                if (_details[index].Value == value && _details[index].Tone == tone)
+                    return;
+                _details[index] = new DeviceDetail(label, value, tone);
+            }
+            else
+            {
+                _details.Add(new DeviceDetail(label, value, tone));
+            }
+            _detailsSnapshot = null;
+        }
+        RaiseDetailsUpdated();
+    }
+
+    protected void RemoveDetail(string label)
+    {
+        lock (_detailsLock)
+        {
+            if (_details.RemoveAll(d => d.Label == label) == 0)
+                return;
+            _detailsSnapshot = null;
+        }
+        RaiseDetailsUpdated();
+    }
+
+    private void RaiseDetailsUpdated()
+    {
+        var handlers = DetailsUpdated;
+        if (handlers == null)
+            return;
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((ActionHandler)handler)();
+            }
+            catch (Exception e)
+            {
+                LogException(e, "A DetailsUpdated handler threw an exception");
+            }
+        }
     }
 
     public void SetIssueLimit(int limit)
