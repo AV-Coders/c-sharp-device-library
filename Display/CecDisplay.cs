@@ -30,13 +30,6 @@ public class CecDisplay : Display, ISetTopBox
         { '9', RemoteButton.Button9},
     };
 
-    private static readonly List<RemoteButton> UnsupportedButtons =
-    [
-        RemoteButton.Guide,
-        RemoteButton.Home,
-        RemoteButton.Menu
-    ];
-
     private static readonly Dictionary<RemoteButton, char> RemoteButtonMap = new()
     {
         { RemoteButton.Button0, '\x20'},
@@ -181,18 +174,20 @@ public class CecDisplay : Display, ISetTopBox
 
     public void ChannelDown() => RemoteControlPassthrough('\x31');
 
+    public IReadOnlyCollection<RemoteButton> SupportedButtons => RemoteButtonMap.Keys;
+
     public void SendIRCode(RemoteButton button)
     {
         using (PushProperties("SendIRCode"))
         {
-            if (UnsupportedButtons.Contains(button))
+            if (!RemoteButtonMap.TryGetValue(button, out var code))
             {
                 LogWarning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
                 AddEvent(EventType.Error, $"Unsupported button - {button.ToString()}");
                 return;
             }
 
-            RemoteControlPassthrough(RemoteButtonMap[button]);
+            RemoteControlPassthrough(code);
         }
     }
 

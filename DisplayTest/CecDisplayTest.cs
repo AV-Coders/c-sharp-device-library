@@ -13,7 +13,8 @@ public class CecDisplayTest
     [
         RemoteButton.Display, RemoteButton.Eject, 
         RemoteButton.PopupMenu, RemoteButton.TopMenu,
-        RemoteButton.PowerOn, RemoteButton.PowerOff
+        RemoteButton.PowerOn, RemoteButton.PowerOff,
+        RemoteButton.Guide, RemoteButton.Home, RemoteButton.Menu
     ];
     public static IEnumerable<object[]> RemoteButtonValues()
     {
@@ -80,7 +81,12 @@ public class CecDisplayTest
     [MemberData(nameof(RemoteButtonValues))]
     public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
     {
+        _mockClient.Invocations.Clear();
+
         _display.SendIRCode(button);
+
+        Assert.Contains(button, _display.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -100,5 +106,43 @@ public class CecDisplayTest
         _mockClient.Object.ResponseHandlers!.Invoke("\x0F\x90\x00");
 
         Assert.Equal(CommunicationState.Okay, _display.CommunicationState);
+    }
+
+    [Fact]
+    public void SupportedButtons_MatchTheRemoteMap()
+    {
+        Assert.Contains(RemoteButton.Enter, _display.SupportedButtons);
+        Assert.Contains(RemoteButton.Red, _display.SupportedButtons);
+        Assert.DoesNotContain(RemoteButton.Guide, _display.SupportedButtons);
+        Assert.DoesNotContain(RemoteButton.Home, _display.SupportedButtons);
+        Assert.DoesNotContain(RemoteButton.Menu, _display.SupportedButtons);
+    }
+
+    [Fact]
+    public void SendIRCode_UnsupportedButtonSendsNothing()
+    {
+        _display.SendIRCode(RemoteButton.Home);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void SupportedButtons_AreExactlyTheButtonsTheTestExpects()
+    {
+        Assert.Equal(Enum.GetValues<RemoteButton>().Except(_excludedButtons).OrderBy(b => b), _display.SupportedButtons.OrderBy(b => b));
+    }
+
+    public static IEnumerable<object[]> ExcludedButtonValues() => _excludedButtons.Select(rb => new object[] { rb });
+
+    [Theory]
+    [MemberData(nameof(ExcludedButtonValues))]
+    public void SendIRCode_ExcludedButtonsAreNotSupportedAndSendNothing(RemoteButton button)
+    {
+        _mockClient.Invocations.Clear();
+        _display.SendIRCode(button);
+
+        Assert.DoesNotContain(button, _display.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
     }
 }

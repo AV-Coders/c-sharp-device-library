@@ -40,7 +40,6 @@ public class SonySimpleIpControl : Display, ISetTopBox
         { Input.Pc, "0000000600000001" }
     };
 
-    private static readonly List<RemoteButton> UnsupportedButtons = [RemoteButton.Guide];
 
     private static readonly Dictionary<RemoteButton, int> RemoteButtonMap = new()
     {
@@ -723,9 +722,11 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     public void ChannelDown() => SendIRCode(RemoteButton.ChannelDown);
 
+    public IReadOnlyCollection<RemoteButton> SupportedButtons => RemoteButtonMap.Keys;
+
     public void SendIRCode(RemoteButton button)
     {
-        if (UnsupportedButtons.Contains(button))
+        if (!RemoteButtonMap.TryGetValue(button, out var code))
         {
             using (PushProperties("SendIRCode"))
                 LogWarning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
@@ -739,7 +740,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
             ResolveIssue(InputIssueKey);
         }
 
-        Control("IRCC", $"{RemoteButtonMap[button]:D16}");
+        Control("IRCC", $"{code:D16}");
 
         if (button == RemoteButton.Power)
             DesiredPowerState = PowerState.Unknown;

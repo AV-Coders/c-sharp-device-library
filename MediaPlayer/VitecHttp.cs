@@ -14,7 +14,46 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     private readonly string _authInfo;
     private int _subtitleOption = 0;
 
-    private static readonly List<RemoteButton> UnsupportedButtons = [];
+    private static readonly Dictionary<RemoteButton, string> RemoteButtonMap = new()
+    {
+        { RemoteButton.Enter, "enter" },
+        { RemoteButton.Button1, "1" },
+        { RemoteButton.Button2, "2" },
+        { RemoteButton.Button3, "3" },
+        { RemoteButton.Button4, "4" },
+        { RemoteButton.Button5, "5" },
+        { RemoteButton.Button6, "6" },
+        { RemoteButton.Button7, "7" },
+        { RemoteButton.Button8, "8" },
+        { RemoteButton.Button9, "9" },
+        { RemoteButton.Button0, "0" },
+        { RemoteButton.Up, "up" },
+        { RemoteButton.Down, "down" },
+        { RemoteButton.Left, "left" },
+        { RemoteButton.Right, "right" },
+        { RemoteButton.Subtitle, "subtitle" },
+        { RemoteButton.Back, "cancel" },
+        { RemoteButton.ChannelUp, "chup" },
+        { RemoteButton.ChannelDown, "chdown" },
+        { RemoteButton.VolumeUp, "volup" },
+        { RemoteButton.VolumeDown, "voldown" },
+        { RemoteButton.Mute, "mute" },
+        { RemoteButton.Power, "power" },
+        { RemoteButton.Play, "play" },
+        { RemoteButton.Pause, "pause" },
+        { RemoteButton.Stop, "stop" },
+        { RemoteButton.Rewind, "skipback" },
+        { RemoteButton.FastForward, "skipfwd" },
+        { RemoteButton.Previous, "skipback" },
+        { RemoteButton.Next, "skipfwd" },
+        { RemoteButton.Red, "red" },
+        { RemoteButton.Green, "green" },
+        { RemoteButton.Yellow, "yellow" },
+        { RemoteButton.Blue, "blue" },
+        { RemoteButton.Guide, "guide" },
+        { RemoteButton.Home, "fn_home" },
+        { RemoteButton.Menu, "menu" }
+    };
 
     public VitecHttp(string host, string password, string name) 
         : base(name, CommunicationClient.None)
@@ -92,57 +131,17 @@ public class VitecHttp : MediaPlayer, ISetTopBox
             _subtitleOption = 0;
     }
 
+    public IReadOnlyCollection<RemoteButton> SupportedButtons => RemoteButtonMap.Keys;
+
     public void SendIRCode(RemoteButton button)
     {
-        if (UnsupportedButtons.Contains(button))
+        if (!RemoteButtonMap.TryGetValue(button, out var command))
         {
             using (PushProperties("SendIRCode"))
                 LogError("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
             return;
         }
-        string command = button switch
-        {
-            RemoteButton.Enter => "enter",
-            RemoteButton.Button1 => "1",
-            RemoteButton.Button2 => "2",
-            RemoteButton.Button3 => "3",
-            RemoteButton.Button4 => "4",
-            RemoteButton.Button5 => "5",
-            RemoteButton.Button6 => "6",
-            RemoteButton.Button7 => "7",
-            RemoteButton.Button8 => "8",
-            RemoteButton.Button9 => "9",
-            RemoteButton.Button0 => "0",
-            RemoteButton.Up => "up",
-            RemoteButton.Down => "down",
-            RemoteButton.Left => "left",
-            RemoteButton.Right => "right",
-            RemoteButton.Subtitle => "subtitle",
-            RemoteButton.Back => "cancel",
-            RemoteButton.ChannelUp => "chup",
-            RemoteButton.ChannelDown => "chdown",
-            RemoteButton.VolumeUp => "volup",
-            RemoteButton.VolumeDown => "voldown",
-            RemoteButton.Mute => "mute",
-            RemoteButton.Power => "power",
-            RemoteButton.Play => "play",
-            RemoteButton.Pause => "pause",
-            RemoteButton.Stop => "stop",
-            RemoteButton.Rewind => "skipback",
-            RemoteButton.FastForward => "skipfwd",
-            RemoteButton.Previous => "skipback",
-            RemoteButton.Next => "skipfwd",
-            RemoteButton.Red => "red",
-            RemoteButton.Green => "green",
-            RemoteButton.Yellow => "yellow",
-            RemoteButton.Blue => "blue",
-            RemoteButton.Guide => "guide",
-            RemoteButton.Home  => "fn_home",
-            RemoteButton.Menu => "menu",
-            
-            _ => throw new ArgumentOutOfRangeException()
-        };
-        
+
         SimulateRemoteKeypress(command);
     }
 

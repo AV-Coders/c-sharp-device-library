@@ -15,7 +15,8 @@ public class SonySimpleIPControlTest
     [
         RemoteButton.Display, RemoteButton.Eject, 
         RemoteButton.PopupMenu, RemoteButton.TopMenu,
-        RemoteButton.PowerOn, RemoteButton.PowerOff
+        RemoteButton.PowerOn, RemoteButton.PowerOff,
+        RemoteButton.Guide
     ];
     public static IEnumerable<object[]> RemoteButtonValues()
     {
@@ -278,7 +279,12 @@ public class SonySimpleIPControlTest
     [MemberData(nameof(RemoteButtonValues))]
     public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
     {
+        _mockClient.Invocations.Clear();
+
         _sonyTv.SendIRCode(button);
+
+        Assert.Contains(button, _sonyTv.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -1048,5 +1054,42 @@ public class SonySimpleIPControlTest
         await tv.Poll();
 
         Assert.Empty(client.Sent);
+    }
+
+    [Fact]
+    public void SupportedButtons_MatchTheRemoteMap()
+    {
+        Assert.Contains(RemoteButton.Home, _sonyTv.SupportedButtons);
+        Assert.Contains(RemoteButton.Button0, _sonyTv.SupportedButtons);
+        Assert.Contains(RemoteButton.Subtitle, _sonyTv.SupportedButtons);
+        Assert.DoesNotContain(RemoteButton.Guide, _sonyTv.SupportedButtons);
+        Assert.DoesNotContain(RemoteButton.Eject, _sonyTv.SupportedButtons);
+    }
+
+    [Fact]
+    public void SendIRCode_UnsupportedButtonSendsNothing()
+    {
+        _sonyTv.SendIRCode(RemoteButton.Guide);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void SupportedButtons_AreExactlyTheButtonsTheTestExpects()
+    {
+        Assert.Equal(Enum.GetValues<RemoteButton>().Except(_excludedButtons).OrderBy(b => b), _sonyTv.SupportedButtons.OrderBy(b => b));
+    }
+
+    public static IEnumerable<object[]> ExcludedButtonValues() => _excludedButtons.Select(rb => new object[] { rb });
+
+    [Theory]
+    [MemberData(nameof(ExcludedButtonValues))]
+    public void SendIRCode_ExcludedButtonsAreNotSupportedAndSendNothing(RemoteButton button)
+    {
+        _mockClient.Invocations.Clear();
+        _sonyTv.SendIRCode(button);
+
+        Assert.DoesNotContain(button, _sonyTv.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 }

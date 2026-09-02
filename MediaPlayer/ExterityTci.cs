@@ -69,6 +69,8 @@ public class ExterityTci : MediaPlayer, ISetTopBox
         SimulateRemoteKeypress("chdown");
     }
 
+    public IReadOnlyCollection<RemoteButton> SupportedButtons => Enum.GetValues<RemoteButton>();
+
     public void SendIRCode(RemoteButton button)
     {
         SimulateRemoteKeypress(button.ToString());

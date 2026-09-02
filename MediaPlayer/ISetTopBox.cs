@@ -7,4 +7,5 @@ public interface ISetTopBox
     public void SendIRCode(RemoteButton button);
     public void SetChannel(int channel);
     public void ToggleSubtitles();
+    public IReadOnlyCollection<RemoteButton> SupportedButtons { get; }
 }

@@ -8,11 +8,21 @@ public class ExterityTciTest
     private readonly ExterityTci _interface;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private readonly string _password = "Password1";
-    private static readonly RemoteButton[] _excludedButtons = 
-        [
-            RemoteButton.Display, RemoteButton.Eject, 
-            RemoteButton.PopupMenu, RemoteButton.TopMenu
-        ];
+    private static readonly RemoteButton[] _excludedButtons = [];
+
+    // Every button Exterity is known to accept as rm_<name>; a new enum member must be added here deliberately.
+    private static readonly RemoteButton[] _expectedButtons =
+    [
+        RemoteButton.Enter, RemoteButton.Button1, RemoteButton.Button2, RemoteButton.Button3, RemoteButton.Button4,
+        RemoteButton.Button5, RemoteButton.Button6, RemoteButton.Button7, RemoteButton.Button8, RemoteButton.Button9,
+        RemoteButton.Button0, RemoteButton.Up, RemoteButton.Down, RemoteButton.Left, RemoteButton.Right,
+        RemoteButton.Subtitle, RemoteButton.Back, RemoteButton.VolumeUp, RemoteButton.VolumeDown, RemoteButton.Mute,
+        RemoteButton.Power, RemoteButton.ChannelUp, RemoteButton.ChannelDown, RemoteButton.Play, RemoteButton.Pause,
+        RemoteButton.Stop, RemoteButton.Rewind, RemoteButton.FastForward, RemoteButton.Next, RemoteButton.Previous,
+        RemoteButton.Home, RemoteButton.Blue, RemoteButton.Yellow, RemoteButton.Green, RemoteButton.Red,
+        RemoteButton.Guide, RemoteButton.Menu, RemoteButton.Eject, RemoteButton.TopMenu, RemoteButton.PopupMenu,
+        RemoteButton.Display, RemoteButton.PowerOn, RemoteButton.PowerOff
+    ];
 
     public static IEnumerable<object[]> RemoteButtonValues()
     {
@@ -132,6 +142,25 @@ public class ExterityTciTest
     [MemberData(nameof(RemoteButtonValues))]
     public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
     {
+        _mockClient.Invocations.Clear();
+
         _interface.SendIRCode(button);
+
+        Assert.Contains(button, _interface.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void SupportedButtons_CoverEveryRemoteButton()
+    {
+        Assert.Equal(Enum.GetValues<RemoteButton>().Length, _interface.SupportedButtons.Count);
+        Assert.Contains(RemoteButton.Eject, _interface.SupportedButtons);
+    }
+
+    [Fact]
+    public void SupportedButtons_AreExactlyTheButtonsTheTestExpects()
+    {
+        Assert.Equal(_expectedButtons.OrderBy(b => b), _interface.SupportedButtons.OrderBy(b => b));
+        Assert.Equal(_expectedButtons.OrderBy(b => b), Enum.GetValues<RemoteButton>().OrderBy(b => b));
     }
 }

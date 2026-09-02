@@ -226,6 +226,48 @@ public class LgCommercialTest
     [MemberData(nameof(RemoteButtonValues))]
     public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
     {
+        _mockClient.Invocations.Clear();
+
         _display.SendIRCode(button);
+
+        Assert.Contains(button, _display.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.AtLeastOnce);
+    }
+
+    [Fact]
+    public void SupportedButtons_MatchTheRemoteMap()
+    {
+        Assert.Contains(RemoteButton.Guide, _display.SupportedButtons);
+        Assert.Contains(RemoteButton.Menu, _display.SupportedButtons);
+        Assert.DoesNotContain(RemoteButton.Eject, _display.SupportedButtons);
+        Assert.DoesNotContain(RemoteButton.TopMenu, _display.SupportedButtons);
+    }
+
+    [Fact]
+    public void SendIRCode_UnsupportedButtonSendsNothing()
+    {
+        _display.SendIRCode(RemoteButton.Eject);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+    }
+
+    [Fact]
+    public void SupportedButtons_AreExactlyTheButtonsTheTestExpects()
+    {
+        Assert.Equal(Enum.GetValues<RemoteButton>().Except(_excludedButtons).OrderBy(b => b), _display.SupportedButtons.OrderBy(b => b));
+    }
+
+    public static IEnumerable<object[]> ExcludedButtonValues() => _excludedButtons.Select(rb => new object[] { rb });
+
+    [Theory]
+    [MemberData(nameof(ExcludedButtonValues))]
+    public void SendIRCode_ExcludedButtonsAreNotSupportedAndSendNothing(RemoteButton button)
+    {
+        _mockClient.Invocations.Clear();
+        _display.SendIRCode(button);
+
+        Assert.DoesNotContain(button, _display.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 }

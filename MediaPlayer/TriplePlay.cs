@@ -54,6 +54,8 @@ public class TriplePlay : MediaPlayer, ISetTopBox
         Get(GenerateCommandString("ChannelDown"));
     }
 
+    public IReadOnlyCollection<RemoteButton> SupportedButtons => Array.Empty<RemoteButton>();
+
     public void SendIRCode(RemoteButton button) { using (PushProperties("SendIRCode")) LogError("SendIRCode is not supported in TriplePlay"); }
 
     public void SetChannel(int channel) => GoToChannelNumber((uint) channel);

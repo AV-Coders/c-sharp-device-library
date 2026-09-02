@@ -254,9 +254,19 @@ public class LGCommercial : Display, ISetTopBox
 
     public void ChannelDown() => SendCommand(_irccHeader, "01");
 
+    public IReadOnlyCollection<RemoteButton> SupportedButtons => RemoteButtonMap.Keys;
+
     public void SendIRCode(RemoteButton button)
     {
-        SendCommand(_irccHeader, RemoteButtonMap[button]);
+        if (!RemoteButtonMap.TryGetValue(button, out var code))
+        {
+            using (PushProperties("SendIRCode"))
+                LogWarning("Unsupported button - {UnsupportedRemoteButton}", button.ToString());
+            AddEvent(EventType.Error, $"Unsupported button - {button.ToString()}");
+            return;
+        }
+
+        SendCommand(_irccHeader, code);
 
         if (button == RemoteButton.Power)
             DesiredPowerState = PowerState.Unknown;
