@@ -27,6 +27,8 @@ public class PjLink : Display
     };
     
     private PollTask _pollTask;
+    private string _gather = string.Empty;
+    private const int MaxGatherLength = 4096;
 
     public PjLink(TcpClient tcpClient, string name, Input? defaultInput, string password = DefaultPassword) 
         : base(InputDictionary.Keys.ToList(), name, defaultInput, tcpClient, CommandStringFormat.Ascii)
@@ -86,6 +88,29 @@ public class PjLink : Display
     {
         using (PushProperties())
         {
+            _gather += response;
+
+            int delimiterIndex;
+            while ((delimiterIndex = _gather.IndexOf('\r')) >= 0)
+            {
+                string frame = _gather.Substring(0, delimiterIndex);
+                _gather = _gather.Substring(delimiterIndex + 1);
+                if (frame.Length > 0)
+                    ProcessFrame(frame);
+            }
+
+            if (_gather.Length > MaxGatherLength)
+            {
+                LogWarning("Discarding {Length} buffered bytes with no message terminator", _gather.Length);
+                _gather = string.Empty;
+            }
+        }
+    }
+
+    private void ProcessFrame(string response)
+    {
+        using (PushProperties())
+        {
             if (response.Contains("OK"))
             {
                 CommunicationState = CommunicationState.Okay;
@@ -114,10 +139,25 @@ public class PjLink : Display
             if (response.Contains("PJLINK"))
             {
                 CommunicationState = CommunicationState.Okay;
-                if (!response.Contains('1'))
-                    return;
 
                 string[] loginParams = response.Split(' ');
+                if (loginParams.Length < 2)
+                {
+                    CommunicationState = CommunicationState.Error;
+                    LogError("Malformed PJLink authentication banner: {Banner}", response);
+                    return;
+                }
+
+                if (loginParams[1] != "1") // '0' means no authentication is required
+                    return;
+
+                if (loginParams.Length < 3)
+                {
+                    CommunicationState = CommunicationState.Error;
+                    LogError("PJLink authentication banner is missing the random seed: {Banner}", response);
+                    return;
+                }
+
                 byte[] answer = GetMd5Hash(loginParams[2] + _password);
                 byte[] poll = [0x25, 0x31, 0x50, 0x4f, 0x57, 0x52, 0x20, 0x3f, 0x0d];
                 byte[] combined = new byte[answer.Length + poll.Length];
@@ -130,7 +170,11 @@ public class PjLink : Display
             }
 
             var responses = response.Split('=');
-            var value = int.Parse(responses[1]);
+            if (responses.Length < 2 || !int.TryParse(responses[1], out var value))
+            {
+                LogError("Unable to parse response: {Response}", response);
+                return;
+            }
 
             if (responses[0].Contains("POWR"))
             {
@@ -171,19 +215,10 @@ public class PjLink : Display
         }
     }
     
-    public byte[] GetMd5Hash(string input) 
+    public byte[] GetMd5Hash(string input)
     {
-        List<byte> resultBytes = [];
         byte[] hash = MD5.HashData(Encoding.ASCII.GetBytes(input));
-        
-        foreach (byte b in hash)
-        {
-            foreach (byte b1 in Bytes.AsciiRepresentationOfHexEquivalentOf(b, 0, false))
-            {
-                resultBytes.Add(b1);
-            }
-        }
-        return resultBytes.ToArray();
+        return Encoding.ASCII.GetBytes(Convert.ToHexString(hash).ToLowerInvariant());
     }
 
     private void Send(string command) => CommunicationClient.Send($"%1{command}\r");
