@@ -8,12 +8,12 @@ public class ExtronMatrixInput(string name, int inputNumber)
 
 public class ExtronMatrixEndpoint : SyncStatus
 {
-    private readonly int _number;
+    public int Number { get; }
     public bool InUse { get; protected set; }
 
     public ExtronMatrixEndpoint(string name, int number, AVEndpointType type) : base(name, type)
     {
-        _number = number;
+        Number = number;
     }
     public void SetInputStatus(ConnectionState status)
     {
@@ -40,6 +40,9 @@ public class ExtronMatrixEndpoint : SyncStatus
     }
 
     public void SetName(string name) => Name = name;
+
+    /// <summary>Records the input an output is tied to, following the decoder StreamAddress pattern.</summary>
+    public void SetStreamAddress(string address) => StreamAddress = address;
 }
 
 

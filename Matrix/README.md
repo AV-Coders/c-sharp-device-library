@@ -12,7 +12,7 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Matrix). See th
 
 ## Drivers
 
-- `ExtronIn16Xx`, `ExtronIn18Xx`, `ExtronSw`, `ExtronDtpCpxx`
+- `ExtronIn16Xx`, `ExtronIn18Xx`, `ExtronSw`, `ExtronDtpCpxx` (DTP CrossPoint 82/84/86/108), `ExtronDtp2Cp82` (DTP2 CrossPoint 82)
 - `SvsiEncoder`, `SvsiDecoder`
 - `BlustreamAmf41W`
 - `Navigator`, `NavEncoder`, `NavDecoder`
