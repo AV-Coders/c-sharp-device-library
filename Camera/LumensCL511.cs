@@ -15,6 +15,23 @@ public class LumensCL511 : CameraBase
         : base(name, client, presetNames)
     {
         _autoTuneAfterZoom = autoTuneAfterZoom;
+        // This driver never reads a reply, so state is always assumed on send.
+        DeviceSendsResponses = false;
+    }
+
+    protected override void OnDeviceSendsResponsesChanged()
+    {
+        if (!DeviceSendsResponses)
+            return;
+        LogWarning("This driver never reads replies, so DeviceSendsResponses stays false");
+        DeviceSendsResponses = false;
+    }
+
+    // Confirmed on send whatever the flag says: there is no reply handler to confirm it later.
+    public override void RecallPreset(int presetNumber)
+    {
+        DoRecallPreset(presetNumber);
+        LastRecalledPreset = presetNumber;
     }
 
     // The device has no power feedback, so the state is set optimistically.

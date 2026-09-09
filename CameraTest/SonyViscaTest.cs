@@ -1,3 +1,4 @@
+using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 
@@ -305,13 +306,177 @@ public class SonyViscaSerialTest
     public void RecallPreset_WhenTheDeviceDoesNotSendResponses_ReportsTheRecallImmediately()
     {
         var camera = new SonyVisca(_mockClient.Object, false, "Test Cam",
-            new Dictionary<int, string> { { 1, "Lectern" } }, deviceSendsResponses: false);
+            new Dictionary<int, string> { { 1, "Lectern" } }) { DeviceSendsResponses = false };
 
         camera.RecallPreset(1);
 
         Assert.Equal(1, camera.LastRecalledPreset);
         Assert.Contains(camera.Events,
             e => e.Type == EventType.Preset && e.Info == "Preset Lectern recalled");
+    }
+
+    [Theory]
+    [InlineData(PowerState.On)]
+    [InlineData(PowerState.Off)]
+    public void Power_WhenTheDeviceDoesNotSendResponses_AssumesThePowerState(PowerState state)
+    {
+        var camera = new SonyVisca(_mockClient.Object, false, "Test Cam",
+            new Dictionary<int, string> { { 1, "Lectern" } }) { DeviceSendsResponses = false };
+
+        if (state == PowerState.On)
+            camera.PowerOn();
+        else
+            camera.PowerOff();
+
+        Assert.Equal(state, camera.DesiredPowerState);
+        Assert.Equal(state, camera.PowerState);
+    }
+
+    [Fact]
+    public void DeviceSendsResponses_SetAfterConstruction_ChangesTheBehaviour()
+    {
+        _viscaCamera.DeviceSendsResponses = false;
+
+        _viscaCamera.PowerOn();
+        _viscaCamera.RecallPreset(1);
+
+        Assert.Equal(PowerState.On, _viscaCamera.PowerState);
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+    }
+
+    [Fact]
+    public void Power_WhenTheDeviceSendsResponses_WaitsForTheInquiryReply()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x02, 0xFF]);
+
+        _viscaCamera.PowerOff();
+
+        Assert.Equal(PowerState.On, _viscaCamera.PowerState);
+    }
+
+    [Fact]
+    public void Power_WhenTheDeviceDoesNotSendResponses_ResolvesAStalePowerIssue()
+    {
+        _viscaCamera.PowerOn();
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x03, 0xFF]);
+        Assert.Contains(_viscaCamera.GetOngoingIssues(), i => i.Key == "power-state");
+
+        _viscaCamera.DeviceSendsResponses = false;
+        _viscaCamera.PowerOn();
+
+        Assert.DoesNotContain(_viscaCamera.GetOngoingIssues(), i => i.Key == "power-state");
+    }
+
+    [Fact]
+    public void Power_WhenTheSendFails_DoesNotAssumeThePowerState()
+    {
+        _mockClient.Setup(x => x.Send(It.IsAny<byte[]>())).Throws(new IOException("Port closed"));
+        _viscaCamera.DeviceSendsResponses = false;
+
+        _viscaCamera.PowerOn();
+
+        Assert.Equal(PowerState.On, _viscaCamera.DesiredPowerState);
+        Assert.Equal(PowerState.Unknown, _viscaCamera.PowerState);
+    }
+
+    [Fact]
+    public void RecallPreset_WhenTheSendFails_DoesNotReportTheRecall()
+    {
+        _mockClient.Setup(x => x.Send(It.IsAny<byte[]>())).Throws(new IOException("Port closed"));
+        _viscaCamera.DeviceSendsResponses = false;
+
+        _viscaCamera.RecallPreset(1);
+
+        Assert.Equal(CameraBase.NoActivePreset, _viscaCamera.LastRecalledPreset);
+        Assert.DoesNotContain(_viscaCamera.Events, e => e.Type == EventType.Preset);
+    }
+
+    [Fact]
+    public void DeviceSendsResponses_SetToFalse_IgnoresRepliesToEarlierCommands()
+    {
+        _viscaCamera.RecallPreset(0);
+
+        _viscaCamera.DeviceSendsResponses = false;
+        _viscaCamera.RecallPreset(1);
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+        Assert.Single(_viscaCamera.Events, e => e.Type == EventType.Preset);
+    }
+
+    [Fact]
+    public void DeviceSendsResponses_SetBackToTrue_DoesNotConfirmEarlierCommands()
+    {
+        _viscaCamera.RecallPreset(0);
+        _viscaCamera.DeviceSendsResponses = false;
+        _viscaCamera.DeviceSendsResponses = true;
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
+
+        Assert.Equal(CameraBase.NoActivePreset, _viscaCamera.LastRecalledPreset);
+    }
+
+    [Fact]
+    public void DeviceSendsResponses_SetToFalse_AdoptsTheDesiredPowerStateAndResolvesTheIssue()
+    {
+        _viscaCamera.PowerOn();
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x03, 0xFF]);
+        Assert.Contains(_viscaCamera.GetOngoingIssues(), i => i.Key == "power-state");
+
+        _viscaCamera.DeviceSendsResponses = false;
+
+        Assert.Equal(PowerState.On, _viscaCamera.PowerState);
+        Assert.DoesNotContain(_viscaCamera.GetOngoingIssues(), i => i.Key == "power-state");
+    }
+
+    [Fact]
+    public void DeviceSendsResponses_SetToFalseWithNoDesiredState_LeavesPowerUnknown()
+    {
+        _viscaCamera.DeviceSendsResponses = false;
+
+        Assert.Equal(PowerState.Unknown, _viscaCamera.PowerState);
+        Assert.Empty(_viscaCamera.GetOngoingIssues());
+    }
+
+    [Fact]
+    public async Task Poll_WhenTheDeviceSendsResponses_SendsThePowerInquiry()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, false, "Test Cam", new Dictionary<int, string>());
+
+        await InvokePoll(camera);
+
+        Assert.Equal([[0x81, 0x09, 0x04, 0x00, 0xFF]], client.Sent);
+    }
+
+    [Fact]
+    public async Task Poll_WhenTheDeviceDoesNotSendResponses_DoesNotSendThePowerInquiry()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, false, "Test Cam", new Dictionary<int, string>())
+            { DeviceSendsResponses = false };
+
+        await InvokePoll(camera);
+
+        Assert.Empty(client.Sent);
+    }
+
+    private static Task InvokePoll(SonyVisca camera) =>
+        (Task)typeof(SonyVisca).GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(camera, [CancellationToken.None])!;
+
+    private class ConnectedClient : CommunicationClient
+    {
+        public readonly List<byte[]> Sent = [];
+
+        public ConnectedClient() : base("Test", "host", 52381, CommandStringFormat.Hex)
+        {
+            ConnectionState = ConnectionState.Connected;
+        }
+
+        public override void Send(string message) { }
+
+        public override void Send(byte[] bytes) { lock (Sent) Sent.Add(bytes); }
     }
 
     [Fact]

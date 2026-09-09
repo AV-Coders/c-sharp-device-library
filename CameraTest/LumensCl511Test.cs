@@ -14,6 +14,33 @@ public class LumensCl511Test
     }
 
     [Fact]
+    public void DeviceSendsResponses_IsFalse()
+    {
+        Assert.False(_camera.DeviceSendsResponses);
+    }
+
+    [Fact]
+    public void DeviceSendsResponses_SetToTrue_StaysFalse()
+    {
+        _camera.DeviceSendsResponses = true;
+
+        Assert.False(_camera.DeviceSendsResponses);
+    }
+
+    [Fact]
+    public void RecallPreset_AfterAttemptingToEnableResponses_StillReportsTheRecall()
+    {
+        var recalled = new List<int>();
+        _camera.OnPresetRecalled += p => recalled.Add(p);
+        _camera.DeviceSendsResponses = true;
+
+        _camera.RecallPreset(2);
+
+        Assert.Equal(2, _camera.LastRecalledPreset);
+        Assert.Equal([2], recalled);
+    }
+
+    [Fact]
     public void PowerOn_SendsTheCommand()
     {
         byte[] expectedCommand = [0xA0, 0xB1, 0x01, 0x00, 0x00, 0xAF];

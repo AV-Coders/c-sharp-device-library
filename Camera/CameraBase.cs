@@ -15,6 +15,27 @@ public abstract class CameraBase(string name, CommunicationClient client, Dictio
     public event Action<int>? OnPresetRecalled;
     public Dictionary<int, string> PresetNames { get; } = presetNames;
 
+    private bool _deviceSendsResponses = true;
+
+    /// <summary>
+    /// Whether the camera replies to commands. When false, drivers that expect replies stop polling
+    /// and assume state as each command is sent.
+    /// </summary>
+    public bool DeviceSendsResponses
+    {
+        get => _deviceSendsResponses;
+        set
+        {
+            if (value == _deviceSendsResponses)
+                return;
+            _deviceSendsResponses = value;
+            OnDeviceSendsResponsesChanged();
+        }
+    }
+
+    /// <summary>Called after <see cref="DeviceSendsResponses"/> changes.</summary>
+    protected virtual void OnDeviceSendsResponsesChanged() { }
+
     /// <summary>
     /// The last recalled preset number. Returns <see cref="NoActivePreset"/> when no preset is active.
     /// </summary>
@@ -60,10 +81,16 @@ public abstract class CameraBase(string name, CommunicationClient client, Dictio
 
     public abstract void SetAutoFocus(PowerState state);
 
+    /// <summary>
+    /// Recalls a preset. When the camera does not reply, the preset is reported as recalled
+    /// immediately; otherwise the driver reports it when the camera confirms.
+    /// </summary>
     public virtual void RecallPreset(int presetNumber)
     {
         DoRecallPreset(presetNumber);
-        LastRecalledPreset = presetNumber;
+        // Do not assume a recall the transport rejected; drivers report that as a communication error.
+        if (!DeviceSendsResponses && CommunicationState != CommunicationState.Error)
+            LastRecalledPreset = presetNumber;
     }
 
     public abstract void DoRecallPreset(int presetNumber);

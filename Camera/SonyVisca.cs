@@ -20,7 +20,8 @@ public class SonyVisca : CameraBase
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
     private record PendingCommand(string Description, Action? OnCompleted);
 
-    private readonly bool _deviceSendsResponses;
+    // Written by the caller's thread in SendCommand and by the receive thread in HandleResponse.
+    private readonly object _pendingLock = new();
     private readonly Dictionary<byte, PendingCommand> _pendingCommands = new Dictionary<byte, PendingCommand>();
     private PendingCommand? _lastCommand;
 
@@ -34,11 +35,10 @@ public class SonyVisca : CameraBase
         { 0x41, "Command not executable" }
     };
 
-    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01, int pollTime = 30, bool deviceSendsResponses = true)
+    public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01, int pollTime = 30)
         : base(name, client, presetNames)
     {
         _useIpHeaders = useIpHeaders;
-        _deviceSendsResponses = deviceSendsResponses;
         SetCameraId(cameraId);
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         _panSpeed = 0x04;
@@ -54,17 +54,35 @@ public class SonyVisca : CameraBase
         _ipHeaders.Add(PayloadType.ControlCommand, [0x02, 0x00]);
         _ipHeaders.Add(PayloadType.ControlReply, [0x02, 0x01]);
         // Local rather than a field (S1450): the worker's running task keeps it alive.
-        var pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
+        // waitFirst: the first inquiry must not beat an object initialiser that turns responses off.
+        var pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), waitFirst: true);
         pollWorker.Restart();
+    }
+
+    protected override void OnDeviceSendsResponsesChanged()
+    {
+        lock (_pendingLock)
+        {
+            // A stale entry must not be matched against a later command that reuses its sequence number.
+            _pendingCommands.Clear();
+            _lastCommand = null;
+        }
+        if (DeviceSendsResponses)
+            return;
+        // Nothing will report the real state again, so adopt the desired state and clear any
+        // power issue raised by an earlier inquiry reply.
+        if (DesiredPowerState != PowerState.Unknown)
+            PowerState = DesiredPowerState;
+        ProcessPowerState();
     }
 
     private Task Poll(CancellationToken token)
     {
+        if (!DeviceSendsResponses || CommunicationClient.ConnectionState != ConnectionState.Connected)
+            return Task.CompletedTask;
+
         using (PushProperties("Poll"))
         {
-            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
-                return Task.CompletedTask;
-
             SendInquiry([_header, 0x09, 0x04, 0x00, CommandFooter]);
         }
         return Task.CompletedTask;
@@ -88,7 +106,8 @@ public class SonyVisca : CameraBase
         }
     }
 
-    protected void SendCommand(byte[] bytes, string? description = null, Action? onCompleted = null)
+    /// <returns>Whether the command was handed to the transport.</returns>
+    protected bool SendCommand(byte[] bytes, string? description = null, Action? onCompleted = null)
     {
         try
         {
@@ -96,22 +115,27 @@ public class SonyVisca : CameraBase
             var pending = description == null ? null : new PendingCommand(description, onCompleted);
             if (_useIpHeaders)
             {
-                if (pending == null)
-                    _pendingCommands.Remove(_sequenceNumber);
-                else
-                    _pendingCommands[_sequenceNumber] = pending;
+                lock (_pendingLock)
+                {
+                    if (pending == null)
+                        _pendingCommands.Remove(_sequenceNumber);
+                    else
+                        _pendingCommands[_sequenceNumber] = pending;
+                }
                 CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaCommand, bytes));
-                return;
+                return true;
             }
-            _lastCommand = pending;
+            lock (_pendingLock)
+                _lastCommand = pending;
             CommunicationClient.Send(bytes);
+            return true;
         }
         catch (Exception e)
         {
             LogException(e);
             CommunicationState = CommunicationState.Error;
+            return false;
         }
-            
     }
 
     private byte[] PayloadWithIpHeader(PayloadType payloadType, byte[] payload)
@@ -154,16 +178,18 @@ public class SonyVisca : CameraBase
         _zoomOutSpeed = (byte)(speed + 0x30);
     }
 
-    public override void PowerOff()
-    {
-        SendCommand([_header, 0x01, 0x04, 0x00, 0x03, CommandFooter]);
-        DesiredPowerState = PowerState.Off;
-    }
+    public override void PowerOff() => SetPower(PowerState.Off, 0x03);
 
-    public override void PowerOn()
+    public override void PowerOn() => SetPower(PowerState.On, 0x02);
+
+    private void SetPower(PowerState state, byte code)
     {
-        SendCommand([_header, 0x01, 0x04, 0x00, 0x02, CommandFooter]);
-        DesiredPowerState = PowerState.On;
+        var sent = SendCommand([_header, 0x01, 0x04, 0x00, code, CommandFooter]);
+        DesiredPowerState = state;
+        if (DeviceSendsResponses || !sent)
+            return;
+        PowerState = state;
+        ProcessPowerState(); // Both states agree, so this only resolves any open power issue.
     }
     
     protected override void DoZoomStop()
@@ -238,13 +264,6 @@ public class SonyVisca : CameraBase
         }
     }
 
-    public override void RecallPreset(int presetNumber)
-    {
-        DoRecallPreset(presetNumber);
-        if (!_deviceSendsResponses)
-            LastRecalledPreset = presetNumber;
-    }
-
     public override void DoRecallPreset(int presetNumber)
     {
         var presetName = PresetNames.TryGetValue(presetNumber, out var name) ? name : presetNumber.ToString();
@@ -253,10 +272,11 @@ public class SonyVisca : CameraBase
             LastRecalledPreset = presetNumber;
             AddEvent(EventType.Preset, $"Preset {presetName} recalled");
         }
-        SendCommand([_header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter], $"recall preset {presetName}",
-            _deviceSendsResponses ? Confirm : null);
-        if (!_deviceSendsResponses)
-            AddEvent(EventType.Preset, $"Preset {presetName} recalled");
+        var sendsResponses = DeviceSendsResponses;
+        var sent = SendCommand([_header, 0x01, 0x04, 0x3f, 0x02, (byte)presetNumber, CommandFooter],
+            $"recall preset {presetName}", sendsResponses ? Confirm : null);
+        if (!sendsResponses && sent)
+            Confirm();
     }
 
     public override void SavePreset(int presetNumber)
@@ -268,6 +288,9 @@ public class SonyVisca : CameraBase
 
     private void HandleResponse(byte[] response)
     {
+        // State is assumed on send; a reply here is either late or from a camera the integrator chose to treat as silent.
+        if (!DeviceSendsResponses)
+            return;
         using (PushProperties("HandleResponse"))
         {
             var index = 0;
@@ -324,7 +347,7 @@ public class SonyVisca : CameraBase
                 CommunicationState = CommunicationState.Okay;
                 if (payload.Length == 3)
                 {
-                    ConsumePendingCommand(sequenceNumber)?.OnCompleted?.Invoke();
+                    CompletePendingCommand(sequenceNumber);
                     LogVerbose("Command complete");
                     return;
                 }
@@ -354,29 +377,49 @@ public class SonyVisca : CameraBase
         }
     }
 
+    // The callbacks run under the lock so that turning responses off, which takes the same lock,
+    // either happens before the lookup (nothing found) or after the callback has finished.
     private void InvokePendingCallback(byte? sequenceNumber)
     {
-        if (sequenceNumber is { } sequence)
+        lock (_pendingLock)
         {
-            if (!_pendingCommands.TryGetValue(sequence, out var pending) || pending.OnCompleted == null)
+            if (!DeviceSendsResponses)
                 return;
-            _pendingCommands[sequence] = pending with { OnCompleted = null };
-            pending.OnCompleted.Invoke();
-            return;
+            if (sequenceNumber is { } sequence)
+            {
+                if (!_pendingCommands.TryGetValue(sequence, out var pending) || pending.OnCompleted == null)
+                    return;
+                _pendingCommands[sequence] = pending with { OnCompleted = null };
+                pending.OnCompleted.Invoke();
+                return;
+            }
+            if (_lastCommand?.OnCompleted is not { } onCompleted)
+                return;
+            _lastCommand = _lastCommand with { OnCompleted = null };
+            onCompleted.Invoke();
         }
-        if (_lastCommand?.OnCompleted is not { } onCompleted)
-            return;
-        _lastCommand = _lastCommand with { OnCompleted = null };
-        onCompleted.Invoke();
+    }
+
+    private void CompletePendingCommand(byte? sequenceNumber)
+    {
+        lock (_pendingLock)
+        {
+            if (!DeviceSendsResponses)
+                return;
+            ConsumePendingCommand(sequenceNumber)?.OnCompleted?.Invoke();
+        }
     }
 
     private PendingCommand? ConsumePendingCommand(byte? sequenceNumber)
     {
-        if (sequenceNumber is { } sequence)
-            return _pendingCommands.Remove(sequence, out var pending) ? pending : null;
-        var last = _lastCommand;
-        _lastCommand = null;
-        return last;
+        lock (_pendingLock)
+        {
+            if (sequenceNumber is { } sequence)
+                return _pendingCommands.Remove(sequence, out var pending) ? pending : null;
+            var last = _lastCommand;
+            _lastCommand = null;
+            return last;
+        }
     }
 
     private void ReportMalformedResponse(byte[] response)

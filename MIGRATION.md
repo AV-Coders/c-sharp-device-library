@@ -1,3 +1,20 @@
+# Migrating to the release where DeviceSendsResponses became a property
+
+The `deviceSendsResponses` constructor argument on `SonyVisca` and `AverVisca` (present in
+the 2026.8 and 2026.9 packages) is gone. The flag is now a settable `DeviceSendsResponses`
+property on `CameraBase`, so it can be changed after construction and read on any camera.
+
+```csharp
+// Before
+var camera = new AverVisca(client, "Cam", presets, deviceSendsResponses: false);
+
+// After
+var camera = new AverVisca(client, "Cam", presets) { DeviceSendsResponses = false };
+```
+
+Positional callers that passed the trailing `bool` must drop it. `LumensCL511` reports
+`false` from construction because it never reads replies.
+
 # Migrating to the release where SyncStatus moved to AVCoders.Core
 
 `SyncStatus` and its supporting types (`AVEndpointType`, `HdcpStatus`, `SyncInfoHandler`,
