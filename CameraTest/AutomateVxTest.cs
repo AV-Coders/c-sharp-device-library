@@ -107,6 +107,17 @@ public class AutomateVxTest
     }
 
     [Fact]
+    public void SetScenarioById_PostsTheIdToGoToScenario()
+    {
+        _automateVx.SetScenarioById(7);
+
+        _mockClient.Verify(x => x.Post(
+            It.Is<Uri>(uri => uri.ToString() == "/api/GoToScenario"),
+            "{\"id\": \"7\"}",
+            "application/json"));
+    }
+
+    [Fact]
     public void ResponseHandler_UpdatesTheCommunicationState()
     {
         var response = new HttpResponseMessage(HttpStatusCode.OK);

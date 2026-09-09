@@ -300,6 +300,16 @@ public class AutomateVX : DeviceBase
         }
     }
 
+    public void SetScenarioById(int id)
+    {
+        using (PushProperties("SetScenarioById"))
+        {
+            LogInformation("Setting Scenario to id {scenarioId}", id);
+            _client.Post(_goToScenarioUri, $"{{\"id\": \"{id}\"}}", "application/json");
+            _lastAction = () => SetScenarioById(id);
+        }
+    }
+
     public override void PowerOn()
     {
     }
