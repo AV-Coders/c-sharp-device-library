@@ -9,7 +9,7 @@
         <AssemblyName>AVCoders.Core.Tests</AssemblyName>
         <RootNamespace>AVCoders.Core.Tests</RootNamespace>
         <LangVersion>default</LangVersion>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>

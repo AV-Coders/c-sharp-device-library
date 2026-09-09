@@ -8,7 +8,7 @@
         <PackageId>AVCoders.Core</PackageId>
         <AssemblyName>AVCoders.Core</AssemblyName>
         <LangVersion>default</LangVersion>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>

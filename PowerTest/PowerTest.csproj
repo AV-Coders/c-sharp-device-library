@@ -7,7 +7,7 @@
         <AssemblyName>AVCoders.Power.Tests</AssemblyName>
         <RootNamespace>AVCoders.Power.Tests</RootNamespace>
         <LangVersion>default</LangVersion>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     </PropertyGroup>
 
     <ItemGroup>
