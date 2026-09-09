@@ -6,6 +6,11 @@ public abstract class VideoMatrix(int numberOfOutputs, CommunicationClient clien
     : DeviceBase(name, client)
 {
     protected List<int> Sources = new(numberOfOutputs);
+    /// <summary>
+    /// Raised when the set of inputs or outputs changes, for example as a driver discovers connectors
+    /// from the device. UIs that cache <see cref="GetInputs"/> / <see cref="GetOutputs"/> should re-read them.
+    /// </summary>
+    public ActionHandler? EndpointsChangedHandlers;
     public abstract int NumberOfOutputs { get; }
     public abstract int NumberOfInputs { get; }
     public abstract bool RequiresOutputSpecification { get; }
