@@ -13,6 +13,10 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Matrix). See th
 ## Drivers
 
 - `ExtronIn16Xx`, `ExtronIn18Xx`, `ExtronSw`, `ExtronDtpCpxx` (DTP CrossPoint 82/84/86/108), `ExtronDtp2Cp82` (DTP2 CrossPoint 82)
+- `CiscoRoomOsVideoMatrix` — the video inputs and outputs of a Cisco RoomOS / CE codec as a routing-free
+  `VideoMatrix`, sharing the codec's communication client with the `AVCoders.Conference` driver. Carries sync
+  state, resolution, HDCP and history per connector. Input names come from the codec's connector configuration;
+  outputs stay "Output n" and expose the connected display's EDID name as `ConnectedDeviceName`, logged on change.
 - `SvsiEncoder`, `SvsiDecoder`
 - `BlustreamAmf41W`
 - `Navigator`, `NavEncoder`, `NavDecoder`

@@ -45,7 +45,7 @@ display.PowerOn();
 | `AVCoders.Core` | Foundation: `LogBase`, `DeviceBase`, `CommunicationClient`/`VolumeControl`/`ThreadWorker` abstractions, enums, handler delegates | — |
 | `AVCoders.CommunicationClients` | Concrete transports | `AvCodersTcpClient`, `AvCodersUdpClient`, `AvCodersSshClient`, `AvCodersMqttClient`, `AvCodersRestClient`, `AvCodersMulticastClient`, `AvCodersTcpServer`, `AvCodersSnmpV3Client`, `AvCodersWakeOnLan` |
 | `AVCoders.Display` | Displays / projectors / LED walls | `PjLink`, `SamsungMdc`, `SonySerialControl`/`SonySimpleIpControl`/`SonyRest`, `NecUhdExternalControl`, `PhilipsSICP`, `LGCommercial`, `CecDisplay`, `NovaStarH5`, `ColorlightDeviceControlProtocolClassB` |
-| `AVCoders.Matrix` | Matrix switchers / AV-over-IP | `ExtronIn16Xx`/`ExtronIn18Xx`/`ExtronSw`/`ExtronDtpCpxx`/`ExtronDtp2Cp82`, `SvsiEncoder`/`SvsiDecoder`, `BlustreamAmf41W`, `Navigator`/`NavEncoder`/`NavDecoder`, `AVoIPEndpoint` |
+| `AVCoders.Matrix` | Matrix switchers / AV-over-IP | `ExtronIn16Xx`/`ExtronIn18Xx`/`ExtronSw`/`ExtronDtpCpxx`/`ExtronDtp2Cp82`, `CiscoRoomOsVideoMatrix` (codec video connectors), `SvsiEncoder`/`SvsiDecoder`, `BlustreamAmf41W`, `Navigator`/`NavEncoder`/`NavDecoder`, `AVoIPEndpoint` |
 | `AVCoders.Camera` | PTZ cameras & auto-tracking | `SonyVisca`, `AverVisca` (`ITrackingCamera`), `LumensCL511`, `AutomateVX` (1Beyond) |
 | `AVCoders.Conference` | Conferencing codecs & phonebooks | `CiscoRoomOs` (+ output/mic faders), `CiscoRoomOsPhonebookParser` |
 | `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `BoseCspSoIP` |
