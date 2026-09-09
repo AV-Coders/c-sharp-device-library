@@ -836,17 +836,21 @@ public class CiscoRoomOsVideoMatrixTest
     {
         const int connectors = 400;
         using var stop = new CancellationTokenSource();
+        using var readerStarted = new ManualResetEventSlim();
         var reader = Task.Run(() =>
         {
             var reads = 0;
-            while (!stop.IsCancellationRequested)
+            readerStarted.Set();
+            // Keep reading until the writer has finished and at least one read overlapped the discovery.
+            do
             {
                 _ = _matrix.Inputs.Count + _matrix.Outputs.Count + _matrix.GetInputs().Count + _matrix.GetOutputs().Count;
                 _ = _matrix.GetInput(reads % connectors + 1);
                 reads++;
-            }
+            } while (!stop.IsCancellationRequested);
             return reads;
         });
+        readerStarted.Wait();
 
         var writer = Task.Run(() =>
         {
