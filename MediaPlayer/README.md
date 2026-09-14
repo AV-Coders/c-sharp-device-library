@@ -17,6 +17,7 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.MediaPlayer). S
 - `TriplePlay`
 - `VitecHttp`, `VitecServer`
 - `ExterityTci`
+- `AppleTvCec`
 
 ## Usage
 

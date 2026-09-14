@@ -50,7 +50,7 @@ display.PowerOn();
 | `AVCoders.Conference` | Conferencing codecs & phonebooks | `CiscoRoomOs` (+ output/mic faders), `CiscoRoomOsPhonebookParser` |
 | `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `BoseCspSoIP` |
 | `AVCoders.Power` | PDUs / outlets | `TrippLitePdu`/`TrippLiteOutlet` (SNMPv3, Tripp Lite / Eaton PowerAlert incl. ATS models), `ServerEdgePdu`/`ServerEdgeOutlet` (REST), `ThorRf11IqPdu`/`ThorRf11IqOutlet` (HTTP) |
-| `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer`, `ExterityTci` |
+| `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer`, `ExterityTci`, `AppleTvCec` |
 | `AVCoders.Motor` | Screens / blinds / shades | `ScreenTechnicsConnect`, `Grandview`, `MotoluxBlindTransmitter`, `BondDevice`/`BondGroup` |
 | `AVCoders.Lighting` | Lighting & dimmers | `CBusLight`, `DyNet` (Dynalite), `Zigbee2MqttLight` |
 | `AVCoders.Annotator` | Annotation devices | `ExtronAnnotator401` |
