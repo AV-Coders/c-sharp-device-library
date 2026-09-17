@@ -7,7 +7,7 @@ serial, REST, MQTT, multicast and SNMP.
 
 Each device domain ships as its own NuGet package (published to
 [nuget.org](https://www.nuget.org/profiles/AV-Coders)) on top
-of a shared `AVCoders.Core` foundation. Targets **.NET 8.0**.
+of a shared `AVCoders.Core` foundation. Targets **.NET 8.0 and .NET 10.0**.
 
 ## How it works
 

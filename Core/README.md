@@ -1,6 +1,6 @@
 # AVCoders.Core
 
-Foundation for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library) — every driver package builds on it. Targets **.NET 8.0**.
+Foundation for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library) — every driver package builds on it. Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 

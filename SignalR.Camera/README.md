@@ -1,6 +1,6 @@
 # AVCoders.SignalR.Camera
 
-SignalR hub and bridge for AV Coders cameras: power, preset recall and tracking mode. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0**.
+SignalR hub and bridge for AV Coders cameras: power, preset recall and tracking mode. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 

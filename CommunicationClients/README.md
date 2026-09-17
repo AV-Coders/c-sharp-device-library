@@ -1,6 +1,6 @@
 # AVCoders.CommunicationClients
 
-Transport clients for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library) — the concrete `CommunicationClient` implementations that drivers talk to hardware through. Built on `AVCoders.Core`. Targets **.NET 8.0**.
+Transport clients for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library) — the concrete `CommunicationClient` implementations that drivers talk to hardware through. Built on `AVCoders.Core`. Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 

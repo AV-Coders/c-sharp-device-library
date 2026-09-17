@@ -1,6 +1,6 @@
 # AVCoders.SignalR.Source
 
-SignalR hub and source definitions for AV routing UIs. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0**.
+SignalR hub and source definitions for AV routing UIs. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 

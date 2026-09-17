@@ -1,6 +1,6 @@
 # AVCoders.Matrix
 
-Matrix switcher and AV-over-IP drivers for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Built on `AVCoders.Core`. Targets **.NET 8.0**.
+Matrix switcher and AV-over-IP drivers for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Built on `AVCoders.Core`. Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 

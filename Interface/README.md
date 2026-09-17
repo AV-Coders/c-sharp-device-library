@@ -1,6 +1,6 @@
 # AVCoders.Interface
 
-Touch panel and smart-home interface drivers for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Built on `AVCoders.Core`. Targets **.NET 8.0**.
+Touch panel and smart-home interface drivers for the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Built on `AVCoders.Core`. Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 

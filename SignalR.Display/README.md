@@ -1,6 +1,6 @@
 # AVCoders.SignalR.Display
 
-SignalR hub and bridge for AV Coders displays: power, input, volume and mute. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0**.
+SignalR hub and bridge for AV Coders displays: power, input, volume and mute. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 
