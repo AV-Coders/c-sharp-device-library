@@ -95,22 +95,11 @@ public abstract class ExtronDtpCpBase : VideoMatrix
         return true;
     }
 
-    protected static (ConnectionState Connection, HdcpStatus Hdcp) DecodeInputHdcp(string value) => value switch
-    {
-        "0" => (ConnectionState.Disconnected, HdcpStatus.Unknown),
-        "1" => (ConnectionState.Connected, HdcpStatus.NotSupported),
-        "2" => (ConnectionState.Connected, HdcpStatus.Active),
-        _ => (ConnectionState.Unknown, HdcpStatus.Unknown)
-    };
+    /// <summary>Decodes an input HDCP value; the tables are shared with the other Extron SIS drivers.</summary>
+    protected static (ConnectionState Connection, HdcpStatus Hdcp) DecodeInputHdcp(string value) => ExtronSisHdcp.DecodeInput(value);
 
-    protected static (ConnectionState Connection, HdcpStatus Hdcp) DecodeOutputHdcp(string value) => value switch
-    {
-        "0" => (ConnectionState.Disconnected, HdcpStatus.Unknown),
-        "1" => (ConnectionState.Connected, HdcpStatus.NotSupported),
-        "2" => (ConnectionState.Connected, HdcpStatus.Available),
-        "3" => (ConnectionState.Connected, HdcpStatus.Active),
-        _ => (ConnectionState.Unknown, HdcpStatus.Unknown)
-    };
+    /// <summary>Decodes an output HDCP value; the tables are shared with the other Extron SIS drivers.</summary>
+    protected static (ConnectionState Connection, HdcpStatus Hdcp) DecodeOutputHdcp(string value) => ExtronSisHdcp.DecodeOutput(value);
 
     public override void RouteAV(int input, int output)
     {

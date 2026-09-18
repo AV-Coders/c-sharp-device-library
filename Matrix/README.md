@@ -13,6 +13,10 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Matrix). See th
 ## Drivers
 
 - `ExtronIn16Xx`, `ExtronIn18Xx`, `ExtronSw`, `ExtronDtpCpxx` (DTP CrossPoint 82/84/86/108), `ExtronDtp2Cp82` (DTP2 CrossPoint 82)
+- `ExtronAnnotator401VideoMatrix` — the HDMI input and two HDMI outputs of an Extron Annotator 401 as a
+  routing-free `VideoMatrix`, sharing the annotator's communication client with the `AVCoders.Annotator` driver.
+  The endpoints exist from construction and carry sync state and HDCP status; both outputs always show the only
+  input, so the routing methods only log.
 - `CiscoRoomOsVideoMatrix` — the video inputs and outputs of a Cisco RoomOS / CE codec as a routing-free
   `VideoMatrix`, sharing the codec's communication client with the `AVCoders.Conference` driver. Connectors are
   discovered from the codec's status (`EndpointsChangedHandlers` fires as they appear) and carry sync state,

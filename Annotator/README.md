@@ -14,6 +14,10 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Annotator). See
 
 - `ExtronAnnotator401`
 
+The annotator's HDMI sync and HDCP status is reported separately by `ExtronAnnotator401VideoMatrix` in
+[`AVCoders.Matrix`](../Matrix/README.md), which shares the same communication client so the ports can be seen
+on a standard video matrix page.
+
 ## Usage
 
 Drivers derive from `AnnotatorBase` and talk to hardware through a transport from `AVCoders.CommunicationClients`. See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for full wiring, logging and tracing setup.

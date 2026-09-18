@@ -193,4 +193,26 @@ public class ExtronAnnotator401Test
         _mockClient.Object.ResponseHandlers!.Invoke("Draw99");
         toolHandler.Verify(x => x.Invoke(It.IsAny<DrawingTool>()), Times.Never);
     }
+
+    // AVCoders.Matrix.ExtronAnnotator401VideoMatrix shares this driver's client and provokes these responses,
+    // so they must leave the annotation state alone.
+    [Theory]
+    [InlineData("In00 1")]
+    [InlineData("In00 0")]
+    [InlineData("HdcpI1*1")]
+    [InlineData("HdcpO1*0")]
+    [InlineData("HdcpO2*1")]
+    public void ResponseHandler_IgnoresTheVideoStatusResponses(string response)
+    {
+        Mock<DrawingToolHandler> toolHandler = new Mock<DrawingToolHandler>();
+        Mock<StringHandler> fileHandler = new Mock<StringHandler>();
+        _annotator.OnDrawingToolChanged += toolHandler.Object;
+        _annotator.OnFileSaved += fileHandler.Object;
+
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+
+        toolHandler.Verify(x => x.Invoke(It.IsAny<DrawingTool>()), Times.Never);
+        fileHandler.Verify(x => x.Invoke(It.IsAny<string>()), Times.Never);
+        Assert.Null(_annotator.CurrentTool);
+    }
 }
