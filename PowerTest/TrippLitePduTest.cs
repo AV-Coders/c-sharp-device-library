@@ -365,9 +365,11 @@ public class TrippLitePduTest
     public async Task PowerOn_WithAnUnacknowledgedCommand_DoesNotChangeTheState()
     {
         StubHealthyAtsPdu();
+        _mockClient.Setup(c => c.Walk(OutletStateColumn))
+            .Returns(Column(OutletStateColumn, _ => new Integer32(1), 10));
         var pdu = await CreateInitialisedPdu();
         var outlet = (TrippLiteOutlet)pdu.Outlets[0];
-        outlet.OverridePowerState(PowerState.Off);
+        await WaitUntilAsync(() => outlet.PowerState == PowerState.Off, "The outlet never polled as off");
         _mockClient.Setup(c => c.Set(It.IsAny<string>(), It.IsAny<int>())).Returns([]);
 
         outlet.PowerOn();

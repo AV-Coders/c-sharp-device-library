@@ -217,10 +217,8 @@ public class ThorRf11IqPduTest
         Respond("/status.xml", "401 Unauthorized: Password required", HttpStatusCode.Unauthorized);
         var pdu = CreatePdu();
 
-        await WaitUntilAsync(() => pdu.GetIssues().Any(issue => issue.Key == "unanswered-poll"),
-            "The failed poll was never recorded");
+        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error, "The failed poll was never recorded");
 
-        Assert.Equal(CommunicationState.Error, pdu.CommunicationState);
         // One driver issue for the failed poll; the Critical "communication" entry comes from DeviceBase.
         var issue = Assert.Single(pdu.GetIssues().Where(i => i.Key != "communication"));
         Assert.Equal("unanswered-poll", issue.Key);
@@ -233,10 +231,8 @@ public class ThorRf11IqPduTest
         Respond("/status.xml", "<html>nope");
         var pdu = CreatePdu();
 
-        await WaitUntilAsync(() => pdu.GetIssues().Any(issue => issue.Key == "unanswered-poll"),
-            "The failed poll was never recorded");
+        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error, "The failed poll was never recorded");
 
-        Assert.Equal(CommunicationState.Error, pdu.CommunicationState);
         Assert.Contains(pdu.GetIssues(), issue => issue.Message.Contains("not valid XML"));
         Assert.Contains(pdu.Events, e => e.Type == EventType.Error);
     }
