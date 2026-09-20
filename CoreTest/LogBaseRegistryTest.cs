@@ -1,7 +1,11 @@
+using System.Collections.Concurrent;
+
 namespace AVCoders.Core.Tests;
 
 // The registry is shared static state and every LogBase in every concurrently-running test
-// auto-registers, so these tests assert containment / filter by source — never global counts.
+// auto-registers, so these tests assert containment / filter by source — never global counts —
+// and record firings in thread-safe collections, because the event arrives on whatever thread
+// raised the issue, including other test classes running in parallel.
 // Same collection as IssuesTest: SetIssueLimits mutates every registered instance's cap, which
 // would race with that class's cap assertions if they ran in parallel.
 [Collection("LogBaseIssues")]
@@ -54,8 +58,8 @@ public class LogBaseRegistryTest : IDisposable
     [Fact]
     public void OngoingIssuesChanged_FiresWhenAnInstanceRaisesOngoing_WithAggregateArgs()
     {
-        var firings = new List<(object? Sender, OngoingIssuesChangedEventArgs Args)>();
-        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, e) => firings.Add((sender, e));
+        var firings = new ConcurrentQueue<(object? Sender, OngoingIssuesChangedEventArgs Args)>();
+        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, e) => firings.Enqueue((sender, e));
         LogBaseRegistry.OngoingIssuesChanged += handler;
         try
         {
@@ -74,8 +78,8 @@ public class LogBaseRegistryTest : IDisposable
     [Fact]
     public void OngoingIssuesChanged_DoesNotFireForMomentaryOnlyChanges()
     {
-        var firings = new List<object?>();
-        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, _) => firings.Add(sender);
+        var firings = new ConcurrentQueue<object?>();
+        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, _) => firings.Enqueue(sender);
         LogBaseRegistry.OngoingIssuesChanged += handler;
         try
         {
@@ -95,8 +99,8 @@ public class LogBaseRegistryTest : IDisposable
     {
         _logBase.Ongoing("communication", "Comms error");
 
-        var firings = new List<object?>();
-        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, _) => firings.Add(sender);
+        var firings = new ConcurrentQueue<object?>();
+        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, _) => firings.Enqueue(sender);
         LogBaseRegistry.OngoingIssuesChanged += handler;
         try
         {
@@ -117,8 +121,8 @@ public class LogBaseRegistryTest : IDisposable
         var instance = new TestLogBase("Transient");
         LogBaseRegistry.Deregister(instance);
 
-        var firings = new List<object?>();
-        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, _) => firings.Add(sender);
+        var firings = new ConcurrentQueue<object?>();
+        EventHandler<OngoingIssuesChangedEventArgs> handler = (sender, _) => firings.Enqueue(sender);
         LogBaseRegistry.OngoingIssuesChanged += handler;
         try
         {
