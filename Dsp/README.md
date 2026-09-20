@@ -15,7 +15,8 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Dsp). See the [
 - `BiampTtp` — Biamp Tesira
 - `QsysEcp` — QSC Q-SYS
 - `BoseCspSoIP` — Bose ControlSpace
+- `CecAudioSystem` — a CEC soundbar or AVR (verified on a Sonos Beam). A single `VolumeControl`, not a `Dsp` subclass
 
 ## Usage
 
-Drivers derive from `Dsp` and talk to hardware through a transport from `AVCoders.CommunicationClients`. See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for full wiring, logging and tracing setup.
+Drivers derive from `Dsp` (except `CecAudioSystem`, which is a `VolumeControl` over a CEC `SerialClient`) and talk to hardware through a transport from `AVCoders.CommunicationClients`. See the [repository README](https://github.com/AV-Coders/c-sharp-device-library) for full wiring, logging and tracing setup.

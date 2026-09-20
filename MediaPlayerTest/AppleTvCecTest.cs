@@ -9,9 +9,6 @@ public class AppleTvCecTest
     private readonly AppleTvCec _appleTv;
     private readonly Mock<SerialClient> _mockClient = TestFactory.CreateSerialClient();
 
-    // Display, TopMenu and PopupMenu: the real Apple TV answered with Feature Abort "invalid operand".
-    // VolumeUp, VolumeDown and Mute: acknowledged, but only relayed back to the TV, never acted on.
-    // Guide, ChannelUp/Down, Eject and the colour keys: acknowledged, confirmed no effect on screen.
     private static readonly RemoteButton[] _excludedButtons =
     [
         RemoteButton.Display, RemoteButton.TopMenu, RemoteButton.PopupMenu,
@@ -32,7 +29,6 @@ public class AppleTvCecTest
 
     public AppleTvCecTest()
     {
-        // pollTime 0: no poll worker, so nothing sends unless a test asks for it.
         _appleTv = new AppleTvCec(_mockClient.Object, "Test Apple TV", pollTime: 0);
     }
 
@@ -98,7 +94,7 @@ public class AppleTvCecTest
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x8C' }));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x9F' }));
         _mockClient.Verify(x => x.Send(new[] { '\x0F', '\x85' }));
-        _mockClient.Verify(x => x.Send(new[] { '\x04', '\x1A', '\x03' })); // Deck status, once
+        _mockClient.Verify(x => x.Send(new[] { '\x04', '\x1A', '\x03' }));
     }
 
     [Fact]
@@ -109,7 +105,7 @@ public class AppleTvCecTest
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x83' }), Times.Once);
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x8F' }), Times.Once);
 
-        Receive("\x4F\x84\x10\x00\x04"); // Report Physical Address completes discovery
+        Receive("\x4F\x84\x10\x00\x04");
         _appleTv.PollPowerStatus();
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x83' }), Times.Once);
@@ -119,7 +115,7 @@ public class AppleTvCecTest
     [Fact]
     public void PollPowerStatus_UnansweredPollsBecomeACommunicationError()
     {
-        Receive("\x4F\x84\x10\x00\x04"); // discovered, so polls are just Give Power Status
+        Receive("\x4F\x84\x10\x00\x04");
         Receive("\x40\x90\x00");
         Assert.Equal(CommunicationState.Okay, _appleTv.CommunicationState);
 
@@ -144,20 +140,18 @@ public class AppleTvCecTest
         _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback(() => stamps.Add(Stopwatch.GetTimestamp()));
         var tolerance = TimeSpan.FromMilliseconds(20);
 
-        _appleTv.PowerOff();                       // one frame
-        _appleTv.SendIRCode(RemoteButton.Play);    // pressed + released, straight after
-        Receive("\x40\x8F");                       // a reply sent from inside the receive callback
+        _appleTv.PowerOff();
+        _appleTv.SendIRCode(RemoteButton.Play);
+        Receive("\x40\x8F");
 
         Assert.Equal(4, stamps.Count);
         TimeSpan Gap(int i) => Stopwatch.GetElapsedTime(stamps[i - 1], stamps[i]);
 
         Assert.True(Gap(1) >= AppleTvCec.MinimumFrameSpacing - tolerance,
             $"The key press went out only {Gap(1).TotalMilliseconds:F0} ms after Standby");
-        // The hold between Pressed and Released is the shorter KeyHold, not the generic spacing:
-        // a ~300 ms hold makes tvOS repeat the key.
         Assert.True(Gap(2) >= AppleTvCec.KeyHold - tolerance,
             $"The key was held for only {Gap(2).TotalMilliseconds:F0} ms");
-        Assert.True(Gap(2) < AppleTvCec.ReplySpacing,
+        Assert.True(Gap(2) < AppleTvCec.QueryReplySpacing,
             $"The key was held for {Gap(2).TotalMilliseconds:F0} ms, long enough to trigger key repeat");
         Assert.True(Gap(3) >= AppleTvCec.MinimumFrameSpacing - tolerance,
             $"The reply went out only {Gap(3).TotalMilliseconds:F0} ms after the key release");
@@ -168,14 +162,14 @@ public class AppleTvCecTest
     {
         var stamps = new List<long>();
         _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback(() => stamps.Add(Stopwatch.GetTimestamp()));
-        Receive("\x4F\x84\x10\x00\x04"); // discovered, so the poll is a single Give Power Status
+        Receive("\x4F\x84\x10\x00\x04");
 
-        _appleTv.PollPowerStatus();                // query: its answer must clear the link first
+        _appleTv.PollPowerStatus();
         _appleTv.SendIRCode(RemoteButton.Play);
 
         Assert.Equal(3, stamps.Count);
         var gap = Stopwatch.GetElapsedTime(stamps[0], stamps[1]);
-        Assert.True(gap >= AppleTvCec.ReplySpacing - TimeSpan.FromMilliseconds(20),
+        Assert.True(gap >= AppleTvCec.QueryReplySpacing - TimeSpan.FromMilliseconds(20),
             $"The key went out only {gap.TotalMilliseconds:F0} ms after the poll");
     }
 
@@ -247,7 +241,6 @@ public class AppleTvCecTest
         _appleTv.PowerOn();
         _mockClient.Invocations.Clear();
 
-        // Captured from the Siri remote's power button
         Receive("\x4F\x36");
         Receive("\x40\x36");
         Receive("\x40\x9D\x10\x00");
@@ -266,9 +259,9 @@ public class AppleTvCecTest
         _appleTv.PowerOff();
         _mockClient.Invocations.Clear();
 
-        Receive("\x4F\x90\x00");     // the broadcast report is the wake intent
-        Receive("\x40\x04");         // as is Image View On
-        Receive("\x4F\x82\x10\x00"); // Active Source is not (it also answers our own requests)
+        Receive("\x4F\x90\x00");
+        Receive("\x40\x04");
+        Receive("\x4F\x82\x10\x00");
         Receive("\x40\x8E\x00");
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x36' }), Times.Never);
@@ -297,7 +290,7 @@ public class AppleTvCecTest
         _appleTv.PowerOff();
         _mockClient.Invocations.Clear();
 
-        Receive("\x4F\x82\x10\x00"); // e.g. the reply to the driver's own Request Active Source
+        Receive("\x4F\x82\x10\x00");
 
         Assert.True(_appleTv.IsActiveSource);
         Assert.Equal(PowerState.Off, _appleTv.DesiredPowerState);
@@ -311,15 +304,12 @@ public class AppleTvCecTest
             duplicateResponseWindow: TimeSpan.FromMilliseconds(20));
         void Rx(string f) => mock.Object.ResponseHandlers!.Invoke(f);
 
-        // Physical remote sleeps the box
         Rx("\x4F\x36");
         Rx("\x40\x36");
         Rx("\x40\x9D\x10\x00");
         Rx("\x4F\x90\x01");
         Assert.Equal(PowerState.Off, appleTv.DesiredPowerState);
 
-        // The panel turns it on; the release NACKs while the box wakes and CrestronCecStream
-        // replays the stale last-received value, well after the dedupe window.
         appleTv.PowerOn();
         mock.Invocations.Clear();
         Thread.Sleep(60);
@@ -341,7 +331,6 @@ public class AppleTvCecTest
             if (f.Length == 3 && f[1] == '\x44')
                 pressedSeen.Set();
         });
-        // A second sender that tries to get onto the bus the moment the Pressed frame has gone out.
         var intruder = new Thread(() =>
         {
             pressedSeen.Wait();
@@ -354,10 +343,10 @@ public class AppleTvCecTest
 
         Assert.Equal(3, sent.Count);
         Assert.Equal(new[] { '\x04', '\x44', '\x44' }, sent[0].frame);
-        Assert.Equal(new[] { '\x04', '\x45' }, sent[1].frame); // released straight after pressed
-        Assert.Equal(new[] { '\x04', '\x36' }, sent[2].frame); // the intruder only got in afterwards
+        Assert.Equal(new[] { '\x04', '\x45' }, sent[1].frame);
+        Assert.Equal(new[] { '\x04', '\x36' }, sent[2].frame);
         var hold = Stopwatch.GetElapsedTime(sent[0].at, sent[1].at);
-        Assert.True(hold < AppleTvCec.ReplySpacing, $"The key was held for {hold.TotalMilliseconds:F0} ms");
+        Assert.True(hold < AppleTvCec.QueryReplySpacing, $"The key was held for {hold.TotalMilliseconds:F0} ms");
     }
 
     [Fact]
@@ -366,7 +355,7 @@ public class AppleTvCecTest
         _appleTv.PowerOn();
         _mockClient.Invocations.Clear();
 
-        Receive("\x40\x90\x01"); // poll reply only, nothing from the device first
+        Receive("\x40\x90\x01");
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x6D' }), Times.Once);
         Assert.Equal(PowerState.On, _appleTv.DesiredPowerState);
@@ -393,7 +382,7 @@ public class AppleTvCecTest
     public void HandleResponse_RecordsDiscoveryDetails()
     {
         Receive("\x4F\x84\x10\x00\x04");
-        Receive("\x40\x47" + "Apple TV"); // Kept apart: C# would read "\x47A" as one escape
+        Receive("\x40\x47" + "Apple TV");
         Receive("\x4F\x87\x00\x10\xFA");
         Receive("\x40\x9E\x06");
         Receive("\x40\x8E\x00");
@@ -420,8 +409,8 @@ public class AppleTvCecTest
     [Fact]
     public void HandleResponse_FeatureAbortOnDeckStatusLeavesTransportStateAlone()
     {
-        Receive("@");
-        Receive("@ ");
+        Receive("\x40\x1B\x11");
+        Receive("\x40\x00\x1A\x01");
 
         Assert.Equal(TransportState.Playing, _appleTv.TransportState);
 
@@ -446,7 +435,7 @@ public class AppleTvCecTest
     public void HandleResponse_AnswersARepeatedQueryOnlyOnce()
     {
         Receive("\x40\x8F");
-        Receive("\x40\x8F"); // CrestronCecStream re-emitting the stale value on a NACK event
+        Receive("\x40\x8F");
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x90', '\x00' }), Times.Once);
     }
@@ -505,7 +494,7 @@ public class AppleTvCecTest
     [InlineData(RemoteButton.Enter, '\x00')]
     [InlineData(RemoteButton.Home, '\x09')]
     [InlineData(RemoteButton.Back, '\x0D')]
-    [InlineData(RemoteButton.Menu, '\x0D')] // tvOS has no separate menu function; Menu is Back
+    [InlineData(RemoteButton.Menu, '\x0D')]
     [InlineData(RemoteButton.Up, '\x01')]
     [InlineData(RemoteButton.Right, '\x04')]
     [InlineData(RemoteButton.Play, '\x44')]
