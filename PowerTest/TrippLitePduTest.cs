@@ -190,6 +190,65 @@ public class TrippLitePduTest
             "The redundancy issue was never resolved");
     }
 
+    [Theory]
+    [InlineData(TrippLiteInputSource.A, 2, 1, "Input source B has failed")]
+    [InlineData(TrippLiteInputSource.B, 1, 2, "Input source A has failed")]
+    public async Task Poll_WithAnInputWarningDisabled_OnlyRaisesTheOtherInputsFailure(
+        TrippLiteInputSource disabled, int disabledFailedAvailability, int otherFailedAvailability,
+        string otherFailureMessage)
+    {
+        StubHealthyAtsPdu();
+        var pdu = await CreateInitialisedPdu();
+        pdu.DisableInputWarning(disabled);
+        _mockClient.Setup(c => c.Get(SourceAvailabilityOid))
+            .Returns(SnmpResult(new Integer32(disabledFailedAvailability)));
+
+        await WaitUntilAsync(
+            () => pdu.InputFeeds.Count == 2 && !pdu.InputFeeds.Single(feed => feed.Source == disabled).Available,
+            "The failed feed was never reported as unavailable");
+        Assert.DoesNotContain(pdu.GetOngoingIssues(), issue => issue.Message.Contains("redundancy is lost"));
+
+        _mockClient.Setup(c => c.Get(SourceAvailabilityOid))
+            .Returns(SnmpResult(new Integer32(otherFailedAvailability)));
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().Any(issue => issue.Message.Contains(otherFailureMessage)),
+            "The other input's failure was never raised");
+    }
+
+    [Fact]
+    public async Task DisableInputWarning_ResolvesAnExistingIssue_AndEnableRaisesItAgain()
+    {
+        StubHealthyAtsPdu();
+        var pdu = await CreateInitialisedPdu();
+        _mockClient.Setup(c => c.Get(SourceAvailabilityOid)).Returns(SnmpResult(new Integer32(1)));
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().Any(issue => issue.Message.Contains("redundancy is lost")),
+            "The redundancy issue was never raised");
+
+        pdu.DisableInputWarning(TrippLiteInputSource.B);
+        Assert.Contains(pdu.Details, d => d.Label == "Input B Warning" && d.Tone == DetailTone.Warning);
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().All(issue => !issue.Message.Contains("redundancy is lost")),
+            "The redundancy issue was never resolved");
+
+        pdu.EnableInputWarning(TrippLiteInputSource.B);
+        Assert.DoesNotContain(pdu.Details, d => d.Label == "Input B Warning");
+        await WaitUntilAsync(
+            () => pdu.GetOngoingIssues().Any(issue => issue.Message.Contains("Input source B has failed")),
+            "The redundancy issue was never raised again");
+    }
+
+    [Fact]
+    public void InputWarning_WithAnUnknownInput_Throws()
+    {
+        _mockClient.Setup(c => c.Get(It.IsAny<string>())).Returns([]);
+        _mockClient.Setup(c => c.Walk(It.IsAny<string>())).Returns([]);
+        var pdu = new TrippLitePdu("Test PDU", _mockClient.Object, PollInterval);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => pdu.DisableInputWarning(TrippLiteInputSource.Unknown));
+        Assert.Throws<ArgumentOutOfRangeException>(() => pdu.EnableInputWarning(TrippLiteInputSource.Unknown));
+    }
+
     [Fact]
     public async Task Poll_ReadsTheTemperatureSensor()
     {

@@ -87,6 +87,8 @@ public class TrippLitePdu : Pdu
     private volatile IReadOnlyList<DiscoveredDevice> _devices = [];
     private volatile IReadOnlyList<DiscoveredSensor> _sensors = [];
     private volatile bool _initialised;
+    private volatile bool _inputAWarningDisabled;
+    private volatile bool _inputBWarningDisabled;
     private TrippLiteInputSource _activeSource = TrippLiteInputSource.Unknown;
     private volatile IReadOnlyList<TrippLiteInputFeedStatus> _inputFeeds = [];
     private volatile IReadOnlyList<TrippLiteSensorReading> _sensorReadings = [];
@@ -175,6 +177,33 @@ public class TrippLitePdu : Pdu
     }
 
     public void Reinitialise() => _initialised = false;
+
+    public void DisableInputWarning(TrippLiteInputSource source) => SetInputWarningDisabled(source, true);
+
+    public void EnableInputWarning(TrippLiteInputSource source) => SetInputWarningDisabled(source, false);
+
+    private void SetInputWarningDisabled(TrippLiteInputSource source, bool disabled)
+    {
+        var wasDisabled = source switch
+        {
+            TrippLiteInputSource.A => _inputAWarningDisabled,
+            TrippLiteInputSource.B => _inputBWarningDisabled,
+            _ => throw new ArgumentOutOfRangeException(nameof(source), source, "Only inputs A and B have warnings")
+        };
+        if (wasDisabled == disabled)
+            return;
+        if (source == TrippLiteInputSource.A)
+            _inputAWarningDisabled = disabled;
+        else
+            _inputBWarningDisabled = disabled;
+        AddEvent(EventType.DriverState,
+            $"Input source {source} failure warnings are {(disabled ? "disabled" : "enabled")}");
+        var label = $"Input {source} Warning";
+        if (disabled)
+            SetDetail(label, "Disabled", DetailTone.Warning);
+        else
+            RemoveDetail(label);
+    }
 
     public override void PowerOn()
     {
@@ -384,6 +413,8 @@ public class TrippLitePdu : Pdu
         switch (availability)
         {
             case BothSources:
+            case SourceAOnly when _inputBWarningDisabled:
+            case SourceBOnly when _inputAWarningDisabled:
                 ResolveIssue(RedundancyIssueKey);
                 break;
             case SourceAOnly:
