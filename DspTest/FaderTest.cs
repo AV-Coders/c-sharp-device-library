@@ -37,6 +37,7 @@ public class FaderTest
     [Theory]
     [InlineData(-20, 0)]
     [InlineData(-10, 38)]
+    [InlineData(-6.5, 52)]
     [InlineData(6, 100)]
     public void SetVolumeFromDB_CorrectlyConvertsInOtherRanges(double input, int expectedPercentage)
     {
@@ -86,5 +87,34 @@ public class FaderTest
         _linearFader.SetVolumeFromPercentage(100);
         
         _volumeLevelHandler.Verify(x => x.Invoke(100));
+    }
+
+    [Fact]
+    public void Linear_SetVolumeFromDb_Rounds()
+    {
+        _linearFader.SetMaxGain(12);
+
+        _linearFader.SetVolumeFromDb(-55.200001);
+
+        Assert.Equal(40, _linearFader.Volume);
+    }
+
+    [Theory]
+    [InlineData(-100, 12)]
+    [InlineData(-100, 0)]
+    [InlineData(-5, 5)]
+    [InlineData(-20, 6)]
+    [InlineData(-80, 20)]
+    public void Linear_RoundTripsEveryPercentage_ThroughSinglePrecision(double min, double max)
+    {
+        _linearFader.SetMaxGain(max);
+        _linearFader.SetMinGain(min);
+
+        for (var percentage = 0; percentage <= 100; percentage++)
+        {
+            var reportedDb = (double)(float)_linearFader.PercentageToDb(percentage);
+            _linearFader.SetVolumeFromDb(reportedDb);
+            Assert.Equal(percentage, _linearFader.Volume);
+        }
     }
 }

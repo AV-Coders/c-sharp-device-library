@@ -84,7 +84,7 @@ public class Fader : AudioBlock
 
     public void SetVolumeFromDb(double db)
     {
-        Volume = (int)(((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain));
+        Volume = (int)Math.Round(((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain), MidpointRounding.AwayFromZero);
         Report();
     }
 

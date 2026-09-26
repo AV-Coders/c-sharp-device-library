@@ -1,3 +1,10 @@
+# Migrating to the release where Fader rounds reported levels
+
+Converting a reported dB level to a percentage now rounds instead of truncating, so a level
+can report 1% higher than before. Truncation made single-precision replies such as
+-55.200001 dB read one percent low, which stalled 1% `LevelUp` and made `LevelDown` skip.
+No code changes are needed.
+
 # Migrating to the release where DeviceSendsResponses became a property
 
 The `deviceSendsResponses` constructor argument on `SonyVisca` and `AverVisca` (present in
