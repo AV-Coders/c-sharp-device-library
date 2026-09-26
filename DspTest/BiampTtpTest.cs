@@ -75,6 +75,33 @@ public class BiampTtpTest
     }
 
     [Theory]
+    [InlineData(0, "Gain set level 1 -100\n")]
+    [InlineData(50, "Gain set level 1 -30\n")]
+    [InlineData(100, "Gain set level 1 0\n")]
+    public void SetLevel_WithPerceptualCurve_SendsTheCorrectDB(int percentage, string expectedCommand)
+    {
+        var client = TestFactory.CreateTcpClient();
+        var dsp = new BiampTtp(client.Object, "Perceptual", 100, FaderCurve.Perceptual);
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+        dsp.SetLevel(GainName, percentage);
+
+        client.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Fact]
+    public void HandleResponse_WithPerceptualCurve_StoresThePercentage()
+    {
+        var client = TestFactory.CreateTcpClient();
+        var dsp = new BiampTtp(client.Object, "Perceptual", 100, FaderCurve.Perceptual);
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+        client.Object.ResponseHandlers?.Invoke("! \"publishToken\":\"AvCodersLevel-Gain-1\" \"value\":-30.000000\n");
+
+        Assert.Equal(50, dsp.GetLevel(GainName));
+    }
+
+    [Theory]
     [InlineData(1001, "DEVICE recallPreset 1001\n")]
     [InlineData(1500, "DEVICE recallPreset 1500\n")]
     public void RecallPreset_RecallsThePreset(int presetNumber, string expectedCommand)

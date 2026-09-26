@@ -71,7 +71,7 @@ public abstract class Conference : DeviceBase
     protected Conference(CommunicationClient client, string name = "Main Codec", int pollTimeInSeconds = 52) 
         : base(name, client)
     {
-        OutputVolume = new Fader(_ => {}, false);
+        OutputVolume = new Fader(_ => {});
         MicrophoneMute = new Mute(_ => {});
         OutputMute = new Mute(_ => {});
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTimeInSeconds), true);

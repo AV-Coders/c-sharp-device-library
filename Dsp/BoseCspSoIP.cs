@@ -6,7 +6,7 @@ public class BoseGain : Fader
 {
     public readonly string ControlName;
 
-    public BoseGain(VolumeLevelHandler volumeLevelHandler, string controlName, double minGain, double maxGain) : base(volumeLevelHandler, false)
+    public BoseGain(VolumeLevelHandler volumeLevelHandler, string controlName, double minGain, double maxGain) : base(volumeLevelHandler)
     {
         ControlName = controlName;
         SetMinGain(minGain);

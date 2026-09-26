@@ -17,8 +17,8 @@ public record Query(string ArrayIndex, BiampQuery BiampQuery, string DspCommand)
 
 public record BiampAudioBlockInfo(string Name, string InstanceTag, int BlockIndex);
 
-public class BiampGain(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex)
-    : Fader(volumeLevelHandler, false)
+public class BiampGain(VolumeLevelHandler volumeLevelHandler, string controlName, int controlIndex, FaderCurve curve = FaderCurve.Linear)
+    : Fader(volumeLevelHandler, curve)
 {
     public readonly int ControlIndex = controlIndex;
     public readonly string ControlName = controlName;
@@ -81,9 +81,11 @@ public class BiampTtp : Dsp
     private bool _lastRequestWasForTheVersion;
     private bool _clientHasReconnectedSinceLastPollLoop;
     private int _initialising;
+    private readonly FaderCurve _faderCurve;
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200) : base(name, commsClient, pollIntervalInMilliseconds)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200, FaderCurve faderCurve = FaderCurve.Linear) : base(name, commsClient, pollIntervalInMilliseconds)
     {
+        _faderCurve = faderCurve;
         CommunicationClient.ResponseHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         
@@ -334,7 +336,7 @@ public class BiampTtp : Dsp
             }
             else
             {
-                _gains.Add(arrayIndex, new BiampGain(volumeLevelHandler, controlName, controlIndex));
+                _gains.Add(arrayIndex, new BiampGain(volumeLevelHandler, controlName, controlIndex, _faderCurve));
                 lock (_moduleQueriesLock)
                 {
                     _moduleQueries.Add(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));

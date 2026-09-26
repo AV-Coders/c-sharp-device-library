@@ -1,3 +1,24 @@
+# Migrating to the release where Fader gained a FaderCurve
+
+The `convertLogarithmicToLinear` constructor argument on `Fader` is gone. It never worked and
+every caller passed `false`. The constructor now takes an optional `FaderCurve`, defaulting to
+`FaderCurve.Linear`, which keeps the existing curve.
+
+```csharp
+// Before
+public class MyGain(VolumeLevelHandler handler) : Fader(handler, false);
+
+// After
+public class MyGain(VolumeLevelHandler handler) : Fader(handler);
+```
+
+Positional callers that passed the trailing `bool` must drop it. Packages compiled against the
+old constructor (e.g. `AVCoders.Conference`) need rebuilding against this release.
+
+`BiampTtp` takes an optional `faderCurve` constructor argument. `FaderCurve.Perceptual` spreads
+1-100% evenly across the top 60 dB of each level block's range (or the whole range, if the
+block's min/max are 60 dB or less apart), with 0% at the block's minimum.
+
 # Migrating to the release where Fader rounds reported levels
 
 Converting a reported dB level to a percentage now rounds instead of truncating, so a level

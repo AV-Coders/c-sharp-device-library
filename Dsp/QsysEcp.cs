@@ -11,7 +11,7 @@ public record QscAudioBlockWithSelectInfo(
     string MuteInstanceTag,
     string SelectInstanceTag): QscAudioBlockInfo(Name, LevelInstanceTag, MuteInstanceTag);
 
-public class QscGain(VolumeLevelHandler volumeLevelHandler) : Fader(volumeLevelHandler, false);
+public class QscGain(VolumeLevelHandler volumeLevelHandler) : Fader(volumeLevelHandler);
 
 public class QscMute(MuteStateHandler muteStateHandler) : Mute(muteStateHandler);
 

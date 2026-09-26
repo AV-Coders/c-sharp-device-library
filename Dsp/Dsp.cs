@@ -43,12 +43,22 @@ public abstract class AudioBlock
 {
 }
 
+public enum FaderCurve
+{
+    Linear,
+    Perceptual
+}
+
 public class Fader : AudioBlock
 {
+    private const double PerceptualRangeDb = 60;
+
     private int _volume = 0; // A percentage, 0 to 100
+    private double? _lastDb;
     public double MinGain = -100;
     public double MaxGain = 0;
     public double Step = 0;
+    public readonly FaderCurve Curve;
 
     public int Volume
     {
@@ -63,14 +73,17 @@ public class Fader : AudioBlock
     }
 
     public VolumeLevelHandler? VolumeLevelHandlers;
-    private readonly bool _convertLogarithmicToLinear;
 
-    public Fader(VolumeLevelHandler volumeLevelHandler, bool convertLogarithmicToLinear)
+    public Fader(VolumeLevelHandler volumeLevelHandler, FaderCurve curve = FaderCurve.Linear)
     {
         VolumeLevelHandlers += volumeLevelHandler;
-        _convertLogarithmicToLinear = convertLogarithmicToLinear;
+        Curve = curve;
         CalculateStep();
     }
+
+    private double BottomOfTravel => Curve == FaderCurve.Perceptual
+        ? Math.Max(MinGain, MaxGain - PerceptualRangeDb)
+        : MinGain;
 
     public double PercentageToDb(int percentage)
     {
@@ -79,17 +92,33 @@ public class Fader : AudioBlock
         if (percentage <= 0)
             return MinGain;
 
-        return MinGain + (Step * percentage);
+        return BottomOfTravel + (Step * percentage);
     }
 
     public void SetVolumeFromDb(double db)
     {
-        Volume = (int)Math.Round(((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain), MidpointRounding.AwayFromZero);
+        _lastDb = db;
+        Volume = DbToPercentage(db);
         Report();
+    }
+
+    private int DbToPercentage(double db)
+    {
+        if (Curve == FaderCurve.Linear)
+            return (int)Math.Round(((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain), MidpointRounding.AwayFromZero);
+
+        if (db >= MaxGain)
+            return 100;
+        if (db <= MinGain)
+            return 0;
+
+        var bottom = BottomOfTravel;
+        return Math.Clamp((int)Math.Round((db - bottom) * 100 / CalculateRange(bottom, MaxGain), MidpointRounding.AwayFromZero), 1, 100);
     }
 
     public void SetVolumeFromPercentage(double percentage)
     {
+        _lastDb = null;
         Volume = (int)percentage;
         Report();
     }
@@ -101,21 +130,26 @@ public class Fader : AudioBlock
 
     private void CalculateStep()
     {
-        Step = _convertLogarithmicToLinear
-            ? (Math.Log(CalculateRange(MinGain, MaxGain))) / (100 - 1)
-            : CalculateRange(MinGain, MaxGain) / 100;
+        Step = CalculateRange(BottomOfTravel, MaxGain) / 100;
+    }
+
+    private void RangeChanged()
+    {
+        CalculateStep();
+        if (Curve == FaderCurve.Perceptual && _lastDb.HasValue)
+            Volume = DbToPercentage(_lastDb.Value);
     }
 
     public void SetMinGain(double gain)
     {
         MinGain = gain;
-        CalculateStep();
+        RangeChanged();
     }
 
     public void SetMaxGain(double gain)
     {
         MaxGain = gain;
-        CalculateStep();
+        RangeChanged();
     }
 
     public void Report() => VolumeLevelHandlers?.Invoke(Volume);
