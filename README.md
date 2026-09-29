@@ -46,7 +46,7 @@ display.PowerOn();
 | `AVCoders.CommunicationClients` | Concrete transports | `AvCodersTcpClient`, `AvCodersUdpClient`, `AvCodersSshClient`, `AvCodersMqttClient`, `AvCodersRestClient`, `AvCodersMulticastClient`, `AvCodersTcpServer`, `AvCodersSnmpV3Client`, `AvCodersWakeOnLan` |
 | `AVCoders.Display` | Displays / projectors / LED walls | `PjLink`, `SamsungMdc`, `SonySerialControl`/`SonySimpleIpControl`/`SonyRest`, `NecUhdExternalControl`, `PhilipsSICP`, `LGCommercial`, `CecDisplay`, `NovaStarH5`, `ColorlightDeviceControlProtocolClassB` |
 | `AVCoders.Matrix` | Matrix switchers / AV-over-IP | `ExtronIn16Xx`/`ExtronIn18Xx`/`ExtronSw`/`ExtronDtpCpxx`/`ExtronDtp2Cp82`, `ExtronAnnotator401VideoMatrix` (annotator HDMI sync), `CiscoRoomOsVideoMatrix` (codec video connectors), `SvsiEncoder`/`SvsiDecoder`, `BlustreamAmf41W`, `Navigator`/`NavEncoder`/`NavDecoder`, `AVoIPEndpoint` |
-| `AVCoders.Camera` | PTZ cameras & auto-tracking | `SonyVisca`, `AverVisca` (`ITrackingCamera`), `LumensCL511`, `AutomateVX` (1Beyond) |
+| `AVCoders.Camera` | PTZ cameras & auto-tracking | `SonyVisca`, `AverVisca` (`ITrackingCamera`), `LumensCL510`, `LumensCL511`, `AutomateVX` (1Beyond) |
 | `AVCoders.Conference` | Conferencing codecs & phonebooks | `CiscoRoomOs` (+ output/mic faders), `CiscoRoomOsPhonebookParser` |
 | `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `BoseCspSoIP`, `CecAudioSystem` (CEC soundbar as a `VolumeControl`) |
 | `AVCoders.Power` | PDUs / outlets | `TrippLitePdu`/`TrippLiteOutlet` (SNMPv3, Tripp Lite / Eaton PowerAlert incl. ATS models), `ServerEdgePdu`/`ServerEdgeOutlet` (REST), `ThorRf11IqPdu`/`ThorRf11IqOutlet` (HTTP) |

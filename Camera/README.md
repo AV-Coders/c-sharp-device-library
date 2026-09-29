@@ -14,6 +14,7 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Camera). See th
 
 - `SonyVisca`
 - `AverVisca` — implements `ITrackingCamera`
+- `LumensCL510`
 - `LumensCL511`
 - `AutomateVX` (1 Beyond)
 
@@ -23,6 +24,6 @@ Drivers derive from `CameraBase` and talk to hardware through a transport from `
 
 ### Cameras that can't reply
 
-If the camera is wired one-way (transmit only), set `DeviceSendsResponses = false` on the driver. Drivers that normally wait for replies (`SonyVisca`, `AverVisca`) then stop polling and update power and preset feedback as each command is handed to the transport. `LumensCL511` never reads replies, so it reports `false` from construction and logs a warning if asked to change.
+If the camera is wired one-way (transmit only), set `DeviceSendsResponses = false` on the driver. Drivers that normally wait for replies (`SonyVisca`, `AverVisca`) then stop polling and update power and preset feedback as each command is handed to the transport. `LumensCL510` and `LumensCL511` never read replies, so they report `false` from construction and logs a warning if asked to change.
 
 Assumed feedback is only as good as the transport: if a client queues or drops bytes while it is disconnected, the driver cannot tell and still reports the command as done.
