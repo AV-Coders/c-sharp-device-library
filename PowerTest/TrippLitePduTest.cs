@@ -433,6 +433,7 @@ public class TrippLitePduTest
 
         outlet.PowerOn();
 
+        _mockClient.Verify(c => c.Set($"{OutletCommandOidPrefix}1", 2), Times.Once);
         Assert.Equal(PowerState.Off, outlet.PowerState);
     }
 }

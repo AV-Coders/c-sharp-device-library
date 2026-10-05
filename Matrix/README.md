@@ -23,6 +23,10 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Matrix). See th
   resolution, HDCP and history. Input names come from the codec's connector configuration; outputs stay "Output n"
   and expose the connected display's EDID name as `ConnectedDeviceName`, logged on change.
 - `SvsiEncoder`, `SvsiDecoder`
+- `AntricaEncoder` — the HDMI input of an Antrica ANT-35000 series encoder, polled every 10 seconds over its HTTP
+  API through a `RestComms` client (`AvCodersRestClient`). Reports signal presence (`GIS_VIDEOLOSS1`) and the
+  detected input format (`VID_INPUTFORMAT`, read as decimal or `0x` hex) as the input resolution. HDCP is always
+  `NotSupported`. HTTP API authentication (`NET_USEHTTPAPIAUTH`) is not supported.
 - `BlustreamAmf41W`
 - `Navigator`, `NavEncoder`, `NavDecoder`
 - `AVoIPEndpoint`
