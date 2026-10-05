@@ -139,6 +139,7 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
                 var input = new ExtronMatrixInput($"Input {index}", index);
                 Inputs.Add(input);
             }
+            EndpointsChangedHandlers?.Invoke();
         }
         else if (response.StartsWith("Inf00*DTPCP"))
         {
@@ -190,6 +191,7 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
                 WrapAndSendCommand($"O{index}AHDCP");
                 WrapAndSendCommand($"O{index}BHDCP");
             }
+            EndpointsChangedHandlers?.Invoke();
         }
     }
 

@@ -221,6 +221,30 @@ public class ExtronDtpCpxxTest
         Assert.Equal(outputs, _switcher.ComposedOutputs.Count);
     }
 
+    [Fact]
+    public void ModelResponse_NotifiesSubscribersOnceThePortsExist()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = new ExtronDtpCpxx(client.Object, 8, "fresh matrix");
+        var seen = new List<(int Inputs, int Outputs)>();
+        switcher.EndpointsChangedHandlers += () => seen.Add((switcher.GetInputs().Count, switcher.NumberOfOutputs));
+
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84\r\n");
+
+        Assert.Equal([(8, 4)], seen);
+    }
+
+    [Fact]
+    public void SignalPresenceResponse_NotifiesSubscribersOnceTheInputsExist()
+    {
+        var seen = new List<int>();
+        _switcher.EndpointsChangedHandlers += () => seen.Add(_switcher.GetInputs().Count);
+
+        _mockClient.Object.ResponseHandlers!.Invoke("Frq00 00000000\r");
+
+        Assert.Equal([8], seen);
+    }
+
     [Theory]
     [InlineData("Hplg01", "1")]
     [InlineData("Hplg02", "2")]
