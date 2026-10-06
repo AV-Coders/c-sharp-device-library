@@ -80,7 +80,7 @@ public class AvCodersTcpClientTest : IDisposable
         var payload = Encoding.ASCII.GetBytes("PONG\r");
         await serverSide.GetStream().WriteAsync(payload);
 
-        await TestNetwork.WaitUntilAsync(() => response != null, 15, "response handler never invoked");
+        await TestNetwork.WaitUntilAsync(() => responseBytes != null, 15, "byte response handler never invoked");
         Assert.Equal("PONG\r", response);
         Assert.Equal(payload, responseBytes);
     }
