@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.RegularExpressions;
 using AVCoders.Core;
 
 namespace AVCoders.Matrix;
@@ -9,8 +10,17 @@ public delegate void EndpointArrayChangedHandler(List<ExtronMatrixEndpoint> endp
 /// First-generation DTP CrossPoint 82 / 84 / 86 / 108 (4K) matrix switchers. Endpoints are
 /// discovered from the model number and the split outputs are exposed as A/B pairs.
 /// </summary>
-public class ExtronDtpCpxx : ExtronDtpCpBase
+public partial class ExtronDtpCpxx : ExtronDtpCpBase
 {
+    private const char SignalDetected = '1';
+    private const string UntiedAddress = "";
+    private const string NoSource = "0";
+    private const string HdcpCompliantSource = "1";
+    private const string NonHdcpSource = "2";
+    private const string NoMonitor = "0";
+    private const string NonHdcpMonitor = "1";
+    private const string UnencryptedHdcpMonitor = "2";
+    private const string EncryptedHdcpMonitor = "3";
     public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
     public readonly List<ExtronMatrixInput> Inputs = [];
     public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs
@@ -36,6 +46,12 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
     {
     }
 
+    [GeneratedRegex(@"^Out(\d+) In(\d+) (?:All|Vid)$")]
+    private static partial Regex VideoTieRegex();
+
+    [GeneratedRegex(@"^In(\d+) (?:All|Vid)$")]
+    private static partial Regex AllOutputsVideoTieRegex();
+
     protected override void ProcessResponse(string response)
     {
         if (response.StartsWith("E13"))
@@ -54,6 +70,7 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
                 var connectionStatus = status == "0" ? ConnectionState.Disconnected : ConnectionState.Connected;
 
                 Inputs[inputNumber].SetInputStatus(connectionStatus);
+                WrapAndSendCommand($"I{Inputs[inputNumber].Number}HDCP");
             }
         }
         else if (response.StartsWith("HdcpI"))
@@ -64,7 +81,7 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
             if (inputNumber <= 0 || inputNumber > Inputs.Count)
                 return;
 
-            var (connectionStatus, hdcpStatus) = DecodeInputHdcp(value);
+            var (connectionStatus, hdcpStatus) = ParseInputHdcp(value);
 
             LogVerbose("Setting input {inputNumber} as {status}", inputNumber,
                 connectionStatus.ToString());
@@ -79,22 +96,17 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
             if (outputNumber <= 0 || outputNumber > ComposedOutputs.Count)
                 return;
 
-            var (connectionStatus, hdcpStatus) = DecodeOutputHdcp(value);
+            var (connectionStatus, hdcpStatus) = ParseOutputHdcp(value);
+            var output = endpoint.Contains('B')
+                ? ComposedOutputs[outputNumber - 1].Secondary
+                : ComposedOutputs[outputNumber - 1].Primary;
+            var discovered = !output.InUse;
 
-            if (endpoint.Contains('B'))
-            {
-                LogVerbose("Setting output {outputNumber} B as {status}", outputNumber,
-                    connectionStatus.ToString());
-                ComposedOutputs[outputNumber - 1].Secondary.SetOutputStatus(connectionStatus);
-                ComposedOutputs[outputNumber - 1].Secondary.SetOutputHdcpStatus(hdcpStatus);
-            }
-            else
-            {
-                LogVerbose("Setting output {outputNumber} A as {status}", outputNumber,
-                    connectionStatus.ToString());
-                ComposedOutputs[outputNumber - 1].Primary.SetOutputStatus(connectionStatus);
-                ComposedOutputs[outputNumber - 1].Primary.SetOutputHdcpStatus(hdcpStatus);
-            }
+            LogVerbose("Setting output {output} as {status}", endpoint, connectionStatus.ToString());
+            output.SetOutputStatus(connectionStatus);
+            output.SetOutputHdcpStatus(hdcpStatus);
+            if (discovered)
+                EndpointsChangedHandlers?.Invoke();
         }
         else if (response.StartsWith("Hplg"))
         {
@@ -128,19 +140,7 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
             }
         }
         else if (response.StartsWith("Frq00"))
-        {
-            var inputString = response.Split(' ')[1].TrimEnd('\r');
-            var inputCount = inputString.Length;
-            Inputs.DeregisterAndClear();
-
-            while (Inputs.Count < inputCount)
-            {
-                var index = Inputs.Count + 1;
-                var input = new ExtronMatrixInput($"Input {index}", index);
-                Inputs.Add(input);
-            }
-            EndpointsChangedHandlers?.Invoke();
-        }
+            HandleSignalPresence(response[6..]);
         else if (response.StartsWith("Inf00*DTPCP"))
         {
             var digits = response.Remove(0, 11).TrimEnd('\r');
@@ -166,34 +166,105 @@ public class ExtronDtpCpxx : ExtronDtpCpBase
                 throw new ArgumentOutOfRangeException(
                     "Unable to determine the number of inputs or outputs. Please check the model number and try again.");
 
-            if (Inputs.Count > inputCount)
-                Inputs.DeregisterAndClear();
-
-            if (ComposedOutputs.Count > outputCount)
-                ComposedOutputs.DeregisterAndClear();
-
-            while (Inputs.Count < inputCount)
-            {
-                var index = Inputs.Count + 1;
-                var input = new ExtronMatrixInput($"Input {index}", index);
-                Inputs.Add(input);
-                WrapAndSendCommand($"{index}NI");
-                WrapAndSendCommand($"I{index}HDCP");
-            }
-
-            while (ComposedOutputs.Count < outputCount)
-            {
-                var index = ComposedOutputs.Count + 1;
-                var output = new ExtronMatrixOutput($"Output {index}", index);
-                ComposedOutputs.Add(output);
-                WrapAndSendCommand($"{index}NO");
-                WrapAndSendCommand($"O{index}HDCP");
-                WrapAndSendCommand($"O{index}AHDCP");
-                WrapAndSendCommand($"O{index}BHDCP");
-            }
-            EndpointsChangedHandlers?.Invoke();
+            SetPortCounts(inputCount, outputCount);
+            QueryPorts();
         }
+        else if (response == "Qik")
+            QueryTies();
+        else if (VideoTieRegex().Match(response) is { Success: true } tie)
+            SetVideoTie(int.Parse(tie.Groups[1].Value), int.Parse(tie.Groups[2].Value));
+        else if (AllOutputsVideoTieRegex().Match(response) is { Success: true } allOutputsTie)
+            SetVideoTieOnAllOutputs(int.Parse(allOutputsTie.Groups[1].Value));
     }
+
+    private static (ConnectionState Connection, HdcpStatus Hdcp) ParseInputHdcp(string value) => value switch
+    {
+        NoSource => (ConnectionState.Disconnected, HdcpStatus.Unknown),
+        HdcpCompliantSource => (ConnectionState.Connected, HdcpStatus.Active),
+        NonHdcpSource => (ConnectionState.Connected, HdcpStatus.NotSupported),
+        _ => (ConnectionState.Unknown, HdcpStatus.Unknown)
+    };
+
+    private static (ConnectionState Connection, HdcpStatus Hdcp) ParseOutputHdcp(string value) => value switch
+    {
+        NoMonitor => (ConnectionState.Disconnected, HdcpStatus.Unknown),
+        NonHdcpMonitor => (ConnectionState.Connected, HdcpStatus.NotSupported),
+        UnencryptedHdcpMonitor => (ConnectionState.Connected, HdcpStatus.Available),
+        EncryptedHdcpMonitor => (ConnectionState.Connected, HdcpStatus.Active),
+        _ => (ConnectionState.Unknown, HdcpStatus.Unknown)
+    };
+
+    private void SetPortCounts(int inputCount, int outputCount)
+    {
+        if (Inputs.Count == inputCount && ComposedOutputs.Count == outputCount)
+            return;
+        while (Inputs.Count > inputCount)
+        {
+            LogBaseRegistry.Deregister(Inputs[^1]);
+            Inputs.RemoveAt(Inputs.Count - 1);
+        }
+        while (Inputs.Count < inputCount)
+        {
+            var number = Inputs.Count + 1;
+            var input = new ExtronMatrixInput($"Input {number}", number);
+            input.SetStreamAddress(number.ToString());
+            Inputs.Add(input);
+        }
+        while (ComposedOutputs.Count > outputCount)
+        {
+            LogBaseRegistry.Deregister(ComposedOutputs[^1].Primary);
+            LogBaseRegistry.Deregister(ComposedOutputs[^1].Secondary);
+            ComposedOutputs.RemoveAt(ComposedOutputs.Count - 1);
+        }
+        while (ComposedOutputs.Count < outputCount)
+        {
+            var number = ComposedOutputs.Count + 1;
+            ComposedOutputs.Add(new ExtronMatrixOutput($"Output {number}", number));
+        }
+        EndpointsChangedHandlers?.Invoke();
+    }
+
+    private void QueryPorts()
+    {
+        for (var number = 1; number <= Inputs.Count; number++)
+        {
+            WrapAndSendCommand($"{number}NI");
+            WrapAndSendCommand($"I{number}HDCP");
+        }
+        for (var number = 1; number <= ComposedOutputs.Count; number++)
+        {
+            WrapAndSendCommand($"{number}NO");
+            WrapAndSendCommand($"O{number}HDCP");
+            WrapAndSendCommand($"O{number}AHDCP");
+            WrapAndSendCommand($"O{number}BHDCP");
+        }
+        QueryTies();
+    }
+
+    private void QueryTies()
+    {
+        for (var number = 1; number <= ComposedOutputs.Count; number++)
+            SendCommand($"{number}%");
+    }
+
+    private void HandleSignalPresence(string presence)
+    {
+        SetPortCounts(presence.Length, ComposedOutputs.Count);
+        for (var index = 0; index < presence.Length; index++)
+            Inputs[index].SetInputStatus(presence[index] == SignalDetected ? ConnectionState.Connected : ConnectionState.Disconnected);
+    }
+
+    private void SetVideoTie(int output, int input)
+    {
+        if (output < 1 || output > ComposedOutputs.Count)
+            return;
+        ComposedOutputs[output - 1].SetStreamAddress(AddressOf(input));
+    }
+
+    private void SetVideoTieOnAllOutputs(int input) =>
+        ComposedOutputs.ForEach(output => output.SetStreamAddress(AddressOf(input)));
+
+    private static string AddressOf(int input) => input == 0 ? UntiedAddress : input.ToString();
 
     protected override void SendPoll() => WrapAndSendCommand("0TC");
 

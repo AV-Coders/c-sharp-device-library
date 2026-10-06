@@ -56,6 +56,12 @@ public class ExtronMatrixOutput(string name, int number)
         Primary.SetName(name);
         Secondary.SetName($"{name} - B");
     }
+
+    public void SetStreamAddress(string address)
+    {
+        Primary.SetStreamAddress(address);
+        Secondary.SetStreamAddress(address);
+    }
 }
 
 public static class ExtronMatrixEndpointListExtensions

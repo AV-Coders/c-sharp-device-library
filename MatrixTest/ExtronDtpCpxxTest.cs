@@ -176,7 +176,6 @@ public class ExtronDtpCpxxTest
     public void HandleResponse_UpdatesVideoSyncState(string response, ConnectionState expectedConnectionStatus)
     {
         Mock<SyncInfoHandler> mockSyncInfoHandler = new Mock<SyncInfoHandler>();
-        _mockClient.Object.ResponseHandlers!.Invoke("Frq00 0000000000\r");
         _switcher.Inputs[0].InputStatusChangedHandlers += mockSyncInfoHandler.Object;
         _mockClient.Object.ResponseHandlers!.Invoke(response);
 
@@ -235,7 +234,7 @@ public class ExtronDtpCpxxTest
     }
 
     [Fact]
-    public void SignalPresenceResponse_NotifiesSubscribersOnceTheInputsExist()
+    public void SignalPresenceResponse_NotifiesSubscribersWhenTheInputCountChanges()
     {
         var seen = new List<int>();
         _switcher.EndpointsChangedHandlers += () => seen.Add(_switcher.GetInputs().Count);
@@ -243,6 +242,202 @@ public class ExtronDtpCpxxTest
         _mockClient.Object.ResponseHandlers!.Invoke("Frq00 00000000\r");
 
         Assert.Equal([8], seen);
+    }
+
+    private static ExtronDtpCpxx DiscoveredDtpCp84(Mock<CommunicationClient> client)
+    {
+        var switcher = new ExtronDtpCpxx(client.Object, 8, "Hearing Room 19.3 matrix");
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84 4K");
+        client.Object.ResponseHandlers!.Invoke("Nmi1,Sharelink");
+        client.Object.ResponseHandlers!.Invoke("Nmi2,Blu Ray");
+        client.Object.ResponseHandlers!.Invoke("HdcpI01*2");
+        client.Object.ResponseHandlers!.Invoke("HdcpI02*1");
+        return switcher;
+    }
+
+    [Fact]
+    public void SignalPresenceResponse_KeepsTheDiscoveredInputs()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = DiscoveredDtpCp84(client);
+        var inputs = switcher.Inputs.ToList();
+        var hdcp = switcher.Inputs.Select(input => input.InputHdcpStatus).ToList();
+
+        client.Object.ResponseHandlers!.Invoke("Frq00 11101000");
+
+        Assert.Equal(8, switcher.Inputs.Count);
+        for (var index = 0; index < inputs.Count; index++)
+            Assert.Same(inputs[index], switcher.Inputs[index]);
+        Assert.Equal("Sharelink", switcher.Inputs[0].Name);
+        Assert.Equal("Blu Ray", switcher.Inputs[1].Name);
+        Assert.Equal(hdcp, switcher.Inputs.Select(input => input.InputHdcpStatus).ToList());
+    }
+
+    [Fact]
+    public void SignalPresenceResponse_SetsEachInputsConnectionStatus()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = DiscoveredDtpCp84(client);
+
+        client.Object.ResponseHandlers!.Invoke("Frq00 11101000");
+        client.Object.ResponseHandlers!.Invoke("Frq00 11101100");
+
+        Assert.Equal(
+            [
+                ConnectionState.Connected, ConnectionState.Connected, ConnectionState.Connected, ConnectionState.Disconnected,
+                ConnectionState.Connected, ConnectionState.Connected, ConnectionState.Disconnected, ConnectionState.Disconnected
+            ],
+            switcher.Inputs.Select(input => input.InputConnectionStatus).ToList());
+    }
+
+    [Fact]
+    public void SignalPresenceResponse_DoesNotNotifySubscribersWhenTheInputCountIsUnchanged()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = DiscoveredDtpCp84(client);
+        var changes = 0;
+        switcher.EndpointsChangedHandlers += () => changes++;
+
+        client.Object.ResponseHandlers!.Invoke("Frq00 11101000");
+
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public void ModelResponseOnReconnect_KeepsThePortsAndQueriesThemAgain()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = DiscoveredDtpCp84(client);
+        var inputs = switcher.Inputs.ToList();
+        var outputs = switcher.ComposedOutputs.ToList();
+        var changes = 0;
+        switcher.EndpointsChangedHandlers += () => changes++;
+        client.Invocations.Clear();
+
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84 4K");
+
+        Assert.Equal(0, changes);
+        Assert.Equal(inputs, switcher.Inputs);
+        Assert.Equal(outputs, switcher.ComposedOutputs);
+        Assert.Equal("Sharelink", switcher.Inputs[0].Name);
+        client.Verify(x => x.Send($"{EscapeHeader}1NI\r"), Times.Once);
+        client.Verify(x => x.Send($"{EscapeHeader}I8HDCP\r"), Times.Once);
+        client.Verify(x => x.Send($"{EscapeHeader}4NO\r"), Times.Once);
+        client.Verify(x => x.Send($"{EscapeHeader}O4BHDCP\r"), Times.Once);
+    }
+
+    [Fact]
+    public void OutputHdcpResponse_NotifiesSubscribersWhenAnOutputFirstReports()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = DiscoveredDtpCp84(client);
+        var seen = new List<int>();
+        switcher.EndpointsChangedHandlers += () => seen.Add(switcher.GetOutputs().Count);
+
+        client.Object.ResponseHandlers!.Invoke("HdcpO3A*0");
+        client.Object.ResponseHandlers!.Invoke("HdcpO3B*1");
+        client.Object.ResponseHandlers!.Invoke("HdcpO3B*0");
+
+        Assert.Equal([1, 2], seen);
+    }
+
+    [Fact]
+    public void InputTypeResponse_RequestsThatInputsHdcpStatus()
+    {
+        _mockClient.Invocations.Clear();
+
+        _mockClient.Object.ResponseHandlers!.Invoke("Ityp05*2");
+
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}I5HDCP\r"), Times.Once);
+    }
+
+    [Fact]
+    public void Inputs_UseTheirNumberAsStreamAddress()
+    {
+        Assert.Equal(Enumerable.Range(1, 10).Select(number => number.ToString()),
+            _switcher.Inputs.Select(input => input.StreamAddress));
+    }
+
+    [Theory]
+    [InlineData("Out3 In3 Vid", 3, "3")]
+    [InlineData("Out4 In1 All", 4, "1")]
+    [InlineData("Out2 In7 Vid", 2, "7")]
+    public void VideoTieResponse_SetsTheOutputsSourceOnBothHalves(string response, int output, string expectedAddress)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Equal(expectedAddress, _switcher.ComposedOutputs[output - 1].Primary.StreamAddress);
+        Assert.Equal(expectedAddress, _switcher.ComposedOutputs[output - 1].Secondary.StreamAddress);
+    }
+
+    [Fact]
+    public void AudioTieResponse_LeavesTheVideoSourceAlone()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("Out4 In1 All");
+        _mockClient.Object.ResponseHandlers!.Invoke("Out1 In0 Aud");
+        _mockClient.Object.ResponseHandlers!.Invoke("Out4 In2 Aud");
+
+        Assert.Equal("1", _switcher.ComposedOutputs[3].Primary.StreamAddress);
+        Assert.Equal(string.Empty, _switcher.ComposedOutputs[0].Primary.StreamAddress);
+    }
+
+    [Fact]
+    public void UntieResponse_ClearsTheOutputsSource()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("Out4 In1 All");
+        _mockClient.Object.ResponseHandlers!.Invoke("Out4 In0 All");
+
+        Assert.Equal(string.Empty, _switcher.ComposedOutputs[3].Primary.StreamAddress);
+        Assert.Equal(string.Empty, _switcher.ComposedOutputs[3].Secondary.StreamAddress);
+    }
+
+    [Fact]
+    public void ClearAllTiesResponse_UntiesEveryOutput()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("Out3 In3 Vid");
+        _mockClient.Object.ResponseHandlers!.Invoke("Out4 In1 All");
+        _mockClient.Object.ResponseHandlers!.Invoke("Out2 In7 Vid");
+
+        _mockClient.Object.ResponseHandlers!.Invoke("In0 All");
+
+        Assert.All(_switcher.ComposedOutputs, output =>
+        {
+            Assert.Equal(string.Empty, output.Primary.StreamAddress);
+            Assert.Equal(string.Empty, output.Secondary.StreamAddress);
+        });
+    }
+
+    [Fact]
+    public void TieResponseBeforeTheModelIsKnown_IsIgnored()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = new ExtronDtpCpxx(client.Object, 8, "fresh matrix");
+
+        var exception = Record.Exception(() => client.Object.ResponseHandlers!.Invoke("Out3 In3 Vid"));
+
+        Assert.Null(exception);
+        Assert.Empty(switcher.ComposedOutputs);
+    }
+
+    [Fact]
+    public void ModelResponse_QueriesEachOutputsVideoTie()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        _ = DiscoveredDtpCp84(client);
+
+        for (var output = 1; output <= 4; output++)
+            client.Verify(x => x.Send($"{output}%"), Times.Once);
+    }
+
+    [Fact]
+    public void QuickTieResponse_QueriesTheVideoTiesAgain()
+    {
+        _mockClient.Invocations.Clear();
+
+        _mockClient.Object.ResponseHandlers!.Invoke("Qik");
+
+        for (var output = 1; output <= 8; output++)
+            _mockClient.Verify(x => x.Send($"{output}%"), Times.Once);
     }
 
     [Theory]
@@ -258,33 +453,54 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("HdcpI01*1", 0, ConnectionState.Connected)]
-    [InlineData("HdcpI01*0", 0, ConnectionState.Disconnected)]
-    [InlineData("HdcpI02*2", 1, ConnectionState.Connected)]
-    [InlineData("HdcpI02*0", 1, ConnectionState.Disconnected)]
-    [InlineData("HdcpI03*2", 2, ConnectionState.Connected)]
-    [InlineData("HdcpI03*0", 2, ConnectionState.Disconnected)]
-    [InlineData("HdcpI04*1", 3, ConnectionState.Connected)]
-    [InlineData("HdcpI04*0", 3, ConnectionState.Disconnected)]
-    [InlineData("HdcpI09*2", 8, ConnectionState.Connected)]
-    [InlineData("HdcpI10*1", 9, ConnectionState.Connected)]
-    [InlineData("HdcpI10*0", 9, ConnectionState.Disconnected)]
-    public void HandleResponse_SetsInputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionState expected)
+    [InlineData("HdcpI01*2", 0, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpI02*1", 1, ConnectionState.Connected, HdcpStatus.Active)]
+    [InlineData("HdcpI03*2", 2, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpI04*0", 3, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI08*0", 7, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpI10*1", 9, ConnectionState.Connected, HdcpStatus.Active)]
+    [InlineData("HdcpI10*2", 9, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    public void InputHdcpResponse_SetsTheInputsConnectionAndHdcpStatus(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
         Assert.Equal(expected, _switcher.Inputs[arrayIndex].InputConnectionStatus);
+        Assert.Equal(expectedHdcpStatus, _switcher.Inputs[arrayIndex].InputHdcpStatus);
         Assert.True(_switcher.Inputs[arrayIndex].InUse);
     }
 
+    [Fact]
+    public void HearingRoom19_3HdcpResponses_ShowTheBluRayAsTheOnlyHdcpSource()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = DiscoveredDtpCp84(client);
+
+        foreach (var response in new[]
+                 {
+                     "HdcpI03*2", "HdcpI04*0", "HdcpI05*0", "HdcpI06*0", "HdcpI07*0", "HdcpI08*0",
+                     "HdcpO1*0", "HdcpO2*3", "HdcpO3A*0", "HdcpO3B*1", "HdcpO4A*1", "HdcpO4B*0"
+                 })
+            client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Equal(
+            [
+                HdcpStatus.NotSupported, HdcpStatus.Active, HdcpStatus.NotSupported, HdcpStatus.Unknown,
+                HdcpStatus.Unknown, HdcpStatus.Unknown, HdcpStatus.Unknown, HdcpStatus.Unknown
+            ],
+            switcher.Inputs.Select(input => input.InputHdcpStatus).ToList());
+        Assert.Equal(
+            [
+                HdcpStatus.Unknown, HdcpStatus.Active, HdcpStatus.Unknown, HdcpStatus.NotSupported,
+                HdcpStatus.NotSupported, HdcpStatus.Unknown
+            ],
+            switcher.Outputs.Select(output => output.OutputHdcpStatus).ToList());
+    }
+
     [Theory]
-    [InlineData("HdcpO1*1", 0, ConnectionState.Connected, HdcpStatus.NotSupported)]
     [InlineData("HdcpO1*0", 0, ConnectionState.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO2*2", 1, ConnectionState.Connected, HdcpStatus.Available)]
     [InlineData("HdcpO2*0", 1, ConnectionState.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO3*3", 2, ConnectionState.Connected, HdcpStatus.Active)]
-    [InlineData("HdcpO3*0", 2, ConnectionState.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO4*1", 3, ConnectionState.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpO4*0", 3, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO2*1", 1, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpO2*2", 1, ConnectionState.Connected, HdcpStatus.Available)]
+    [InlineData("HdcpO2*3", 1, ConnectionState.Connected, HdcpStatus.Active)]
     public void HandleResponse_SetsOutputConnectionStatusForSingleOutputNumbers(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
@@ -294,10 +510,10 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("HdcpO5A*1", 4, ConnectionState.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpO5A*0", 4, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO3A*0", 2, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO4A*0", 3, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO4A*1", 3, ConnectionState.Connected, HdcpStatus.NotSupported)]
     [InlineData("HdcpO6A*2", 5, ConnectionState.Connected, HdcpStatus.Available)]
-    [InlineData("HdcpO6A*0", 5, ConnectionState.Disconnected, HdcpStatus.Unknown)]
     public void HandleResponse_SetsOutputConnectionStatusForSplitOutputs_Primary(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);
@@ -307,10 +523,9 @@ public class ExtronDtpCpxxTest
     }
 
     [Theory]
-    [InlineData("HdcpO5B*1", 4, ConnectionState.Connected, HdcpStatus.NotSupported)]
-    [InlineData("HdcpO5B*0", 4, ConnectionState.Disconnected, HdcpStatus.Unknown)]
-    [InlineData("HdcpO6B*2", 5, ConnectionState.Connected, HdcpStatus.Available)]
-    [InlineData("HdcpO6B*0", 5, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO3B*1", 2, ConnectionState.Connected, HdcpStatus.NotSupported)]
+    [InlineData("HdcpO4B*0", 3, ConnectionState.Disconnected, HdcpStatus.Unknown)]
+    [InlineData("HdcpO6B*3", 5, ConnectionState.Connected, HdcpStatus.Active)]
     public void HandleResponse_SetsOutputConnectionStatusForSplitOutputs_Secondary(string eventResponse, int arrayIndex, ConnectionState expected, HdcpStatus expectedHdcpStatus)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);

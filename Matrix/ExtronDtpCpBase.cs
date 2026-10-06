@@ -59,7 +59,7 @@ public abstract class ExtronDtpCpBase : VideoMatrix
         Thread.Sleep(TimeSpan.FromMilliseconds(200));
         WrapAndSendCommand("3CV");
         Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        SendCommand("I"); // The model response drives endpoint discovery and resets all data
+        SendCommand("I");
     }
 
     protected void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
