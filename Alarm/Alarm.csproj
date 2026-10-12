@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Description>Alarm panel, area, zone and relay base classes for the AV Coders device library.</Description>
+        <PackageId>AVCoders.Alarm</PackageId>
+        <AssemblyName>AVCoders.Alarm</AssemblyName>
+        <RootNamespace>AVCoders.Alarm</RootNamespace>
+        <LangVersion>default</LangVersion>
+        <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Core\Core.csproj" />
+    </ItemGroup>
+
+</Project>

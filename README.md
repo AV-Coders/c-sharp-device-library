@@ -53,6 +53,7 @@ display.PowerOn();
 | `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer`, `ExterityTci`, `AppleTvCec` |
 | `AVCoders.Motor` | Screens / blinds / shades | `ScreenTechnicsConnect`, `Grandview`, `MotoluxBlindTransmitter`, `BondDevice`/`BondGroup` |
 | `AVCoders.Lighting` | Lighting & dimmers | `CBusLight`, `DyNet` (Dynalite), `Zigbee2MqttLight` |
+| `AVCoders.Alarm` | Alarm panels | Base classes only: `AlarmPanel`, `Area`, `Zone`, `Relay` |
 | `AVCoders.Annotator` | Annotation devices | `ExtronAnnotator401` |
 | `AVCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2` |
 | `AVCoders.WirelessPresenter` | Wireless presentation | `ExtronSharelinkPro` |

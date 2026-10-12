@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Sockets;
 using Renci.SshNet;
 using Renci.SshNet.Common;
@@ -9,6 +10,9 @@ namespace AVCoders.CommunicationClients;
 
 public class AvCodersSshClient : SshClientBase
 {
+    private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ReceivePollInterval = TimeSpan.FromMilliseconds(10);
+    private static readonly TimeSpan ShortSession = TimeSpan.FromSeconds(60);
     private readonly string _username;
     private readonly string _password;
     private readonly ConcurrentQueue<QueuedPayload<string>> _sendQueue = new();
@@ -17,6 +21,8 @@ public class AvCodersSshClient : SshClientBase
     
     private readonly Dictionary<TerminalModes, uint> _modes;
     private ShellStream? _stream;
+    private long? _sessionStartedAt;
+    private int _consecutiveShortSessions;
 
     public AvCodersSshClient(string host, ushort port, string username, string password, string name = "", CommandStringFormat commandStringFormat = CommandStringFormat.Ascii)
         : base(host, port, name, commandStringFormat)
@@ -51,20 +57,25 @@ public class AvCodersSshClient : SshClientBase
                 try
                 {
                     // Local copy: Reconnect/CheckConnectionState swap _stream and
-                    // _client without stopping this worker. A disposed stream or
-                    // client lands in the ObjectDisposedException handler below.
+                    // _client without stopping this worker. A disposed client lands
+                    // in the ObjectDisposedException handler below.
                     var stream = _stream;
-                    if (_client.IsConnected && stream != null)
+                    if (_client.IsConnected && stream != null && ConnectionState != ConnectionState.Error)
                     {
-                        if (stream.DataAvailable)
+                        if (!stream.CanWrite && ConnectionState == ConnectionState.Connected)
                         {
-                            var line = stream.ReadLine();
+                            LogWarning("The shell stream is no longer readable, reconnecting");
+                            ConnectionState = ConnectionState.Error;
+                        }
+                        else if (stream.DataAvailable)
+                        {
+                            var line = stream.ReadLine(ReceiveTimeout);
                             if (!string.IsNullOrEmpty(line))
                                 InvokeResponseHandlers(line);
                         }
                         else
                         {
-                            await Task.Delay(200, token);
+                            await Task.Delay(ReceivePollInterval, token);
                         }
                     }
                     else
@@ -94,6 +105,7 @@ public class AvCodersSshClient : SshClientBase
                     await _stream.DisposeAsync();
                     _stream = null;
                 }
+                await BackOffAfterShortSessions(token);
                 try
                 {
                     ConnectionState = ConnectionState.Connecting;
@@ -116,9 +128,8 @@ public class AvCodersSshClient : SshClientBase
                     LogException(e);
                     ReportConnectionFailure(DescribeSshConnectionError(e));
                     ConnectionState = ConnectionState.Disconnected;
+                    await Task.Delay(TimeSpan.FromSeconds(60), token);
                 }
-
-                await Task.Delay(TimeSpan.FromSeconds(60), token);
             }
             else if (_client.IsConnected && _stream == null)
             {
@@ -192,8 +203,31 @@ public class AvCodersSshClient : SshClientBase
         await Task.Delay(200, token);
         ReceiveThreadWorker.Restart();
         ConnectionState = ConnectionState.Connected;
+        _sessionStartedAt = Stopwatch.GetTimestamp();
         LogInformation("Shell stream created successfully");
         return _stream;
+    }
+
+    private async Task BackOffAfterShortSessions(CancellationToken token)
+    {
+        if (_sessionStartedAt is not { } startedAt)
+            return;
+        _sessionStartedAt = null;
+
+        if (Stopwatch.GetElapsedTime(startedAt) >= ShortSession)
+        {
+            _consecutiveShortSessions = 0;
+            return;
+        }
+
+        _consecutiveShortSessions++;
+        if (_consecutiveShortSessions < 2)
+            return;
+
+        var delay = TimeSpan.FromSeconds(Math.Min(60, 5 << Math.Min(_consecutiveShortSessions - 2, 4)));
+        LogWarning("The SSH session has dropped within {ShortSession} of connecting {Count} times in a row, waiting {Delay} before reconnecting",
+            ShortSession, _consecutiveShortSessions, delay);
+        await Task.Delay(delay, token);
     }
 
     private string DescribeSshConnectionError(Exception e) => e switch
@@ -306,8 +340,11 @@ public class AvCodersSshClient : SshClientBase
     {
         ConnectionStateWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
-        
-        _stream?.Dispose();
+        _sessionStartedAt = null;
+
+        var stream = _stream;
+        _stream = null;
+        stream?.Dispose();
         
         if (_client.IsConnected)
             _client.Disconnect();
