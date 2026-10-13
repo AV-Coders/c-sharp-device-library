@@ -1,3 +1,23 @@
+# Migrating to the release where CecDisplay claims active source before standby
+
+`CecDisplay` takes a required `sourcePhysicalAddress` argument after `name`: a function that
+returns the source's 2-byte CEC physical address. Power-off broadcasts Active Source with that
+address, then sends Standby to the TV, in place of the Power Off key. A reported power status of
+`02` (in transition to on) now reads as Off.
+
+```csharp
+// Before
+var display = new CecDisplay(cecStream, "Display");
+
+// After
+var cecStream = new CrestronCecStream(decoder.HdmiOut.StreamCec, "Display CEC");
+var display = new CecDisplay(cecStream, "Display", () => cecStream.PhysicalAddress);
+```
+
+`CrestronCecStream.PhysicalAddress` (AVCoders.Crestron.CommunicationClients) reads the address
+from the Crestron CEC object on every call. It returns an empty array while the address is
+unknown; `CecDisplay` then sends Standby without claiming active source and adds an Error event.
+
 # Migrating to the release where Fader gained a FaderCurve
 
 The `convertLogarithmicToLinear` constructor argument on `Fader` is gone. It never worked and

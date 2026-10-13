@@ -6,11 +6,16 @@ namespace AVCoders.Display;
 public class CecDisplay : Display, ISetTopBox
 {
     private readonly SerialClient _cecStream;
+    private readonly Func<char[]> _sourcePhysicalAddress;
 
     private const char SourcePlayBack1 = '\x40';
     private const char SourceUnregistered = '\xF0';
     private const char DestinationTv = '\x00';
     private const char DestinationBroadcast = '\x0F';
+    private const char Standby = '\x36';
+    private const char ActiveSource = '\x82';
+    private const int PhysicalAddressLength = 2;
+    private static readonly TimeSpan ActiveSourceSettleTime = TimeSpan.FromMilliseconds(500);
 
     private readonly char _commandHeader;
     private readonly char _broadcastHeader;
@@ -78,10 +83,11 @@ public class CecDisplay : Display, ISetTopBox
         { Input.Network6, '\x60' }
     }; 
 
-    public CecDisplay(SerialClient cecStream, string name,  char sourceId = SourcePlayBack1, char destinationId = DestinationTv, int pollTime = 23) 
+    public CecDisplay(SerialClient cecStream, string name, Func<char[]> sourcePhysicalAddress, char sourceId = SourcePlayBack1, char destinationId = DestinationTv, int pollTime = 23)
         : base(InputMap.Keys.ToList(), name, null, cecStream, CommandStringFormat.Hex, pollTime)
     {
         _cecStream = cecStream;
+        _sourcePhysicalAddress = sourcePhysicalAddress;
         _cecStream.ResponseHandlers += HandleResponse;
         _commandHeader = (char)(sourceId + destinationId);
         _responseHeader = '\x0F';
@@ -98,7 +104,8 @@ public class CecDisplay : Display, ISetTopBox
                 PowerState = incoming[2] switch
                 {
                     '\x00' => PowerState.On,
-                    '\x01' => PowerState.Off,
+                    // Samsung reports 02 (in transition to on) for as long as it is in standby.
+                    '\x01' or '\x02' => PowerState.Off,
                     _ => PowerState
                 };
                 ProcessPowerResponse();
@@ -140,9 +147,22 @@ public class CecDisplay : Display, ISetTopBox
 
     protected override void DoPowerOff()
     {
-        RemoteControlPassthrough('\x6C');
-        // Broadcast system standby
-        // Send(new [] { _broadcastHeader, '\x36' });
+        using (PushProperties("PowerOff"))
+        {
+            var physicalAddress = _sourcePhysicalAddress();
+            if (physicalAddress.Length == PhysicalAddressLength)
+            {
+                // Samsung ignores Standby from a source that isn't the active source.
+                Send([_broadcastHeader, ActiveSource, physicalAddress[0], physicalAddress[1]]);
+                Thread.Sleep(ActiveSourceSettleTime);
+            }
+            else
+            {
+                LogWarning("The source physical address is unknown, sending Standby without claiming active source");
+                AddEvent(EventType.Error, "Source physical address unknown, Standby sent without claiming active source");
+            }
+            Send([_commandHeader, Standby]);
+        }
     }
 
     protected override void DoSetInput(Input input) => Send([_commandHeader, '\x82', InputMap[input], '\x00']);

@@ -9,7 +9,13 @@ public class CecDisplayTest
 {
     private readonly CecDisplay _display;
     private readonly Mock<SerialClient> _mockClient = TestFactory.CreateSerialClient();
-    private static readonly RemoteButton[] _excludedButtons = 
+    private readonly List<char[]> _sentFrames = [];
+    private char[] _physicalAddress = ['\x30', '\x00'];
+    private static readonly char[] PowerStatusPoll = ['\xF0', '\x8F'];
+    private static readonly char[] ClaimActiveSourceAtHdmi3 = ['\x4F', '\x82', '\x30', '\x00'];
+    private static readonly char[] ClaimActiveSourceAtHdmi1 = ['\x4F', '\x82', '\x10', '\x00'];
+    private static readonly char[] StandbyToTv = ['\x40', '\x36'];
+    private static readonly RemoteButton[] _excludedButtons =
     [
         RemoteButton.Display, RemoteButton.Eject, 
         RemoteButton.PopupMenu, RemoteButton.TopMenu,
@@ -26,7 +32,18 @@ public class CecDisplayTest
     
     public CecDisplayTest()
     {
-        _display = new CecDisplay(_mockClient.Object, "Test display");
+        _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback<char[]>(frame =>
+        {
+            lock (_sentFrames)
+                _sentFrames.Add(frame);
+        });
+        _display = new CecDisplay(_mockClient.Object, "Test display", () => _physicalAddress);
+    }
+
+    private List<char[]> SentFramesExceptPolls()
+    {
+        lock (_sentFrames)
+            return _sentFrames.Where(frame => !frame.SequenceEqual(PowerStatusPoll)).ToList();
     }
 
     [Fact]
@@ -39,12 +56,60 @@ public class CecDisplayTest
     }
 
     [Fact]
-    public void PowerOff_SendsTheUserControlPressedAndReleasedCommands()
+    public void PowerOff_ClaimsActiveSourceThenSendsStandby()
     {
         _display.PowerOff();
-        
-        _mockClient.Verify(x => x.Send(new []{ '\x40', '\x44', '\x6C'}));
-        _mockClient.Verify(x => x.Send(new []{ '\x40', '\x45'}));
+
+        Assert.Equal([ClaimActiveSourceAtHdmi3, StandbyToTv], SentFramesExceptPolls());
+    }
+
+    [Fact]
+    public void PowerOff_ClaimsActiveSourceBeforeEveryStandby()
+    {
+        _display.PowerOff();
+        _display.PowerOff();
+
+        Assert.Equal([ClaimActiveSourceAtHdmi3, StandbyToTv, ClaimActiveSourceAtHdmi3, StandbyToTv], SentFramesExceptPolls());
+    }
+
+    [Fact]
+    public void PowerOff_ClaimsActiveSourceAtThePhysicalAddressTheStreamReportsNow()
+    {
+        _display.PowerOff();
+        _physicalAddress = ['\x10', '\x00'];
+        _display.PowerOff();
+
+        Assert.Equal([ClaimActiveSourceAtHdmi3, StandbyToTv, ClaimActiveSourceAtHdmi1, StandbyToTv], SentFramesExceptPolls());
+    }
+
+    [Fact]
+    public void PowerOff_WithAnUnknownPhysicalAddress_SendsStandbyOnlyAndAddsAnErrorEvent()
+    {
+        _physicalAddress = [];
+
+        _display.PowerOff();
+
+        Assert.Equal([StandbyToTv], SentFramesExceptPolls());
+        Assert.Contains(_display.Events, e => e.Type == EventType.Error);
+    }
+
+    [Fact]
+    public void PowerOff_SetsThePowerStateToOff()
+    {
+        _display.PowerOff();
+
+        Assert.Equal(PowerState.Off, _display.PowerState);
+    }
+
+    [Theory]
+    [InlineData('\x00', PowerState.On)]
+    [InlineData('\x01', PowerState.Off)]
+    [InlineData('\x02', PowerState.Off)]
+    public void HandleResponse_PowerStatus_SetsThePowerState(char status, PowerState expected)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"\x0F\x90{status}");
+
+        Assert.Equal(expected, _display.PowerState);
     }
     
     [Theory]
