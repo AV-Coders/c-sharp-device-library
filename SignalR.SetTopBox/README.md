@@ -1,6 +1,6 @@
 # AVCoders.SignalR.SetTopBox
 
-SignalR hub and bridge for set-top box remote control: remote buttons, power and active-source state. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0**.
+SignalR hub and bridge for set-top box remote control: remote buttons, power and active-source state. Part of the [AV Coders device library](https://github.com/AV-Coders/c-sharp-device-library). Targets **.NET 8.0 and .NET 10.0**.
 
 ## Install
 
