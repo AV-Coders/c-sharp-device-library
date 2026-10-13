@@ -73,6 +73,10 @@ public class NovaStarH5 : Display
 
     protected override void DoSetInput(Input input) { using (PushProperties("DoSetInput")) LogWarning("NovaStarH5 does not support input select"); }
 
+    public override bool SupportsLevel => false;
+
+    public override bool SupportsMute => false;
+
     protected override void DoSetVolume(int percentage) { using (PushProperties("DoSetVolume")) LogWarning("NovaStarH5 does not support volume"); }
 
     protected override void DoSetAudioMute(MuteState state) { using (PushProperties("DoSetAudioMute")) LogWarning("NovaStarH5 does not support audio mute"); }

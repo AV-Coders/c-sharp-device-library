@@ -58,6 +58,10 @@ public class ColorlightDeviceControlProtocolClassB : Display
 
     protected override void DoSetInput(Input input) { using (PushProperties("DoSetInput")) LogWarning("ColorlightDeviceControlProtocolClassB does not support input select"); }
 
+    public override bool SupportsLevel => false;
+
+    public override bool SupportsMute => false;
+
     protected override void DoSetVolume(int percentage) { using (PushProperties("DoSetVolume")) LogWarning("ColorlightDeviceControlProtocolClassB does not support volume"); }
 
     protected override void DoSetAudioMute(MuteState state) { using (PushProperties("DoSetAudioMute")) LogWarning("ColorlightDeviceControlProtocolClassB does not support audio mute"); }

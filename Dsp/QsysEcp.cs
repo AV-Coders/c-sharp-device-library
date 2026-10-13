@@ -48,6 +48,56 @@ public class QsysVolumeControl : VolumeControl
     public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_muteNamedControl, state);
 }
 
+public class QsysVolumeOnlyControl : VolumeControl
+{
+    private readonly string _levelNamedControl;
+    private readonly QsysEcp _dsp;
+
+    public QsysVolumeOnlyControl(string name, string levelInstanceTag, VolumeType type, QsysEcp dsp) : base(name, type)
+    {
+        _dsp = dsp;
+        _levelNamedControl = levelInstanceTag;
+        _dsp.AddControl(volumeLevel => Volume = volumeLevel, _levelNamedControl);
+    }
+
+    public override bool SupportsMute => false;
+
+    public override void LevelUp(int amount) => _dsp.LevelUp(_levelNamedControl, amount);
+
+    public override void LevelDown(int amount) => _dsp.LevelDown(_levelNamedControl, amount);
+
+    public override void SetLevel(int percentage) => _dsp.SetLevel(_levelNamedControl, percentage);
+
+    public override void ToggleAudioMute() { using (PushProperties("ToggleAudioMute")) LogWarning("{Name} does not support mute", Name); }
+
+    public override void SetAudioMute(MuteState state) { using (PushProperties("SetAudioMute")) LogWarning("{Name} does not support mute", Name); }
+}
+
+public class QsysMuteOnlyControl : VolumeControl
+{
+    private readonly string _muteNamedControl;
+    private readonly QsysEcp _dsp;
+
+    public QsysMuteOnlyControl(string name, string muteInstanceTag, VolumeType type, QsysEcp dsp) : base(name, type)
+    {
+        _dsp = dsp;
+        _muteNamedControl = muteInstanceTag;
+        _dsp.AddControl(muteState => MuteState = muteState, _muteNamedControl);
+    }
+
+    public override bool SupportsLevel => false;
+
+    public override void LevelUp(int amount) { using (PushProperties("LevelUp")) LogWarning("{Name} does not support volume", Name); }
+
+    public override void LevelDown(int amount) { using (PushProperties("LevelDown")) LogWarning("{Name} does not support volume", Name); }
+
+    public override void SetLevel(int percentage) { using (PushProperties("SetLevel")) LogWarning("{Name} does not support volume", Name); }
+
+    public override void ToggleAudioMute() => _dsp.ToggleAudioMute(_muteNamedControl);
+
+    public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_muteNamedControl, state);
+}
+
 public class QsysEcp : Dsp
 {
     public static readonly ushort DefaultPort = 1702;
@@ -270,11 +320,13 @@ public class QsysEcp : Dsp
         if (_gains.TryGetValue(levelName, out var gain))
             gain.VolumeLevelHandlers += volumeLevelHandler;
         else
-        {
             _gains.Add(levelName, new QscGain(volumeLevelHandler));
-            AddControlsToChangeGroup(ChangeGroupGains, [levelName]);
-        }
 
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+            return;
+
+        if (gain == null)
+            AddControlsToChangeGroup(ChangeGroupGains, [levelName]);
         GetControl(levelName);
     }
 
@@ -283,11 +335,13 @@ public class QsysEcp : Dsp
         if (_mutes.TryGetValue(muteName, out var mute))
             mute.MuteStateHandlers += muteStateHandler;
         else
-        {
             _mutes.Add(muteName, new QscMute(muteStateHandler));
-            AddControlsToChangeGroup(ChangeGroupMutes, [muteName]);
-        }
 
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+            return;
+
+        if (mute == null)
+            AddControlsToChangeGroup(ChangeGroupMutes, [muteName]);
         GetControl(muteName);
     }
 
@@ -296,11 +350,13 @@ public class QsysEcp : Dsp
         if (_strings.TryGetValue(controlName, out var block))
             block.StringValueHandlers += stringValueHandler;
         else
-        {
             _strings.Add(controlName, new QscInt(stringValueHandler));
-            AddControlsToChangeGroup(ChangeGroupStrings, [controlName]);
-        }
 
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+            return;
+
+        if (block == null)
+            AddControlsToChangeGroup(ChangeGroupStrings, [controlName]);
         GetControl(controlName);
     }
 
@@ -309,11 +365,13 @@ public class QsysEcp : Dsp
         if (_meters.TryGetValue(levelName, out var meter))
             meter.VolumeLevelHandlers += volumeLevelHandler;
         else
-        {
             _meters.Add(levelName, new QscGain(volumeLevelHandler));
-            AddControlsToChangeGroup(ChangeGroupMeters, [levelName]);
-        }
 
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+            return;
+
+        if (meter == null)
+            AddControlsToChangeGroup(ChangeGroupMeters, [levelName]);
         GetControl(levelName);
     }
 

@@ -17,6 +17,20 @@ public class QsysEcpTest
     private const string GainName = "Gain";
     private const string MuteName = "Mute";
     private const string StringName = "String";
+    private const string MeterName = "Meter";
+    private const string LevelOnlyName = "Level Only";
+    private const string MuteOnlyName = "Mute Only";
+    private const string LastConnectSend = "cgsna 4 1000\n";
+    private const int WaitTimeoutMs = 5000;
+    private const int WaitStepMs = 50;
+
+    private static readonly string[] RegistrationSends =
+    [
+        $"cga 1 \"{GainName}\"\n", $"cg \"{GainName}\"\n",
+        $"cga 2 \"{MuteName}\"\n", $"cg \"{MuteName}\"\n",
+        $"cga 3 \"{StringName}\"\n", $"cg \"{StringName}\"\n",
+        $"cga 4 \"{MeterName}\"\n", $"cg \"{MeterName}\"\n"
+    ];
 
     public QsysEcpTest()
     {
@@ -317,5 +331,196 @@ public class QsysEcpTest
         _stringValueHandler.Verify(x => x.Invoke("7"), Times.Once);
         _stringValueHandler.Verify(x => x.Invoke("3"), Times.Exactly(4));
         _stringValueHandler.Verify(x => x.Invoke("1"), Times.Exactly(5));
+    }
+
+    [Fact]
+    public void AddControl_WhileDisconnected_SendsNoChangeGroupAddOrGet()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = new QsysEcp(client, "Test");
+
+        RegisterOneOfEachControl(dsp);
+
+        Assert.DoesNotContain(client.Sent, IsChangeGroupAddOrGet);
+    }
+
+    [Fact]
+    public async Task Connecting_AddsEachRegisteredControlToItsChangeGroupAndGetsItOnce()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = new QsysEcp(client, "Test");
+        RegisterOneOfEachControl(dsp);
+
+        client.SetConnectionState(ConnectionState.Connected);
+        await WaitUntil(() => client.Sent.Contains(LastConnectSend) && RegistrationSends.All(client.Sent.Contains));
+
+        Assert.Equal(RegistrationSends.Order(), client.Sent.Where(IsChangeGroupAddOrGet).Order());
+    }
+
+    [Fact]
+    public void AddControl_WhileConnected_SendsTheChangeGroupAddAndGetStraightAway()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new QsysEcp(client, "Test");
+
+        RegisterOneOfEachControl(dsp);
+
+        Assert.All(RegistrationSends, message => Assert.Contains(message, client.Sent));
+    }
+
+    [Fact]
+    public void QsysVolumeOnlyControl_AddsOnlyTheLevelToAChangeGroup()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new QsysEcp(client, "Test");
+
+        _ = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, dsp);
+
+        Assert.Contains($"cga 1 \"{LevelOnlyName}\"\n", client.Sent);
+        Assert.DoesNotContain(client.Sent, message => message.StartsWith("cga 2 "));
+    }
+
+    [Fact]
+    public void QsysVolumeOnlyControl_UpdatesTheVolumeFromTheLevel()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, new QsysEcp(client, "Test"));
+
+        client.ResponseHandlers.Invoke($"cv \"{LevelOnlyName}\" \"-6.40dB\" -6.4 0.989744");
+
+        Assert.Equal(98, control.Volume);
+    }
+
+    [Fact]
+    public void QsysVolumeOnlyControl_SetLevel_SendsTheCommand()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, new QsysEcp(client, "Test"));
+
+        control.SetLevel(34);
+
+        Assert.Equal([$"csp \"{LevelOnlyName}\" 0.34\n"], client.Sent);
+    }
+
+    [Fact]
+    public void QsysVolumeOnlyControl_MuteMethods_SendNothing()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, new QsysEcp(client, "Test"));
+
+        control.SetAudioMute(MuteState.On);
+        control.ToggleAudioMute();
+
+        Assert.Empty(client.Sent);
+    }
+
+    [Fact]
+    public void QsysVolumeOnlyControl_SupportsLevelButNotMute()
+    {
+        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, _dsp);
+
+        Assert.True(control.SupportsLevel);
+        Assert.False(control.SupportsMute);
+    }
+
+    [Fact]
+    public void QsysMuteOnlyControl_AddsOnlyTheMuteToAChangeGroup()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new QsysEcp(client, "Test");
+
+        _ = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, dsp);
+
+        Assert.Contains($"cga 2 \"{MuteOnlyName}\"\n", client.Sent);
+        Assert.DoesNotContain(client.Sent, message => message.StartsWith("cga 1 "));
+    }
+
+    [Fact]
+    public void QsysMuteOnlyControl_UpdatesTheMuteStateFromTheMute()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, new QsysEcp(client, "Test"));
+
+        client.ResponseHandlers.Invoke($"cv \"{MuteOnlyName}\" \"muted\" 1 1");
+
+        Assert.Equal(MuteState.On, control.MuteState);
+    }
+
+    [Fact]
+    public void QsysMuteOnlyControl_SetAudioMute_SendsTheCommand()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, new QsysEcp(client, "Test"));
+
+        control.SetAudioMute(MuteState.On);
+
+        Assert.Equal([$"css \"{MuteOnlyName}\" muted\n"], client.Sent);
+    }
+
+    [Fact]
+    public void QsysMuteOnlyControl_LevelMethods_SendNothing()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, new QsysEcp(client, "Test"));
+
+        control.LevelUp(1);
+        control.LevelDown(1);
+        control.SetLevel(50);
+
+        Assert.Empty(client.Sent);
+    }
+
+    [Fact]
+    public void QsysMuteOnlyControl_SupportsMuteButNotLevel()
+    {
+        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, _dsp);
+
+        Assert.True(control.SupportsMute);
+        Assert.False(control.SupportsLevel);
+    }
+
+    private void RegisterOneOfEachControl(QsysEcp dsp)
+    {
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+        dsp.AddControl(_stringValueHandler.Object, StringName);
+        dsp.AddMonitor(_monitorHandler.Object, MeterName);
+    }
+
+    private static bool IsChangeGroupAddOrGet(string message) => message.StartsWith("cga ") || message.StartsWith("cg ");
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(WaitTimeoutMs);
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(WaitStepMs);
+        Assert.True(condition());
+    }
+
+    private class TestTcpClient() : TcpClient("host", QsysEcp.DefaultPort, "Test", CommandStringFormat.Ascii)
+    {
+        private readonly object _sentLock = new();
+        private readonly List<string> _sent = [];
+        public List<string> Sent { get { lock (_sentLock) return [.._sent]; } }
+        public override void Send(string message) { lock (_sentLock) _sent.Add(message); }
+        public override void Send(byte[] bytes) { lock (_sentLock) _sent.Add(System.Text.Encoding.ASCII.GetString(bytes)); }
+        public override void Connect() { }
+        public override void Reconnect() { }
+        public override void Disconnect() { }
+        protected override Task ProcessSendQueue(CancellationToken token) => Task.CompletedTask;
+        protected override Task CheckConnectionState(CancellationToken token) => Task.CompletedTask;
+        protected override Task Receive(CancellationToken token) => Task.CompletedTask;
+        public void SetConnectionState(ConnectionState state) => ConnectionState = state;
     }
 }

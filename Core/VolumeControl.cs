@@ -47,6 +47,10 @@ public abstract class VolumeControl : LogBase
         }
     }
 
+    public virtual bool SupportsLevel => true;
+
+    public virtual bool SupportsMute => true;
+
     protected VolumeControl(string name, VolumeType type) : base(name)
     {
         Type = type;
@@ -73,9 +77,9 @@ public abstract class VolumeControl : LogBase
 
     public void RestoreLevel()
     {
-        if(_storedLevel.HasValue)
+        if (SupportsLevel && _storedLevel.HasValue)
             SetLevel(_storedLevel.Value);
-        if(_storedMuteState.HasValue)
+        if (SupportsMute && _storedMuteState.HasValue)
             SetAudioMute(_storedMuteState.Value);
     }
 }

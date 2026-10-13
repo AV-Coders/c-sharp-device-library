@@ -14,7 +14,7 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Core). See the 
 
 - **`LogBase`** — logging through the `Microsoft.Extensions.Logging` (MEL) abstraction (no hard dependency on any logging framework), an in-memory ring buffer of recent `Events`/`Errors`, and a static `ActivitySource` for tracing.
 - **`DeviceBase`** — power and communication state, implements `IDevice`.
-- **`VolumeControl`** — volume/mute state for drivers that need it.
+- **`VolumeControl`** — volume/mute state for drivers that need it. `SupportsLevel` and `SupportsMute` (both `true` unless the driver overrides them) say which halves a control has; `RestoreLevel` skips a half it doesn't have.
 - **`CommunicationClient`** — transport abstraction (concrete clients live in `AVCoders.CommunicationClients`).
 - Shared enums, handler delegates and `ThreadWorker`.
 

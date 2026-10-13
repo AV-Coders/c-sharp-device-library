@@ -343,8 +343,32 @@ public class CiscoRoomOsTest
     public void SetMicrophoneMute_SendsTheCommand(MuteState state, string expectedCommand)
     {
         _codec.SetMicrophoneMute(state);
-        
+
         _mockClient.Verify(x => x.Send(expectedCommand));
+    }
+
+    [Fact]
+    public void MicFader_LevelMethods_DoNotThrow()
+    {
+        var fader = new CiscoRoomOsMicFader("Microphones", _codec, VolumeType.Microphone);
+
+        var exception = Record.Exception(() =>
+        {
+            fader.LevelUp(1);
+            fader.LevelDown(1);
+            fader.SetLevel(50);
+        });
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void MicFader_SupportsMuteButNotLevel()
+    {
+        var fader = new CiscoRoomOsMicFader("Microphones", _codec, VolumeType.Microphone);
+
+        Assert.False(fader.SupportsLevel);
+        Assert.True(fader.SupportsMute);
     }
 
     [Theory]

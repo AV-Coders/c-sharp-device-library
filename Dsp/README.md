@@ -14,6 +14,9 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Dsp). See the [
 
 - `BiampTtp` — Biamp Tesira
 - `QsysEcp` — QSC Q-SYS
+  - `QsysVolumeControl` — a level and a mute as one `VolumeControl`
+  - `QsysVolumeOnlyControl` — a level with no mute (`SupportsMute` is `false`)
+  - `QsysMuteOnlyControl` — a mute with no level (`SupportsLevel` is `false`)
 - `BoseCspSoIP` — Bose ControlSpace
 - `CecAudioSystem` — a CEC soundbar or AVR (verified on a Sonos Beam). A single `VolumeControl`, not a `Dsp` subclass
 

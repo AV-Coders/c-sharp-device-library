@@ -1267,6 +1267,8 @@ public class PjLink : Display
         Send($"INPT {code}");
     }
 
+    public override bool SupportsLevel => false;
+
     protected override void DoSetVolume(int percentage)
     {
         using (PushProperties())
