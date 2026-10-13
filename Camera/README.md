@@ -14,6 +14,8 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Camera). See th
 
 - `SonyVisca`
 - `AverVisca` — implements `ITrackingCamera`
+- `CrestronIvCam` (IV-CAM-P12, IV-CAM-P20)
+- `CrestronIvCamI12` (IV-CAM-I12) — implements `ITrackingCamera`
 - `LumensCL510`
 - `LumensCL511`
 - `AutomateVX` (1 Beyond)

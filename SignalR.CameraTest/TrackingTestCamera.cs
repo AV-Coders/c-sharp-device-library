@@ -22,6 +22,9 @@ public class TrackingTestCamera : TestCamera, ITrackingCamera
 
     public event Action<CameraTrackingMode>? OnTrackingModeChange;
 
+    public IReadOnlyList<CameraTrackingMode> SupportedTrackingModes { get; } =
+        [CameraTrackingMode.Disabled, CameraTrackingMode.Auto, CameraTrackingMode.Manual, CameraTrackingMode.TriggerOnce];
+
     public TrackingTestCamera(string name = "TrackingCam") : base(name) { }
 
     public void SetTracking(CameraTrackingMode mode)

@@ -17,13 +17,18 @@ public class SonyVisca : CameraBase
     protected byte _header;
     protected static readonly byte CommandFooter = 0xFF;
     private const int IpHeaderLength = 8;
+    private const int MaxReplyLength = 16;
+    private const byte SocketZeroError = 0x60;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
     private record PendingCommand(string Description, Action? OnCompleted);
+    private record PendingInquiry(string Description, Action<byte[]> OnReply);
 
-    // Written by the caller's thread in SendCommand and by the receive thread in HandleResponse.
     private readonly object _pendingLock = new();
     private readonly Dictionary<byte, PendingCommand> _pendingCommands = new Dictionary<byte, PendingCommand>();
     private PendingCommand? _lastCommand;
+    private readonly Queue<PendingInquiry> _pendingInquiries = new();
+    private readonly Dictionary<byte, PendingInquiry> _pendingInquiriesBySequence = new();
+    private byte[] _partialReply = [];
 
     private static readonly Dictionary<byte, string> ErrorMessages = new Dictionary<byte, string>
     {
@@ -41,6 +46,7 @@ public class SonyVisca : CameraBase
         _useIpHeaders = useIpHeaders;
         SetCameraId(cameraId);
         CommunicationClient.ResponseByteHandlers += HandleResponse;
+        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         _panSpeed = 0x04;
         _tiltSpeed = 0x04;
         _zoomInSpeed = 0x23;
@@ -66,6 +72,9 @@ public class SonyVisca : CameraBase
             // A stale entry must not be matched against a later command that reuses its sequence number.
             _pendingCommands.Clear();
             _lastCommand = null;
+            _pendingInquiries.Clear();
+            _pendingInquiriesBySequence.Clear();
+            _partialReply = [];
         }
         if (DeviceSendsResponses)
             return;
@@ -76,6 +85,12 @@ public class SonyVisca : CameraBase
         ProcessPowerState();
     }
 
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        lock (_pendingLock)
+            _partialReply = [];
+    }
+
     private Task Poll(CancellationToken token)
     {
         if (!DeviceSendsResponses || CommunicationClient.ConnectionState != ConnectionState.Connected)
@@ -83,20 +98,51 @@ public class SonyVisca : CameraBase
 
         using (PushProperties("Poll"))
         {
-            SendInquiry([_header, 0x09, 0x04, 0x00, CommandFooter]);
+            lock (_pendingLock)
+            {
+                _pendingInquiries.Clear();
+                _pendingInquiriesBySequence.Clear();
+            }
+            SendPollInquiries();
         }
         return Task.CompletedTask;
     }
 
-    private void SendInquiry(byte[] bytes)
+    protected virtual void SendPollInquiries()
     {
+        SendInquiry([_header, 0x09, 0x04, 0x00, CommandFooter], "query the power state", HandlePowerReply);
+    }
+
+    private void HandlePowerReply(byte[] payload)
+    {
+        PowerState = payload[2] switch
+        {
+            0x02 => PowerState.On,
+            0x03 => PowerState.Off,
+            _ => PowerState
+        };
+        ProcessPowerState();
+    }
+
+    protected void SendInquiry(byte[] bytes, string description, Action<byte[]> onReply)
+    {
+        var pending = new PendingInquiry(description, onReply);
         try
         {
             if (_useIpHeaders)
             {
-                CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaInquiry, bytes));
+                byte sequenceNumber;
+                lock (_pendingLock)
+                {
+                    sequenceNumber = _sequenceNumber++;
+                    _pendingCommands.Remove(sequenceNumber);
+                    _pendingInquiriesBySequence[sequenceNumber] = pending;
+                }
+                CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaInquiry, sequenceNumber, bytes));
                 return;
             }
+            lock (_pendingLock)
+                _pendingInquiries.Enqueue(pending);
             CommunicationClient.Send(bytes);
         }
         catch (Exception e)
@@ -115,14 +161,17 @@ public class SonyVisca : CameraBase
             var pending = description == null ? null : new PendingCommand(description, onCompleted);
             if (_useIpHeaders)
             {
+                byte sequenceNumber;
                 lock (_pendingLock)
                 {
+                    sequenceNumber = _sequenceNumber++;
+                    _pendingInquiriesBySequence.Remove(sequenceNumber);
                     if (pending == null)
-                        _pendingCommands.Remove(_sequenceNumber);
+                        _pendingCommands.Remove(sequenceNumber);
                     else
-                        _pendingCommands[_sequenceNumber] = pending;
+                        _pendingCommands[sequenceNumber] = pending;
                 }
-                CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaCommand, bytes));
+                CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaCommand, sequenceNumber, bytes));
                 return true;
             }
             lock (_pendingLock)
@@ -138,7 +187,7 @@ public class SonyVisca : CameraBase
         }
     }
 
-    private byte[] PayloadWithIpHeader(PayloadType payloadType, byte[] payload)
+    private byte[] PayloadWithIpHeader(PayloadType payloadType, byte sequenceNumber, byte[] payload)
     {
         List<byte> bytes = [];
         foreach (var theByte in _ipHeaders[payloadType])
@@ -148,8 +197,7 @@ public class SonyVisca : CameraBase
         bytes.Add(0xFF);
         bytes.Add(0xFF);
         bytes.Add(0xFF);
-        bytes.Add(_sequenceNumber);
-        _sequenceNumber++;
+        bytes.Add(sequenceNumber);
         foreach (byte b in payload)
         {
             bytes.Add(b);
@@ -293,39 +341,56 @@ public class SonyVisca : CameraBase
             return;
         using (PushProperties("HandleResponse"))
         {
-            var index = 0;
-            while (index < response.Length)
-            {
-                if (_useIpHeaders)
-                {
-                    if (response.Length - index < IpHeaderLength)
-                    {
-                        ReportMalformedResponse(response);
-                        return;
-                    }
-                    var payloadLength = response[index + 2] << 8 | response[index + 3];
-                    if (response.Length - index - IpHeaderLength < payloadLength)
-                    {
-                        ReportMalformedResponse(response);
-                        return;
-                    }
-                    ProcessViscaPayload(response[(index + IpHeaderLength)..(index + IpHeaderLength + payloadLength)],
-                        response[index + 7]);
-                    index += IpHeaderLength + payloadLength;
-                }
-                else
-                {
-                    var footerIndex = Array.IndexOf(response, CommandFooter, index);
-                    if (footerIndex < 0)
-                    {
-                        ReportMalformedResponse(response);
-                        return;
-                    }
-                    ProcessViscaPayload(response[index..(footerIndex + 1)]);
-                    index = footerIndex + 1;
-                }
-            }
+            if (_useIpHeaders)
+                HandleIpResponse(response);
+            else
+                HandleRawResponse(response);
         }
+    }
+
+    private void HandleIpResponse(byte[] response)
+    {
+        var index = 0;
+        while (index < response.Length)
+        {
+            if (response.Length - index < IpHeaderLength)
+            {
+                ReportMalformedResponse(response);
+                return;
+            }
+            var payloadLength = response[index + 2] << 8 | response[index + 3];
+            if (response.Length - index - IpHeaderLength < payloadLength)
+            {
+                ReportMalformedResponse(response);
+                return;
+            }
+            ProcessViscaPayload(response[(index + IpHeaderLength)..(index + IpHeaderLength + payloadLength)],
+                response[index + 7]);
+            index += IpHeaderLength + payloadLength;
+        }
+    }
+
+    private void HandleRawResponse(byte[] response)
+    {
+        byte[] complete;
+        byte[] partial;
+        lock (_pendingLock)
+        {
+            byte[] buffered = [.._partialReply, ..response];
+            var completeLength = Array.LastIndexOf(buffered, CommandFooter) + 1;
+            complete = buffered[..completeLength];
+            partial = buffered[completeLength..];
+            _partialReply = partial.Length > MaxReplyLength ? [] : partial;
+        }
+        var index = 0;
+        while (index < complete.Length)
+        {
+            var footerIndex = Array.IndexOf(complete, CommandFooter, index);
+            ProcessViscaPayload(complete[index..(footerIndex + 1)]);
+            index = footerIndex + 1;
+        }
+        if (partial.Length > MaxReplyLength)
+            ReportMalformedResponse(partial);
     }
 
     private void ProcessViscaPayload(byte[] payload, byte? sequenceNumber = null)
@@ -351,22 +416,15 @@ public class SonyVisca : CameraBase
                     LogVerbose("Command complete");
                     return;
                 }
-                // The power inquiry is the only inquiry this driver sends
-                PowerState = payload[2] switch
-                {
-                    0x02 => PowerState.On,
-                    0x03 => PowerState.Off,
-                    _ => PowerState
-                };
-                ProcessPowerState();
+                AnswerPendingInquiry(payload, sequenceNumber);
                 break;
             case 0x60:
                 var errorMessage = ErrorMessages.TryGetValue(payload[2], out var message)
                     ? message
                     : $"Unknown error 0x{payload[2]:X2}";
-                var failedCommand = ConsumePendingCommand(sequenceNumber);
-                if (failedCommand != null)
-                    errorMessage = $"Unable to {failedCommand.Description}: {errorMessage}";
+                var failedDescription = ConsumeFailedRequestDescription(payload[1], sequenceNumber);
+                if (failedDescription != null)
+                    errorMessage = $"Unable to {failedDescription}: {errorMessage}";
                 LogError("The camera reported an error: {error} ({response})", errorMessage, BitConverter.ToString(payload));
                 AddEvent(EventType.Error, errorMessage);
                 CommunicationState = CommunicationState.Error;
@@ -419,6 +477,43 @@ public class SonyVisca : CameraBase
             var last = _lastCommand;
             _lastCommand = null;
             return last;
+        }
+    }
+
+    private void AnswerPendingInquiry(byte[] payload, byte? sequenceNumber)
+    {
+        lock (_pendingLock)
+        {
+            if (!DeviceSendsResponses)
+                return;
+            if (ConsumePendingInquiry(sequenceNumber) is not { } inquiry)
+            {
+                LogWarning("Unexpected inquiry reply {response}", BitConverter.ToString(payload));
+                return;
+            }
+            inquiry.OnReply(payload);
+        }
+    }
+
+    private PendingInquiry? ConsumePendingInquiry(byte? sequenceNumber)
+    {
+        lock (_pendingLock)
+        {
+            if (sequenceNumber is { } sequence)
+                return _pendingInquiriesBySequence.Remove(sequence, out var pending) ? pending : null;
+            return _pendingInquiries.TryDequeue(out var oldest) ? oldest : null;
+        }
+    }
+
+    private string? ConsumeFailedRequestDescription(byte errorReply, byte? sequenceNumber)
+    {
+        lock (_pendingLock)
+        {
+            if (sequenceNumber != null)
+                return ConsumePendingCommand(sequenceNumber)?.Description ?? ConsumePendingInquiry(sequenceNumber)?.Description;
+            if (errorReply == SocketZeroError && ConsumePendingInquiry(null) is { } inquiry)
+                return inquiry.Description;
+            return ConsumePendingCommand(null)?.Description;
         }
     }
 

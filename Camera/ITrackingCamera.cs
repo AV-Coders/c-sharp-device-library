@@ -4,5 +4,6 @@ public interface ITrackingCamera
 {
     void SetTracking(CameraTrackingMode mode);
     CameraTrackingMode TrackingMode { get; }
+    IReadOnlyList<CameraTrackingMode> SupportedTrackingModes { get; }
     event Action<CameraTrackingMode>? OnTrackingModeChange;
 }

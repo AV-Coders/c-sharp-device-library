@@ -24,6 +24,9 @@ public class AverVisca : SonyVisca, ITrackingCamera
 
     public event Action<CameraTrackingMode>? OnTrackingModeChange;
 
+    public IReadOnlyList<CameraTrackingMode> SupportedTrackingModes { get; } =
+        [CameraTrackingMode.Disabled, CameraTrackingMode.Auto, CameraTrackingMode.Manual, CameraTrackingMode.TriggerOnce];
+
     public AverVisca(CommunicationClient client, string name, Dictionary<int, string> presetNames, bool useIpHeaders = false, byte cameraId = 1) :
         base(client, useIpHeaders, name, presetNames, cameraId)
     {
