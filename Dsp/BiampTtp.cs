@@ -177,6 +177,8 @@ public class BiampTtp : Dsp
     {
         using (PushProperties("Reinitialise"))
         {
+            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+                return;
             if (Interlocked.CompareExchange(ref _initialising, 1, 0) != 0)
                 return;
             try
@@ -349,9 +351,10 @@ public class BiampTtp : Dsp
                 _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
 
                 var levelSubscription = $"{controlName} subscribe level {controlIndex} {arrayIndex}\n";
-                CommunicationClient.Send(levelSubscription);
                 lock (_deviceSubscriptionsLock)
                     _deviceSubscriptions.Add(levelSubscription);
+                if (CommunicationClient.ConnectionState == ConnectionState.Connected)
+                    CommunicationClient.Send(levelSubscription);
                 LogVerbose("Created a new gain {gainName}", controlName);
             }
         }
@@ -380,9 +383,10 @@ public class BiampTtp : Dsp
                 _mutes.Add(arrayIndex, new BiampMute(muteStateHandler, muteName, controlIndex));
 
                 var muteSubscription = $"{muteName} subscribe mute {controlIndex} {arrayIndex}\n";
-                CommunicationClient.Send(muteSubscription);
                 lock (_deviceSubscriptionsLock)
                     _deviceSubscriptions.Add(muteSubscription);
+                if (CommunicationClient.ConnectionState == ConnectionState.Connected)
+                    CommunicationClient.Send(muteSubscription);
                 LogVerbose("Created a new mute {muteName}", muteName);
             }
         }

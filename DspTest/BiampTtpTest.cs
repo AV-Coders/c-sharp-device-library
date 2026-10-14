@@ -15,6 +15,17 @@ public class BiampTtpTest
     private const string GainName = "Gain";
     private const string MuteName = "Mute";
     private const string StringName = "String";
+    private const int PollIntervalMs = 100;
+    private const string DisconnectedPollEvent = "IP Comms disconnected, not polling";
+    private const string FirstQueryAfterReinitialise = $"{GainName} get maxLevel 1\n";
+    private const int WaitTimeoutMs = 15000;
+    private const int WaitStepMs = 50;
+
+    private static readonly string[] Subscriptions =
+    [
+        $"{GainName} subscribe level 1 AvCodersLevel-{GainName}-1\n",
+        $"{MuteName} subscribe mute 1 AvCodersMute-{MuteName}-1\n"
+    ];
 
     public BiampTtpTest(ITestOutputHelper testOutputHelper)
     {
@@ -34,15 +45,70 @@ public class BiampTtpTest
     }
 
     [Fact]
-    public void AddControl_SubscribesToTheLevel()
+    public void AddControl_WhileConnected_SubscribesToTheLevelStraightAway()
     {
-        _mockClient.Verify(x => x.Send($"{GainName} subscribe level 1 AvCodersLevel-{GainName}-1\n"));
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+        Assert.Contains($"{GainName} subscribe level 1 AvCodersLevel-{GainName}-1\n", client.Sent);
     }
 
     [Fact]
-    public void AddControl_SubscribesToTheMute()
+    public void AddControl_WhileConnected_SubscribesToTheMuteStraightAway()
     {
-        _mockClient.Verify(x => x.Send($"{MuteName} subscribe mute 1 AvCodersMute-{MuteName}-1\n"));
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+
+        Assert.Contains($"{MuteName} subscribe mute 1 AvCodersMute-{MuteName}-1\n", client.Sent);
+    }
+
+    [Fact]
+    public void AddControl_WhileDisconnected_SendsNoSubscribe()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+
+        Assert.DoesNotContain(client.Sent, IsSubscribe);
+    }
+
+    [Fact]
+    public async Task Connecting_SendsEachRegisteredSubscriptionOnce()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+        await WaitUntil(() => dsp.Events.Any(e => e.Info == DisconnectedPollEvent));
+
+        client.SetConnectionState(ConnectionState.Connected);
+        await WaitUntil(() => client.Sent.Contains(FirstQueryAfterReinitialise));
+
+        Assert.Equal(Subscriptions.Order(), client.Sent.Where(IsSubscribe).Order());
+    }
+
+    [Fact]
+    public async Task Reinitialise_WhileDisconnected_SendsNothing()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+
+        await dsp.Reinitialise();
+
+        Assert.Empty(client.Sent);
     }
 
     [Fact]
@@ -200,9 +266,23 @@ public class BiampTtpTest
     [Fact]
     public void BiampVolumeControl_Construction_SubscribesAtTheConfiguredIndex()
     {
-        _ = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, _dsp);
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
 
-        _mockClient.Verify(x => x.Send("room_mic_level subscribe level 5 AvCodersLevel-room_mic_level-5\n"));
-        _mockClient.Verify(x => x.Send("room_mic_level subscribe mute 5 AvCodersMute-room_mic_level-5\n"));
+        _ = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, dsp);
+
+        Assert.Contains("room_mic_level subscribe level 5 AvCodersLevel-room_mic_level-5\n", client.Sent);
+        Assert.Contains("room_mic_level subscribe mute 5 AvCodersMute-room_mic_level-5\n", client.Sent);
+    }
+
+    private static bool IsSubscribe(string message) => message.Contains(" subscribe ");
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(WaitTimeoutMs);
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(WaitStepMs);
+        Assert.True(condition());
     }
 }
