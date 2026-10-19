@@ -114,7 +114,31 @@ list-rebuild).
   (const `ConnectionIssueKey`); once failures have persisted for
   `ConnectionIssueThreshold` (public, default 2 min), raises a **Critical Ongoing** issue
   ("Unable to connect since HH:mm:ss. {reason}"). The `ConnectionState` setter auto-resolves
-  it and resets the clock on the Connected transition.
+  it and resets the clock on the Connected transition. A no-op while
+  `DesiredConnectionState` is Disconnected.
+- `protected ClearConnectionFailures()` — resets the failure clock and resolves the
+  `"connection"` issue. Called by the Connected transition and by `Disconnect()`, so a later
+  `Connect()` starts a fresh clock instead of escalating to Critical on its first failure.
+- `public DesiredConnectionState` — in memory only, `Unknown` until something calls
+  `Connect()` (Connected) or `Disconnect()` (Disconnected) on AvCodersTcpClient,
+  AvCodersSshClient or AvCodersUdpClient. Drivers, Blazor and MCP all use the same methods.
+  AvCodersModbusRtuClient mirrors its transport's value. AvCodersTcpServer and
+  AvCodersMulticastClient never set it.
+- **Disconnected on request** (`DesiredConnectionState == Disconnected`) is not a failure:
+  `Disconnect()` stops all three workers, clears the send queue and calls
+  `ClearConnectionFailures()`; `Reconnect()` (including every internal error path) is a
+  no-op; both `Send` overloads drop the message with a Debug log. Nothing reconnects until
+  `Connect()`, which also clears the queue and resets the backoff. Cancellations caused by a
+  deliberate stop log at Debug, not as exceptions.
+- **Devices on a client disconnected on request**: `DeviceBase` and `Display` set
+  `CommunicationState` to `NotAttempted` on the client's state change, and the setter
+  resolves `"communication"` on `Okay` or `NotAttempted`. DeviceBase's handler is the
+  protected `HandleRequestedDisconnect`; disposable drivers (ExtronSW,
+  ExtronAnnotator401VideoMatrix, TemperzoneUc8) remove it in Dispose with their own handlers. Driver-specific ongoing issues
+  (power-state, input, bad-control, …) are left alone. CiscoRoomOsVideoMatrix and QsysEcp
+  (Error on a dropped link) and BiampTtp (Unknown) set `NotAttempted` instead while
+  disconnected on request. NavDeviceBase skips its poll while the Navigator's SSH client is
+  disconnected on request, so the tunnels report no failures.
 - `protected DescribeConnectionError(Exception)` — human-readable reasons: SocketException
   codes (timed out / host not found / refused / unreachable / reset), HttpRequestException
   (unwraps inner SocketException), OperationCanceledException → "connection attempt timed
@@ -150,6 +174,9 @@ list-rebuild).
 `"LogBaseIssues"` — registry fan-outs mutate global static state, so these must not run in
 parallel with each other; registry tests assert containment/filter-by-Source, **never
 global counts**), `CoreTest\ConnectionIssuesTest.cs`, `MatrixTest\NavigatorTunnelTest.cs`.
+Disconnect on request: `CoreTest\DeviceBaseTest.cs`, `DisplayTest\DisplayTest.cs`, the
+`AvCodersTcpClientResilienceTest`, `AvCodersSshClientTest` and `AvCodersUdpClientTest`
+transport tests, and the Cisco matrix, Q-SYS, Biamp and NavEncoder driver tests.
 Convention: nested `TestLogBase` subclass exposing the protected raise methods;
 `Method_Scenario_Expected` naming.
 
