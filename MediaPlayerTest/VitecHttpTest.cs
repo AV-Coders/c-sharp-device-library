@@ -1,4 +1,7 @@
-﻿namespace AVCoders.MediaPlayer.Tests;
+﻿using System.Diagnostics;
+using AVCoders.Core.Tests;
+
+namespace AVCoders.MediaPlayer.Tests;
 
 public class VitecHttpTest
 {
@@ -56,5 +59,23 @@ public class VitecHttpTest
         _vitecHttp.SendIRCode(button);
 
         Assert.DoesNotContain(button, _vitecHttp.SupportedButtons);
+    }
+
+    [Fact]
+    public async Task PowerOn_ToASelfSignedDeviceUnderAnActivity_SendsNoTraceContextHeaders()
+    {
+        using var server = new TlsHeaderCapturingServer();
+        var vitec = new VitecHttp($"127.0.0.1:{server.Port}/loopback", "bar", "Loopback");
+        using var activity = new Activity("test").Start();
+        activity.TraceStateString = "vendor=value";
+        activity.AddBaggage("key", "value");
+
+        var request = server.NextRequestHeadAsync();
+        vitec.PowerOn();
+        var head = await request;
+
+        Assert.StartsWith("PUT /loopback:8080/devicestate", head);
+        Assert.All(TraceContext.Headers,
+            header => Assert.DoesNotContain($"\r\n{header}:", head, StringComparison.OrdinalIgnoreCase));
     }
 }

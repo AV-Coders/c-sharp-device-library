@@ -113,7 +113,7 @@ public class PjLink : Display
     private bool _inputNamesIncomplete;
     private int _inputNameRetryDelay = 1;
     private int _inputNameRetryCountdown;
-    private int? _inFlightInputNameCode;
+    private (int Code, string? TriggerId)? _inFlightInputName;
     private string? _parseFailedCommand;
     private DateTime _lastDiscoverySentAt = DateTime.MinValue;
     private string _manufacturerName = string.Empty;
@@ -199,7 +199,7 @@ public class PjLink : Display
             _inputNamesRequested = false;
             _inputListDirty = false;
             _pendingInputNameQueries.Clear();
-            _inFlightInputNameCode = null;
+            _inFlightInputName = null;
             _unsupportedCommands.Clear();
             _answeredDiscovery.Clear();
             _lastRequestWasQuery.Clear();
@@ -342,7 +342,7 @@ public class PjLink : Display
     {
         lock (_stateLock)
         {
-            if (!_inputNamesIncomplete || _inFlightInputNameCode != null)
+            if (!_inputNamesIncomplete || _inFlightInputName != null)
                 return;
             if (PowerState != PowerState.On)
             {
@@ -438,6 +438,11 @@ public class PjLink : Display
             string field = parts[0].Trim();
             string command = field.Length >= 4 ? field.Substring(field.Length - 4).ToUpperInvariant() : field;
             string value = parts[1].Trim();
+            (int Code, string? TriggerId)? inFlightInputName = null;
+            if (command == "INNM")
+                lock (_stateLock) inFlightInputName = _inFlightInputName;
+            using var inputNameTrigger = inFlightInputName == null ? null : Trigger.Resume(inFlightInputName.Value.TriggerId);
+            using var inputNameScope = inFlightInputName == null ? null : PushProperties();
 
             switch (value)
             {
@@ -965,7 +970,7 @@ public class PjLink : Display
         {
             if (PjLinkClass < 2 || AvailableInputCodes.Count == 0 || !_instReceivedThisConnection)
                 return;
-            if (_inFlightInputNameCode != null)
+            if (_inFlightInputName != null)
             {
                 // INNM answers don't echo the input code, so a pass can't be restarted mid-flight.
                 _inputListDirty = true;
@@ -985,7 +990,7 @@ public class PjLink : Display
                 foreach (int code in AvailableInputCodes)
                     _pendingInputNameQueries.Enqueue(code);
                 first = _pendingInputNameQueries.Dequeue();
-                _inFlightInputNameCode = first;
+                _inFlightInputName = (first.Value, Trigger.Id);
             }
         }
         if (first is { } toSend)
@@ -1001,8 +1006,8 @@ public class PjLink : Display
         bool rebuild;
         lock (_stateLock)
         {
-            if (_inFlightInputNameCode is { } code && name != null)
-                _inputNames[code] = name;
+            if (_inFlightInputName is { } inFlight && name != null)
+                _inputNames[inFlight.Code] = name;
             bool unsupported = _unsupportedCommands.Contains("INNM");
             if (unsupported)
             {
@@ -1013,7 +1018,7 @@ public class PjLink : Display
             restart = _inputListDirty;
             if (restart)
             {
-                _inFlightInputNameCode = null;
+                _inFlightInputName = null;
                 _pendingInputNameQueries.Clear();
                 _inputNamesRequested = false;
                 next = null;
@@ -1021,7 +1026,7 @@ public class PjLink : Display
             else
             {
                 next = _pendingInputNameQueries.Count > 0 ? _pendingInputNameQueries.Dequeue() : null;
-                _inFlightInputNameCode = next;
+                _inFlightInputName = next == null ? null : (next.Value, Trigger.Id);
             }
             // A pass with gaps must not install a guessed map; the previous one stands until a retry completes.
             rebuild = next == null && !restart && (unsupported || !_inputNamesIncomplete);

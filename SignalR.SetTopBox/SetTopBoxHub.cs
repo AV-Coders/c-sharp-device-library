@@ -51,13 +51,15 @@ public class SetTopBoxHub : Hub<ISetTopBoxHub>
 
         if (!Enum.TryParse<RemoteButton>(button, ignoreCase: true, out var remoteButton) || !Enum.IsDefined(remoteButton))
         {
-            Logger.LogWarning("Unknown remote button {Button} for group {Group}", button, groupName);
+            using (BeginLogScope("SendRemoteButton"))
+                Logger.LogWarning("Unknown remote button {Button} for group {Group}", button, groupName);
             return Task.CompletedTask;
         }
 
         if (!setTopBoxManager.SupportedButtons.Contains(remoteButton))
         {
-            Logger.LogWarning("Remote button {Button} is not supported by group {Group}", remoteButton, groupName);
+            using (BeginLogScope("SendRemoteButton"))
+                Logger.LogWarning("Remote button {Button} is not supported by group {Group}", remoteButton, groupName);
             return Task.CompletedTask;
         }
 
@@ -95,7 +97,8 @@ public class SetTopBoxHub : Hub<ISetTopBoxHub>
     {
         if (SetTopBoxManagers.TryGetValue(groupName, out setTopBoxManager!))
             return true;
-        Logger.LogWarning("{Method} ignored: no set-top box registered for group {Group}", methodName, groupName);
+        using (BeginLogScope(methodName))
+            Logger.LogWarning("{Method} ignored: no set-top box registered for group {Group}", methodName, groupName);
         return false;
     }
 
@@ -108,8 +111,7 @@ public class SetTopBoxHub : Hub<ISetTopBoxHub>
     {
         _ = Task.Run(() =>
         {
-            using (Logger.BeginScope(new Dictionary<string, object>
-                   { ["Class"] = nameof(SetTopBoxHub), [LogBase.MethodProperty] = methodName }))
+            using (BeginLogScope(methodName))
             {
                 try
                 {
@@ -122,4 +124,13 @@ public class SetTopBoxHub : Hub<ISetTopBoxHub>
             }
         });
     }
+
+    private static IDisposable? BeginLogScope(string methodName) =>
+        Logger.BeginScope(new Dictionary<string, object?>
+        {
+            ["Class"] = nameof(SetTopBoxHub),
+            [LogBase.MethodProperty] = methodName,
+            [LogBase.ActorProperty] = Actor.Current?.ToString(),
+            [LogBase.TriggerIdProperty] = Trigger.Id
+        });
 }

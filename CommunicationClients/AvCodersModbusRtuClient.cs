@@ -23,7 +23,7 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
 
     private sealed class PendingRequest(
         byte deviceId, byte function, int expectedLength, int expectedByteCount,
-        byte[] requestFrame, bool echoPending, string context)
+        byte[] requestFrame, bool echoPending, string context, string? triggerId)
     {
         public byte DeviceId { get; } = deviceId;
         public byte Function { get; } = function;
@@ -32,6 +32,7 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
         public byte[] RequestFrame { get; } = requestFrame;
         public bool EchoPending { get; set; } = echoPending;
         public string Context { get; } = context;
+        public string? TriggerId { get; } = triggerId;
         public long SentTimestamp { get; set; }
         public TaskCompletionSource<byte[]> Tcs { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
@@ -173,7 +174,7 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var pending = new PendingRequest(deviceId, function, expectedLength, expectedByteCount,
-                        frame, DiscardLocalEcho, context);
+                        frame, DiscardLocalEcho, context, Trigger.Id);
                     lock (_receiveLock)
                     {
                         _gather.Clear();
@@ -260,15 +261,18 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
 
             if (frame == null)
                 return;
-            InvokeResponseHandlers(BitConverter.ToString(frame), frame);
-            if ((frame[1] & 0x80) != 0)
+            using (Trigger.Resume(pending.TriggerId))
             {
-                byte exceptionCode = frame[2];
-                pending.Tcs.TrySetException(new ModbusException(pending.Function, exceptionCode,
-                    $"Device {pending.DeviceId} returned '{DescribeExceptionCode(exceptionCode)}' (function 0x{pending.Function:X2}) for {pending.Context}"));
-                return;
+                InvokeResponseHandlers(BitConverter.ToString(frame), frame);
+                if ((frame[1] & 0x80) != 0)
+                {
+                    byte exceptionCode = frame[2];
+                    pending.Tcs.TrySetException(new ModbusException(pending.Function, exceptionCode,
+                        $"Device {pending.DeviceId} returned '{DescribeExceptionCode(exceptionCode)}' (function 0x{pending.Function:X2}) for {pending.Context}"));
+                    return;
+                }
+                pending.Tcs.TrySetResult(frame);
             }
-            pending.Tcs.TrySetResult(frame);
         }
     }
 

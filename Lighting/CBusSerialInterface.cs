@@ -74,6 +74,8 @@ public class CBusSerialInterface : LogBase
     private const char Delimiter = '\r';
     private const char BeginPacket = '\\';
 
+    private record CBusCommand(string Wire, string? TriggerId);
+
     private static readonly string[] PciSetupStrings =
     [
         "~~~\r",
@@ -86,11 +88,11 @@ public class CBusSerialInterface : LogBase
 
     private readonly CommunicationClient _comms;
     private readonly TimeProvider _timeProvider;
-    private readonly Queue<string> _queue = new();
+    private readonly Queue<CBusCommand> _queue = new();
     private readonly object _queueLock = new();
     private readonly List<byte> _line = [];
     private ITimer? _confirmationTimer;
-    private string? _inFlight;
+    private CBusCommand? _inFlight;
 
     public CBusGroupMessageHandler? GroupMessageHandlers;
     public CBusChannelLevelHandler? ChannelLevelHandlers;
@@ -156,9 +158,10 @@ public class CBusSerialInterface : LogBase
     {
         lock (_queueLock)
         {
+            var command = new CBusCommand(wire, Trigger.Id);
             if (_inFlight == null)
             {
-                Transmit(wire);
+                Transmit(command);
                 return;
             }
 
@@ -168,15 +171,17 @@ public class CBusSerialInterface : LogBase
                 _queue.Clear();
             }
 
-            _queue.Enqueue(wire);
+            _queue.Enqueue(command);
         }
     }
 
-    private void Transmit(string wire)
+    private void Transmit(CBusCommand command)
     {
-        _inFlight = wire;
-        _confirmationTimer = _timeProvider.CreateTimer(HandleConfirmationTimeout, wire, ConfirmationTimeout, Timeout.InfiniteTimeSpan);
-        _comms.Send(wire);
+        _inFlight = command;
+        using (ExecutionContext.SuppressFlow())
+            _confirmationTimer = _timeProvider.CreateTimer(HandleConfirmationTimeout, command, ConfirmationTimeout, Timeout.InfiniteTimeSpan);
+        using (Trigger.Resume(command.TriggerId))
+            _comms.Send(command.Wire);
     }
 
     private void SendNext()
@@ -194,13 +199,28 @@ public class CBusSerialInterface : LogBase
         }
     }
 
-    private void HandleConfirmationTimeout(object? wire)
+    private void HandleConfirmation()
     {
         lock (_queueLock)
         {
-            if (!ReferenceEquals(wire, _inFlight))
+            if (_inFlight == null)
                 return;
-            LogWarning("No confirmation from the PCI within {Timeout} ms, sending the next command", ConfirmationTimeout.TotalMilliseconds);
+            using (Trigger.Resume(_inFlight.TriggerId))
+            using (PushProperties("HandleConfirmation"))
+                LogVerbose("PCI confirmed {Command}", _inFlight.Wire.TrimEnd());
+            SendNext();
+        }
+    }
+
+    private void HandleConfirmationTimeout(object? command)
+    {
+        lock (_queueLock)
+        {
+            if (!ReferenceEquals(command, _inFlight))
+                return;
+            using (Trigger.Resume(_inFlight!.TriggerId))
+            using (PushProperties("HandleConfirmationTimeout"))
+                LogWarning("No confirmation from the PCI within {Timeout} ms, sending the next command", ConfirmationTimeout.TotalMilliseconds);
             SendNext();
         }
     }
@@ -213,7 +233,7 @@ public class CBusSerialInterface : LogBase
             {
                 case ConfirmationCharacter:
                     _line.Clear();
-                    SendNext();
+                    HandleConfirmation();
                     break;
                 case LineFeed:
                     byte[] line = _line.ToArray();

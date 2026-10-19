@@ -3,6 +3,7 @@ using Moq;
 
 namespace AVCoders.CommunicationClients.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class AvCodersModbusRtuClientTest
 {
     private readonly AvCodersModbusRtuClient _client;
@@ -143,6 +144,48 @@ public class AvCodersModbusRtuClientTest
         Assert.Contains("ReadHoldingRegisters", exception.Message);
         Assert.Contains("address 107", exception.Message);
         Assert.Contains("count 3", exception.Message);
+    }
+
+    [Fact]
+    public async Task MatchedResponse_IsHandledUnderTheRequestsTriggerId()
+    {
+        string? responseTriggerId = null;
+        _client.ResponseByteHandlers += _ => responseTriggerId = Trigger.Id;
+        var requestTriggerId = Trigger.Start();
+        var task = _client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
+
+        var receiveTriggerId = Trigger.Start();
+        Respond(ReadRegistersResponse);
+        await task;
+
+        Assert.Equal(requestTriggerId, responseTriggerId);
+        Assert.Equal(receiveTriggerId, Trigger.Id);
+    }
+
+    [Fact]
+    public async Task MatchedResponse_LogsTheRxLineUnderTheRequestsTriggerId()
+    {
+        var loggerFactory = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = loggerFactory;
+        AvCodersModbusRtuClient client;
+        try
+        {
+            client = new AvCodersModbusRtuClient(_mockClient.Object, "Logged modbus client");
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        var requestTriggerId = Trigger.Start();
+        var task = client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
+
+        Trigger.Start();
+        Respond(ReadRegistersResponse);
+        await task;
+
+        Assert.Contains(loggerFactory.Logs,
+            log => log.Message.StartsWith("Received:") && log.TriggerId == requestTriggerId);
     }
 
     [Fact]

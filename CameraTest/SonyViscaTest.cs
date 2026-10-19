@@ -701,6 +701,103 @@ public class SonyViscaSerialTest
 
         Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
     }
+
+    [Fact]
+    public void RecallPreset_Ack_ReportsTheRecallUnderTheRecallsTriggerId()
+    {
+        var recallId = Trigger.Start();
+        _viscaCamera.RecallPreset(1);
+        var receiveId = Trigger.Start();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF]);
+
+        var recalled = Assert.Single(_viscaCamera.Events, e => e.Type == EventType.Preset);
+        Assert.Equal(recallId, recalled.Context[LogBase.TriggerIdProperty]);
+        Assert.Equal(receiveId, Trigger.Id);
+    }
+
+    [Fact]
+    public async Task HandleResponse_PowerInquiryReply_SetsThePowerStateUnderThePollsTriggerId()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, false, "Test Cam", new Dictionary<int, string>());
+        var powerChangeIds = new List<string?>();
+        camera.PowerStateHandlers += _ => powerChangeIds.Add(Trigger.Id);
+        var pollId = Trigger.Start();
+        await SonyViscaPolling.InvokePoll(camera);
+        Trigger.Start();
+
+        client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x02, 0xFF]);
+
+        Assert.Equal([pollId], powerChangeIds);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorForAPendingRecall_ReportsItUnderTheRecallsTriggerId()
+    {
+        var recallId = Trigger.Start();
+        _viscaCamera.RecallPreset(1);
+        Trigger.Start();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x61, 0x41, 0xFF]);
+
+        var error = Assert.Single(_viscaCamera.Events,
+            e => e.Info == "Unable to recall preset Lectern: Command not executable");
+        Assert.Equal(recallId, error.Context[LogBase.TriggerIdProperty]);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorForAPendingRecall_LogsUnderTheRecallsTriggerId()
+    {
+        var client = new ConnectedClient();
+        var loggerFactory = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = loggerFactory;
+        SonyVisca camera;
+        try
+        {
+            camera = new SonyVisca(client, false, "Test Cam", new Dictionary<int, string> { { 1, "Lectern" } });
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        var recallId = Trigger.Start();
+        camera.RecallPreset(1);
+        Trigger.Start();
+
+        client.ResponseByteHandlers!.Invoke([0x90, 0x61, 0x41, 0xFF]);
+
+        Assert.Contains(loggerFactory.Logs,
+            log => log.Message.StartsWith("The camera reported an error") && log.TriggerId == recallId);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorWithNoDescribedCommandPending_KeepsTheReceiveTriggerId()
+    {
+        Trigger.Start();
+        _viscaCamera.ZoomIn();
+        var receiveId = Trigger.Start();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x61, 0x41, 0xFF]);
+
+        var error = Assert.Single(_viscaCamera.Events, e => e.Info == "Command not executable");
+        Assert.Equal(receiveId, error.Context[LogBase.TriggerIdProperty]);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorForARecallSentWithNoTriggerId_KeepsTheReceiveTriggerId()
+    {
+        Assert.Null(Trigger.Id);
+        _viscaCamera.RecallPreset(1);
+        var receiveId = Trigger.Start();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x61, 0x41, 0xFF]);
+
+        var error = Assert.Single(_viscaCamera.Events,
+            e => e.Info == "Unable to recall preset Lectern: Command not executable");
+        Assert.Equal(receiveId, error.Context[LogBase.TriggerIdProperty]);
+    }
 }
 
 public class SonyViscaIpTest
@@ -933,6 +1030,68 @@ public class SonyViscaIpTest
 
         Assert.Null(exception);
         Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void RecallPreset_CompletionEchoingItsSequenceNumber_ReportsTheRecallUnderTheRecallsTriggerId()
+    {
+        var recallId = Trigger.Start();
+        _viscaCamera.RecallPreset(1);
+        Trigger.Start();
+        _viscaCamera.PowerOn();
+        Trigger.Start();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([
+            0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x01, 0x90, 0x51, 0xFF,
+            0x01, 0x11, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x51, 0xFF
+        ]);
+
+        var recalled = Assert.Single(_viscaCamera.Events, e => e.Type == EventType.Preset);
+        Assert.Equal(recallId, recalled.Context[LogBase.TriggerIdProperty]);
+    }
+
+    [Fact]
+    public async Task HandleResponse_PowerInquiryReply_SetsThePowerStateUnderThePollsTriggerId()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, true, "Test Camera", new Dictionary<int, string>());
+        var powerChangeIds = new List<string?>();
+        camera.PowerStateHandlers += _ => powerChangeIds.Add(Trigger.Id);
+        var pollId = Trigger.Start();
+        await SonyViscaPolling.InvokePoll(camera);
+        Trigger.Start();
+
+        client.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x50, 0x02, 0xFF]);
+
+        Assert.Equal([pollId], powerChangeIds);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorEchoingARecallSequenceNumber_ReportsItUnderTheRecallsTriggerId()
+    {
+        var recallId = Trigger.Start();
+        _viscaCamera.RecallPreset(1);
+        Trigger.Start();
+        _viscaCamera.PowerOn();
+        Trigger.Start();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x62, 0x41, 0xFF]);
+
+        var error = Assert.Single(_viscaCamera.Events, e => e.Info == "Unable to recall preset Lectern: Command not executable");
+        Assert.Equal(recallId, error.Context[LogBase.TriggerIdProperty]);
+    }
+
+    [Fact]
+    public void HandleResponse_ErrorEchoingAnUnrelatedSequenceNumber_KeepsTheReceiveTriggerId()
+    {
+        Trigger.Start();
+        _viscaCamera.RecallPreset(1);
+        var receiveId = Trigger.Start();
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x07, 0x90, 0x61, 0x41, 0xFF]);
+
+        var error = Assert.Single(_viscaCamera.Events, e => e.Info == "Command not executable");
+        Assert.Equal(receiveId, error.Context[LogBase.TriggerIdProperty]);
     }
 }
 

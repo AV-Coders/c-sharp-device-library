@@ -77,6 +77,26 @@ public class AvCodersTcpServerTest : IDisposable
     }
 
     [Fact]
+    public async Task EachRead_FromOneClient_GetsItsOwnTriggerId()
+    {
+        var triggerIds = new System.Collections.Concurrent.ConcurrentQueue<string?>();
+        _server.ResponseHandlers += _ => triggerIds.Enqueue(Trigger.Id);
+
+        var client = await ConnectClientAsync();
+        await TestNetwork.WaitUntilAsync(
+            () => _server.ConnectionState == ConnectionState.Connected,
+            15, "server never accepted the client");
+
+        await client.GetStream().WriteAsync(Encoding.UTF8.GetBytes("first"));
+        await TestNetwork.WaitUntilAsync(() => triggerIds.Count == 1, 15, "the first read never reached the handlers");
+        await client.GetStream().WriteAsync(Encoding.UTF8.GetBytes("second"));
+        await TestNetwork.WaitUntilAsync(() => triggerIds.Count == 2, 15, "the second read never reached the handlers");
+
+        Assert.All(triggerIds, Assert.NotNull);
+        Assert.Equal(2, triggerIds.Distinct().Count());
+    }
+
+    [Fact]
     public async Task SingleNullProbeByte_IsIgnored()
     {
         var responses = new List<string>();
@@ -98,6 +118,19 @@ public class AvCodersTcpServerTest : IDisposable
         await TestNetwork.WaitUntilAsync(() => responses.Count > 0, 15, "response handler never invoked");
         Assert.Single(responses);
         Assert.Equal("real data", responses[0]);
+    }
+
+    [Fact]
+    public void Send_WithNoClients_RaisesNoTx()
+    {
+        var tx = new List<string>();
+        _server.RequestHandlers += message => tx.Add(message);
+        _server.RequestByteHandlers += bytes => tx.Add(BitConverter.ToString(bytes));
+
+        _server.Send("nobody is listening");
+        _server.Send([0x01, 0x02]);
+
+        Assert.Empty(tx);
     }
 
     [Fact]

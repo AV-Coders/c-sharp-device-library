@@ -55,8 +55,13 @@ public class SourceHub : Hub<ISourceHub>
     {
         _ = Task.Run(() =>
         {
-            using (Logger.BeginScope(new Dictionary<string, object>
-                   { ["Class"] = nameof(SourceHub), [LogBase.MethodProperty] = methodName }))
+            using (Logger.BeginScope(new Dictionary<string, object?>
+                   {
+                       ["Class"] = nameof(SourceHub),
+                       [LogBase.MethodProperty] = methodName,
+                       [LogBase.ActorProperty] = Actor.Current?.ToString(),
+                       [LogBase.TriggerIdProperty] = Trigger.Id
+                   }))
             {
                 try
                 {

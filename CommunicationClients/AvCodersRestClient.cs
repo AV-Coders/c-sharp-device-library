@@ -35,10 +35,11 @@ public class AvCodersRestClient : RestComms
         _pinnedCertificateThumbprint = pinnedCertificateThumbprint == null
             ? null
             : NormaliseThumbprint(pinnedCertificateThumbprint);
-        var handler = new HttpClientHandler();
+        var handler = new SocketsHttpHandler();
         handler.UseCookies = true;
         handler.CookieContainer = new System.Net.CookieContainer();
-        handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
+        handler.SslOptions.RemoteCertificateValidationCallback = ValidateCertificate;
+        handler.ActivityHeadersPropagator = null;
         _httpClient = new HttpClient(handler);
         _httpClient.Timeout = requestTimeout ?? TimeSpan.FromSeconds(10);
     }
@@ -187,13 +188,13 @@ public class AvCodersRestClient : RestComms
         }
     }
 
-    private bool ValidateCertificate(HttpRequestMessage request, X509Certificate2? certificate,
+    private bool ValidateCertificate(object sender, X509Certificate? certificate,
         X509Chain? chain, SslPolicyErrors sslPolicyErrors)
     {
         if (sslPolicyErrors == SslPolicyErrors.None)
             return true;
 
-        var thumbprint = certificate == null ? string.Empty : NormaliseThumbprint(certificate.Thumbprint);
+        var thumbprint = certificate == null ? string.Empty : NormaliseThumbprint(certificate.GetCertHashString());
 
         if (_pinnedCertificateThumbprint != null)
         {

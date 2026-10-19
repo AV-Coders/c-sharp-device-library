@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.Collections.Concurrent;
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Xunit.Abstractions;
 
@@ -286,6 +287,92 @@ public class BiampTtpTest
         client.Disconnect();
 
         Assert.Equal(CommunicationState.NotAttempted, dsp.CommunicationState);
+    }
+
+    [Fact]
+    public async Task MatchedReply_IsHandledUnderTheQuerysTriggerId()
+    {
+        var client = new ReplyingTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var handled = new ConcurrentQueue<(int Level, string? TriggerId)>();
+        Trigger.Start();
+        dsp.AddControl(level => handled.Enqueue((level, Trigger.Id)), GainName);
+
+        await WaitUntil(() => handled.Any(x => x.Level > 0));
+
+        var levelReply = handled.First(x => x.Level > 0);
+        Assert.NotNull(levelReply.TriggerId);
+        Assert.NotEqual(ReplyingTcpClient.ReceiveTriggerId, levelReply.TriggerId);
+        Assert.Equal(client.SentUnder($"{GainName} get level 1\n"), levelReply.TriggerId);
+    }
+
+    [Fact]
+    public async Task MatchedReply_ToAQueryAddedWithNoTriggerId_KeepsTheReceiveTriggerId()
+    {
+        const string unansweredName = "Unanswered";
+        var client = new ReplyingTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var handled = new ConcurrentQueue<(int Level, string? TriggerId)>();
+        dsp.AddControl(_volumeLevelHandler.Object, unansweredName);
+        await WaitUntil(() => client.Sent.Contains($"{unansweredName} get maxLevel 1\n"));
+
+        Assert.Null(Trigger.Id);
+        dsp.AddControl(level => handled.Enqueue((level, Trigger.Id)), GainName);
+
+        await WaitUntil(() => handled.Any(x => x.Level > 0));
+        Assert.Equal(ReplyingTcpClient.ReceiveTriggerId, handled.First(x => x.Level > 0).TriggerId);
+    }
+
+    [Fact]
+    public async Task PolledQuery_LogsUnderTheQuerysTriggerId()
+    {
+        var client = new ReplyingTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        BiampTtp dsp;
+        try
+        {
+            dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        var levelQuery = $"{GainName} get level 1\n";
+        Trigger.Start();
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+        await WaitUntil(() => logs.Logs.Any(x => x.Message == $"Polling for {levelQuery}"));
+
+        Assert.Equal(client.SentUnder(levelQuery), logs.Logs.First(x => x.Message == $"Polling for {levelQuery}").TriggerId);
+    }
+
+    private class ReplyingTcpClient : TestTcpClient
+    {
+        public const string ReceiveTriggerId = "0000000f";
+        private readonly ConcurrentDictionary<string, string?> _sentUnder = new();
+        private readonly Dictionary<string, string> _replies = new()
+        {
+            [$"{GainName} get maxLevel 1\n"] = "+OK \"value\":12.000000\n",
+            [$"{GainName} get minLevel 1\n"] = "+OK \"value\":0.000000\n",
+            [$"{GainName} get level 1\n"] = "+OK \"value\":3.000000\n"
+        };
+
+        public string? SentUnder(string message) => _sentUnder[message];
+
+        public override void Send(string message)
+        {
+            base.Send(message);
+            _sentUnder[message] = Trigger.Id;
+            if (!_replies.TryGetValue(message, out var reply))
+                return;
+            using (Trigger.Resume(ReceiveTriggerId))
+                ResponseHandlers?.Invoke(reply);
+        }
     }
 
     private static bool IsSubscribe(string message) => message.Contains(" subscribe ");

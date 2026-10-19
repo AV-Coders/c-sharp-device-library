@@ -20,8 +20,8 @@ public class SonyVisca : CameraBase
     private const int MaxReplyLength = 16;
     private const byte SocketZeroError = 0x60;
     private readonly Dictionary<PayloadType, byte[]> _ipHeaders = new Dictionary<PayloadType, byte[]>();
-    private record PendingCommand(string Description, Action? OnCompleted);
-    private record PendingInquiry(string Description, Action<byte[]> OnReply);
+    private record PendingCommand(string Description, Action? OnCompleted, string? TriggerId);
+    private record PendingInquiry(string Description, Action<byte[]> OnReply, string? TriggerId);
 
     private readonly object _pendingLock = new();
     private readonly Dictionary<byte, PendingCommand> _pendingCommands = new Dictionary<byte, PendingCommand>();
@@ -126,7 +126,7 @@ public class SonyVisca : CameraBase
 
     protected void SendInquiry(byte[] bytes, string description, Action<byte[]> onReply)
     {
-        var pending = new PendingInquiry(description, onReply);
+        var pending = new PendingInquiry(description, onReply, Trigger.Id);
         try
         {
             if (_useIpHeaders)
@@ -158,7 +158,7 @@ public class SonyVisca : CameraBase
         try
         {
             CommunicationState = CommunicationState.Okay;
-            var pending = description == null ? null : new PendingCommand(description, onCompleted);
+            var pending = description == null ? null : new PendingCommand(description, onCompleted, Trigger.Id);
             if (_useIpHeaders)
             {
                 byte sequenceNumber;
@@ -422,12 +422,16 @@ public class SonyVisca : CameraBase
                 var errorMessage = ErrorMessages.TryGetValue(payload[2], out var message)
                     ? message
                     : $"Unknown error 0x{payload[2]:X2}";
-                var failedDescription = ConsumeFailedRequestDescription(payload[1], sequenceNumber);
-                if (failedDescription != null)
-                    errorMessage = $"Unable to {failedDescription}: {errorMessage}";
-                LogError("The camera reported an error: {error} ({response})", errorMessage, BitConverter.ToString(payload));
-                AddEvent(EventType.Error, errorMessage);
-                CommunicationState = CommunicationState.Error;
+                var failed = ConsumeFailedRequest(payload[1], sequenceNumber);
+                if (failed != null)
+                    errorMessage = $"Unable to {failed.Value.Description}: {errorMessage}";
+                using (Trigger.Resume(failed?.TriggerId))
+                using (PushProperties("ProcessViscaPayload"))
+                {
+                    LogError("The camera reported an error: {error} ({response})", errorMessage, BitConverter.ToString(payload));
+                    AddEvent(EventType.Error, errorMessage);
+                    CommunicationState = CommunicationState.Error;
+                }
                 break;
             default:
                 LogWarning("Unhandled response {response}", BitConverter.ToString(payload));
@@ -448,13 +452,17 @@ public class SonyVisca : CameraBase
                 if (!_pendingCommands.TryGetValue(sequence, out var pending) || pending.OnCompleted == null)
                     return;
                 _pendingCommands[sequence] = pending with { OnCompleted = null };
-                pending.OnCompleted.Invoke();
+                using (Trigger.Resume(pending.TriggerId))
+                using (PushProperties("InvokePendingCallback"))
+                    pending.OnCompleted.Invoke();
                 return;
             }
             if (_lastCommand?.OnCompleted is not { } onCompleted)
                 return;
             _lastCommand = _lastCommand with { OnCompleted = null };
-            onCompleted.Invoke();
+            using (Trigger.Resume(_lastCommand.TriggerId))
+            using (PushProperties("InvokePendingCallback"))
+                onCompleted.Invoke();
         }
     }
 
@@ -464,7 +472,11 @@ public class SonyVisca : CameraBase
         {
             if (!DeviceSendsResponses)
                 return;
-            ConsumePendingCommand(sequenceNumber)?.OnCompleted?.Invoke();
+            if (ConsumePendingCommand(sequenceNumber) is not { } pending)
+                return;
+            using (Trigger.Resume(pending.TriggerId))
+            using (PushProperties("CompletePendingCommand"))
+                pending.OnCompleted?.Invoke();
         }
     }
 
@@ -491,7 +503,9 @@ public class SonyVisca : CameraBase
                 LogWarning("Unexpected inquiry reply {response}", BitConverter.ToString(payload));
                 return;
             }
-            inquiry.OnReply(payload);
+            using (Trigger.Resume(inquiry.TriggerId))
+            using (PushProperties("AnswerPendingInquiry"))
+                inquiry.OnReply(payload);
         }
     }
 
@@ -505,15 +519,23 @@ public class SonyVisca : CameraBase
         }
     }
 
-    private string? ConsumeFailedRequestDescription(byte errorReply, byte? sequenceNumber)
+    private (string Description, string? TriggerId)? ConsumeFailedRequest(byte errorReply, byte? sequenceNumber)
     {
         lock (_pendingLock)
         {
             if (sequenceNumber != null)
-                return ConsumePendingCommand(sequenceNumber)?.Description ?? ConsumePendingInquiry(sequenceNumber)?.Description;
-            if (errorReply == SocketZeroError && ConsumePendingInquiry(null) is { } inquiry)
-                return inquiry.Description;
-            return ConsumePendingCommand(null)?.Description;
+            {
+                if (ConsumePendingCommand(sequenceNumber) is { } command)
+                    return (command.Description, command.TriggerId);
+                if (ConsumePendingInquiry(sequenceNumber) is { } inquiry)
+                    return (inquiry.Description, inquiry.TriggerId);
+                return null;
+            }
+            if (errorReply == SocketZeroError && ConsumePendingInquiry(null) is { } oldestInquiry)
+                return (oldestInquiry.Description, oldestInquiry.TriggerId);
+            if (ConsumePendingCommand(null) is { } lastCommand)
+                return (lastCommand.Description, lastCommand.TriggerId);
+            return null;
         }
     }
 

@@ -83,7 +83,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
     };
 
     private readonly object _lock = new();
-    private readonly Dictionary<string, Queue<(char Type, DateTime SentAt)>> _outstanding = new();
+    private readonly Dictionary<string, Queue<(char Type, DateTime SentAt, string? TriggerId)>> _outstanding = new();
     private readonly HashSet<string> _overflowWarned = new();
     private readonly HashSet<string> _unsupportedCommands = new();
     private readonly HashSet<string> _warnedInputValues = new();
@@ -222,7 +222,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         {
             if (!_outstanding.TryGetValue(command, out var queue))
             {
-                queue = new Queue<(char, DateTime)>();
+                queue = new Queue<(char, DateTime, string?)>();
                 _outstanding[command] = queue;
             }
             PurgeExpired(queue);
@@ -233,7 +233,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
             }
             else
             {
-                queue.Enqueue((requestType, DateTime.UtcNow));
+                queue.Enqueue((requestType, DateTime.UtcNow, Trigger.Id));
             }
         }
         if (warn)
@@ -243,18 +243,18 @@ public class SonySimpleIpControl : Display, ISetTopBox
         }
     }
 
-    private char? Untrack(string command)
+    private (char Type, DateTime SentAt, string? TriggerId)? Untrack(string command)
     {
         lock (_lock)
         {
             if (!_outstanding.TryGetValue(command, out var queue))
                 return null;
             PurgeExpired(queue);
-            return queue.Count > 0 ? queue.Dequeue().Type : null;
+            return queue.Count > 0 ? queue.Dequeue() : null;
         }
     }
 
-    private static void PurgeExpired(Queue<(char Type, DateTime SentAt)> queue)
+    private static void PurgeExpired(Queue<(char Type, DateTime SentAt, string? TriggerId)> queue)
     {
         var cutoff = DateTime.UtcNow - OutstandingExpiry;
         while (queue.Count > 0 && queue.Peek().SentAt < cutoff)
@@ -341,47 +341,52 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     private void HandleAnswer(string command, string value)
     {
-        char? requestType = Untrack(command);
+        var request = Untrack(command);
+        char? requestType = request?.Type;
 
-        if (value == UnsupportedValue)
+        using (Trigger.Resume(request?.TriggerId))
+        using (PushProperties("HandleAnswer"))
         {
-            if (requestType == 'E')
-                MarkUnsupported(command);
-            else
-                RejectControl(command, "is not supported by this TV");
-            CommunicationState = CommunicationState.Okay;
-            return;
-        }
-
-        if (value == NotApplicableValue)
-        {
-            if (requestType == 'C')
-                RejectControl(command, "was rejected by the TV");
-            else if (requestType == null)
-                LogDebug("Ignoring an unattributable not-applicable answer for {Command}", command);
-            else
-                HandleNotApplicableEnquiry(command);
-            CommunicationState = CommunicationState.Okay;
-            return;
-        }
-
-        if (value == SuccessValue)
-        {
-            if (requestType == 'C')
+            if (value == UnsupportedValue)
             {
-                ResolveIssue($"{RejectedIssuePrefix}{command}");
+                if (requestType == 'E')
+                    MarkUnsupported(command);
+                else
+                    RejectControl(command, "is not supported by this TV");
                 CommunicationState = CommunicationState.Okay;
                 return;
             }
-            if (requestType == null)
+
+            if (value == NotApplicableValue)
             {
-                LogDebug("Ignoring an unexpected ambiguous answer for {Command}", command);
+                if (requestType == 'C')
+                    RejectControl(command, "was rejected by the TV");
+                else if (requestType == null)
+                    LogDebug("Ignoring an unattributable not-applicable answer for {Command}", command);
+                else
+                    HandleNotApplicableEnquiry(command);
+                CommunicationState = CommunicationState.Okay;
                 return;
             }
-        }
 
-        ApplyState(command, value);
-        CommunicationState = CommunicationState.Okay;
+            if (value == SuccessValue)
+            {
+                if (requestType == 'C')
+                {
+                    ResolveIssue($"{RejectedIssuePrefix}{command}");
+                    CommunicationState = CommunicationState.Okay;
+                    return;
+                }
+                if (requestType == null)
+                {
+                    LogDebug("Ignoring an unexpected ambiguous answer for {Command}", command);
+                    return;
+                }
+            }
+
+            ApplyState(command, value);
+            CommunicationState = CommunicationState.Okay;
+        }
     }
 
     private void MarkUnsupported(string command)

@@ -15,7 +15,7 @@ public class AvCodersSshClient : SshClientBase
     private static readonly TimeSpan ShortSession = TimeSpan.FromSeconds(60);
     private readonly string _username;
     private readonly string _password;
-    private readonly ConcurrentQueue<QueuedPayload<string>> _sendQueue = new();
+    private readonly ConcurrentQueue<QueuedPayload<(string Text, byte[]? Bytes)>> _sendQueue = new();
 
     private SshClient _client;
     
@@ -71,7 +71,10 @@ public class AvCodersSshClient : SshClientBase
                         {
                             var line = stream.ReadLine(ReceiveTimeout);
                             if (!string.IsNullOrEmpty(line))
-                                InvokeResponseHandlers(line);
+                            {
+                                using (Trigger.Begin())
+                                    InvokeResponseHandlers(line);
+                            }
                         }
                         else
                         {
@@ -161,25 +164,28 @@ public class AvCodersSshClient : SshClientBase
                 await Task.Delay(TimeSpan.FromSeconds(1), token);
             else
             {
-                using (PushProperties("ProcessSendQueue"))
+                while (_sendQueue.TryDequeue(out var item))
                 {
-                    while (_sendQueue.TryDequeue(out var item))
+                    using (Trigger.Resume(item.TriggerId))
+                    using (PushProperties("ProcessSendQueue"))
                     {
                         var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
                         if (age >= QueueTimeout)
                         {
                             LogWarning(
                                 "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
-                                age, QueueTimeout, item.Payload);
+                                age, QueueTimeout, item.Payload.Text);
                             continue;
                         }
 
-                        _stream.Write(item.Payload);
-                        InvokeRequestHandlers(item.Payload);
+                        _stream.Write(item.Payload.Text);
+                        InvokeRequestHandlers(item.Payload.Text);
+                        if (item.Payload.Bytes != null)
+                            InvokeRequestHandlers(item.Payload.Bytes);
                     }
-
-                    await Task.Delay(TimeSpan.FromMilliseconds(500), token);
                 }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(500), token);
             }
         }
         catch (ObjectDisposedException)
@@ -250,6 +256,7 @@ public class AvCodersSshClient : SshClientBase
 
     private void ClientOnErrorOccurred(object? sender, ExceptionEventArgs e)
     {
+        using (Trigger.Begin())
         using (PushProperties("ClientOnErrorOccurred"))
         {
             LogException(e.Exception, "SSH.Net has logged an error");
@@ -257,7 +264,11 @@ public class AvCodersSshClient : SshClientBase
         }
     }
 
-    public override void Send(string message)
+    public override void Send(string message) => Send(message, null);
+
+    public override void Send(byte[] bytes) => Send(System.Text.Encoding.UTF8.GetString(bytes), bytes);
+
+    private void Send(string message, byte[]? bytes)
     {
         using (PushProperties("Send"))
         {
@@ -267,51 +278,46 @@ public class AvCodersSshClient : SshClientBase
                 return;
             }
 
-            if (_client.IsConnected && _stream is {CanWrite: true})
-            {
-                try
-                {
-                    _stream.Write(message);
-                    InvokeRequestHandlers(message);
-                }
-                catch (ObjectDisposedException e)
-                {
-                    LogDebug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
-                    EnqueueWithCap(message);
-                    ConnectionState = ConnectionState.Error;
-                }
-            }
-            else
+            if (!_client.IsConnected || _stream is not {CanWrite: true})
             {
                 LogDebug("Cannot send, not connected or stream unavailable. Queueing message.");
-                EnqueueWithCap(message);
+                EnqueueWithCap(message, bytes);
                 ConnectionState = ConnectionState.Error;
+                return;
             }
+
+            if (!_sendQueue.IsEmpty)
+            {
+                EnqueueWithCap(message, bytes);
+                return;
+            }
+
+            try
+            {
+                _stream.Write(message);
+            }
+            catch (ObjectDisposedException e)
+            {
+                LogDebug("Send failed, stream was disposed. Queueing message. {ExceptionMessage}", e.Message);
+                EnqueueWithCap(message, bytes);
+                ConnectionState = ConnectionState.Error;
+                return;
+            }
+            InvokeRequestHandlers(message);
+            if (bytes != null)
+                InvokeRequestHandlers(bytes);
         }
     }
 
-    public override void Send(byte[] bytes)
+    private void EnqueueWithCap(string message, byte[]? bytes)
     {
-        if (DesiredConnectionState == ConnectionState.Disconnected)
+        if (_sendQueue.Count >= MaxQueueSize && _sendQueue.TryDequeue(out var dropped))
         {
-            using (PushProperties("Send"))
-                LogDebug("Not sending, the client was disconnected on request");
-            return;
-        }
-        var message = System.Text.Encoding.UTF8.GetString(bytes);
-        Send(message);
-        InvokeRequestHandlers(bytes);
-    }
-
-    private void EnqueueWithCap(string message)
-    {
-        if (_sendQueue.Count >= MaxQueueSize)
-        {
-            _sendQueue.TryDequeue(out _);
+            using (Trigger.Resume(dropped.TriggerId))
             using (PushProperties("EnqueueWithCap"))
                 LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
         }
-        _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
+        _sendQueue.Enqueue(new QueuedPayload<(string Text, byte[]? Bytes)>(DateTimeOffset.UtcNow, (message, bytes), Trigger.Id));
     }
 
     public override void Connect()

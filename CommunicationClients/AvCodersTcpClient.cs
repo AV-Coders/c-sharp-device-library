@@ -12,7 +12,7 @@ public class AvCodersTcpClient : Core_TcpClient
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private TcpClient? _client;
     private NetworkStream? _stream;
-    private readonly ConcurrentQueue<QueuedPayload<byte[]>> _sendQueue = new();
+    private readonly ConcurrentQueue<QueuedPayload<(byte[] Bytes, string? Message)>> _sendQueue = new();
     private const int InitialBackoffMs = 1000;
     private int _reconnectBackoffMs = InitialBackoffMs;
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
@@ -178,73 +178,71 @@ public class AvCodersTcpClient : Core_TcpClient
 
         while (_sendQueue.TryDequeue(out var item))
         {
-            // Drop stale items
-            var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
-            if (Math.Abs(age) >= QueueTimeout)
+            using (Trigger.Resume(item.TriggerId))
             {
-                using (PushProperties("ProcessSendQueue"))
-                    LogWarning(
-                        "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
-                        age, QueueTimeout);
-                continue;
-            }
+                // Drop stale items
+                var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+                if (Math.Abs(age) >= QueueTimeout)
+                {
+                    using (PushProperties("ProcessSendQueue"))
+                        LogWarning(
+                            "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
+                            age, QueueTimeout);
+                    continue;
+                }
 
-            try
-            {
-                await SafeWriteAsync(item.Payload, token);
-            }
-            catch (IOException e)
-            {
-                LogException(e);
-                _sendQueue.Enqueue(item); // requeue if still within timeout
-                Reconnect();
-                break;
-            }
-            catch (ObjectDisposedException e)
-            {
-                LogException(e);
-                _sendQueue.Enqueue(item);
-                Reconnect();
-                break;
-            }
-            catch (SocketException e)
-            {
-                LogException(e);
-                _sendQueue.Enqueue(item);
-                Reconnect();
-                break;
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                using (PushProperties("ProcessSendQueue"))
-                    LogDebug("Stopped sending the queue, the send worker was stopped");
-                throw;
-            }
-            catch (Exception e)
-            {
-                LogException(e);
-                _sendQueue.Enqueue(item);
-                Reconnect();
-                break;
+                try
+                {
+                    await SafeWriteAsync(item.Payload.Bytes, token);
+                }
+                catch (IOException e)
+                {
+                    LogException(e);
+                    _sendQueue.Enqueue(item); // requeue if still within timeout
+                    Reconnect();
+                    break;
+                }
+                catch (ObjectDisposedException e)
+                {
+                    LogException(e);
+                    _sendQueue.Enqueue(item);
+                    Reconnect();
+                    break;
+                }
+                catch (SocketException e)
+                {
+                    LogException(e);
+                    _sendQueue.Enqueue(item);
+                    Reconnect();
+                    break;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    using (PushProperties("ProcessSendQueue"))
+                        LogDebug("Stopped sending the queue, the send worker was stopped");
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    LogException(e);
+                    _sendQueue.Enqueue(item);
+                    Reconnect();
+                    break;
+                }
+                InvokeRequestHandlers(item.Payload.Bytes);
+                if (item.Payload.Message != null)
+                    InvokeRequestHandlers(item.Payload.Message);
             }
         }
 
         await Task.Delay(TimeSpan.FromSeconds(2), token);
     }
 
-    public override void Send(string message)
-    {
-        if (DesiredConnectionState == ConnectionState.Disconnected)
-        {
-            using (PushProperties("Send"))
-                LogDebug("Not sending, the client was disconnected on request");
-            return;
-        }
-        Send(Bytes.FromString(message));
-        InvokeRequestHandlers(message);
-    }
+    public override void Send(string message) => Send(Bytes.FromString(message), message);
 
-    public override void Send(byte[] bytes)
+    public override void Send(byte[] bytes) => Send(bytes, null);
+
+    private void Send(byte[] bytes, string? message)
     {
         using (PushProperties("Send"))
         {
@@ -254,35 +252,38 @@ public class AvCodersTcpClient : Core_TcpClient
                 return;
             }
 
-            if (!IsConnected())
+            if (!IsConnected() || !_sendQueue.IsEmpty)
             {
-                EnqueueWithCap(bytes);
+                EnqueueWithCap(bytes, message);
                 return;
             }
 
             try
             {
                 SafeWriteAsync(bytes, CancellationToken.None).GetAwaiter().GetResult();
-                InvokeRequestHandlers(bytes);
             }
             catch (Exception e)
             {
                 LogException(e);
-                EnqueueWithCap(bytes);
+                EnqueueWithCap(bytes, message);
                 Reconnect();
+                return;
             }
+            InvokeRequestHandlers(bytes);
+            if (message != null)
+                InvokeRequestHandlers(message);
         }
     }
 
-    private void EnqueueWithCap(byte[] bytes)
+    private void EnqueueWithCap(byte[] bytes, string? message)
     {
-        if (_sendQueue.Count >= MaxQueueSize)
+        if (_sendQueue.Count >= MaxQueueSize && _sendQueue.TryDequeue(out var dropped))
         {
-            _sendQueue.TryDequeue(out _);
+            using (Trigger.Resume(dropped.TriggerId))
             using (PushProperties("EnqueueWithCap"))
                 LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
         }
-        _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
+        _sendQueue.Enqueue(new QueuedPayload<(byte[] Bytes, string? Message)>(DateTimeOffset.UtcNow, (bytes, message), Trigger.Id));
     }
 
     public override void Connect()

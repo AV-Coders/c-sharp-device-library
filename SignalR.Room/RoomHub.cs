@@ -81,8 +81,13 @@ public class RoomHub : Hub<IRoomHub>
     {
         _ = Task.Run(() =>
         {
-            using (Logger.BeginScope(new Dictionary<string, object>
-                   { ["Class"] = nameof(RoomHub), [LogBase.MethodProperty] = methodName }))
+            using (Logger.BeginScope(new Dictionary<string, object?>
+                   {
+                       ["Class"] = nameof(RoomHub),
+                       [LogBase.MethodProperty] = methodName,
+                       [LogBase.ActorProperty] = Actor.Current?.ToString(),
+                       [LogBase.TriggerIdProperty] = Trigger.Id
+                   }))
             {
                 try
                 {

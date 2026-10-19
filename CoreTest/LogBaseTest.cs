@@ -100,6 +100,34 @@ public class LogBaseTest
     }
 
     [Fact]
+    public void PushProperties_UnderAnActorAndATrigger_AddsBothToTheScope()
+    {
+        Actor.Current = new Actor(ActorKind.Browser, "10.1.2.3", "Firefox", "LAPTOP-12", "circuit-1");
+        var triggerId = Trigger.Start();
+
+        using (_logBase.InvokePushProperties("TestMethod"))
+        {
+            var properties = LogAndCapture();
+
+            Assert.Equal("Browser 10.1.2.3 (LAPTOP-12)", properties[LogBase.ActorProperty]);
+            Assert.Equal(triggerId, properties[LogBase.TriggerIdProperty]);
+        }
+    }
+
+    [Fact]
+    public void PushProperties_WithoutAnActorOrATrigger_AddsNeither()
+    {
+        Actor.Current = null;
+        using (_logBase.InvokePushProperties("TestMethod"))
+        {
+            var properties = LogAndCapture();
+
+            Assert.False(properties.ContainsKey(LogBase.ActorProperty));
+            Assert.False(properties.ContainsKey(LogBase.TriggerIdProperty));
+        }
+    }
+
+    [Fact]
     public void PushProperties_Dispose_RemovesAllPropertiesFromTheScope()
     {
         using (_logBase.InvokePushProperties("TestMethod"))

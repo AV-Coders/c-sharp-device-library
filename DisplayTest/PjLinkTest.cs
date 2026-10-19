@@ -1377,4 +1377,46 @@ public class PjLinkTest
         _mockClient.Verify(x => x.Send("%1AVMT 31\r"), Times.Once);
         _mockClient.Verify(x => x.Send("%1AVMT 11\r"), Times.Never);
     }
+
+    [Fact]
+    public void HandleResponse_InputNameAnswer_SendsTheNextQueryUnderThePassTriggerId()
+    {
+        var sent = new List<(string Message, string? TriggerId)>();
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(m => sent.Add((m, Trigger.Id)));
+        var passId = Trigger.Start();
+        _mockClient.Object.ResponseHandlers?.Invoke("%1CLSS=2\r%1INST=11 32\r");
+        Trigger.Start();
+
+        _mockClient.Object.ResponseHandlers?.Invoke("%2INNM=Computer1\r");
+
+        Assert.Contains(("%2INNM ?32\r", passId), sent);
+    }
+
+    [Fact]
+    public void HandleResponse_OtherAnswersDuringAnInputNamePass_KeepTheReceiveTriggerId()
+    {
+        var powerChangeIds = new List<string?>();
+        _display.PowerStateHandlers += _ => powerChangeIds.Add(Trigger.Id);
+        Trigger.Start();
+        _mockClient.Object.ResponseHandlers?.Invoke("%1CLSS=2\r%1INST=11 32\r");
+        var receiveId = Trigger.Start();
+
+        _mockClient.Object.ResponseHandlers?.Invoke("%1POWR=1\r");
+
+        Assert.Equal([receiveId], powerChangeIds);
+    }
+
+    [Fact]
+    public void HandleResponse_InputNameAnswerForAPassStartedWithNoTriggerId_KeepsTheReceiveTriggerId()
+    {
+        var sent = new List<(string Message, string? TriggerId)>();
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(m => sent.Add((m, Trigger.Id)));
+        Assert.Null(Trigger.Id);
+        _mockClient.Object.ResponseHandlers?.Invoke("%1CLSS=2\r%1INST=11 32\r");
+        var receiveId = Trigger.Start();
+
+        _mockClient.Object.ResponseHandlers?.Invoke("%2INNM=Computer1\r");
+
+        Assert.Contains(("%2INNM ?32\r", receiveId), sent);
+    }
 }

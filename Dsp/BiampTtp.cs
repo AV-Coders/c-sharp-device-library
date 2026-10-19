@@ -13,7 +13,10 @@ public enum BiampQuery
     Mute
 }
 
-public record Query(string ArrayIndex, BiampQuery BiampQuery, string DspCommand);
+public record Query(string ArrayIndex, BiampQuery BiampQuery, string DspCommand)
+{
+    public string? TriggerId { get; init; }
+}
 
 public record BiampAudioBlockInfo(string Name, string InstanceTag, int BlockIndex);
 
@@ -144,12 +147,17 @@ public class BiampTtp : Dsp
                 return;
             }
 
-            if (_currentQuery != null)
+            var current = _currentQuery;
+            if (current != null)
             {
-                RaiseMomentaryIssue($"The query {_currentQuery.DspCommand.Trim()} was not answered",
-                    key: "unanswered-query", escalateAfter: 3);
-                LogWarning("The query {query} was not answered, momentarily slowing down", _currentQuery.DspCommand);
-                _pendingQueries.Enqueue(_currentQuery);
+                using (Trigger.Resume(current.TriggerId))
+                using (PushProperties("Poll"))
+                {
+                    RaiseMomentaryIssue($"The query {current.DspCommand.Trim()} was not answered",
+                        key: "unanswered-query", escalateAfter: 3);
+                    LogWarning("The query {query} was not answered, momentarily slowing down", current.DspCommand);
+                }
+                _pendingQueries.Enqueue(current);
                 await Task.Delay(TimeSpan.FromSeconds(1), token);
                 _currentQuery = null;
                 return;
@@ -157,9 +165,13 @@ public class BiampTtp : Dsp
 
             if (_pendingQueries.TryDequeue(out var query))
             {
-                LogVerbose("Polling for {query}", query.DspCommand);
-                _currentQuery = query;
-                CommunicationClient.Send(query.DspCommand);
+                using (Trigger.Resume(query.TriggerId))
+                using (PushProperties("Poll"))
+                {
+                    LogVerbose("Polling for {query}", query.DspCommand);
+                    _currentQuery = query;
+                    CommunicationClient.Send(query.DspCommand);
+                }
                 await Task.Delay(TimeSpan.FromMilliseconds(100), token);
             }
             else
@@ -205,7 +217,7 @@ public class BiampTtp : Dsp
                     _currentQuery = null;
                     foreach (var query in _moduleQueries)
                     {
-                        _pendingQueries.Enqueue(query);
+                        _pendingQueries.Enqueue(query with { TriggerId = Trigger.Id });
                     }
                 }
 
@@ -281,17 +293,19 @@ public class BiampTtp : Dsp
 
     private void AllocateValueToBlock(string value)
     {
+        var current = _currentQuery;
+        using (Trigger.Resume(current?.TriggerId))
         using (PushProperties("AllocateValueToBlock"))
         {
-            if (_currentQuery == null)
+            if (current == null)
             {
                 LogVerbose("No current query, ignoring response");
                 return;
             }
 
-            var currentPolledBlock = _currentQuery.ArrayIndex;
+            var currentPolledBlock = current.ArrayIndex;
 
-            switch (_currentQuery.BiampQuery)
+            switch (current.BiampQuery)
             {
                 case BiampQuery.Mute:
                     if (_mutes.TryGetValue(currentPolledBlock, out var theMute))
@@ -300,25 +314,25 @@ public class BiampTtp : Dsp
                         CommunicationState = CommunicationState.Okay;
                     }
                     else
-                        LogError("Error getting the Mute state, The polled block should be a mute, but it isn't. {blockKey}", _currentQuery.DspCommand);
+                        LogError("Error getting the Mute state, The polled block should be a mute, but it isn't. {blockKey}", current.DspCommand);
                     break;
                 case BiampQuery.Level:
                     if (_gains.TryGetValue(currentPolledBlock, out var level))
                         level.SetVolumeFromDb(double.Parse(value));
                     else
-                        LogError("Error getting the current level, the polled block should be a level, but it isn't. {blockKey}", _currentQuery.DspCommand);
+                        LogError("Error getting the current level, the polled block should be a level, but it isn't. {blockKey}", current.DspCommand);
                     break;
                 case BiampQuery.MaxGain:
                     if (_gains.TryGetValue(currentPolledBlock, out var max))
                         max.SetMaxGain(double.Parse(value));
                     else
-                        LogError("Error getting the Max gain, The polled block should be a level, but it isn't. {blockKey}", _currentQuery.DspCommand);
+                        LogError("Error getting the Max gain, The polled block should be a level, but it isn't. {blockKey}", current.DspCommand);
                     break;
                 case BiampQuery.MinGain:
                     if (_gains.TryGetValue(currentPolledBlock, out var min))
                         min.SetMinGain(double.Parse(value));
                     else
-                        LogError("Error getting the Min gain, The polled block should be a level, but it isn't. {blockKey}", _currentQuery.DspCommand);
+                        LogError("Error getting the Min gain, The polled block should be a level, but it isn't. {blockKey}", current.DspCommand);
                     break;
             }
 
@@ -348,9 +362,9 @@ public class BiampTtp : Dsp
                     _moduleQueries.Add(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
                 }
 
-                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n"));
-                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n"));
-                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n"));
+                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MaxGain, $"{controlName} get maxLevel {controlIndex}\n") { TriggerId = Trigger.Id });
+                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.MinGain, $"{controlName} get minLevel {controlIndex}\n") { TriggerId = Trigger.Id });
+                _pendingQueries.Enqueue(new Query(arrayIndex, BiampQuery.Level, $"{controlName} get level {controlIndex}\n") { TriggerId = Trigger.Id });
 
                 var levelSubscription = $"{controlName} subscribe level {controlIndex} {arrayIndex}\n";
                 lock (_deviceSubscriptionsLock)

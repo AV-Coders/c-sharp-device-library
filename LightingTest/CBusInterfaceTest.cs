@@ -7,16 +7,25 @@ namespace AVCoders.Lighting.Tests;
 
 public class CBusInterfaceTest
 {
+    private const string FirstWire = "\\0538007919r\r";
+    private const string SecondWire = "\\053800011Ar\r";
+    private static readonly Actor FirstActor = new(ActorKind.Browser, "10.0.0.1", "First browser", null, "first");
+    private static readonly Actor SecondActor = new(ActorKind.Browser, "10.0.0.2", "Second browser", null, "second");
     private readonly CBusSerialInterface _interface;
     private readonly ManualTimeProvider _time = new();
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private readonly List<string> _sent = [];
+    private readonly List<(string Wire, string? TriggerId, Actor? Actor)> _sends = [];
     private readonly List<CBusGroupMessage> _groupMessages = [];
     private readonly List<CBusChannelLevel> _channelLevels = [];
 
     public CBusInterfaceTest()
     {
-        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(_sent.Add);
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(wire =>
+        {
+            _sent.Add(wire);
+            _sends.Add((wire, Trigger.Id, Actor.Current));
+        });
         _interface = new CBusSerialInterface(_mockClient.Object, _time);
         _interface.GroupMessageHandlers += _groupMessages.Add;
         _interface.ChannelLevelHandlers += _channelLevels.Add;
@@ -82,6 +91,90 @@ public class CBusInterfaceTest
         _time.Advance(CBusSerialInterface.ConfirmationTimeout);
 
         Assert.Equal(["\\0538007919r\r", "\\053800011Ar\r"], _sent);
+    }
+
+    [Fact]
+    public void QueuedCommand_IsSentUnderItsOwnTriggerId()
+    {
+        Trigger.Start();
+        _interface.SendPointToMultipointPayload(0x38, [0x79, 0x19]);
+        var second = Trigger.Start();
+        _interface.SendPointToMultipointPayload(0x38, [0x01, 0x1A]);
+
+        Trigger.Start();
+        Receive("r.");
+
+        Assert.Equal(second, _sends.Single(x => x.Wire == SecondWire).TriggerId);
+    }
+
+    [Fact]
+    public void Confirmation_IsHandledUnderTheInFlightCommandsTriggerId()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        CBusSerialInterface cbus;
+        try
+        {
+            cbus = new CBusSerialInterface(_mockClient.Object, _time);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        var first = Trigger.Start();
+        cbus.SendPointToMultipointPayload(0x38, [0x79, 0x19]);
+        var second = Trigger.Start();
+        cbus.SendPointToMultipointPayload(0x38, [0x01, 0x1A]);
+
+        Trigger.Start();
+        Receive("r.");
+        Receive("r.");
+
+        Assert.Contains(($"PCI confirmed {FirstWire.TrimEnd()}", first), logs.Logs.Select(log => (log.Message, log.TriggerId)));
+        Assert.Contains(($"PCI confirmed {SecondWire.TrimEnd()}", second), logs.Logs.Select(log => (log.Message, log.TriggerId)));
+    }
+
+    [Fact]
+    public void Confirmation_ForACommandSentWithNoTriggerId_KeepsTheReceiveTriggerId()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        CBusSerialInterface cbus;
+        try
+        {
+            cbus = new CBusSerialInterface(_mockClient.Object, _time);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        Assert.Null(Trigger.Id);
+        cbus.SendPointToMultipointPayload(0x38, [0x79, 0x19]);
+
+        var receiveId = Trigger.Start();
+        Receive("r.");
+
+        Assert.Contains(($"PCI confirmed {FirstWire.TrimEnd()}", receiveId), logs.Logs.Select(log => (log.Message, log.TriggerId)));
+    }
+
+    [Fact]
+    public void TimeoutDrivenSend_DoesNotCarryThePreviousCommandsActor()
+    {
+        Actor.Current = FirstActor;
+        Trigger.Start();
+        _interface.SendPointToMultipointPayload(0x38, [0x79, 0x19]);
+        Actor.Current = SecondActor;
+        var second = Trigger.Start();
+        _interface.SendPointToMultipointPayload(0x38, [0x01, 0x1A]);
+        Actor.Current = null;
+
+        _time.Advance(CBusSerialInterface.ConfirmationTimeout);
+
+        var send = _sends.Single(x => x.Wire == SecondWire);
+        Assert.Equal(second, send.TriggerId);
+        Assert.Null(send.Actor);
     }
 
     [Fact]
@@ -236,6 +329,7 @@ public class ManualTimeProvider : TimeProvider
 
     private class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
     {
+        private readonly ExecutionContext? _context = ExecutionContext.Capture();
         private TimeSpan _period = Timeout.InfiniteTimeSpan;
 
         public DateTimeOffset? Due { get; private set; }
@@ -250,7 +344,14 @@ public class ManualTimeProvider : TimeProvider
         public void Fire()
         {
             Due = _period == Timeout.InfiniteTimeSpan ? null : owner.UtcNow + _period;
-            callback(state);
+            if (_context == null)
+            {
+                var thread = new Thread(() => callback(state));
+                thread.UnsafeStart();
+                thread.Join();
+                return;
+            }
+            ExecutionContext.Run(_context, _ => callback(state), null);
         }
 
         public void Dispose() => Due = null;

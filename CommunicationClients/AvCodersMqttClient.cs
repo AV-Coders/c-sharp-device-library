@@ -8,8 +8,10 @@ namespace AVCoders.CommunicationClients;
 
 public class AvCodersMqttClient : MqttClient
 {
+    private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(3);
     private readonly MqttClientOptions _mqttClientOptions;
     private readonly IMqttClient _mqttClient;
+    private readonly ThreadWorker _connectionWorker;
     private readonly Dictionary<string, List<Action<string>>> _handlers = new();
     private readonly object _handlersLock = new();
 
@@ -31,25 +33,38 @@ public class AvCodersMqttClient : MqttClient
         _mqttClient.ConnectedAsync += RegisterDevicesToMqttServer;
         _mqttClient.DisconnectedAsync += HandleMqttDisconnection;
         _mqttClient.ApplicationMessageReceivedAsync += HandleMqttMessage;
-        ConnectionState = ConnectionState.Connecting;
-        _ = ConnectInitialAsync();
+        _connectionWorker = new ThreadWorker(ConnectToBroker, ReconnectInterval);
+        _connectionWorker.Restart();
     }
 
-    private async Task ConnectInitialAsync()
+    private async Task ConnectToBroker(CancellationToken token)
     {
+        if (_mqttClient.IsConnected)
+        {
+            ConnectionState = ConnectionState.Connected;
+            return;
+        }
+        ConnectionState = ConnectionState.Connecting;
         try
         {
-            await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
+            var result = await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
+            if (result.ResultCode == MqttClientConnectResultCode.Success)
+                return;
+            ReportConnectionFailure($"{Host}:{Port} rejected the connection: {result.ResultCode}");
+            ConnectionState = ConnectionState.Disconnected;
         }
         catch (Exception e)
         {
-            LogException(e, "Initial MQTT connection failed");
+            using (PushProperties())
+                LogException(e, "MQTT connection attempt failed");
             ReportConnectionFailure(DescribeConnectionError(e));
             ConnectionState = ConnectionState.Disconnected;
         }
     }
+
     private Task HandleMqttMessage(MqttApplicationMessageReceivedEventArgs arg)
     {
+        using var trigger = Trigger.Begin();
         string topic = arg.ApplicationMessage.Topic;
         var rawPayload = Encoding.UTF8.GetString(arg.ApplicationMessage.Payload);
         lock (_handlersLock)
@@ -70,32 +85,40 @@ public class AvCodersMqttClient : MqttClient
             if (!_handlers.ContainsKey(topic))
             {
                 _handlers.Add(topic, [handler]);
-                _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+                _ = Subscribe(topic);
             }
             else
                 _handlers[topic].Add(handler);
         }
     }
 
-    private async Task HandleMqttDisconnection(MqttClientDisconnectedEventArgs arg)
+    private async Task Subscribe(string topic)
     {
-        while (!_mqttClient.IsConnected)
+        try
         {
-            ConnectionState = ConnectionState.Disconnected;
-            await Task.Delay(TimeSpan.FromSeconds(3));
-            ConnectionState = ConnectionState.Connecting;
-            LogDebug("Reconnecting to MQTT server");
-            try
+            var result = await _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce);
+            foreach (var refused in result.Items.Where(item => item.ResultCode > MqttClientSubscribeResultCode.GrantedQoS2))
             {
-                await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
-            }
-            catch (Exception e)
-            {
-                // Without this catch a failed attempt would end the loop and reconnection stops.
-                LogException(e, "MQTT reconnection attempt failed");
-                ReportConnectionFailure(DescribeConnectionError(e));
+                using (PushProperties())
+                    LogWarning("The broker refused the subscription to {Topic}: {ResultCode}", topic, refused.ResultCode);
             }
         }
+        catch (MqttClientNotConnectedException)
+        {
+            using (PushProperties())
+                LogVerbose("Not subscribing to {Topic} yet, the client is not connected", topic);
+        }
+        catch (Exception e)
+        {
+            using (PushProperties())
+                LogException(e, $"Subscribing to {topic} failed");
+        }
+    }
+
+    private Task HandleMqttDisconnection(MqttClientDisconnectedEventArgs arg)
+    {
+        ConnectionState = ConnectionState.Disconnected;
+        return Task.CompletedTask;
     }
 
     private Task RegisterDevicesToMqttServer(MqttClientConnectedEventArgs arg)
@@ -106,7 +129,8 @@ public class AvCodersMqttClient : MqttClient
         {
             topics = _handlers.Keys.ToList();
         }
-        topics.ForEach(topic => _mqttClient.SubscribeAsync(topic, MqttQualityOfServiceLevel.AtLeastOnce));
+        foreach (var topic in topics)
+            _ = Subscribe(topic);
         return Task.CompletedTask;
     }
 
@@ -116,31 +140,30 @@ public class AvCodersMqttClient : MqttClient
             .WithTopic(topic)
             .WithPayload(payload)
             .Build();
-        PublishMqttMessage(message);
-        InvokeRequestHandlers($"{topic} - {payload}");
+        _ = PublishMqttMessage(message, $"{topic} - {payload}");
     }
 
-    private void PublishMqttMessage(MqttApplicationMessage message)
+    private async Task PublishMqttMessage(MqttApplicationMessage message, string request)
     {
-        using (PushProperties())
+        try
         {
-            try
-            {
-                _mqttClient.PublishAsync(message);
-            }
-            catch (MqttClientNotConnectedException e)
-            {
-                LogVerbose("MqttClientNotConnectedException: {Exception}", e);
-                _ = HandleMqttDisconnection(new MqttClientDisconnectedEventArgs(true, new MqttClientConnectResult(),
-                    MqttClientDisconnectReason.UnspecifiedError, String.Empty, [], null));
-            }
-            catch (Exception e)
-            {
-                LogException(e);
-            }
+            await _mqttClient.PublishAsync(message);
         }
+        catch (MqttClientNotConnectedException)
+        {
+            using (PushProperties())
+                LogVerbose("Not publishing {Request}, the client is not connected", request);
+            return;
+        }
+        catch (Exception e)
+        {
+            using (PushProperties())
+                LogException(e, $"Publishing {request} failed");
+            return;
+        }
+        InvokeRequestHandlers(request);
     }
-    
+
     /// <summary>
     /// Deprecated: Use Send(MqttApplicationMessage) instead.
     /// </summary>

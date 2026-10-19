@@ -1,6 +1,9 @@
+using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.MediaPlayer.Tests;
 
@@ -19,6 +22,7 @@ public class VitecServerTest : IDisposable
     private readonly HttpListener _listener;
     private readonly ushort _port;
     private readonly List<string> _posts = [];
+    private readonly List<NameValueCollection> _postHeaders = [];
     private readonly object _postsLock = new();
 
     public VitecServerTest()
@@ -70,8 +74,12 @@ public class VitecServerTest : IDisposable
             {
                 using var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding);
                 var body = await reader.ReadToEndAsync();
+                var headers = new NameValueCollection(context.Request.Headers);
                 lock (_postsLock)
+                {
                     _posts.Add(body);
+                    _postHeaders.Add(headers);
+                }
             }
             else
             {
@@ -87,6 +95,8 @@ public class VitecServerTest : IDisposable
     private int PostCount { get { lock (_postsLock) return _posts.Count; } }
 
     private string LastPost { get { lock (_postsLock) return _posts[^1]; } }
+
+    private NameValueCollection LastPostHeaders { get { lock (_postsLock) return _postHeaders[^1]; } }
 
     private static async Task WaitUntilAsync(Func<bool> condition, string failureMessage)
     {
@@ -168,6 +178,21 @@ public class VitecServerTest : IDisposable
 
         await WaitUntilAsync(() => PostCount > before, "ChannelDown never posted");
         Assert.Contains("\"uri-3\"", LastPost);
+    }
+
+    [Fact]
+    public async Task SetChannel_UnderAnActivity_SendsNoTraceContextHeaders()
+    {
+        var server = CreateServer();
+        using var activity = new Activity("test").Start();
+        activity.TraceStateString = "vendor=value";
+        activity.AddBaggage("key", "value");
+
+        server.SetChannel("uri-1", DeviceMac);
+
+        await WaitUntilAsync(() => PostCount > 0, "SetChannel never posted");
+        var headers = LastPostHeaders;
+        Assert.All(TraceContext.Headers, header => Assert.Null(headers[header]));
     }
 
     [Fact]

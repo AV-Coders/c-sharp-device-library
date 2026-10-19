@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Security;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.CommunicationClients.Tests;
 
@@ -166,6 +169,21 @@ public class AvCodersRestClientTest : IDisposable
     }
 
     [Fact]
+    public async Task Get_UnderAnActivity_SendsNoTraceContextHeaders()
+    {
+        var serve = ServeOneAsync();
+        var client = CreateClient();
+        using var activity = new Activity("test").Start();
+        activity.TraceStateString = "vendor=value";
+        activity.AddBaggage("key", "value");
+
+        await client.Get();
+        var request = await serve;
+
+        Assert.All(TraceContext.Headers, header => Assert.Null(request.Headers.Get(header)));
+    }
+
+    [Fact]
     public async Task RequestTimeout_SetsErrorState()
     {
         var serve = ServeOneAsync(delayBeforeResponding: TimeSpan.FromSeconds(5));
@@ -182,6 +200,96 @@ public class AvCodersRestClientTest : IDisposable
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest($"CN={commonName}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         return request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+    }
+
+    private static X509Certificate2 CreateServerCertificate()
+    {
+        using var ephemeral = CreateSelfSignedCertificate("127.0.0.1");
+        byte[] pfx = ephemeral.Export(X509ContentType.Pfx);
+#if NET9_0_OR_GREATER
+        return X509CertificateLoader.LoadPkcs12(pfx, null);
+#else
+        return new X509Certificate2(pfx);
+#endif
+    }
+
+    private static async Task ServeOneTlsAsync(TcpListener listener, X509Certificate2 certificate)
+    {
+        using var connection = await TestNetwork.AcceptAsync(listener, 10);
+        await using var tls = new SslStream(connection.GetStream());
+        await tls.AuthenticateAsServerAsync(certificate);
+        var head = new StringBuilder();
+        var buffer = new byte[1024];
+        while (!head.ToString().Contains("\r\n\r\n"))
+        {
+            int read = await tls.ReadAsync(buffer);
+            if (read == 0)
+                break;
+            head.Append(Encoding.ASCII.GetString(buffer, 0, read));
+        }
+        await tls.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"u8.ToArray());
+    }
+
+    private static async Task<AvCodersRestClient> GetOverTls(X509Certificate2 certificate,
+        bool allowUntrustedCertificates, string? pinnedThumbprint)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+            var serve = ServeOneTlsAsync(listener, certificate);
+            var client = new AvCodersRestClient("127.0.0.1", port, "https", "TlsClient",
+                allowUntrustedCertificates: allowUntrustedCertificates, pinnedCertificateThumbprint: pinnedThumbprint);
+            await client.Get();
+            await Record.ExceptionAsync(() => serve);
+            return client;
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Get_OverHttpsToASelfSignedDevice_SucceedsByDefault()
+    {
+        using var certificate = CreateServerCertificate();
+
+        var client = await GetOverTls(certificate, true, null);
+
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+    }
+
+    [Fact]
+    public async Task Get_OverHttpsToASelfSignedDevice_FailsInStrictMode()
+    {
+        using var certificate = CreateServerCertificate();
+
+        var client = await GetOverTls(certificate, false, null);
+
+        Assert.Equal(ConnectionState.Error, client.ConnectionState);
+    }
+
+    [Fact]
+    public async Task Get_OverHttpsToThePinnedCertificate_Succeeds()
+    {
+        using var certificate = CreateServerCertificate();
+
+        var client = await GetOverTls(certificate, true, certificate.Thumbprint);
+
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+    }
+
+    [Fact]
+    public async Task Get_OverHttpsToADifferentCertificateThanThePinnedOne_Fails()
+    {
+        using var certificate = CreateServerCertificate();
+        using var pinned = CreateSelfSignedCertificate("Pinned");
+
+        var client = await GetOverTls(certificate, true, pinned.Thumbprint);
+
+        Assert.Equal(ConnectionState.Error, client.ConnectionState);
     }
 
     private static bool Validate(AvCodersRestClient client, X509Certificate2? certificate, SslPolicyErrors errors)

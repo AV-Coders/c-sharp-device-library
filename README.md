@@ -57,6 +57,7 @@ display.PowerOn();
 | `AVCoders.Annotator` | Annotation devices | `ExtronAnnotator401` |
 | `AVCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2` |
 | `AVCoders.WirelessPresenter` | Wireless presentation | `ExtronSharelinkPro` |
+| `AVCoders.SignalR.*` (Camera, Destination, Display, Room, SetTopBox, Source, Volume, Audit) | SignalR hubs bridging room state to web / touch-panel UIs; `Audit` is a global hub filter that records each state-changing hub call | `<X>Hub`, `<X>Manager`, `<X>UiSignalR`; `HubAuditFilter` |
 
 `Climate/` (`TemperzoneUc8`, Modbus RTU HVAC) exists in the solution but is **not** currently
 published as a package.
@@ -90,6 +91,12 @@ LogBase.LoggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
 
 Each log line is automatically scoped with the instance's `Class`, `InstanceName`,
 `InstanceUid` and the calling `Method`.
+
+While an entry point has set `Actor.Current` (who triggered the action), scopes, spans and
+`Events` entries also carry `Actor`; while `Trigger.Id` (which action) is set, they carry
+`TriggerId`. `Audit.Record` keeps an in-memory audit trail, each entry stamped with the
+trigger id, logged under `AVCoders.Audit`: see
+[Core/README.md](Core/README.md#audit-who-triggered-an-action).
 
 ### Diagnostics buffer
 

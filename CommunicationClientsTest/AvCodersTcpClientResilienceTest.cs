@@ -1,8 +1,11 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AVCoders.CommunicationClients.Tests;
 
@@ -10,6 +13,7 @@ namespace AVCoders.CommunicationClients.Tests;
 /// Reconnection and send-queue behaviour. These tests exercise the connection-state
 /// worker's real backoff/poll cycles, so their timeouts are generous by design.
 /// </summary>
+[Collection(LoggerFactoryCollection.Name)]
 public class AvCodersTcpClientResilienceTest : IDisposable
 {
     private AvCodersTcpClient? _client;
@@ -17,7 +21,14 @@ public class AvCodersTcpClientResilienceTest : IDisposable
     public void Dispose()
     {
         try { _client?.Disconnect(); } catch { /* test teardown */ }
+        if (LogBase.LoggerFactory is ScopeCapturingLoggerFactory)
+            LogBase.LoggerFactory = NullLoggerFactory.Instance;
     }
+
+    private static string? TriggerIdOf(ScopeCapturingLoggerFactory logs, string instanceName, string messageStart) => logs.Logs
+        .Where(log => Equals(log.Scope.GetValueOrDefault("InstanceName"), instanceName) && log.Message.StartsWith(messageStart))
+        .Select(log => log.TriggerId)
+        .FirstOrDefault();
 
     [Fact]
     public async Task Send_WhileDisconnected_QueuesAndDeliversAfterConnect()
@@ -36,6 +47,106 @@ public class AvCodersTcpClientResilienceTest : IDisposable
             using var serverSide = await TestNetwork.AcceptAsync(listener, 30);
             var received = await TestNetwork.ReadStringAsync(serverSide, 30);
             Assert.Equal("queued message", received);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_QueuedWhileOffline_RaisesItsTxOnceAtWriteTimeWithTheSendersTriggerId()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        LogBase.LoggerFactory = logs;
+        var port = TestNetwork.GetFreePort();
+        _client = new AvCodersTcpClient("127.0.0.1", port, "QueuedTxTestClient", CommandStringFormat.Ascii);
+        _client.SetQueueTimeout(60);
+        var sent = new ConcurrentQueue<(string Message, string? TriggerId)>();
+        var sentBytes = new ConcurrentQueue<string?>();
+        _client.RequestHandlers += message => sent.Enqueue((message, Trigger.Id));
+        _client.RequestByteHandlers += _ => sentBytes.Enqueue(Trigger.Id);
+
+        var triggerId = Trigger.Start();
+        _client.Send("queued message");
+        Assert.Empty(sent);
+        Assert.Empty(sentBytes);
+
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        try
+        {
+            using var serverSide = await TestNetwork.AcceptAsync(listener, 30);
+            Assert.Equal("queued message", await TestNetwork.ReadStringAsync(serverSide, 30));
+            await TestNetwork.WaitUntilAsync(() => !sent.IsEmpty, 10, "the queued send never raised its tx");
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            Assert.Equal(("queued message", triggerId), Assert.Single(sent));
+            Assert.Equal(triggerId, Assert.Single(sentBytes));
+            Assert.Equal(triggerId, TriggerIdOf(logs, "QueuedTxTestClient", "Sending: queued message"));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_WhileConnected_RaisesItsTxWithTheCallersTriggerId()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "DirectTxTestClient", CommandStringFormat.Ascii);
+        var sent = new ConcurrentQueue<(string Message, string? TriggerId)>();
+        _client.RequestHandlers += message => sent.Enqueue((message, Trigger.Id));
+
+        try
+        {
+            using var serverSide = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+
+            var triggerId = Trigger.Start();
+            _client.Send("direct message");
+
+            Assert.Equal(("direct message", triggerId), Assert.Single(sent));
+            Assert.Equal("direct message", await TestNetwork.ReadStringAsync(serverSide, 10));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_DroppedFromTheQueue_RaisesNoTx()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        LogBase.LoggerFactory = logs;
+        var port = TestNetwork.GetFreePort();
+        _client = new AvCodersTcpClient("127.0.0.1", port, "DroppedTxTestClient", CommandStringFormat.Ascii);
+        _client.SetQueueTimeout(0);
+        var requests = 0;
+        _client.RequestHandlers += _ => Interlocked.Increment(ref requests);
+        _client.RequestByteHandlers += _ => Interlocked.Increment(ref requests);
+
+        var triggerId = Trigger.Start();
+        _client.Send("stale message");
+
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        try
+        {
+            using var serverSide = await TestNetwork.AcceptAsync(listener, 30);
+            await TestNetwork.WaitUntilAsync(() => TestNetwork.SendQueueCount(_client) == 0, 10,
+                "the stale message was never taken off the queue");
+            await Task.Delay(TimeSpan.FromSeconds(1));
+
+            Assert.Equal(0, requests);
+            Assert.Equal(0, serverSide.Available);
+            Assert.Equal(triggerId, TriggerIdOf(logs, "DroppedTxTestClient", "Dropping queued message"));
         }
         finally
         {

@@ -19,7 +19,7 @@ public class TriplePlay : MediaPlayer, ISetTopBox
     private async Task Get(string uri)
     {
         // Use HttpClient - HttpWebRequest seems to break after three requests.
-        using (HttpClient httpClient = new HttpClient())
+        using (HttpClient httpClient = new HttpClient(new SocketsHttpHandler { ActivityHeadersPropagator = null }))
         {
             try
             {

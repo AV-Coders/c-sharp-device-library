@@ -65,23 +65,24 @@ public class AvCodersTcpServer : Core_TcpClient
         await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
     }
 
-    public override void Send(string message)
-    {
-        Send(Bytes.FromString(message));
-        InvokeRequestHandlers(message);
-    }
+    public override void Send(string message) => Send(Bytes.FromString(message), message);
 
-    public override void Send(byte[] bytes)
+    public override void Send(byte[] bytes) => Send(bytes, null);
+
+    private void Send(byte[] bytes, string? message)
     {
         using (PushProperties("Send"))
         {
+            var written = false;
             foreach (var kvp in _clients)
             {
                 TcpClient client = kvp.Value;
                 try
                 {
-                    if (client.Connected && client.GetStream().CanWrite)
-                        client.GetStream().Write(bytes);
+                    if (!client.Connected || !client.GetStream().CanWrite)
+                        continue;
+                    client.GetStream().Write(bytes);
+                    written = true;
                 }
                 catch (IOException e)
                 {
@@ -92,7 +93,12 @@ public class AvCodersTcpServer : Core_TcpClient
                     LogException(e);
                 }
             }
+
+            if (!written)
+                return;
             InvokeRequestHandlers(bytes);
+            if (message != null)
+                InvokeRequestHandlers(message);
         }
     }
 
@@ -111,7 +117,8 @@ public class AvCodersTcpServer : Core_TcpClient
                     if (bytesRead == 1 && buffer[0] == 0)
                         continue;
                     string response = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
+                    using (Trigger.Begin())
+                        InvokeResponseHandlers(response, buffer.Take(bytesRead).ToArray());
                 }
             }
             catch (Exception e)

@@ -115,7 +115,8 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     {
         _cancellationTokenSource = new CancellationTokenSource();
         var token = _cancellationTokenSource.Token;
-        _task = Task.Run(() => RunLoop(token), token);
+        using (ExecutionContext.SuppressFlow())
+            _task = Task.Run(() => RunLoop(token), token);
     }
 
     private async Task RunLoop(CancellationToken token)
@@ -149,6 +150,7 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
 
     private async Task RunActionOnce(CancellationToken token)
     {
+        Trigger.Start();
         try
         {
             await action.Invoke(token);

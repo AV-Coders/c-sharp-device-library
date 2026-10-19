@@ -1,4 +1,5 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using AVCoders.MediaPlayer;
 
 namespace AVCoders.SignalR.SetTopBox.Tests;
@@ -97,6 +98,31 @@ public class SetTopBoxHubTest
         await _harness.Hub.SendRemoteButton(_groupName, "NotAButton");
 
         AssertNothingSent();
+    }
+
+    [Fact]
+    public async Task SendRemoteButton_UnknownButton_WarnsInsideTheHubScope()
+    {
+        var loggerFactory = new ScopeCapturingLoggerFactory();
+        var original = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = loggerFactory;
+        try
+        {
+            var actor = new Actor(ActorKind.Panel, "10.0.0.21", string.Empty, null, $"conn-{Guid.NewGuid()}");
+            Actor.Current = actor;
+            var triggerId = Trigger.Start();
+
+            await _harness.Hub.SendRemoteButton(_groupName, "NotAButton");
+
+            var log = Assert.Single(loggerFactory.Logs, l => l.Message == $"Unknown remote button NotAButton for group {_groupName}");
+            Assert.Equal(nameof(SetTopBoxHub.SendRemoteButton), log.Scope[LogBase.MethodProperty]);
+            Assert.Equal(actor.ToString(), log.Scope[LogBase.ActorProperty]);
+            Assert.Equal(triggerId, log.Scope[LogBase.TriggerIdProperty]);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = original;
+        }
     }
 
     [Fact]

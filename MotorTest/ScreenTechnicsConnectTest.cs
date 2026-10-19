@@ -42,6 +42,34 @@ public class ScreenTechnicsConnectTest
     }
 
     [Fact]
+    public void QueuedMessage_IsSentUnderTheEnqueuersTriggerId()
+    {
+        string? sentUnder = null;
+        _mockClient.Setup(x => x.Send("30 1\r")).Callback(() => sentUnder = Trigger.Id);
+        var raise = Trigger.Start();
+        _motor.Raise();
+
+        Trigger.Start();
+        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+
+        Assert.Equal(raise, sentUnder);
+    }
+
+    [Fact]
+    public void QueuedMessage_EnqueuedWithNoTriggerId_IsSentUnderTheConnectionEventsTriggerId()
+    {
+        string? sentUnder = null;
+        _mockClient.Setup(x => x.Send("30 1\r")).Callback(() => sentUnder = Trigger.Id);
+        Assert.Null(Trigger.Id);
+        _motor.Raise();
+
+        var connected = Trigger.Start();
+        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+
+        Assert.Equal(connected, sentUnder);
+    }
+
+    [Fact]
     public void Client_DisconnectsAfterMoveTime()
     {
         _motor.Stop();

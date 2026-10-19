@@ -325,6 +325,64 @@ public class SonySimpleIPControlTest
 
     private void TurnOn() => Feed("*SNPOWR0000000000000001\n");
 
+    [Fact]
+    public void HandleResponse_AnswersToQueuedEnquiries_AreHandledUnderEachEnquirysTriggerId()
+    {
+        var powerChangeIds = new List<string?>();
+        _sonyTv.PowerStateHandlers += _ => powerChangeIds.Add(Trigger.Id);
+        var firstId = Trigger.Start();
+        _sonyTv.QueryStatus();
+        var secondId = Trigger.Start();
+        _sonyTv.QueryStatus();
+        Trigger.Start();
+
+        Feed("*SAPOWR0000000000000001\n*SAPOWR0000000000000000\n");
+
+        Assert.Equal([firstId, secondId], powerChangeIds);
+    }
+
+    [Fact]
+    public void HandleResponse_PowerOnAnswer_SendsTheFollowUpEnquiriesUnderTheEnquirysTriggerId()
+    {
+        var sent = new List<(string Message, string? TriggerId)>();
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(m => sent.Add((m, Trigger.Id)));
+        var enquiryId = Trigger.Start();
+        _sonyTv.QueryStatus();
+        Trigger.Start();
+
+        Feed("*SAPOWR0000000000000001\n");
+
+        Assert.Contains(("*SEINPT################\n", enquiryId), sent);
+    }
+
+    [Fact]
+    public void HandleResponse_Notify_KeepsTheReceiveTriggerId()
+    {
+        var powerChangeIds = new List<string?>();
+        _sonyTv.PowerStateHandlers += _ => powerChangeIds.Add(Trigger.Id);
+        Trigger.Start();
+        _sonyTv.QueryStatus();
+        var receiveId = Trigger.Start();
+
+        Feed("*SNPOWR0000000000000001\n");
+
+        Assert.Equal([receiveId], powerChangeIds);
+    }
+
+    [Fact]
+    public void HandleResponse_AnswerToAnEnquirySentWithNoTriggerId_KeepsTheReceiveTriggerId()
+    {
+        var powerChangeIds = new List<string?>();
+        _sonyTv.PowerStateHandlers += _ => powerChangeIds.Add(Trigger.Id);
+        Assert.Null(Trigger.Id);
+        _sonyTv.QueryStatus();
+        var receiveId = Trigger.Start();
+
+        Feed("*SAPOWR0000000000000001\n");
+
+        Assert.Equal([receiveId], powerChangeIds);
+    }
+
     private int Sent(string prefix) => _mockClient.Invocations
         .Count(i => i.Method.Name == "Send" && i.Arguments[0] is string s && s.StartsWith(prefix));
 

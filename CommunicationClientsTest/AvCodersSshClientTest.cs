@@ -1,4 +1,6 @@
+using System.Collections;
 using System.Collections.Concurrent;
+using System.Reflection;
 
 namespace AVCoders.CommunicationClients.Tests;
 
@@ -43,6 +45,30 @@ public class AvCodersSshClientTest : IDisposable
         Assert.Equal(0, requests);
         Assert.Equal(0, TestNetwork.SendQueueCount(_client));
         Assert.Equal(ConnectionState.Disconnected, _client.ConnectionState);
+    }
+
+    [Fact]
+    public void Send_WhileOffline_QueuesWithTheSendersTriggerIdAndRaisesNoTx()
+    {
+        var requests = 0;
+        _client.RequestHandlers += _ => Interlocked.Increment(ref requests);
+        _client.RequestByteHandlers += _ => Interlocked.Increment(ref requests);
+
+        var triggerId = Trigger.Start();
+        _client.Send("queued text");
+        _client.Send("queued bytes"u8.ToArray());
+
+        Assert.Equal(0, requests);
+        Assert.Equal(new List<string?> { triggerId, triggerId }, QueuedTriggerIds());
+    }
+
+    private List<string?> QueuedTriggerIds()
+    {
+        var queue = (IEnumerable)typeof(AvCodersSshClient)
+            .GetField("_sendQueue", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_client)!;
+        return queue.Cast<object>()
+            .Select(item => (string?)item.GetType().GetProperty("TriggerId")!.GetValue(item))
+            .ToList();
     }
 
     [Fact]

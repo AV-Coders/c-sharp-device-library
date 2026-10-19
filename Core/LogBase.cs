@@ -36,7 +36,8 @@ public abstract class LogBase
     private readonly ILogger _logger;
     private string _name;
     public const string MethodProperty = "Method";
-    public const string TriggerProperty = "Trigger";
+    public const string ActorProperty = "Actor";
+    public const string TriggerIdProperty = "TriggerId";
     public readonly string InstanceUid = Guid.NewGuid().ToString();
     private readonly Dictionary<string, string> _logProperties = new ();
     public StringHandler? NameChangedHandlers;
@@ -145,7 +146,7 @@ public abstract class LogBase
     /// </summary>
     protected IDisposable PushProperties([CallerMemberName] string? methodName = null)
     {
-        var scope = new Dictionary<string, object>(_logProperties.Count + 4);
+        var scope = new Dictionary<string, object>(_logProperties.Count + 6);
         foreach (var property in _logProperties)
             scope[property.Key] = property.Value;
 
@@ -155,6 +156,10 @@ public abstract class LogBase
             scope["InstanceName"] = Name;
         if (methodName != null)
             scope[MethodProperty] = methodName;
+        if (Actor.Current is { } actor)
+            scope[ActorProperty] = actor.ToString();
+        if (Trigger.Id is { } triggerId)
+            scope[TriggerIdProperty] = triggerId;
 
         var logScope = _logger.BeginScope(scope) ?? NullScope.Instance;
 
@@ -196,6 +201,10 @@ public abstract class LogBase
         };
         if (Name != string.Empty)
             context["InstanceName"] = Name;
+        if (Actor.Current is { } actor)
+            context[ActorProperty] = actor.ToString();
+        if (Trigger.Id is { } triggerId)
+            context[TriggerIdProperty] = triggerId;
         return context;
     }
 

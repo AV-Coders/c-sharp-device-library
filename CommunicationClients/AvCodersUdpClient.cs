@@ -8,20 +8,17 @@ namespace AVCoders.CommunicationClients;
 
 public class AvCodersUdpClient : Core_UdpClient
 {
+    private static readonly TimeSpan SocketRetryInterval = TimeSpan.FromSeconds(5);
     private UdpClient? _client;
-    private IPEndPoint? _ipEndPoint;
-    private readonly ConcurrentQueue<QueuedPayload<byte[]>> _sendQueue = new();
+    private readonly ConcurrentQueue<QueuedPayload<(byte[] Bytes, string? Message)>> _sendQueue = new();
 
-    public AvCodersUdpClient(string ipAddress, ushort port, string name, CommandStringFormat commandStringFormat) : 
+    public AvCodersUdpClient(string ipAddress, ushort port, string name, CommandStringFormat commandStringFormat) :
         base(ipAddress, port, name, commandStringFormat)
     {
         _client = CreateClient();
-        
-        if (IPAddress.TryParse(Host, out var remoteIpAddress))
-            _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
-        
-        // This works around a race condition coming from base being called first.
+        ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
+        SendQueueWorker.Restart();
     }
 
     private UdpClient? CreateClient()
@@ -32,16 +29,20 @@ public class AvCodersUdpClient : Core_UdpClient
             {
                 ConnectionState = ConnectionState.Connecting;
                 var client = new UdpClient(Host, Port);
-                if (IPAddress.TryParse(Host, out var remoteIpAddress))
-                    _ipEndPoint = new IPEndPoint(remoteIpAddress, Port);
-                ReceiveThreadWorker.Restart();
-                ConnectionStateWorker.Restart();
+                if (DesiredConnectionState == ConnectionState.Disconnected)
+                {
+                    LogDebug("Discarding the new socket, the client was disconnected on request");
+                    client.Close();
+                    ConnectionState = ConnectionState.Disconnected;
+                    return null;
+                }
                 ConnectionState = ConnectionState.Connected;
                 return client;
             }
             catch (Exception e)
             {
                 LogException(e);
+                ReportConnectionFailure(DescribeConnectionError(e));
                 ConnectionState = ConnectionState.Disconnected;
             }
         }
@@ -52,26 +53,17 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         using (PushProperties("Receive"))
         {
-            if (_ipEndPoint == null)
-            {
-                LogDebug("Client disconnected, aborting receive");
-                await ReceiveThreadWorker.Stop();
-                return;
-            }
-
+            var client = _client;
             try
             {
-                // Available throws ObjectDisposedException on a closed client, so it must stay
-                // inside the try - anything escaping here permanently kills the receive worker.
-                if (_client is not { Available: > 0 })
+                if (client is not { Available: > 0 })
                 {
                     await Task.Delay(1100, token);
                     return;
                 }
 
-                var received = _client.Receive(ref _ipEndPoint);
-                // Ascii clients get the decoded text (matching the TCP client);
-                // Hex clients keep the \xNN dump for binary protocols.
+                IPEndPoint? sender = null;
+                var received = client.Receive(ref sender);
                 var response = CommandStringFormat == CommandStringFormat.Ascii
                     ? Encoding.ASCII.GetString(received)
                     : ConvertByteArrayToString(received);
@@ -84,7 +76,8 @@ public class AvCodersUdpClient : Core_UdpClient
             catch (Exception e)
             {
                 LogException(e);
-                Reconnect();
+                if (client == _client)
+                    Reconnect();
             }
         }
     }
@@ -93,34 +86,40 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         if (_client == null)
         {
-            LogDebug("Messages in send queue will not be sent while client is not connected");
             await Task.Delay(500, token);
         }
         else
         {
             while (_sendQueue.TryDequeue(out var item))
             {
-                var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
-                if (Math.Abs(age) >= QueueTimeout)
+                using (Trigger.Resume(item.TriggerId))
                 {
-                    using (PushProperties("ProcessSendQueue"))
-                        LogWarning(
-                            "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
-                            age, QueueTimeout);
-                    continue;
-                }
-                try
-                {
-                    await _client.SendAsync(item.Payload, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception e)
-                {
-                    using (PushProperties("ProcessSendQueue"))
-                        LogException(e, "Failed to send a queued message, dropping it");
+                    var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+                    if (Math.Abs(age) >= QueueTimeout)
+                    {
+                        using (PushProperties("ProcessSendQueue"))
+                            LogWarning(
+                                "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
+                                age, QueueTimeout);
+                        continue;
+                    }
+                    try
+                    {
+                        await _client.SendAsync(item.Payload.Bytes, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        using (PushProperties("ProcessSendQueue"))
+                            LogException(e, "Failed to send a queued message, dropping it");
+                        continue;
+                    }
+                    InvokeRequestHandlers(item.Payload.Bytes);
+                    if (item.Payload.Message != null)
+                        InvokeRequestHandlers(item.Payload.Message);
                 }
             }
             await Task.Delay(1100, token);
@@ -131,12 +130,9 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         using (PushProperties("CheckConnectionState"))
         {
+            await Task.Delay(SocketRetryInterval, token);
             if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
-            {
-                _client?.Close();
                 _client = CreateClient();
-            }
-            await Task.Delay(TimeSpan.FromSeconds(30), token);
         }
     }
 
@@ -146,6 +142,9 @@ public class AvCodersUdpClient : Core_UdpClient
         AddEvent(EventType.Connection, "Connect requested");
         _sendQueue.Clear();
         Reconnect();
+        ConnectionStateWorker.Restart();
+        ReceiveThreadWorker.Restart();
+        SendQueueWorker.Restart();
     }
 
     public override void Reconnect()
@@ -157,7 +156,9 @@ public class AvCodersUdpClient : Core_UdpClient
             return;
         }
         ConnectionState = ConnectionState.Disconnecting;
-        _client?.Close();
+        var oldClient = _client;
+        _client = null;
+        oldClient?.Close();
         ConnectionState = ConnectionState.Disconnected;
         _client = CreateClient();
     }
@@ -168,16 +169,20 @@ public class AvCodersUdpClient : Core_UdpClient
         AddEvent(EventType.Connection, "Disconnect requested");
         ReceiveThreadWorker.Stop();
         ConnectionStateWorker.Stop();
+        SendQueueWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
         _client?.Close();
         _client = null;
-        _ipEndPoint = null;
         _sendQueue.Clear();
         ClearConnectionFailures();
         ConnectionState = ConnectionState.Disconnected;
     }
 
-    public override void Send(byte[] bytes)
+    public override void Send(byte[] bytes) => Send(bytes, null);
+
+    public override void Send(string message) => Send(Bytes.FromString(message), message);
+
+    private void Send(byte[] bytes, string? message)
     {
         using (PushProperties("Send"))
         {
@@ -189,42 +194,33 @@ public class AvCodersUdpClient : Core_UdpClient
 
             try
             {
-                if (_client == null)
+                if (_client == null || !_sendQueue.IsEmpty)
                 {
-                    EnqueueWithCap(bytes);
+                    EnqueueWithCap(bytes, message);
                     return;
                 }
 
                 _client.Send(bytes, bytes.Length);
-                InvokeRequestHandlers(bytes);
             }
             catch (Exception e)
             {
                 LogException(e);
+                return;
             }
+            InvokeRequestHandlers(bytes);
+            if (message != null)
+                InvokeRequestHandlers(message);
         }
     }
 
-    private void EnqueueWithCap(byte[] bytes)
+    private void EnqueueWithCap(byte[] bytes, string? message)
     {
-        if (_sendQueue.Count >= MaxQueueSize)
+        if (_sendQueue.Count >= MaxQueueSize && _sendQueue.TryDequeue(out var dropped))
         {
-            _sendQueue.TryDequeue(out _);
+            using (Trigger.Resume(dropped.TriggerId))
             using (PushProperties("EnqueueWithCap"))
                 LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
         }
-        _sendQueue.Enqueue(new QueuedPayload<byte[]>(DateTimeOffset.UtcNow, bytes));
-    }
-
-    public override void Send(string message)
-    {
-        if (DesiredConnectionState == ConnectionState.Disconnected)
-        {
-            using (PushProperties("Send"))
-                LogDebug("Not sending, the client was disconnected on request");
-            return;
-        }
-        Send(Bytes.FromString(message));
-        InvokeRequestHandlers(message);
+        _sendQueue.Enqueue(new QueuedPayload<(byte[] Bytes, string? Message)>(DateTimeOffset.UtcNow, (bytes, message), Trigger.Id));
     }
 }

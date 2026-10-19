@@ -67,7 +67,7 @@ public class TybaTurn2 : LogBase
         _streamConnected = true;
         try
         {
-            using HttpClient httpClient = new HttpClient();
+            using HttpClient httpClient = new HttpClient(new SocketsHttpHandler { ActivityHeadersPropagator = null });
             foreach (var (key, value) in _headers)
             {
                 httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
@@ -85,7 +85,8 @@ public class TybaTurn2 : LogBase
                 var line = await streamReader.ReadLineAsync();
                 if (!string.IsNullOrEmpty(line))
                 {
-                    ProcessLine(line);
+                    using (Trigger.Begin())
+                        ProcessLine(line);
                 }
             }
         }
@@ -234,7 +235,7 @@ public class TybaTurn2 : LogBase
         try
         {
             LogVerbose("Sending payload {Payload} to URI {ChannelUriAbsoluteUri}", payload, channelUri.AbsoluteUri);
-            using HttpClient httpClient = new HttpClient();
+            using HttpClient httpClient = new HttpClient(new SocketsHttpHandler { ActivityHeadersPropagator = null });
             foreach (var (key, v) in _headers)
             {
                 httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, v);

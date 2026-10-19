@@ -56,14 +56,15 @@ public class VitecServer : LogBase
 
     private Task PollChannels(CancellationToken token) => Get(_getChannelsUri);
 
-    private bool ValidateCertificate(HttpRequestMessage arg1, X509Certificate2? arg2, X509Chain? arg3,
+    private bool ValidateCertificate(object arg1, X509Certificate? arg2, X509Chain? arg3,
         SslPolicyErrors arg4) => true;
 
     private async Task Post(Uri uri, string content)
     {
-        using HttpClientHandler handler = new();
-        handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
-        
+        using SocketsHttpHandler handler = new();
+        handler.SslOptions.RemoteCertificateValidationCallback = ValidateCertificate;
+        handler.ActivityHeadersPropagator = null;
+
         // Use HttpClient - HttpWebRequest seems to break after three requests.
         using HttpClient httpClient = new HttpClient(handler);
         try
@@ -78,9 +79,10 @@ public class VitecServer : LogBase
 
     private async Task Get(Uri uri)
     {
-        using HttpClientHandler handler = new();
-        handler.ServerCertificateCustomValidationCallback = ValidateCertificate;
-        
+        using SocketsHttpHandler handler = new();
+        handler.SslOptions.RemoteCertificateValidationCallback = ValidateCertificate;
+        handler.ActivityHeadersPropagator = null;
+
         // Use HttpClient - HttpWebRequest seems to break after three requests.
         using HttpClient httpClient = new HttpClient(handler);
         try
