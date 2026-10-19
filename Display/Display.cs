@@ -45,6 +45,7 @@ public abstract class Display : VolumeControl, IDevice
         CommandStringFormat = commandStringFormat;
         CommunicationClient.ConnectionStateHandlers += x => AddEvent(EventType.Connection, x.ToString());
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
+        CommunicationClient.ConnectionStateHandlers += HandleRequestedDisconnect;
         CommunicationState = CommunicationState.NotAttempted;
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         new Thread(_ =>
@@ -55,6 +56,13 @@ public abstract class Display : VolumeControl, IDevice
     }
 
     protected abstract void HandleConnectionState(ConnectionState connectionState);
+
+    private void HandleRequestedDisconnect(ConnectionState connectionState)
+    {
+        if (CommunicationClient.DesiredConnectionState != ConnectionState.Disconnected)
+            return;
+        CommunicationState = CommunicationState.NotAttempted;
+    }
 
     protected virtual void RestartPolling() => PollWorker.Restart();
 
@@ -141,7 +149,7 @@ public abstract class Display : VolumeControl, IDevice
             AddEvent(EventType.DriverState,  value.ToString());
             if (value == CommunicationState.Error)
                 RaiseOngoingIssue(CommunicationIssueKey, "Device communication error", IssueSeverity.Critical);
-            else if (value == CommunicationState.Okay)
+            else if (value is CommunicationState.Okay or CommunicationState.NotAttempted)
                 ResolveIssue(CommunicationIssueKey);
             CommunicationStateHandlers?.Invoke(value);
             OnCommunicationStateChanged?.Invoke(value);

@@ -6,8 +6,8 @@ namespace AVCoders.Display.Tests;
 
 public class DummyDisplay : Display
 {
-    private readonly TcpClient _client;
-    public DummyDisplay(TcpClient client, List<Input> supportedInputs) 
+    private readonly CommunicationClient _client;
+    public DummyDisplay(CommunicationClient client, List<Input> supportedInputs) 
         : base(supportedInputs, "dummy", Input.Hdmi1, client, CommandStringFormat.Unknown) { _client = client; }
     protected override Task DoPoll(CancellationToken token) => PollWorker.Stop();
 
@@ -41,6 +41,8 @@ public class DummyDisplay : Display
         Input = Input.Hdmi1;
         ProcessInputResponse();
     }
+
+    public void CommunicationErrorResponse() => CommunicationState = CommunicationState.Error;
 }
 
 public class DisplayTest
@@ -51,6 +53,46 @@ public class DisplayTest
     public DisplayTest()
     {
         _display = new DummyDisplay(_mockClient.Object, [Input.Hdmi1]);
+    }
+
+    private class TestClient() : CommunicationClient("Test", "10.0.0.1", 4999, CommandStringFormat.Ascii)
+    {
+        public override void Send(string message) { }
+
+        public override void Send(byte[] bytes) { }
+
+        public void Drop() => ConnectionState = ConnectionState.Disconnected;
+
+        public void Disconnect()
+        {
+            DesiredConnectionState = ConnectionState.Disconnected;
+            ConnectionState = ConnectionState.Disconnected;
+        }
+    }
+
+    [Fact]
+    public void RequestedDisconnect_SetsNotAttempted_AndResolvesTheCommunicationIssue()
+    {
+        var client = new TestClient();
+        var display = new DummyDisplay(client, [Input.Hdmi1]);
+        display.CommunicationErrorResponse();
+
+        client.Disconnect();
+
+        Assert.Equal(CommunicationState.NotAttempted, display.CommunicationState);
+        Assert.Empty(display.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void DroppedConnection_LeavesTheCommunicationStateAlone()
+    {
+        var client = new TestClient();
+        var display = new DummyDisplay(client, [Input.Hdmi1]);
+        display.CommunicationErrorResponse();
+
+        client.Drop();
+
+        Assert.Equal(CommunicationState.Error, display.CommunicationState);
     }
 
     [Fact]

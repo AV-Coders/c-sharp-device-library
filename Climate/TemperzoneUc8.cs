@@ -337,6 +337,7 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         CommunicationClient.ConnectionStateHandlers -= HandleConnectionState;
+        CommunicationClient.ConnectionStateHandlers -= HandleRequestedDisconnect;
         await _pollWorker.Stop();
         ushort mask;
         lock (_controlLock)

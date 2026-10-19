@@ -237,6 +237,7 @@ public partial class ExtronSw : VideoMatrix, IDisposable
         _disposed = true;
         CommunicationClient.ResponseHandlers -= HandleResponse;
         CommunicationClient.ConnectionStateHandlers -= HandleConnectionState;
+        CommunicationClient.ConnectionStateHandlers -= HandleRequestedDisconnect;
         // Stop awaits the worker internally. Run it off the caller's UI context so its
         // continuations can complete even while synchronous Dispose waits for them.
         Task.Run(_pollWorker.Stop).GetAwaiter().GetResult();

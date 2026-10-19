@@ -482,6 +482,32 @@ public class QsysEcpTest
     }
 
     [Fact]
+    public void ClientDisconnectedOnRequest_ReportsNotAttempted_AndKeepsTheBadControlIssue()
+    {
+        var client = new TestTcpClient();
+        var dsp = new QsysEcp(client, "Test");
+        client.ResponseHandlers?.Invoke("bad_id \"Zone33BGMMute\"");
+
+        client.Disconnect();
+
+        Assert.Equal(CommunicationState.NotAttempted, dsp.CommunicationState);
+        var issue = Assert.Single(dsp.GetOngoingIssues());
+        Assert.Equal("bad-control:Zone33BGMMute", issue.Key);
+    }
+
+    [Fact]
+    public void ClientDropped_ReportsAnError()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new QsysEcp(client, "Test");
+
+        client.SetConnectionState(ConnectionState.Disconnected);
+
+        Assert.Equal(CommunicationState.Error, dsp.CommunicationState);
+    }
+
+    [Fact]
     public void QsysMuteOnlyControl_SupportsMuteButNotLevel()
     {
         var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, _dsp);

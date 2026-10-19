@@ -245,7 +245,9 @@ public class QsysEcp : Dsp
             }
             else
             {
-                CommunicationState = CommunicationState.Error;
+                CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
+                    ? CommunicationState.NotAttempted
+                    : CommunicationState.Error;
             }
         }
     }

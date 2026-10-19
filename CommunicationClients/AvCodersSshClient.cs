@@ -117,10 +117,11 @@ public class AvCodersSshClient : SshClientBase
                     await CreateStream(token);
                     ConnectionState = ConnectionState.Connected;
                 }
-                catch (OperationCanceledException e) when (token.IsCancellationRequested)
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
-                    // Shutting down - not a connection failure.
-                    LogException(e);
+                    LogDebug("The connection attempt was cancelled, the connection worker was stopped");
+                    if (_client.IsConnected)
+                        _client.Disconnect();
                     ConnectionState = ConnectionState.Disconnected;
                 }
                 catch (Exception e)
@@ -260,6 +261,12 @@ public class AvCodersSshClient : SshClientBase
     {
         using (PushProperties("Send"))
         {
+            if (DesiredConnectionState == ConnectionState.Disconnected)
+            {
+                LogDebug("Not sending, the client was disconnected on request");
+                return;
+            }
+
             if (_client.IsConnected && _stream is {CanWrite: true})
             {
                 try
@@ -285,6 +292,12 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Send(byte[] bytes)
     {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+        {
+            using (PushProperties("Send"))
+                LogDebug("Not sending, the client was disconnected on request");
+            return;
+        }
         var message = System.Text.Encoding.UTF8.GetString(bytes);
         Send(message);
         InvokeRequestHandlers(bytes);
@@ -301,10 +314,25 @@ public class AvCodersSshClient : SshClientBase
         _sendQueue.Enqueue(new QueuedPayload<string>(DateTimeOffset.UtcNow, message));
     }
 
-    public override void Connect() => ConnectionStateWorker.Restart();
+    public override void Connect()
+    {
+        DesiredConnectionState = ConnectionState.Connected;
+        AddEvent(EventType.Connection, "Connect requested");
+        _sendQueue.Clear();
+        _consecutiveShortSessions = 0;
+        ConnectionStateWorker.Restart();
+        ReceiveThreadWorker.Restart();
+        SendQueueWorker.Restart();
+    }
 
     public override void Reconnect()
     {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+        {
+            using (PushProperties("Reconnect"))
+                LogDebug("Not reconnecting, the client was disconnected on request");
+            return;
+        }
         try
         {
             ConnectionState = ConnectionState.Disconnecting;
@@ -338,16 +366,26 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Disconnect()
     {
+        DesiredConnectionState = ConnectionState.Disconnected;
+        AddEvent(EventType.Connection, "Disconnect requested");
         ConnectionStateWorker.Stop();
+        ReceiveThreadWorker.Stop();
+        SendQueueWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
         _sessionStartedAt = null;
 
         var stream = _stream;
         _stream = null;
-        stream?.Dispose();
-        
+        if (stream != null)
+        {
+            stream.ErrorOccurred -= ClientOnErrorOccurred;
+            stream.Dispose();
+        }
+
         if (_client.IsConnected)
             _client.Disconnect();
+        _sendQueue.Clear();
+        ClearConnectionFailures();
         ConnectionState = ConnectionState.Disconnected;
     }
 }

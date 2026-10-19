@@ -276,6 +276,18 @@ public class BiampTtpTest
         Assert.Contains("room_mic_level subscribe mute 5 AvCodersMute-room_mic_level-5\n", client.Sent);
     }
 
+    [Fact]
+    public void ClientDisconnectedOnRequest_ReportsNotAttempted()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+
+        client.Disconnect();
+
+        Assert.Equal(CommunicationState.NotAttempted, dsp.CommunicationState);
+    }
+
     private static bool IsSubscribe(string message) => message.Contains(" subscribe ");
 
     private static async Task WaitUntil(Func<bool> condition)

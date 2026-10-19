@@ -32,6 +32,8 @@ public abstract class CommunicationClient(string name, string host, ushort port,
 
     private ConnectionState _connectionState = ConnectionState.Unknown;
 
+    public ConnectionState DesiredConnectionState { get; protected set; } = ConnectionState.Unknown;
+
     public ConnectionState ConnectionState
     {
         get => _connectionState;
@@ -41,11 +43,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
                 return;
             _connectionState = value;
             if (value == ConnectionState.Connected)
-            {
-                lock (_connectionIssueLock)
-                    _connectionFailingSince = null;
-                ResolveIssue(ConnectionIssueKey);
-            }
+                ClearConnectionFailures();
             try
             {
                 ConnectionStateHandlers?.Invoke(value);
@@ -68,9 +66,12 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     /// <paramref name="reason"/> (see <see cref="DescribeConnectionError"/>). Once failures have
     /// persisted for <see cref="ConnectionIssueThreshold"/>, an ongoing issue is raised under the
     /// same key; it resolves automatically when <see cref="ConnectionState"/> becomes Connected.
+    /// Ignored while <see cref="DesiredConnectionState"/> is Disconnected.
     /// </summary>
     protected void ReportConnectionFailure(string reason)
     {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+            return;
         DateTimeOffset failingSince;
         lock (_connectionIssueLock)
         {
@@ -82,6 +83,13 @@ public abstract class CommunicationClient(string name, string host, ushort port,
             RaiseOngoingIssue(ConnectionIssueKey,
                 $"Unable to connect since {failingSince.ToLocalTime():HH:mm:ss}. {reason}",
                 IssueSeverity.Critical);
+    }
+
+    protected void ClearConnectionFailures()
+    {
+        lock (_connectionIssueLock)
+            _connectionFailingSince = null;
+        ResolveIssue(ConnectionIssueKey);
     }
 
     /// <summary>Turns a connection exception into a human-readable failure reason.</summary>

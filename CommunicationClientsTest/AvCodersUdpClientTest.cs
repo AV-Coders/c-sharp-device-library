@@ -121,12 +121,43 @@ public class AvCodersUdpClientTest : IDisposable
     }
 
     [Fact]
-    public void Send_AfterDisconnect_QueuesWithoutThrowing()
+    public void Send_AfterDisconnect_IsDroppedWithoutThrowing()
+    {
+        var client = CreateClient();
+        client.Disconnect();
+        var requests = 0;
+        client.RequestHandlers += _ => requests++;
+
+        var exception = Record.Exception(() => client.Send("dropped while down"));
+
+        Assert.Null(exception);
+        Assert.Equal(0, requests);
+        Assert.Equal(0, TestNetwork.SendQueueCount(client));
+    }
+
+    [Fact]
+    public void Reconnect_AfterDisconnect_StaysDisconnected()
     {
         var client = CreateClient();
         client.Disconnect();
 
-        var exception = Record.Exception(() => client.Send("queued while down"));
-        Assert.Null(exception);
+        client.Reconnect();
+
+        Assert.Equal(ConnectionState.Disconnected, client.ConnectionState);
+        Assert.Equal(ConnectionState.Disconnected, client.DesiredConnectionState);
+    }
+
+    [Fact]
+    public async Task Connect_AfterDisconnect_DeliversDatagramsAgain()
+    {
+        var client = CreateClient();
+        client.Disconnect();
+
+        client.Connect();
+        client.Send("after connect");
+
+        var result = await ReceiveAsync(10);
+        Assert.Equal("after connect", Encoding.ASCII.GetString(result.Buffer));
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
     }
 }

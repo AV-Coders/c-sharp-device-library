@@ -114,7 +114,9 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
             // Everything learnt from the codec is stale once the session drops; the login line that follows
             // a reconnect triggers Refresh, which repopulates it. The connectors themselves are kept.
             LogDebug("The codec connection is {ConnectionState}, forgetting the connector states", connectionState);
-            CommunicationState = CommunicationState.Error;
+            CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
+                ? CommunicationState.NotAttempted
+                : CommunicationState.Error;
             PowerState = PowerState.Unknown;
             List<CiscoRoomOsVideoConnector> connectors;
             lock (_lock)

@@ -41,8 +41,14 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
     {
         _transport = transport;
         _transport.ResponseByteHandlers += HandleResponse;
-        _transport.ConnectionStateHandlers += state => ConnectionState = state;
-        ConnectionState = transport.ConnectionState;
+        _transport.ConnectionStateHandlers += HandleTransportConnectionState;
+        HandleTransportConnectionState(transport.ConnectionState);
+    }
+
+    private void HandleTransportConnectionState(ConnectionState state)
+    {
+        DesiredConnectionState = _transport.DesiredConnectionState;
+        ConnectionState = state;
     }
 
     public override void Send(string message) => _transport.Send(message);

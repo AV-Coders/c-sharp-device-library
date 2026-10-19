@@ -12,7 +12,11 @@ internal class TestTcpClient() : TcpClient("host", TelnetPort, "Test", CommandSt
     public override void Send(byte[] bytes) { lock (_sentLock) _sent.Add(System.Text.Encoding.ASCII.GetString(bytes)); }
     public override void Connect() { }
     public override void Reconnect() { }
-    public override void Disconnect() { }
+    public override void Disconnect()
+    {
+        DesiredConnectionState = ConnectionState.Disconnected;
+        ConnectionState = ConnectionState.Disconnected;
+    }
     protected override Task ProcessSendQueue(CancellationToken token) => Task.CompletedTask;
     protected override Task CheckConnectionState(CancellationToken token) => Task.CompletedTask;
     protected override Task Receive(CancellationToken token) => Task.CompletedTask;

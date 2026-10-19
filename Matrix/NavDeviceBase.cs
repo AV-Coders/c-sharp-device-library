@@ -90,6 +90,8 @@ public abstract class NavDeviceBase : AVoIPEndpoint
 
     private async Task PrePoll(CancellationToken token)
     {
+        if (Navigator.SshClient.DesiredConnectionState == ConnectionState.Disconnected)
+            return;
         _unansweredRequests++;
         if (_deviceNumber == null)
             Send($"{EscapeHeader}DNUM\r");

@@ -1,5 +1,7 @@
+using System.Collections;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 
 namespace AVCoders.CommunicationClients.Tests;
 
@@ -46,5 +48,22 @@ public static class TestNetwork
         Assert.True(completed == readTask, $"Timed out after {timeoutSeconds}s waiting for TCP data");
         var bytesRead = await readTask;
         return System.Text.Encoding.ASCII.GetString(buffer, 0, bytesRead);
+    }
+
+    public static List<ThreadWorker> Workers(IpComms client)
+    {
+        var workers = new List<ThreadWorker>();
+        foreach (var name in new[] { "ReceiveThreadWorker", "ConnectionStateWorker", "SendQueueWorker" })
+        {
+            var field = typeof(IpComms).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
+            workers.Add((ThreadWorker)field.GetValue(client)!);
+        }
+        return workers;
+    }
+
+    public static int SendQueueCount(IpComms client)
+    {
+        var field = client.GetType().GetField("_sendQueue", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return ((ICollection)field.GetValue(client)!).Count;
     }
 }

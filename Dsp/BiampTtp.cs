@@ -113,7 +113,9 @@ public class BiampTtp : Dsp
                 PollWorker.Restart();
             }
             else
-                CommunicationState = CommunicationState.Unknown;
+                CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
+                    ? CommunicationState.NotAttempted
+                    : CommunicationState.Unknown;
         }
     }
 

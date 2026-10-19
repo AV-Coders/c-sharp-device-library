@@ -58,7 +58,7 @@ public abstract class DeviceBase : LogBase, IDevice
             AddEvent(EventType.DriverState, value.ToString());
             if (value == CommunicationState.Error)
                 RaiseOngoingIssue(CommunicationIssueKey, "Device communication error", IssueSeverity.Critical);
-            else if (value == CommunicationState.Okay)
+            else if (value is CommunicationState.Okay or CommunicationState.NotAttempted)
                 ResolveIssue(CommunicationIssueKey);
             CommunicationStateHandlers?.Invoke(CommunicationState);
             OnCommunicationStateChanged?.Invoke(CommunicationState);
@@ -68,6 +68,14 @@ public abstract class DeviceBase : LogBase, IDevice
     protected DeviceBase(string name, CommunicationClient client) : base(name)
     {
         CommunicationClient = client;
+        CommunicationClient.ConnectionStateHandlers += HandleRequestedDisconnect;
+    }
+
+    protected void HandleRequestedDisconnect(ConnectionState connectionState)
+    {
+        if (CommunicationClient.DesiredConnectionState != ConnectionState.Disconnected)
+            return;
+        CommunicationState = CommunicationState.NotAttempted;
     }
 
     protected void ProcessPowerState()

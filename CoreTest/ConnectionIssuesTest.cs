@@ -15,6 +15,15 @@ public class ConnectionIssuesTest
         public string Describe(Exception e) => DescribeConnectionError(e);
 
         public void SetConnectionState(ConnectionState state) => ConnectionState = state;
+
+        public void Connect() => DesiredConnectionState = ConnectionState.Connected;
+
+        public void Disconnect()
+        {
+            DesiredConnectionState = ConnectionState.Disconnected;
+            ClearConnectionFailures();
+            ConnectionState = ConnectionState.Disconnected;
+        }
     }
 
     private readonly TestCommunicationClient _client = new();
@@ -91,6 +100,50 @@ public class ConnectionIssuesTest
         _client.SetConnectionState(ConnectionState.Connected);
 
         Assert.Empty(_client.GetIssues());
+    }
+
+    [Fact]
+    public void DesiredConnectionState_DefaultsToUnknown()
+    {
+        Assert.Equal(ConnectionState.Unknown, _client.DesiredConnectionState);
+    }
+
+    [Fact]
+    public void Disconnect_ResolvesTheOngoingIssue()
+    {
+        _client.ConnectionIssueThreshold = TimeSpan.Zero;
+        _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
+
+        _client.Disconnect();
+
+        Assert.Empty(_client.GetOngoingIssues());
+        Assert.Contains(_client.GetIssues(),
+            i => i.Key == CommunicationClient.ConnectionIssueKey && i.Status == IssueStatus.Resolved);
+    }
+
+    [Fact]
+    public void ReportConnectionFailure_WhileDisconnectedOnRequest_IsIgnored()
+    {
+        _client.ConnectionIssueThreshold = TimeSpan.Zero;
+        _client.Disconnect();
+
+        _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
+
+        Assert.Empty(_client.GetIssues());
+    }
+
+    [Fact]
+    public void Connect_AfterDisconnect_RestartsTheFailureClock()
+    {
+        _client.ConnectionIssueThreshold = TimeSpan.FromMilliseconds(500);
+        _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
+        Thread.Sleep(TimeSpan.FromMilliseconds(600));
+
+        _client.Disconnect();
+        _client.Connect();
+        _client.ReportFailure("10.0.0.1:4999 refused the connection");
+
+        Assert.Empty(_client.GetOngoingIssues());
     }
 
     [Theory]

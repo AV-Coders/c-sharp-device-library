@@ -13,7 +13,8 @@ public class AvCodersTcpClient : Core_TcpClient
     private TcpClient? _client;
     private NetworkStream? _stream;
     private readonly ConcurrentQueue<QueuedPayload<byte[]>> _sendQueue = new();
-    private int _reconnectBackoffMs = 1000; // starts at 1 second
+    private const int InitialBackoffMs = 1000;
+    private int _reconnectBackoffMs = InitialBackoffMs;
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
@@ -115,6 +116,12 @@ public class AvCodersTcpClient : Core_TcpClient
 
                 var attempt = new TcpClient();
                 await attempt.ConnectAsync(Host, Port, cts.Token);
+                if (token.IsCancellationRequested)
+                {
+                    LogDebug("Discarding the new connection, the connection worker was stopped");
+                    attempt.Dispose();
+                    return;
+                }
 
                 var newStream = attempt.GetStream();
                 newStream.ReadTimeout = (int)ReadTimeout.TotalMilliseconds;
@@ -137,14 +144,13 @@ public class AvCodersTcpClient : Core_TcpClient
                 try { oldClient?.Close(); } catch { /* ignore */ }
                 try { oldClient?.Dispose(); } catch { /* ignore */ }
 
-                _reconnectBackoffMs = 1000; // reset backoff
+                _reconnectBackoffMs = InitialBackoffMs;
                 ConnectionState = ConnectionState.Connected;
                 ReceiveThreadWorker.Restart();
             }
-            catch (OperationCanceledException e) when (token.IsCancellationRequested)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                // Shutting down - not a connection failure.
-                LogException(e);
+                LogDebug("The connection attempt was cancelled, the connection worker was stopped");
                 ConnectionState = ConnectionState.Disconnected;
             }
             catch (Exception e)
@@ -208,6 +214,12 @@ public class AvCodersTcpClient : Core_TcpClient
                 Reconnect();
                 break;
             }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                using (PushProperties("ProcessSendQueue"))
+                    LogDebug("Stopped sending the queue, the send worker was stopped");
+                throw;
+            }
             catch (Exception e)
             {
                 LogException(e);
@@ -222,6 +234,12 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Send(string message)
     {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+        {
+            using (PushProperties("Send"))
+                LogDebug("Not sending, the client was disconnected on request");
+            return;
+        }
         Send(Bytes.FromString(message));
         InvokeRequestHandlers(message);
     }
@@ -230,6 +248,12 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         using (PushProperties("Send"))
         {
+            if (DesiredConnectionState == ConnectionState.Disconnected)
+            {
+                LogDebug("Not sending, the client was disconnected on request");
+                return;
+            }
+
             if (!IsConnected())
             {
                 EnqueueWithCap(bytes);
@@ -263,7 +287,10 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Connect()
     {
+        DesiredConnectionState = ConnectionState.Connected;
+        AddEvent(EventType.Connection, "Connect requested");
         _sendQueue.Clear();
+        _reconnectBackoffMs = InitialBackoffMs;
         ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
         SendQueueWorker.Restart();
@@ -271,6 +298,12 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Reconnect()
     {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+        {
+            using (PushProperties("Reconnect"))
+                LogDebug("Not reconnecting, the client was disconnected on request");
+            return;
+        }
         ConnectionState = ConnectionState.Disconnecting;
         DestroyClientSafely();
         ConnectionState = ConnectionState.Disconnected;
@@ -279,11 +312,15 @@ public class AvCodersTcpClient : Core_TcpClient
     
     public override void Disconnect()
     {
+        DesiredConnectionState = ConnectionState.Disconnected;
+        AddEvent(EventType.Connection, "Disconnect requested");
         ConnectionStateWorker.Stop();
         ReceiveThreadWorker.Stop();
         SendQueueWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
         DestroyClientSafely();
+        _sendQueue.Clear();
+        ClearConnectionFailures();
         ConnectionState = ConnectionState.Disconnected;
     }
 

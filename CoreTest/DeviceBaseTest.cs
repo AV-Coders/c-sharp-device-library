@@ -23,9 +23,66 @@ public class DeviceBaseTest
 
         public void InvokeProcessPowerState() => ProcessPowerState();
 
+        public void SetCommunicationState(CommunicationState state) => CommunicationState = state;
+
         public override void PowerOn() => PowerOnCalls++;
 
         public override void PowerOff() => PowerOffCalls++;
+    }
+
+    private class TestClient() : CommunicationClient("Test", "10.0.0.1", 4999, CommandStringFormat.Ascii)
+    {
+        public override void Send(string message) { }
+
+        public override void Send(byte[] bytes) { }
+
+        public void Drop() => ConnectionState = ConnectionState.Disconnected;
+
+        public void Disconnect()
+        {
+            DesiredConnectionState = ConnectionState.Disconnected;
+            ConnectionState = ConnectionState.Disconnected;
+        }
+    }
+
+    [Fact]
+    public void RequestedDisconnect_SetsNotAttempted_AndResolvesTheCommunicationIssue()
+    {
+        var client = new TestClient();
+        var device = new TestDevice("Test Device", client);
+        device.SetCommunicationState(CommunicationState.Error);
+
+        client.Disconnect();
+
+        Assert.Equal(CommunicationState.NotAttempted, device.CommunicationState);
+        Assert.Empty(device.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void RequestedDisconnect_LeavesOtherOngoingIssuesAlone()
+    {
+        var client = new TestClient();
+        var device = new TestDevice("Test Device", client);
+        device.SetDesired(PowerState.On);
+        device.SetActual(PowerState.Off);
+        device.InvokeProcessPowerState();
+
+        client.Disconnect();
+
+        Assert.Single(device.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void DroppedConnection_LeavesTheCommunicationStateAlone()
+    {
+        var client = new TestClient();
+        var device = new TestDevice("Test Device", client);
+        device.SetCommunicationState(CommunicationState.Error);
+
+        client.Drop();
+
+        Assert.Equal(CommunicationState.Error, device.CommunicationState);
+        Assert.Single(device.GetOngoingIssues());
     }
 
     [Fact]

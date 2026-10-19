@@ -20,6 +20,49 @@ public class NavEncoderTest
 
     }
 
+    private class TestSshClient() : SshClient("host", 22023, "Test", CommandStringFormat.Ascii)
+    {
+        private readonly object _sentLock = new();
+        private readonly List<string> _sent = [];
+        public List<string> Sent { get { lock (_sentLock) return [.._sent]; } }
+        public override void Send(string message) { lock (_sentLock) _sent.Add(message); }
+        public override void Send(byte[] bytes) { }
+        public override void Connect() { }
+        public override void Reconnect() { }
+        public override void Disconnect()
+        {
+            DesiredConnectionState = ConnectionState.Disconnected;
+            ConnectionState = ConnectionState.Disconnected;
+        }
+        protected override Task ProcessSendQueue(CancellationToken token) => Task.CompletedTask;
+        protected override Task CheckConnectionState(CancellationToken token) => Task.CompletedTask;
+        protected override Task Receive(CancellationToken token) => Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Poll_SendsTheDeviceQueriesThroughTheNavigator()
+    {
+        var sshClient = new TestSshClient();
+        _ = new NavEncoder("Encoder", "1.1.1.1", new Navigator("Nav", sshClient));
+
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        Assert.Contains($"{{1.1.1.1:{Navigator.EscapeHeader}DNUM\r}}\r", sshClient.Sent);
+    }
+
+    [Fact]
+    public async Task Poll_WhileTheNavigatorIsDisconnectedOnRequest_SendsNothing()
+    {
+        var sshClient = new TestSshClient();
+        var navigator = new Navigator("Nav", sshClient);
+        sshClient.Disconnect();
+
+        _ = new NavEncoder("Encoder", "1.1.1.1", navigator);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        Assert.Empty(sshClient.Sent);
+    }
+
     [Fact]
     public void ResponseHandler_ProcessesGeneralSystemInfo()
     {

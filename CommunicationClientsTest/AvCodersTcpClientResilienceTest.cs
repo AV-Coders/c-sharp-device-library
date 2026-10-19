@@ -189,12 +189,12 @@ public class AvCodersTcpClientResilienceTest : IDisposable
 
             _client.Disconnect();
             await TestNetwork.WaitUntilAsync(
-                () => Workers(_client).All(w => !w.IsRunning),
+                () => TestNetwork.Workers(_client).All(w => !w.IsRunning),
                 10, "not all workers stopped after Disconnect");
 
             _client.Connect();
             await TestNetwork.WaitUntilAsync(
-                () => Workers(_client).All(w => w.IsRunning),
+                () => TestNetwork.Workers(_client).All(w => w.IsRunning),
                 10, "not all workers restarted after Connect");
 
             using var secondConnection = await TestNetwork.AcceptAsync(listener, 30);
@@ -208,22 +208,103 @@ public class AvCodersTcpClientResilienceTest : IDisposable
         }
     }
 
-    private static List<ThreadWorker> Workers(AvCodersTcpClient client)
+    [Fact]
+    public async Task Disconnect_ResolvesTheConnectionIssue()
     {
-        var workers = new List<ThreadWorker>();
-        foreach (var name in new[] { "ReceiveThreadWorker", "ConnectionStateWorker", "SendQueueWorker" })
+        _client = new AvCodersTcpClient("127.0.0.1", TestNetwork.GetFreePort(), "IssueTestClient",
+            CommandStringFormat.Ascii);
+        _client.ConnectionIssueThreshold = TimeSpan.Zero;
+        await TestNetwork.WaitUntilAsync(
+            () => _client.GetOngoingIssues().Any(i => i.Key == CommunicationClient.ConnectionIssueKey),
+            30, "the refused connection never raised an ongoing issue");
+
+        _client.Disconnect();
+
+        Assert.Empty(_client.GetOngoingIssues());
+        Assert.Equal(ConnectionState.Disconnected, _client.DesiredConnectionState);
+    }
+
+    [Fact]
+    public async Task Disconnect_StaysDisconnected_ThroughReconnectAndSend()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "StayDownTestClient", CommandStringFormat.Ascii);
+
+        try
         {
-            for (var type = client.GetType(); type != null; type = type.BaseType)
-            {
-                var field = type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
-                if (field == null)
-                    continue;
-                workers.Add((ThreadWorker)field.GetValue(client)!);
-                break;
-            }
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            var errorsBeforeDisconnect = _client.Errors.Count;
+
+            _client.Disconnect();
+            _client.Reconnect();
+            _client.Send("dropped");
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            Assert.False(listener.Pending(), "the client reconnected after Disconnect");
+            Assert.Equal(ConnectionState.Disconnected, _client.ConnectionState);
+            Assert.All(TestNetwork.Workers(_client), w => Assert.False(w.IsRunning));
+            Assert.Equal(errorsBeforeDisconnect, _client.Errors.Count);
         }
-        Assert.Equal(3, workers.Count);
-        return workers;
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public void Send_WhileDisconnectedOnRequest_IsDroppedNotQueued()
+    {
+        _client = new AvCodersTcpClient("127.0.0.1", TestNetwork.GetFreePort(), "DropTestClient",
+            CommandStringFormat.Ascii);
+        _client.Disconnect();
+        var requests = 0;
+        _client.RequestHandlers += _ => requests++;
+        _client.RequestByteHandlers += _ => requests++;
+
+        _client.Send("dropped");
+        _client.Send("dropped"u8.ToArray());
+
+        Assert.Equal(0, requests);
+        Assert.Equal(0, TestNetwork.SendQueueCount(_client));
+    }
+
+    [Fact]
+    public async Task Connect_AfterDisconnect_ResumesAutoReconnect()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "ResumeTestClient", CommandStringFormat.Ascii);
+
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            _client.Disconnect();
+
+            _client.Connect();
+            var secondConnection = await TestNetwork.AcceptAsync(listener, 30);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected after Connect");
+            secondConnection.Close();
+
+            using var thirdConnection = await TestNetwork.AcceptAsync(listener, 30);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never reconnected after the server dropped it");
+        }
+        finally
+        {
+            listener.Stop();
+        }
     }
 
     /// <summary>

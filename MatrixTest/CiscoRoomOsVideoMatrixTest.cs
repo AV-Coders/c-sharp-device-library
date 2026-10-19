@@ -279,6 +279,31 @@ public class CiscoRoomOsVideoMatrixTest
         Assert.Equal("3840x2160@30", Input(2).InputResolution);
     }
 
+    private class TestClient() : CommunicationClient("Codec", "10.0.0.1", 22, CommandStringFormat.Ascii)
+    {
+        public override void Send(string message) { }
+
+        public override void Send(byte[] bytes) { }
+
+        public void Disconnect()
+        {
+            DesiredConnectionState = ConnectionState.Disconnected;
+            ConnectionState = ConnectionState.Disconnected;
+        }
+    }
+
+    [Fact]
+    public void ClientDisconnectedOnRequest_ReportsNotAttempted()
+    {
+        var client = new TestClient();
+        var matrix = new CiscoRoomOsVideoMatrix(client, "Requested Disconnect");
+
+        client.Disconnect();
+
+        Assert.Equal(CommunicationState.NotAttempted, matrix.CommunicationState);
+        Assert.Empty(matrix.GetOngoingIssues());
+    }
+
     [Theory]
     [InlineData(ConnectionState.Connected)]
     [InlineData(ConnectionState.Connecting)]

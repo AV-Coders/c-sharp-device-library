@@ -142,12 +142,20 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Connect()
     {
+        DesiredConnectionState = ConnectionState.Connected;
+        AddEvent(EventType.Connection, "Connect requested");
         _sendQueue.Clear();
         Reconnect();
     }
 
     public override void Reconnect()
     {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+        {
+            using (PushProperties("Reconnect"))
+                LogDebug("Not reconnecting, the client was disconnected on request");
+            return;
+        }
         ConnectionState = ConnectionState.Disconnecting;
         _client?.Close();
         ConnectionState = ConnectionState.Disconnected;
@@ -156,12 +164,16 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Disconnect()
     {
+        DesiredConnectionState = ConnectionState.Disconnected;
+        AddEvent(EventType.Connection, "Disconnect requested");
+        ReceiveThreadWorker.Stop();
+        ConnectionStateWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
         _client?.Close();
         _client = null;
         _ipEndPoint = null;
-        ReceiveThreadWorker.Stop();
-        ConnectionStateWorker.Stop();
+        _sendQueue.Clear();
+        ClearConnectionFailures();
         ConnectionState = ConnectionState.Disconnected;
     }
 
@@ -169,6 +181,12 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         using (PushProperties("Send"))
         {
+            if (DesiredConnectionState == ConnectionState.Disconnected)
+            {
+                LogDebug("Not sending, the client was disconnected on request");
+                return;
+            }
+
             try
             {
                 if (_client == null)
@@ -200,6 +218,12 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Send(string message)
     {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+        {
+            using (PushProperties("Send"))
+                LogDebug("Not sending, the client was disconnected on request");
+            return;
+        }
         Send(Bytes.FromString(message));
         InvokeRequestHandlers(message);
     }
