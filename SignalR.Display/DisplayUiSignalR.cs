@@ -16,14 +16,14 @@ public class DisplayUiSignalR : DeviceBase
         _hubContext = hubContext;
 
         DisplayHub.RegisterDisplayManager(Name, displayManager);
-        _displayManager.PowerStateHandlers += OnPowerStateChanged;
+        _displayManager.PowerStateHandlers += OnDisplayPowerStateChanged;
         _displayManager.OnInputChanged += OnInputChanged;
         _displayManager.OnSupportedInputsChanged += OnSupportedInputsChanged;
         _displayManager.OnVolumeChanged += OnVolumeChanged;
         _displayManager.OnAudioMuteChanged += OnAudioMuteChanged;
     }
 
-    private async void OnPowerStateChanged(PowerState state) =>
+    private async void OnDisplayPowerStateChanged(PowerState state) =>
         await _hubContext.Clients.Group(Name).OnPowerStateChanged(state);
 
     private async void OnSupportedInputsChanged(IReadOnlyList<Input> inputs) =>

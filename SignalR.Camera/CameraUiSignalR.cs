@@ -16,13 +16,13 @@ public class CameraUiSignalR : DeviceBase
         _hubContext = hubContext;
 
         CameraHub.RegisterCameraManager(Name, cameraManager);
-        _cameraManager.PowerStateHandlers += OnPowerStateChanged;
+        _cameraManager.PowerStateHandlers += OnCameraPowerStateChanged;
         _cameraManager.OnPresetRecalled += OnPresetRecalled;
         _cameraManager.OnPresetCleared += OnPresetCleared;
         _cameraManager.OnTrackingModeChanged += OnTrackingModeChanged;
     }
 
-    private async void OnPowerStateChanged(PowerState state) =>
+    private async void OnCameraPowerStateChanged(PowerState state) =>
         await _hubContext.Clients.Group(Name).OnPowerStateChanged(state);
 
     private async void OnPresetRecalled(int index) =>
