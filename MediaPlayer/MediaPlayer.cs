@@ -9,7 +9,6 @@ public abstract class MediaPlayer : DeviceBase
     protected int Volume = 0;
     protected MuteState AudioMute = MuteState.Unknown;
     protected MuteState VideoMute = MuteState.Unknown;
-    protected TransportState DesiredTransportState;
     private MediaState _mediaState = MediaState.Unknown;
     private TransportState _transportState = TransportState.Unknown;
 
@@ -17,6 +16,8 @@ public abstract class MediaPlayer : DeviceBase
         : base(name, comms)
     {
     }
+
+    public TransportState DesiredTransportState { get; protected set; } = TransportState.Unknown;
 
     public MediaState MediaState
     {
