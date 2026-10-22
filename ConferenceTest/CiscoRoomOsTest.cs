@@ -15,7 +15,28 @@ public class CiscoRoomOsTest
     private readonly Mock<MuteStateHandler> _microphoneMuteStateHandler = new ();
     private readonly Mock<CallStatusHandler> _callStatusHandler = new ();
     private readonly Mock<ActiveCallHandler> _activeCallHandler = new ();
-    
+    private const int RegisteredCallStatusPaths = 5;
+    private readonly List<string> _callDisconnectEvent = new()
+    {
+        "*e CallDisconnect CauseValue: 1",
+        "*e CallDisconnect CauseType: \"LocalDisconnect\"",
+        "*e CallDisconnect CauseString: \"\"",
+        "*e CallDisconnect OrigCallDirection: \"outgoing\"",
+        "*e CallDisconnect RemoteURI: \"sip:+61300000000@example.com\"",
+        "*e CallDisconnect DisplayName: \"Test Call\"",
+        "*e CallDisconnect CallId: 139",
+        "*e CallDisconnect CauseCode: 0",
+        "*e CallDisconnect CauseOrigin: Internal",
+        "*e CallDisconnect Protocol: Sip",
+        "*e CallDisconnect Duration: 7",
+        "*e CallDisconnect CallType: Video",
+        "*e CallDisconnect CallRate: 6000",
+        "*e CallDisconnect Encryption: \"Auto\"",
+        "*e CallDisconnect RequestedURI: \"SIP:+61300000000@example.com\"",
+        "*e CallDisconnect PeopleCountAverage: -1",
+        "** end"
+    };
+
     private readonly CiscoRoomOs _codec;
 
     public CiscoRoomOsTest()
@@ -37,6 +58,7 @@ public class CiscoRoomOsTest
         new List<string> {
             "xFeedback register /Status/Standby",
             "xFeedback register /Status/Call",
+            "xFeedback register /Event/CallDisconnect",
             "xFeedback Register Configuration/Conference/AutoAnswer/Mode",
             "xStatus Standby",
             "xStatus Call",
@@ -444,6 +466,170 @@ public class CiscoRoomOsTest
 
         Assert.Empty(_codec.GetActiveCalls());
         Assert.Equal(CallStatus.Idle, _codec.CallStatus);
+    }
+
+    private static List<string> GhostLines(int callId) => Enumerable.Range(0, RegisteredCallStatusPaths)
+        .SelectMany(_ => new List<string> { $"*s Call {callId} (ghost=True):", "** end" })
+        .ToList();
+
+    private void Receive(List<string> lines, string lineEnding) =>
+        lines.ForEach(line => _mockClient.Object.ResponseHandlers!.Invoke(line + lineEnding));
+
+    private void ClearCallHandlerInvocations()
+    {
+        _callStatusHandler.Invocations.Clear();
+        _activeCallHandler.Invocations.Clear();
+    }
+
+    private void VerifyCallEndedOnce()
+    {
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle), Times.Once);
+        _callStatusHandler.VerifyNoOtherCalls();
+        _activeCallHandler.Verify(x => x.Invoke(It.Is<List<Call>>(calls => calls.Count == 0)), Times.Once);
+        _activeCallHandler.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallResponses_HandleGhostsWithoutIdle(string lineEnding)
+    {
+        Receive(new List<string> { "*s Call 102 Status: Connected", "** end" }, lineEnding);
+        Receive(GhostLines(102), lineEnding);
+
+        Assert.Empty(_codec.GetActiveCalls());
+        Assert.Equal(CallStatus.Idle, _codec.CallStatus);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connected), Times.Once);
+        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallResponses_RepeatedGhosts_EndTheCallOnce(string lineEnding)
+    {
+        Receive(new List<string> { "*s Call 102 Status: Connected", "** end" }, lineEnding);
+        ClearCallHandlerInvocations();
+
+        Receive(GhostLines(102), lineEnding);
+
+        VerifyCallEndedOnce();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallResponses_GhostsForAnUnknownCall_RaiseNothing(string lineEnding)
+    {
+        Receive(GhostLines(102), lineEnding);
+
+        _callStatusHandler.VerifyNoOtherCalls();
+        _activeCallHandler.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallResponses_SecondCallStaysConnected_WhenTheFirstGhosts(string lineEnding)
+    {
+        Receive(new List<string> { "*s Call 102 Status: Connected", "** end", "*s Call 103 Status: Connected", "** end" }, lineEnding);
+        ClearCallHandlerInvocations();
+
+        Receive(GhostLines(102), lineEnding);
+
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(103, _codec.FindCallId(_codec.GetActiveCalls()[0]));
+        Assert.Equal(CallStatus.Connected, _codec.CallStatus);
+        _callStatusHandler.VerifyNoOtherCalls();
+        _activeCallHandler.Verify(x => x.Invoke(It.Is<List<Call>>(calls => calls.Count == 1)), Times.Once);
+        _activeCallHandler.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallDisconnectEvent_EndsOnlyTheCallInCallId(string lineEnding)
+    {
+        Receive(new List<string> { "*s Call 139 Status: Connected", "** end", "*s Call 7 Status: Connected", "** end" }, lineEnding);
+
+        Receive(_callDisconnectEvent, lineEnding);
+
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(7, _codec.FindCallId(_codec.GetActiveCalls()[0]));
+        Assert.Equal(CallStatus.Connected, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal(CallStatus.Connected, _codec.CallStatus);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallDisconnectEvent_EndsTheCall_WithoutGhosts(string lineEnding)
+    {
+        Receive(new List<string> { "*s Call 139 Status: Connected", "** end" }, lineEnding);
+        ClearCallHandlerInvocations();
+
+        Receive(_callDisconnectEvent, lineEnding);
+
+        Assert.Empty(_codec.GetActiveCalls());
+        VerifyCallEndedOnce();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallResponses_GhostsThenCallDisconnectEvent_EndTheCallOnce(string lineEnding)
+    {
+        Receive(new List<string> { "*s Call 139 Status: Connected", "** end" }, lineEnding);
+        ClearCallHandlerInvocations();
+
+        Receive(GhostLines(139), lineEnding);
+        Receive(_callDisconnectEvent, lineEnding);
+
+        Assert.Empty(_codec.GetActiveCalls());
+        VerifyCallEndedOnce();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallResponses_CallDisconnectEventThenGhosts_EndTheCallOnce(string lineEnding)
+    {
+        Receive(new List<string> { "*s Call 139 Status: Connected", "** end" }, lineEnding);
+        ClearCallHandlerInvocations();
+
+        Receive(_callDisconnectEvent, lineEnding);
+        Receive(GhostLines(139), lineEnding);
+
+        Assert.Empty(_codec.GetActiveCalls());
+        VerifyCallEndedOnce();
+    }
+
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void CallResponses_MultiLineChunks_ParseEveryLine(string lineEnding)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(string.Concat(
+            new List<string> { "*s Call 139 Status: Connected", "** end", "*s Call 7 Status: Connected", "** end" }
+                .Select(line => line + lineEnding)));
+
+        Assert.Equal(2, _codec.GetActiveCalls().Count);
+        Assert.Equal(CallStatus.Connected, _codec.CallStatus);
+
+        _mockClient.Object.ResponseHandlers!.Invoke(string.Concat(
+            _callDisconnectEvent.Concat(GhostLines(139)).Select(line => line + lineEnding)));
+
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(7, _codec.FindCallId(_codec.GetActiveCalls()[0]));
+        Assert.Equal(CallStatus.Connected, _codec.CallStatus);
     }
 
 }

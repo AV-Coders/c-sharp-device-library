@@ -61,6 +61,7 @@ public enum PeripheralType
 
 public class CiscoRoomOs : Conference
   {
+    private static readonly char[] LineSeparators = ['\r', '\n'];
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
@@ -122,6 +123,7 @@ public class CiscoRoomOs : Conference
           SendCommand("xFeedback register /Status/Standby");
           SendCommand("xFeedback register /Status/Conference/DoNotDisturb");
           SendCommand("xFeedback register /Status/Call");
+          SendCommand("xFeedback register /Event/CallDisconnect");
           SendCommand("xFeedback register /Status/Audio/Volume");
           SendCommand("xFeedback Register Configuration/Conference/AutoAnswer/Mode");
           SendCommand("xStatus Standby");
@@ -218,9 +220,15 @@ public class CiscoRoomOs : Conference
 
     private void HandleResponse(string response)
     {
-      using (PushProperties("HandleResponse"))
+      foreach (var line in response.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries))
+        ProcessResponse(line);
+    }
+
+    private void ProcessResponse(string response)
+    {
+      using (PushProperties("ProcessResponse"))
       {
-        if (!response.Contains("*s") && !response.Contains("*r") && !response.Contains("*c"))
+        if (!response.Contains("*s") && !response.Contains("*r") && !response.Contains("*c") && !response.Contains("*e"))
           return;
 
         var responses = response.Split(' ');
@@ -244,9 +252,15 @@ public class CiscoRoomOs : Conference
               CallStatus = CallStatus.Idle;
               SendCommand("xStatus Call");
               return;
+            case "Call" when responses[3].Contains("(ghost=True)"):
+              EndCall(int.Parse(responses[2]));
+              return;
             case "Call":
               ProcessCallResponse(responses);
               RaiseActiveCallsChanged(GetActiveCalls());
+              return;
+            case "CallDisconnect" when responses[2] == "CallId:":
+              EndCall(int.Parse(responses[3]));
               return;
             case "Audio" when responses[2] == "Volume:":
               OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
@@ -279,7 +293,7 @@ public class CiscoRoomOs : Conference
         }
         catch (Exception e)
         {
-          using (PushProperties("HandleResponse"))
+          using (PushProperties("ProcessResponse"))
           {
             LogException(e, $"An exception was thrown while processing the string {response}");
             throw;
@@ -329,11 +343,14 @@ public class CiscoRoomOs : Conference
       {
         ActiveCalls[callId].Number = responses[4].Trim().Trim('"');
       }
-      else if (responses[3].Contains("(ghost=True)"))
-      {
-        ActiveCalls.Remove(callId);
-        CallStatusFeedback();
-      }
+    }
+
+    private void EndCall(int callId)
+    {
+      if (!ActiveCalls.Remove(callId))
+        return;
+      CallStatusFeedback();
+      RaiseActiveCallsChanged(GetActiveCalls());
     }
 
     private void CallStatusFeedback()
