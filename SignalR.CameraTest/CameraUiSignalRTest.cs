@@ -103,12 +103,12 @@ public class CameraUiSignalRTest
     }
 
     [Fact]
-    public void Constructor_RegistersManagerWithHub()
+    public async Task Constructor_RegistersManagerWithHub()
     {
         // After construction, JoinGroup on the static hub should find this manager.
         // We exercise that by joining via a CameraHub instance with mocked clients/groups.
         var hub = CameraHubTestHarness.CreateHub();
-        hub.JoinGroup(_manager.Name).GetAwaiter().GetResult();
+        await hub.JoinGroup(_manager.Name);
 
         hub.GroupsMock.Verify(g => g.AddToGroupAsync(
             It.IsAny<string>(), _manager.Name, It.IsAny<CancellationToken>()), Times.Once);

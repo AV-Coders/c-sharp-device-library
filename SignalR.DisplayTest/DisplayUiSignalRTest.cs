@@ -73,10 +73,10 @@ public class DisplayUiSignalRTest
     }
 
     [Fact]
-    public void Constructor_RegistersManagerWithHub()
+    public async Task Constructor_RegistersManagerWithHub()
     {
         var hub = DisplayHubTestHarness.CreateHub();
-        hub.JoinGroup(_manager.Name).GetAwaiter().GetResult();
+        await hub.JoinGroup(_manager.Name);
 
         hub.GroupsMock.Verify(g => g.AddToGroupAsync(
             It.IsAny<string>(), _manager.Name, It.IsAny<CancellationToken>()), Times.Once);

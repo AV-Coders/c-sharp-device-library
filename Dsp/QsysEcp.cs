@@ -101,12 +101,57 @@ public class QsysMuteOnlyControl : VolumeControl
 public class QsysEcp : Dsp
 {
     public static readonly ushort DefaultPort = 1702;
+    public const int DefaultPollIntervalInMilliseconds = 20000;
+    public const int MaxUnansweredStatusRequests = 3;
+    public const string BadControlIssuePrefix = "bad-control:";
+    public const string UnansweredStatusIssueKey = "unanswered-status";
+    public const string StatusParseIssueKey = "status-parse";
+    public const string CoreStandbyIssueKey = "core-standby";
+    public const string LoginIssueKey = "login";
+    public const string ChangeGroupsIssueKey = "change-groups";
+    public const string BadChangeGroupIssueKey = "bad-change-group";
+    public const string BadCommandIssueKey = "bad-command";
+    public const string ReadOnlyIssueKey = "read-only-control";
+    public const string ConnectionClosedIssueKey = "connection-closed";
+
+    private const int EscalateAfterRepeats = 3;
+    private const int ChangeGroupSetupStepMs = 500;
+    private const uint ChangeGroupPollPeriodMs = 100;
+    private const uint MeterPollPeriodMs = 1000;
+    private const string StatusRequest = "sg\n";
+    private const string StatusFlagSet = "1";
+    private const string StandbyCoreMessage = "Connected to the standby Core, commands are ignored";
+
+    private const string ControlValueReply = "cv";
+    private const string ControlVectorValueReply = "cvv";
+    private const string StatusReply = "sr";
+    private const string BadIdReply = "bad_id";
+    private const string BadCommandReply = "bad_command";
+    private const string BadChangeGroupReply = "bad_change_group_handle";
+    private const string TooManyChangeGroupsReply = "too_many_change_groups";
+    private const string ControlReadOnlyReply = "control_read_only";
+    private const string CoreReadOnlyReply = "core_read_only";
+    private const string CoreNotActiveReply = "core_not_active";
+    private const string LoginRequiredReply = "login_required";
+    private const string LoginFailedReply = "login_failed";
+    private const string LoginSuccessReply = "login_success";
+    private const string ConnectionClosedReply = "rc";
+
+    private const string DesignLabel = "Design";
+    private const string DesignIdLabel = "Design ID";
+    private const string CoreLabel = "Core";
+    private const string MissingControlsLabel = "Missing Controls";
+
+    private readonly TcpClient _tcpClient;
     private readonly Dictionary<string, QscGain> _gains = new();
     private readonly Dictionary<string, QscMute> _mutes = new();
     private readonly Dictionary<string, QscInt> _strings = new();
     private readonly Dictionary<string, QscGain> _meters = new();
+    private readonly HashSet<string> _missingControls = new();
     private readonly Regex _responseParser;
     private readonly Regex _badIdParser;
+    private readonly Regex _statusParser = new("^sr \"(?<design>[^\"]*)\" \"(?<id>[^\"]*)\" (?<primary>[01]) (?<active>[01])$",
+        RegexOptions.None, TimeSpan.FromMilliseconds(30));
 
     // There is a limit of 4 change groups.
     private const int ChangeGroupGains = 1;
@@ -116,12 +161,18 @@ public class QsysEcp : Dsp
 
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
 
-    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = 50000) : base(name, tcpClient, pollIntervalInMilliseconds)
+    private int _unansweredStatusRequests;
+    private string? _designId;
+    private bool _changeGroupsBuiltThisPoll;
+    private bool _changeGroupsRefused;
+
+    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = DefaultPollIntervalInMilliseconds) : base(name, tcpClient, pollIntervalInMilliseconds)
     {
+        _tcpClient = tcpClient;
         tcpClient.ResponseHandlers += HandleResponse;
         tcpClient.ConnectionStateHandlers += HandleConnectionState;
 
-        string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]+)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
+        string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]*)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
         _badIdParser = new Regex("bad_id\\s\"([^\"]+)\"", RegexOptions.None, TimeSpan.FromMilliseconds(30));
 
@@ -138,34 +189,157 @@ public class QsysEcp : Dsp
     {
         using (PushProperties())
         {
-            var lines = response.Split('\n');
-            foreach (string line in lines)
+            foreach (string received in response.Split('\n'))
             {
-                if (line.StartsWith("cv "))
-                {
-                    ProcessValueChange(line);
-                    CommunicationState = CommunicationState.Okay;
-                }
+                string line = received.TrimEnd('\r');
+                if (line.Length == 0)
+                    continue;
 
-                if (line.StartsWith("cvv "))
+                switch (line.Split(' ', 2)[0])
                 {
-                    ProcessMeterChange(line);
-                }
-                else if (line.StartsWith("sr"))
-                    CommunicationState = CommunicationState.Okay;
-                else if (line.Contains("bad_id"))
-                {
-                    CommunicationState = CommunicationState.Error;
-                    LogError("Invalid named control found: {Line}", line);
-                    var badId = _badIdParser.Match(line);
-                    if (badId.Success)
-                        RaiseOngoingIssue($"bad-control:{badId.Groups[1].Value}",
-                            $"Invalid named control: {badId.Groups[1].Value}");
-                    else
-                        RaiseMomentaryIssue($"Invalid named control found: {line}");
+                    case ControlValueReply:
+                        ProcessValueChange(line);
+                        CommunicationState = CommunicationState.Okay;
+                        break;
+                    case ControlVectorValueReply:
+                        ProcessMeterChange(line);
+                        break;
+                    case StatusReply:
+                        HandleStatus(line);
+                        break;
+                    case BadIdReply:
+                        HandleBadId(line);
+                        break;
+                    case BadCommandReply:
+                        RaiseMomentaryIssue($"The Core rejected a command as invalid: {line}",
+                            BadCommandIssueKey, IssueSeverity.Minor, EscalateAfterRepeats);
+                        break;
+                    case ControlReadOnlyReply:
+                    case CoreReadOnlyReply:
+                        RaiseMomentaryIssue($"The Core rejected a change to a read-only control: {line}",
+                            ReadOnlyIssueKey, IssueSeverity.Minor, EscalateAfterRepeats);
+                        break;
+                    case CoreNotActiveReply:
+                        RaiseOngoingIssue(CoreStandbyIssueKey, $"{StandbyCoreMessage}: {line}", IssueSeverity.Critical);
+                        break;
+                    case BadChangeGroupReply:
+                        HandleBadChangeGroup(line);
+                        break;
+                    case TooManyChangeGroupsReply:
+                        HandleTooManyChangeGroups(line);
+                        break;
+                    case LoginRequiredReply:
+                    case LoginFailedReply:
+                        HandleLoginRequired(line);
+                        break;
+                    case LoginSuccessReply:
+                        CommunicationState = CommunicationState.Okay;
+                        break;
+                    case ConnectionClosedReply:
+                        HandleConnectionClosed(line);
+                        break;
+                    default:
+                        LogWarning("Unrecognised reply: {Line}", line);
+                        break;
                 }
             }
         }
+    }
+
+    private void HandleStatus(string line)
+    {
+        Interlocked.Exchange(ref _unansweredStatusRequests, 0);
+        ResolveIssue(UnansweredStatusIssueKey);
+        ResolveIssue(BadCommandIssueKey);
+        ResolveIssue(LoginIssueKey);
+        if (!_changeGroupsRefused)
+            ResolveIssue(ChangeGroupsIssueKey);
+        CommunicationState = CommunicationState.Okay;
+
+        var status = _statusParser.Match(line);
+        if (!status.Success)
+        {
+            RaiseMomentaryIssue($"Unrecognised status reply: {line}", StatusParseIssueKey);
+            return;
+        }
+
+        UpdateCoreRole(line, status.Groups["primary"].Value == StatusFlagSet, status.Groups["active"].Value == StatusFlagSet);
+        UpdateDesign(status.Groups["design"].Value, status.Groups["id"].Value);
+    }
+
+    private void UpdateCoreRole(string line, bool isPrimary, bool isActive)
+    {
+        string role = isPrimary ? "Primary" : "Backup";
+        string activity = isActive ? "active" : "standby";
+        SetDetail(CoreLabel, $"{role}, {activity}", isActive ? DetailTone.Normal : DetailTone.Error);
+
+        if (isActive)
+            ResolveIssue(CoreStandbyIssueKey);
+        else
+            RaiseOngoingIssue(CoreStandbyIssueKey, $"{StandbyCoreMessage}: {line}", IssueSeverity.Critical);
+    }
+
+    private void UpdateDesign(string designName, string designId)
+    {
+        SetDetail(DesignLabel, designName);
+        SetDetail(DesignIdLabel, designId);
+
+        string? previousDesignId = _designId;
+        _designId = designId;
+        if (previousDesignId == null || previousDesignId == designId)
+            return;
+
+        AddEvent(EventType.Other, $"Design redeployed: {designName} ({designId})");
+        RebuildChangeGroups($"design redeployed as {designId}");
+    }
+
+    private void HandleBadId(string line)
+    {
+        var badId = _badIdParser.Match(line);
+        if (!badId.Success)
+        {
+            RaiseMomentaryIssue($"Invalid named control found: {line}");
+            return;
+        }
+
+        string controlName = badId.Groups[1].Value;
+        RaiseOngoingIssue($"{BadControlIssuePrefix}{controlName}", $"Invalid named control {controlName}: {line}");
+        if (_missingControls.Add(controlName))
+            ShowMissingControls();
+    }
+
+    private void ShowMissingControls()
+    {
+        if (_missingControls.Count == 0)
+            RemoveDetail(MissingControlsLabel);
+        else
+            SetDetail(MissingControlsLabel, string.Join(", ", _missingControls.Order()), DetailTone.Warning);
+    }
+
+    private void HandleBadChangeGroup(string line)
+    {
+        RaiseMomentaryIssue($"The Core does not recognise a change group: {line}", BadChangeGroupIssueKey);
+        RebuildChangeGroups(line);
+    }
+
+    private void HandleTooManyChangeGroups(string line)
+    {
+        _changeGroupsRefused = true;
+        RaiseOngoingIssue(ChangeGroupsIssueKey, $"The Core refused to create a change group: {line}", IssueSeverity.Major);
+    }
+
+    private void HandleLoginRequired(string line)
+    {
+        Interlocked.Exchange(ref _unansweredStatusRequests, 0);
+        RaiseOngoingIssue(LoginIssueKey, $"The Core needs an ECP login, which this driver does not support: {line}",
+            IssueSeverity.Critical);
+        CommunicationState = CommunicationState.Error;
+    }
+
+    private void HandleConnectionClosed(string line)
+    {
+        AddEvent(EventType.Connection, $"The Core is closing the connection: {line}");
+        RaiseMomentaryIssue($"The Core closed the connection: {line}", ConnectionClosedIssueKey, IssueSeverity.Major);
     }
 
     private void ProcessMeterChange(string line)
@@ -188,7 +362,12 @@ public class QsysEcp : Dsp
             var matches = _responseParser.Matches(response);
 
             var controlName = matches[0].Groups[1].Value;
-            ResolveIssue($"bad-control:{controlName}");
+            ResolveIssue($"{BadControlIssuePrefix}{controlName}");
+            if (_missingControls.Remove(controlName))
+                ShowMissingControls();
+            ResolveIssue(BadCommandIssueKey);
+            ResolveIssue(ReadOnlyIssueKey);
+
             if (_gains.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
                 _gains[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
 
@@ -216,43 +395,73 @@ public class QsysEcp : Dsp
         using (PushProperties("HandleConnectionState"))
         {
             AddEvent(EventType.Connection, connectionState.ToString());
+            Interlocked.Exchange(ref _unansweredStatusRequests, 0);
+            _designId = null;
             if (connectionState == ConnectionState.Connected)
             {
-                new Thread(_ =>
-                {
-                    CommunicationClient.Send($"cgc {ChangeGroupGains}\n");
-                    CommunicationClient.Send($"cgc {ChangeGroupMutes}\n");
-                    CommunicationClient.Send($"cgc {ChangeGroupStrings}\n");
-                    CommunicationClient.Send($"cgc {ChangeGroupMeters}\n");
-                    Thread.Sleep(500);
-
-                    AddControlsToChangeGroup(ChangeGroupGains, _gains.Keys.ToList());
-                    Thread.Sleep(500);
-                    AddControlsToChangeGroup(ChangeGroupMutes, _mutes.Keys.ToList());
-                    Thread.Sleep(500);
-                    AddControlsToChangeGroup(ChangeGroupStrings, _strings.Keys.ToList());
-                    Thread.Sleep(500);
-                    AddControlsToChangeGroup(ChangeGroupMeters, _meters.Keys.ToList());
-                    Thread.Sleep(500);
-
-                    ScheduleChangeGroupPoll(ChangeGroupGains);
-                    ScheduleChangeGroupPoll(ChangeGroupMutes);
-                    ScheduleChangeGroupPoll(ChangeGroupStrings);
-                    ScheduleChangeGroupPoll(ChangeGroupMeters, 1000);
-                }).Start();
-
+                BuildChangeGroups();
                 GetAllControlStates();
             }
             else
             {
                 CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
                     ? CommunicationState.NotAttempted
-                    : CommunicationState.Error;
+                    : CommunicationState.Unknown;
             }
         }
     }
 
-    private void ScheduleChangeGroupPoll(int changeGroupId, uint pollPeriodInMs = 100)
+    private void RebuildChangeGroups(string reason)
+    {
+        using (PushProperties("RebuildChangeGroups"))
+        {
+            if (_changeGroupsBuiltThisPoll)
+            {
+                LogInformation("The change groups were already built this poll cycle, not rebuilding them for {Reason}", reason);
+                return;
+            }
+
+            AddEvent(EventType.Other, $"Rebuilding the change groups: {reason}");
+            BuildChangeGroups();
+        }
+    }
+
+    private void BuildChangeGroups()
+    {
+        _changeGroupsBuiltThisPoll = true;
+        _changeGroupsRefused = false;
+        new Thread(_ =>
+        {
+            CreateEmptyChangeGroup(ChangeGroupGains);
+            CreateEmptyChangeGroup(ChangeGroupMutes);
+            CreateEmptyChangeGroup(ChangeGroupStrings);
+            CreateEmptyChangeGroup(ChangeGroupMeters);
+            Thread.Sleep(ChangeGroupSetupStepMs);
+
+            AddControlsToChangeGroup(ChangeGroupGains, _gains.Keys.ToList());
+            Thread.Sleep(ChangeGroupSetupStepMs);
+            AddControlsToChangeGroup(ChangeGroupMutes, _mutes.Keys.ToList());
+            Thread.Sleep(ChangeGroupSetupStepMs);
+            AddControlsToChangeGroup(ChangeGroupStrings, _strings.Keys.ToList());
+            Thread.Sleep(ChangeGroupSetupStepMs);
+            AddControlsToChangeGroup(ChangeGroupMeters, _meters.Keys.ToList());
+            Thread.Sleep(ChangeGroupSetupStepMs);
+
+            ScheduleChangeGroupPoll(ChangeGroupGains);
+            ScheduleChangeGroupPoll(ChangeGroupMutes);
+            ScheduleChangeGroupPoll(ChangeGroupStrings);
+            ScheduleChangeGroupPoll(ChangeGroupMeters, MeterPollPeriodMs);
+        }).Start();
+    }
+
+    private void CreateEmptyChangeGroup(int changeGroupId)
+    {
+        // The Core silently ignores cgc for an id already in use on this connection.
+        CommunicationClient.Send($"cgc {changeGroupId}\n");
+        CommunicationClient.Send($"cgclr {changeGroupId}\n");
+    }
+
+    private void ScheduleChangeGroupPoll(int changeGroupId, uint pollPeriodInMs = ChangeGroupPollPeriodMs)
     {
         // The device only reports on a change
         CommunicationClient.Send($"cgsna {changeGroupId} {pollPeriodInMs}\n");
@@ -265,9 +474,38 @@ public class QsysEcp : Dsp
 
     protected override Task Poll(CancellationToken token)
     {
-        if(CommunicationClient.ConnectionState == ConnectionState.Connected)
-            CommunicationClient.Send("sg\n"); 
+        using (PushProperties("Poll"))
+        {
+            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+                return Task.CompletedTask;
+
+            _changeGroupsBuiltThisPoll = false;
+            int unanswered = _unansweredStatusRequests;
+            if (unanswered > 0)
+                RaiseMomentaryIssue("The Core did not answer the status request", UnansweredStatusIssueKey,
+                    IssueSeverity.Minor, EscalateAfterRepeats);
+
+            if (unanswered >= MaxUnansweredStatusRequests)
+            {
+                ReconnectAfterUnansweredStatus();
+                return Task.CompletedTask;
+            }
+
+            Interlocked.Increment(ref _unansweredStatusRequests);
+            CommunicationClient.Send(StatusRequest);
+        }
         return Task.CompletedTask;
+    }
+
+    private void ReconnectAfterUnansweredStatus()
+    {
+        using (PushProperties("ReconnectAfterUnansweredStatus"))
+        {
+            LogWarning("The Core has not answered {Count} status requests, reconnecting", MaxUnansweredStatusRequests);
+            CommunicationState = CommunicationState.Error;
+            Interlocked.Exchange(ref _unansweredStatusRequests, 0);
+            _tcpClient.Reconnect();
+        }
     }
 
     public void GetAllControlStates()

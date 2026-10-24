@@ -14,6 +14,7 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.MediaPlayer). S
 
 - `LumensLc300`
 - `ExtronSmp351`
+- `MagewellDirectorPlus`
 - `TriplePlay`
 - `VitecHttp`, `VitecServer`
 - `ExterityTci`

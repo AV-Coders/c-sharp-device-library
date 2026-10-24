@@ -8,10 +8,11 @@ internal class TestTcpClient() : TcpClient("host", TelnetPort, "Test", CommandSt
     private readonly object _sentLock = new();
     private readonly List<string> _sent = [];
     public List<string> Sent { get { lock (_sentLock) return [.._sent]; } }
+    public int Reconnects;
     public override void Send(string message) { lock (_sentLock) _sent.Add(message); }
     public override void Send(byte[] bytes) { lock (_sentLock) _sent.Add(System.Text.Encoding.ASCII.GetString(bytes)); }
     public override void Connect() { }
-    public override void Reconnect() { }
+    public override void Reconnect() => Reconnects++;
     public override void Disconnect()
     {
         DesiredConnectionState = ConnectionState.Disconnected;
