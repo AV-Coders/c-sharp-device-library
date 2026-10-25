@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.Reflection;
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
@@ -65,5 +66,27 @@ public class SonySerialControlTest
         _display.SetAudioMute(state);
 
         _mockClient.Verify(x => x.Send(command), Times.Once);
+    }
+
+    [Fact]
+    public void SetAudioMute_Unknown_SendsNothingAndKeepsTheMuteState()
+    {
+        _display.SetAudioMute(MuteState.On);
+        _mockClient.Invocations.Clear();
+
+        _display.SetAudioMute(MuteState.Unknown);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
+        Assert.Equal(MuteState.On, _display.AudioMute);
+        Assert.Contains(_display.Events, e => e.Type == EventType.Error);
+    }
+
+    [Fact]
+    public void RestartPolling_LeavesThePollWorkerStopped()
+    {
+        typeof(Display).GetMethod("RestartPolling", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_display, null);
+
+        var pollWorker = (ThreadWorker)typeof(Display).GetField("PollWorker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_display)!;
+        Assert.False(pollWorker.IsRunning);
     }
 }

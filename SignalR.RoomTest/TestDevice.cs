@@ -30,4 +30,6 @@ public class TestDevice : DeviceBase
     }
 
     public void SetPowerStateForTest(PowerState state) => PowerState = state;
+
+    public void SetDesiredPowerStateForTest(PowerState state) => DesiredPowerState = state;
 }

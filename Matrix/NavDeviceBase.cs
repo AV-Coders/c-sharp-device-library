@@ -31,6 +31,9 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     protected readonly ThreadWorker PollWorker;
     protected readonly Navigator Navigator;
     protected readonly string EscapeHeader = "\x1b";
+    private static readonly TimeSpan PollRestartGap = TimeSpan.FromMilliseconds(200);
+    private readonly object _spacedSendsLock = new();
+    private Task _spacedSends = Task.CompletedTask;
     private int? _deviceNumber = null;
     private string _hostname = string.Empty;
     protected string? SerialNumber = null;
@@ -59,6 +62,8 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         protected set => _hostname = value;
     }
 
+    public TimeSpan NavConnectedSettle { get; set; } = TimeSpan.FromSeconds(3);
+
 
     public NavDeviceBase(string name, AVEndpointType deviceType, string ipAddress, Navigator navigator) : 
         base(name, deviceType, new NavigatorTunnel(GetCommunicationClientName(deviceType, name), ipAddress))
@@ -80,10 +85,23 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     {
         if (connectionState != ConnectionState.Connected)
             return;
-        Thread.Sleep(TimeSpan.FromSeconds(3));
-        Send($"{EscapeHeader}3CV\r");
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        PollWorker.Restart();
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(_ => InitialiseAfterNavConnect(), TaskScheduler.Default).Unwrap();
+    }
+
+    private async Task InitialiseAfterNavConnect()
+    {
+        try
+        {
+            await Task.Delay(NavConnectedSettle);
+            Send($"{EscapeHeader}3CV\r");
+            await Task.Delay(PollRestartGap);
+            await PollWorker.Restart();
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Initialising the endpoint after the Navigator connected failed");
+        }
     }
 
     protected abstract Task Poll(CancellationToken token);
@@ -117,8 +135,11 @@ public abstract class NavDeviceBase : AVoIPEndpoint
     {
         if (payload.StartsWith("Dnum"))
         {
+            var previousDeviceNumber = _deviceNumber;
             DeviceNumber = int.Parse(payload.Replace("Dnum", string.Empty));
-            Navigator.RegisterDevice($"{DeviceNumber:D4}{GetLetterForDeviceType()}", PreHandleResponse);
+            if (previousDeviceNumber != null && previousDeviceNumber != DeviceNumber)
+                Navigator.DeregisterDevice(GetNavigatorDeviceId(previousDeviceNumber.Value));
+            Navigator.RegisterDevice(GetNavigatorDeviceId(DeviceNumber), PreHandleResponse);
             Navigator.QueryEndpointState(this);
         }
 
@@ -166,6 +187,8 @@ public abstract class NavDeviceBase : AVoIPEndpoint
             _ => throw new ArgumentOutOfRangeException(nameof(DeviceType), DeviceType, null)
         };
     }
+
+    private string GetNavigatorDeviceId(int deviceNumber) => $"{deviceNumber:D4}{GetLetterForDeviceType()}";
 
     protected void Send(string message) => Navigator.SendCommandToDevice(_deviceId, message);
     

@@ -3,6 +3,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using AVCoders.Core;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 
@@ -98,25 +99,46 @@ public class VitecServer : LogBase
 
     private async Task HandleResponse(HttpResponseMessage response)
     {
-        if (response.IsSuccessStatusCode)
+        if (!response.IsSuccessStatusCode)
         {
-            var responseBody = await response.Content.ReadAsStringAsync();
-            List<VitecServerChannel>? vitecServerChannels = JsonConvert.DeserializeObject<List<VitecServerChannel>>(responseBody);
-            if (vitecServerChannels == null)
-            {
-                return;
-            }
-            // Built aside and swapped so readers never see a half-populated map, and a
-            // duplicate channel number updates the entry instead of throwing.
-            var newChannelMap = new Dictionary<int, string>();
-            vitecServerChannels.ForEach(channelInfo => newChannelMap[channelInfo.Number] = channelInfo.Uri);
-            _channelMap = newChannelMap;
+            LogWarning("The channel list request failed: {StatusCode} {ReasonPhrase}", (int)response.StatusCode,
+                response.ReasonPhrase);
+            return;
         }
+
+        var responseBody = await response.Content.ReadAsStringAsync();
+        List<VitecServerChannel>? vitecServerChannels = JsonConvert.DeserializeObject<List<VitecServerChannel>>(responseBody);
+        if (vitecServerChannels == null)
+        {
+            LogWarning("Ignoring a channel list that is not a JSON array: {Body}", responseBody);
+            return;
+        }
+        // Built aside and swapped so readers never see a half-populated map, and a
+        // duplicate channel number updates the entry instead of throwing.
+        var newChannelMap = new Dictionary<int, string>();
+        foreach (var channelInfo in vitecServerChannels)
+        {
+            if (string.IsNullOrEmpty(channelInfo.Uri))
+            {
+                LogWarning("Skipping channel {Number} ({Name}), it has no URI", channelInfo.Number, channelInfo.Name);
+                continue;
+            }
+            newChannelMap[channelInfo.Number] = channelInfo.Uri;
+        }
+        _channelMap = newChannelMap;
     }
+
+    private static string ChannelCommand(string channelUri, string deviceMac) => new JObject
+    {
+        ["devices"] = new JArray(deviceMac),
+        ["uri"] = channelUri,
+        ["isFullScreen"] = 0,
+        ["params"] = new JObject()
+    }.ToString(Formatting.None);
 
     public void SetChannel(string channelUri, string deviceMac)
     {
-        Post(_channelUri,$"{{\n  \"devices\": [\n    \"{deviceMac}\"\n  ],\n  \"uri\": \"{channelUri}\",\n  \"isFullScreen\": 0,\n  \"params\": {{}}\n}}");
+        Post(_channelUri, ChannelCommand(channelUri, deviceMac));
     }
 
     public void SetChannel(int channelNumber, string deviceMac)
@@ -127,7 +149,7 @@ public class VitecServer : LogBase
                 LogError("Channel {ChannelNumber} is not in the channel list", channelNumber);
             return;
         }
-        Post(_channelUri,$"{{\n  \"devices\": [\n    \"{deviceMac}\"\n  ],\n  \"uri\": \"{channelUri}\",\n  \"isFullScreen\": 0,\n  \"params\": {{}}\n}}");
+        Post(_channelUri, ChannelCommand(channelUri, deviceMac));
         _currentChannelMap[deviceMac] = channelNumber;
     }
 

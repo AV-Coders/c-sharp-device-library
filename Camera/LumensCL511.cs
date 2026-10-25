@@ -7,7 +7,8 @@ public class LumensCL511 : CameraBase
     public static readonly SerialSpec DefaultSpec = new SerialSpec(SerialBaud.Rate9600, SerialParity.None,
         SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
     public const ushort DefaultPort = 9997;
-    
+    private const int MaxPresets = 8;
+
     private readonly bool _autoTuneAfterZoom;
     private CancellationTokenSource? _autoTuneCts;
 
@@ -30,6 +31,8 @@ public class LumensCL511 : CameraBase
     // Confirmed on send whatever the flag says: there is no reply handler to confirm it later.
     public override void RecallPreset(int presetNumber)
     {
+        if (!IsValidPreset(presetNumber))
+            return;
         DoRecallPreset(presetNumber);
         LastRecalledPreset = presetNumber;
     }
@@ -117,6 +120,8 @@ public class LumensCL511 : CameraBase
     // Only supports preset numbers 1-8
     public override void DoRecallPreset(int presetNumber)
     {
+        if (!IsValidPreset(presetNumber))
+            return;
         byte actualPresetNumber = (byte)(presetNumber + 1); // 0 is not supported
         CommunicationClient.Send([0xA0, 0x03, 0x00, 0x00, actualPresetNumber, 0xAF]);
     }
@@ -124,7 +129,17 @@ public class LumensCL511 : CameraBase
     // Only supports preset numbers 1-8
     public override void SavePreset(int presetNumber)
     {
+        if (!IsValidPreset(presetNumber))
+            return;
         byte actualPresetNumber = (byte)(presetNumber + 1); // 0 is not supported
         CommunicationClient.Send([0xA0, 0x03, 0x00, 0x01, actualPresetNumber, 0xAF]);
+    }
+
+    private bool IsValidPreset(int presetNumber)
+    {
+        if (presetNumber is >= 0 and < MaxPresets)
+            return true;
+        AddEvent(EventType.Error, $"Preset {presetNumber} is out of range, this module supports presets 0-{MaxPresets - 1}");
+        return false;
     }
 }

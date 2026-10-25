@@ -38,38 +38,55 @@ public partial class ExtronSw : VideoMatrix, IDisposable
 
     private void SetInputCount(int count)
     {
-        if (Inputs.Count == count)
-            return;
-        while (Inputs.Count > count)
+        lock (_responseLock)
         {
-            LogBaseRegistry.Deregister(Inputs[^1]);
-            Inputs.RemoveAt(Inputs.Count - 1);
-        }
-        while (Inputs.Count < count)
-        {
-            var number = Inputs.Count + 1;
-            Inputs.Add(new ExtronMatrixInput($"Input {number}", number));
+            if (_disposed || Inputs.Count == count)
+                return;
+            while (Inputs.Count > count)
+            {
+                LogBaseRegistry.Deregister(Inputs[^1]);
+                Inputs.RemoveAt(Inputs.Count - 1);
+            }
+            while (Inputs.Count < count)
+            {
+                var number = Inputs.Count + 1;
+                Inputs.Add(new ExtronMatrixInput($"Input {number}", number));
+            }
         }
         EndpointsChangedHandlers?.Invoke();
     }
 
-    private void HandleConnectionState(ConnectionState connectionState)
+    private (List<ExtronMatrixInput> Inputs, ExtronMatrixEndpoint Output)? Endpoints()
     {
-        if (_disposed)
-            return;
         lock (_responseLock)
         {
+            if (_disposed)
+                return null;
+            return (Inputs.ToList(), Outputs[0]);
+        }
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        List<ExtronMatrixInput> inputs;
+        ExtronMatrixEndpoint output;
+        lock (_responseLock)
+        {
+            if (_disposed)
+                return;
             _pendingResponse.Clear();
             _discardResponse = false;
+            inputs = [..Inputs];
+            output = Outputs[0];
         }
-        foreach (var input in Inputs)
+        foreach (var input in inputs)
         {
             input.SetInputStatus(ConnectionState.Unknown);
             input.SetInputHdcpStatus(HdcpStatus.Unknown);
         }
-        Outputs[0].SetOutputStatus(ConnectionState.Unknown);
-        Outputs[0].SetOutputHdcpStatus(HdcpStatus.Unknown);
-        Outputs[0].SetStreamAddress(string.Empty);
+        output.SetOutputStatus(ConnectionState.Unknown);
+        output.SetOutputHdcpStatus(HdcpStatus.Unknown);
+        output.SetStreamAddress(string.Empty);
         if (connectionState != ConnectionState.Connected)
             return;
         WrapAndSendCommand("3CV");
@@ -108,45 +125,52 @@ public partial class ExtronSw : VideoMatrix, IDisposable
 
     private void HandleResponse(string response)
     {
-        if (_disposed)
-            return;
         using (PushProperties("HandleResponse"))
         {
-            lock (_responseLock)
-            {
-                // SSH supplies complete lines without terminators. TCP and serial supply chunks.
-                if (CommunicationClient is not (TcpClient or SerialClient))
-                {
-                    foreach (var line in response.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries))
-                        ProcessResponse(line);
-                    return;
-                }
+            foreach (var line in TakeCompleteLines(response))
+                ProcessResponse(line);
+        }
+    }
 
-                foreach (var character in response)
+    private List<string> TakeCompleteLines(string response)
+    {
+        List<string> lines = [];
+        lock (_responseLock)
+        {
+            if (_disposed)
+                return lines;
+            // SSH supplies complete lines without terminators. TCP and serial supply chunks.
+            if (CommunicationClient is not (TcpClient or SerialClient))
+            {
+                lines.AddRange(response.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries));
+                return lines;
+            }
+
+            foreach (var character in response)
+            {
+                if (character is '\r' or '\n')
                 {
-                    if (character is '\r' or '\n')
+                    var line = _pendingResponse.ToString();
+                    _pendingResponse.Clear();
+                    var discard = _discardResponse;
+                    _discardResponse = false;
+                    if (!discard && line.Length > 0)
+                        lines.Add(line);
+                }
+                else if (!_discardResponse)
+                {
+                    // Bound memory for malformed traffic, then recover at the next terminator.
+                    if (_pendingResponse.Length == 4096)
                     {
-                        var line = _pendingResponse.ToString();
                         _pendingResponse.Clear();
-                        var discard = _discardResponse;
-                        _discardResponse = false;
-                        if (!discard && line.Length > 0)
-                            ProcessResponse(line);
+                        _discardResponse = true;
                     }
-                    else if (!_discardResponse)
-                    {
-                        // Bound memory for malformed traffic, then recover at the next terminator.
-                        if (_pendingResponse.Length == 4096)
-                        {
-                            _pendingResponse.Clear();
-                            _discardResponse = true;
-                        }
-                        else
-                            _pendingResponse.Append(character);
-                    }
+                    else
+                        _pendingResponse.Append(character);
                 }
             }
         }
+        return lines;
     }
 
     private void ProcessResponse(string response)
@@ -158,9 +182,21 @@ public partial class ExtronSw : VideoMatrix, IDisposable
             HandleSignalStatus(line[3..]);
         else if (line.StartsWith("Hdcp", StringComparison.OrdinalIgnoreCase))
             HandleHdcp(line[4..].TrimStart());
-        else if (TieRegex().Match(line) is { Success: true } tie &&
-                 int.TryParse(tie.Groups[1].Value, out var selected) && selected <= NumberOfInputs)
-            Outputs[0].SetStreamAddress(selected.ToString());
+        else if (TieRegex().Match(line) is { Success: true } tie)
+            HandleTie(line, tie.Groups[1].Value);
+    }
+
+    private void HandleTie(string line, string input)
+    {
+        if (Endpoints() is not { } endpoints)
+            return;
+        var known = int.TryParse(input, out var selected) && selected <= endpoints.Inputs.Count;
+        if (!known && endpoints.Inputs.Count == 0)
+            LogWarning("Ignoring the tie {Line} as it arrived before the input count is known", line);
+        else if (!known)
+            LogWarning("Ignoring the tie {Line} as it names an input outside the {InputCount} inputs", line, endpoints.Inputs.Count);
+        else
+            endpoints.Output.SetStreamAddress(selected.ToString());
     }
 
     private void HandleSignalStatus(string status)
@@ -174,34 +210,50 @@ public partial class ExtronSw : VideoMatrix, IDisposable
         if (parts.Length != 2 || !TryStatuses(parts[0], 1, out var inputs) ||
             !TryStatuses(parts[1], 1, out var outputs) || outputs.Length != 1 ||
             inputs.Length is not (2 or 4 or 6 or 8))
+        {
+            LogWarning("Malformed signal status {Status}", status);
             return;
+        }
         SetInputCount(inputs.Length);
+        if (Endpoints() is not { } endpoints)
+            return;
         for (var index = 0; index < inputs.Length; index++)
-            Inputs[index].SetInputStatus(inputs[index] == 1 ? ConnectionState.Connected : ConnectionState.Disconnected);
-        Outputs[0].SetOutputStatus(outputs[0] == 1 ? ConnectionState.Connected : ConnectionState.Disconnected);
+            endpoints.Inputs[index].SetInputStatus(inputs[index] == 1 ? ConnectionState.Connected : ConnectionState.Disconnected);
+        endpoints.Output.SetOutputStatus(outputs[0] == 1 ? ConnectionState.Connected : ConnectionState.Disconnected);
     }
 
     private void HandleHdcp(string status)
     {
         if (status.Length < 2 || !TryStatuses(status[1..], 2, out var values))
+        {
+            LogWarning("Malformed HDCP status {Status}", status);
             return;
-        if (status[0] == 'I' && values.Length == NumberOfInputs)
+        }
+        if (Endpoints() is not { } endpoints)
+            return;
+        if (status[0] == 'I' && values.Length == endpoints.Inputs.Count)
         {
             for (var index = 0; index < values.Length; index++)
-                Inputs[index].SetInputHdcpStatus(values[index] switch
+                endpoints.Inputs[index].SetInputHdcpStatus(values[index] switch
                 {
                     1 => HdcpStatus.Active,
                     2 => HdcpStatus.NotSupported,
                     _ => HdcpStatus.Unknown
                 });
         }
+        else if (status[0] == 'I')
+            LogWarning("Ignoring the input HDCP status {Status} as it doesn't list the {InputCount} inputs", status, endpoints.Inputs.Count);
         else if (status[0] == 'O' && values.Length == 1)
-            Outputs[0].SetOutputHdcpStatus(values[0] switch
+            endpoints.Output.SetOutputHdcpStatus(values[0] switch
             {
                 1 => HdcpStatus.Available,
                 2 => HdcpStatus.NotSupported,
                 _ => HdcpStatus.Unknown
             });
+        else if (status[0] == 'O')
+            LogWarning("Ignoring the output HDCP status {Status} as it doesn't list the one output", status);
+        else
+            LogWarning("Malformed HDCP status {Status}", status);
     }
 
     private static bool TryStatuses(string text, int maximum, out int[] values)
@@ -232,19 +284,25 @@ public partial class ExtronSw : VideoMatrix, IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
-        _disposed = true;
+        lock (_responseLock)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+        }
         CommunicationClient.ResponseHandlers -= HandleResponse;
         CommunicationClient.ConnectionStateHandlers -= HandleConnectionState;
         CommunicationClient.ConnectionStateHandlers -= HandleRequestedDisconnect;
         // Stop awaits the worker internally. Run it off the caller's UI context so its
         // continuations can complete even while synchronous Dispose waits for them.
         Task.Run(_pollWorker.Stop).GetAwaiter().GetResult();
-        Inputs.DeregisterAndClear();
-        foreach (var output in Outputs)
-            LogBaseRegistry.Deregister(output);
-        Outputs.Clear();
+        lock (_responseLock)
+        {
+            Inputs.DeregisterAndClear();
+            foreach (var output in Outputs)
+                LogBaseRegistry.Deregister(output);
+            Outputs.Clear();
+        }
         LogBaseRegistry.Deregister(_pollWorker);
         LogBaseRegistry.Deregister(this);
         GC.SuppressFinalize(this);
@@ -260,14 +318,16 @@ public partial class ExtronSw : VideoMatrix, IDisposable
 
     public override void RouteVideo(int input, int output)
     {
+        AddEvent(EventType.Input, $"Not switching video output {output} to input {input} as this device doesn't support video breakaway");
         using (PushProperties("RouteVideo"))
-            LogWarning("This device doesn't support video breakaway");
+            LogWarning("Not switching video output {Output} to input {Input} as this device doesn't support video breakaway", output, input);
     }
 
     public override void RouteAudio(int input, int output)
     {
+        AddEvent(EventType.Input, $"Not switching audio output {output} to input {input} as this device doesn't support audio breakaway");
         using (PushProperties("RouteAudio"))
-            LogWarning("This device doesn't support audio breakaway");
+            LogWarning("Not switching audio output {Output} to input {Input} as this device doesn't support audio breakaway", output, input);
     }
 
     public override void RouteAV(int input, int output)

@@ -5,6 +5,7 @@ namespace AVCoders.Core.Tests;
 
 public sealed record CapturedLog(string Message, Dictionary<string, object?> Scope)
 {
+    public LogLevel Level { get; init; }
     public string? TriggerId => Scope.GetValueOrDefault(LogBase.TriggerIdProperty) as string;
 }
 
@@ -30,6 +31,6 @@ public sealed class ScopeCapturingLoggerFactory : ILoggerFactory, ILogger
                 foreach (var pair in pairs)
                     properties[pair.Key] = pair.Value;
         }, scope);
-        Logs.Enqueue(new CapturedLog(formatter(state, exception), scope));
+        Logs.Enqueue(new CapturedLog(formatter(state, exception), scope) { Level = logLevel });
     }
 }

@@ -16,8 +16,10 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     public const int OutputCount = 2;
     public const int LoopOutput = 3;
     public const string UntiedAddress = "0";
+    private const int UntiedInput = 0;
     private const string ModelName = "DTP2 CrossPoint 82";
     private const string ModelIssueKey = "model";
+    private const string RejectedCommandIssueKey = "rejected-command";
 
     public readonly List<ExtronMatrixInput> Inputs = Enumerable.Range(1, InputCount)
         .Select(index => new ExtronMatrixInput($"Input {index}", index))
@@ -80,11 +82,11 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
         else if (TieRegex().Match(line) is { Success: true } tie)
             HandleTie(int.Parse(tie.Groups[1].Value), int.Parse(tie.Groups[2].Value), tie.Groups[3].Value);
         else if (UntieOutputRegex().Match(line) is { Success: true } untiedOutput)
-            HandleTie(0, int.Parse(untiedOutput.Groups[1].Value), "All");
+            HandleTie(UntiedInput, int.Parse(untiedOutput.Groups[1].Value), "All");
         else if (UntieInputRegex().Match(line) is { Success: true } untiedInput)
-            HandleInputUntied(untiedInput.Groups[1].Value);
+            HandleInputUntied(int.Parse(untiedInput.Groups[1].Value));
         else if (ErrorRegex().IsMatch(line))
-            LogWarning("The switcher rejected a command with error {ErrorCode}", line);
+            RaiseMomentaryIssue($"The switcher rejected a command with error {line}", RejectedCommandIssueKey);
     }
 
     private void HandleModel(string model)
@@ -96,7 +98,6 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
             return;
         }
 
-        LogWarning("Expected a {ExpectedModel} but the switcher reported {ReportedModel}", ModelName, model);
         RaiseOngoingIssue(ModelIssueKey, $"Expected a {ModelName} but the switcher reported {model}");
     }
 
@@ -130,7 +131,10 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     {
         var match = NameRegex().Match(line);
         if (!match.Success)
+        {
+            LogWarning("Ignoring the name {Line} as it isn't an input or output number and a name", line);
             return;
+        }
         var number = int.Parse(match.Groups[2].Value);
         var name = match.Groups[3].Value;
         if (match.Groups[1].Value == "I" && TryGetInput(number, out var input))
@@ -179,7 +183,12 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     private void HandleSignalPresence(string statuses)
     {
         var values = statuses.Split('*');
-        for (var index = 0; index < values.Length && index < Inputs.Count; index++)
+        if (values.Length != Inputs.Count)
+        {
+            LogWarning("Ignoring the signal presence {Statuses} as it doesn't list the {InputCount} inputs", statuses, Inputs.Count);
+            return;
+        }
+        for (var index = 0; index < values.Length; index++)
             Inputs[index].SetInputStatus(values[index] == "1" ? ConnectionState.Connected : ConnectionState.Disconnected);
     }
 
@@ -195,9 +204,9 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
         Outputs[output - 1].SetStreamAddress(input.ToString());
     }
 
-    private void HandleInputUntied(string input)
+    private void HandleInputUntied(int input)
     {
-        foreach (var output in Outputs.Take(OutputCount).Where(output => output.StreamAddress == input))
+        foreach (var output in Outputs.Take(OutputCount).Where(output => output.StreamAddress == input.ToString()))
             output.SetStreamAddress(UntiedAddress);
     }
 

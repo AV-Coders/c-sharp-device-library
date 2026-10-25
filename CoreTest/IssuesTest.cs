@@ -388,6 +388,23 @@ public class IssuesTest
     }
 
     [Fact]
+    public void ConsecutiveMomentaryTracking_AtTheCap_EvictsTheOldestKey_AfterAResolve()
+    {
+        _logBase.Momentary("A failed", key: "a");
+        for (var i = 0; i < 198; i++)
+            _logBase.Momentary($"flood {i}", key: $"flood-{i}");
+        _logBase.Resolve("a");
+        _logBase.Momentary("B failed", key: "b", escalateAfter: 3);
+        _logBase.Momentary("B failed", key: "b", escalateAfter: 3);
+        _logBase.Momentary("flood 198", key: "flood-198");
+        _logBase.Momentary("flood 199", key: "flood-199");
+
+        _logBase.Momentary("B failed", key: "b", escalateAfter: 3);
+
+        Assert.Single(_logBase.GetOngoingIssues(), i => i.Key == "b");
+    }
+
+    [Fact]
     public void RaiseMomentaryIssue_WithoutEscalateAfter_NeverEscalates()
     {
         for (var i = 0; i < 10; i++)

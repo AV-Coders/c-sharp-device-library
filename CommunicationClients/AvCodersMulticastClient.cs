@@ -7,12 +7,12 @@ namespace AVCoders.CommunicationClients;
 
 public class AvCodersMulticastClient : IMulticastClient
 {
+    private const int InitialBindBackoffMs = 1000;
     private readonly object _clientLock = new();
     private UdpClient? _client;
-    private readonly IPAddress _multicastIp;
+    private IPEndPoint? _remoteEndPoint;
     private readonly int _ttl;
-    private readonly IPEndPoint _remoteEndPoint;
-    private int _bindBackoffMs = 1000; // starts at 1 second
+    private int _bindBackoffMs = InitialBindBackoffMs;
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
 
     public AvCodersMulticastClient(string ipAddress, ushort port, string name, int ttl = 1, CommandStringFormat commandStringFormat = CommandStringFormat.Ascii)
@@ -22,9 +22,7 @@ public class AvCodersMulticastClient : IMulticastClient
         {
             ConnectionState = ConnectionState.Connecting;
 
-            _multicastIp = IPAddress.Parse(ipAddress);
             _ttl = ttl;
-            _remoteEndPoint = new IPEndPoint(_multicastIp, port);
 
             ConnectionStateWorker.Restart(); // Binds the socket, retrying until it succeeds
             // This works around a race condition coming from base being called first.
@@ -36,7 +34,14 @@ public class AvCodersMulticastClient : IMulticastClient
     {
         using (PushProperties("TryBind"))
         {
-            var af = _multicastIp.AddressFamily;
+            if (!IPAddress.TryParse(Host, out var multicastIp))
+            {
+                ReportConnectionFailure($"The multicast group '{Host}' is not an IP address, so it was not used");
+                ConnectionState = ConnectionState.Error;
+                return false;
+            }
+
+            var af = multicastIp.AddressFamily;
             UdpClient client = new UdpClient(af);
             try
             {
@@ -46,26 +51,28 @@ public class AvCodersMulticastClient : IMulticastClient
                 }
                 else if (af == AddressFamily.InterNetworkV6)
                 {
-                    client.Client.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.HopLimit, _ttl);
+                    client.Client.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.MulticastTimeToLive, _ttl);
                 }
 
                 client.Client.ExclusiveAddressUse = false;
                 client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-                client.Client.Bind(new IPEndPoint(IPAddress.Any, Port));
+                var anyAddress = af == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any;
+                client.Client.Bind(new IPEndPoint(anyAddress, Port));
 
-                client.JoinMulticastGroup(_multicastIp);
+                client.JoinMulticastGroup(multicastIp);
 
                 lock (_clientLock)
                 {
                     _client = client;
+                    _remoteEndPoint = new IPEndPoint(multicastIp, Port);
                 }
-                _bindBackoffMs = 1000;
                 ConnectionState = ConnectionState.Connected;
                 return true;
             }
             catch (Exception e)
             {
                 LogException(e, $"Failed to bind multicast client on port {Port}");
+                ReportConnectionFailure(DescribeConnectionError(e));
                 try
                 {
                     client.Dispose();
@@ -100,7 +107,10 @@ public class AvCodersMulticastClient : IMulticastClient
             try
             {
                 var received = await client.ReceiveAsync(token);
-                InvokeResponseHandlers(Encoding.UTF8.GetString(received.Buffer), received.Buffer);
+                var response = CommandStringFormat == CommandStringFormat.Ascii
+                    ? Encoding.Latin1.GetString(received.Buffer)
+                    : ConvertByteArrayToString(received.Buffer);
+                InvokeResponseHandlers(response, received.Buffer);
             }
             catch (OperationCanceledException)
             {
@@ -108,11 +118,11 @@ public class AvCodersMulticastClient : IMulticastClient
             }
             catch (SocketException e)
             {
-                HandleDeadSocket(e);
+                await HandleDeadSocket(e, token);
             }
             catch (ObjectDisposedException e)
             {
-                HandleDeadSocket(e);
+                await HandleDeadSocket(e, token);
             }
             catch (Exception e)
             {
@@ -122,9 +132,11 @@ public class AvCodersMulticastClient : IMulticastClient
         }
     }
 
-    private void HandleDeadSocket(Exception e)
+    private async Task HandleDeadSocket(Exception e, CancellationToken token)
     {
         LogException(e, "Multicast socket failed, it will be rebound");
+        ReportConnectionFailure(DescribeConnectionError(e));
+        ConnectionState = ConnectionState.Error;
         lock (_clientLock)
         {
             try
@@ -137,17 +149,36 @@ public class AvCodersMulticastClient : IMulticastClient
             }
             _client = null;
         }
-        ConnectionState = ConnectionState.Error;
+        if (_bindBackoffMs == InitialBindBackoffMs)
+            _bindBackoffMs *= 2;
+        else
+            await BindBackoffDelay(token);
+        _ = ConnectionStateWorker.Restart();
     }
 
-    public override void Send(byte[] bytes)
+    private async Task BindBackoffDelay(CancellationToken token)
+    {
+        // jittered exponential backoff
+        var jitter = Random.Shared.Next(-200, 200);
+        var delay = Math.Min(_bindBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
+        _bindBackoffMs = Math.Min(_bindBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
+        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
+    }
+
+    public override void Send(string message) => Send(Bytes.FromString(message), message);
+
+    public override void Send(byte[] bytes) => Send(bytes, null);
+
+    private void Send(byte[] bytes, string? message)
     {
         using (PushProperties("Send"))
         {
             UdpClient? client;
+            IPEndPoint? remoteEndPoint;
             lock (_clientLock)
             {
                 client = _client;
+                remoteEndPoint = _remoteEndPoint;
             }
 
             if (client == null)
@@ -158,13 +189,16 @@ public class AvCodersMulticastClient : IMulticastClient
 
             try
             {
-                client.Send(bytes, bytes.Length, _remoteEndPoint);
-                InvokeRequestHandlers(bytes);
+                client.Send(bytes, bytes.Length, remoteEndPoint);
             }
             catch (Exception e)
             {
                 LogException(e);
+                return;
             }
+            InvokeRequestHandlers(bytes);
+            if (message != null)
+                InvokeRequestHandlers(message);
         }
     }
 
@@ -180,17 +214,15 @@ public class AvCodersMulticastClient : IMulticastClient
                 bound = _client != null;
             }
 
-            if (!bound && !TryBind())
+            if (bound)
             {
-                // jittered exponential backoff
-                var jitter = Random.Shared.Next(-200, 200);
-                var delay = Math.Min(_bindBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
-                _bindBackoffMs = Math.Min(_bindBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
-                await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
+                await Task.Delay(TimeSpan.FromSeconds(30), token);
+                _bindBackoffMs = InitialBindBackoffMs;
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(30), token);
+            if (!TryBind())
+                await BindBackoffDelay(token);
         }
     }
 
@@ -216,11 +248,5 @@ public class AvCodersMulticastClient : IMulticastClient
         {
             LogDebug("Disconnect not supported");
         }
-    }
-
-    public override void Send(string message)
-    {
-        Send(Bytes.FromString(message));
-        InvokeRequestHandlers(message);
     }
 }

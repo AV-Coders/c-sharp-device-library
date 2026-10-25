@@ -50,6 +50,40 @@ public class RoomManagerTest
     }
 
     [Fact]
+    public void PowerState_IsSeededFromTheDevice()
+    {
+        var device = new TestDevice("Boardroom");
+        device.SetPowerStateForTest(PowerState.On);
+
+        var manager = new RoomManager(device);
+
+        Assert.Equal(PowerState.On, manager.PowerState);
+    }
+
+    [Fact]
+    public void DesiredPowerState_IsSeededFromTheDevice()
+    {
+        var device = new TestDevice("Boardroom");
+        device.SetDesiredPowerStateForTest(PowerState.Off);
+
+        var manager = new RoomManager(device);
+
+        Assert.Equal(PowerState.Off, manager.DesiredPowerState);
+    }
+
+    [Fact]
+    public void DeviceDesiredPowerStateChange_PropagatesToManagerDesiredPowerState()
+    {
+        var handler = new Mock<PowerStateHandler>();
+        _manager.DesiredPowerStateHandlers += handler.Object;
+
+        _device.SetDesiredPowerStateForTest(PowerState.On);
+
+        Assert.Equal(PowerState.On, _manager.DesiredPowerState);
+        handler.Verify(h => h.Invoke(PowerState.On), Times.Once);
+    }
+
+    [Fact]
     public void PowerOn_PropagatesPowerStateThroughHandler()
     {
         var handler = new Mock<PowerStateHandler>();

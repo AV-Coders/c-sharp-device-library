@@ -100,8 +100,13 @@ public class NavDecoder : NavDeviceBase
 
     public void SetInput(NavEncoder encoder)
     {
-        UpdateDesiredRoute(encoder.DeviceNumber, encoder.DeviceNumber);
-        Navigator.RouteAV(encoder.DeviceNumber, DeviceNumber);
+        if (encoder.DeviceNumber == 0)
+        {
+            using (PushProperties())
+                LogWarning("Not requesting a route to {EncoderName} as its device number is 0", encoder.Name);
+            return;
+        }
+        SetInput(encoder.DeviceNumber);
     }
 
     internal void UpdateDesiredRoute(int? videoInput, int? audioInput)
@@ -133,6 +138,12 @@ public class NavDecoder : NavDeviceBase
 
     public void SetAudioMute(MuteState muteState)
     {
+        if (muteState == MuteState.Unknown)
+        {
+            using (PushProperties())
+                LogWarning("Cannot set the mute state to Unknown");
+            return;
+        }
         Send($"1*{_audioMuteStates[muteState]}Z");
         Send($"2*{_audioMuteStates[muteState]}Z");
     }

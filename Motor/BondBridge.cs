@@ -2,13 +2,15 @@ using AVCoders.Core;
 
 namespace AVCoders.Motor;
 
+public record BondActionResult(bool Succeeded, string Failure);
+
 public class BondGroup : Motor
 {
     private readonly string _deviceId;
     private readonly BondBridge _bridge;
 
     public BondGroup(string name, string groupId, RelayAction powerOnAction, int moveSeconds, BondBridge bridge) 
-        : base(name, powerOnAction, moveSeconds)
+        : base(name, powerOnAction, moveSeconds, bridge.Comms)
     {
         _deviceId = groupId;
         _bridge = bridge;
@@ -16,17 +18,42 @@ public class BondGroup : Motor
 
     public override void Raise()
     {
-        _bridge.OpenGroup(_deviceId);
+        _ = TrackAction(nameof(Raise), _bridge.OpenGroup(_deviceId));
     }
 
     public override void Lower()
     {
-        _bridge.CloseGroup(_deviceId);
+        _ = TrackAction(nameof(Lower), _bridge.CloseGroup(_deviceId));
     }
 
     public override void Stop()
     {
-        _bridge.StopGroup(_deviceId);
+        _ = TrackAction(nameof(Stop), _bridge.StopGroup(_deviceId));
+    }
+
+    private async Task TrackAction(string command, Task<BondActionResult> action)
+    {
+        BondActionResult result;
+        try
+        {
+            result = await action;
+        }
+        catch (Exception e)
+        {
+            using (PushProperties(command))
+                LogException(e, $"{command} of Bond group {_deviceId} failed");
+            CommunicationState = CommunicationState.Error;
+            return;
+        }
+
+        if (result.Succeeded)
+        {
+            CommunicationState = CommunicationState.Okay;
+            return;
+        }
+        using (PushProperties(command))
+            LogWarning("{Command} of Bond group {GroupId} failed: {Failure}", command, _deviceId, result.Failure);
+        CommunicationState = CommunicationState.Error;
     }
 }
 
@@ -36,7 +63,7 @@ public class BondDevice : Motor
     private readonly BondBridge _bridge;
 
     public BondDevice(string name, string deviceId, RelayAction powerOnAction, int moveSeconds, BondBridge bridge) 
-        : base(name, powerOnAction, moveSeconds)
+        : base(name, powerOnAction, moveSeconds, bridge.Comms)
     {
         _deviceId = deviceId;
         _bridge = bridge;
@@ -44,30 +71,59 @@ public class BondDevice : Motor
 
     public override void Raise()
     {
-        _bridge.OpenDevice(_deviceId);
+        _ = TrackAction(nameof(Raise), _bridge.OpenDevice(_deviceId));
     }
 
     public override void Lower()
     {
-        _bridge.CloseDevice(_deviceId);
+        _ = TrackAction(nameof(Lower), _bridge.CloseDevice(_deviceId));
     }
 
     public override void Stop()
     {
-        _bridge.StopDevice(_deviceId);
+        _ = TrackAction(nameof(Stop), _bridge.StopDevice(_deviceId));
+    }
+
+    private async Task TrackAction(string command, Task<BondActionResult> action)
+    {
+        BondActionResult result;
+        try
+        {
+            result = await action;
+        }
+        catch (Exception e)
+        {
+            using (PushProperties(command))
+                LogException(e, $"{command} of Bond device {_deviceId} failed");
+            CommunicationState = CommunicationState.Error;
+            return;
+        }
+
+        if (result.Succeeded)
+        {
+            CommunicationState = CommunicationState.Okay;
+            return;
+        }
+        using (PushProperties(command))
+            LogWarning("{Command} of Bond device {DeviceId} failed: {Failure}", command, _deviceId, result.Failure);
+        CommunicationState = CommunicationState.Error;
     }
 }
 
 public class BondBridge
 {
+    private static readonly BondActionResult Succeeded = new(true, string.Empty);
+    private static readonly BondActionResult NoResponse = new(false, "no response");
     private readonly RestComms _comms;
     private readonly ThreadWorker _pollWorker;
     private readonly Uri _versionUri;
+    private readonly AsyncLocal<TaskCompletionSource<BondActionResult>?> _sendingAction = new();
 
     public BondBridge(RestComms comms, string token)
     {
         _comms = comms;
         _comms.AddDefaultHeader("BOND-Token", token);
+        _comms.HttpResponseHandlers += HandleResponse;
         
         _versionUri = new Uri("/v2/sys/version", UriKind.Relative);
 
@@ -75,43 +131,55 @@ public class BondBridge
         _pollWorker.Restart();
     }
 
+    internal RestComms Comms => _comms;
+
+    private void HandleResponse(HttpResponseMessage response)
+    {
+        _sendingAction.Value?.TrySetResult(response.IsSuccessStatusCode
+            ? Succeeded
+            : new BondActionResult(false, $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}"));
+    }
+
     private async Task Poll(CancellationToken arg)
     {
         await _comms.Get(_versionUri);
     }
 
-    private void ExecuteAction(string type, string id, string action)
+    private async Task<BondActionResult> ExecuteAction(string type, string id, string action)
     {
-        _comms.Put(new Uri($"/v2/{type}/{id}/actions/{action}", UriKind.Relative), "{}", "application/json");
+        var reply = new TaskCompletionSource<BondActionResult>();
+        _sendingAction.Value = reply;
+        await _comms.Put(new Uri($"/v2/{type}/{id}/actions/{action}", UriKind.Relative), "{}", "application/json");
+        return reply.Task.IsCompleted ? reply.Task.Result : NoResponse;
     }
 
-    public void OpenDevice(string deviceId)
+    public Task<BondActionResult> OpenDevice(string deviceId)
     {
-        ExecuteAction("devices", deviceId, "Open");
+        return ExecuteAction("devices", deviceId, "Open");
     }
 
-    public void CloseDevice(string deviceId)
+    public Task<BondActionResult> CloseDevice(string deviceId)
     {
-        ExecuteAction("devices", deviceId, "Close");
+        return ExecuteAction("devices", deviceId, "Close");
     }
 
-    public void StopDevice(string deviceId)
+    public Task<BondActionResult> StopDevice(string deviceId)
     {
-        ExecuteAction("devices", deviceId, "Hold");
+        return ExecuteAction("devices", deviceId, "Hold");
     }
 
-    public void OpenGroup(string groupId)
+    public Task<BondActionResult> OpenGroup(string groupId)
     {
-        ExecuteAction("groups", groupId, "Open");
+        return ExecuteAction("groups", groupId, "Open");
     }
 
-    public void CloseGroup(string groupId)
+    public Task<BondActionResult> CloseGroup(string groupId)
     {
-        ExecuteAction("groups", groupId, "Close");
+        return ExecuteAction("groups", groupId, "Close");
     }
 
-    public void StopGroup(string groupId)
+    public Task<BondActionResult> StopGroup(string groupId)
     {
-        ExecuteAction("groups", groupId, "Hold");
+        return ExecuteAction("groups", groupId, "Hold");
     }
 }

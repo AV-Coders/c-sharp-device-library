@@ -1,19 +1,51 @@
 ﻿using System.Net;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.Camera.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class AutomateVxTest
 {
+    private const string TokenReply = "{\"status\": \"OK\", \"token\": \"abc\"}";
+    private const string UnauthorizedReply = "{\"status\": \"Error\", \"err\": \"Unauthorized\"}";
     private readonly Mock<RestComms> _mockClient;
     private readonly AutomateVX _automateVx;
-    
+
     public AutomateVxTest()
     {
         _mockClient = new("foo", (ushort)1, "Test");
         _automateVx = new AutomateVX(_mockClient.Object);
     }
-    
+
+    private static HttpResponseMessage Reply(string path, string body) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body),
+            RequestMessage = new HttpRequestMessage(HttpMethod.Post, new Uri("https://foo:1" + path))
+        };
+
+    private void Respond(string path, string body) => _mockClient.Object.HttpResponseHandlers!.Invoke(Reply(path, body));
+
+    private void VerifyPosts(string path, Times times) =>
+        _mockClient.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == path), It.IsAny<string>(), "application/json"), times);
+
+    private static (Mock<RestComms> Client, AutomateVX Camera, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs()
+    {
+        Mock<RestComms> client = new("foo", (ushort)1, "Test");
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (client, new AutomateVX(client.Object), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
     [Fact]
     public void ResponseHandler_HandlesAToken()
     {
@@ -148,5 +180,120 @@ public class AutomateVxTest
         _mockClient.Object.HttpResponseHandlers!.Invoke(response);
 
         Assert.Equal(CommunicationState.Error, _automateVx.CommunicationState);
+    }
+
+    [Fact]
+    public void Constructor_TokenReplyBeforeThePostReturns_FetchesTheLayoutsAndScenarios()
+    {
+        Mock<RestComms> client = new("foo", (ushort)1, "Test");
+        client.Setup(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/get-token"), "", "application/json"))
+            .Callback(() => client.Object.HttpResponseHandlers!.Invoke(Reply("/get-token", TokenReply)))
+            .Returns(Task.CompletedTask);
+
+        _ = new AutomateVX(client.Object);
+
+        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetLayouts"), "", "application/json"), Times.Once);
+        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetScenarios"), "", "application/json"), Times.Once);
+    }
+
+    [Fact]
+    public void ResponseHandler_UnauthorizedReply_RetriesTheFailedActionAfterTheToken()
+    {
+        Respond("/get-token", TokenReply);
+        _automateVx.StartAutoSwitch();
+        _automateVx.StopAutoSwitch();
+
+        Respond("/api/StartAutoSwitch", UnauthorizedReply);
+        Respond("/get-token", TokenReply);
+
+        VerifyPosts("/get-token", Times.Exactly(2));
+        VerifyPosts("/api/StartAutoSwitch", Times.Exactly(2));
+        VerifyPosts("/api/StopAutoSwitch", Times.Once());
+    }
+
+    [Fact]
+    public void ResponseHandler_UnauthorizedReplyToGetScenarios_RetriesGetScenarios()
+    {
+        Respond("/get-token", TokenReply);
+
+        Respond("/api/GetScenarios", UnauthorizedReply);
+        Respond("/get-token", TokenReply);
+
+        VerifyPosts("/api/GetScenarios", Times.Exactly(2));
+        VerifyPosts("/api/GetLayouts", Times.Once());
+    }
+
+    [Fact]
+    public void ResponseHandler_UnauthorizedReplyMatchingNoRequest_LogsItAndRetriesNothing()
+    {
+        var (client, _, logs) = CreateWithCapturedLogs();
+        client.Object.HttpResponseHandlers!.Invoke(Reply("/get-token", TokenReply));
+
+        client.Object.HttpResponseHandlers!.Invoke(Reply("/api/Unknown", UnauthorizedReply));
+        client.Object.HttpResponseHandlers!.Invoke(Reply("/get-token", TokenReply));
+
+        Assert.Contains(logs.Logs,
+            log => log.Message == "The unauthorized reply to /api/Unknown matches no request, so nothing is retried");
+        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/get-token"), "", "application/json"),
+            Times.Exactly(2));
+        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetLayouts"), "", "application/json"),
+            Times.Once);
+        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetScenarios"), "", "application/json"),
+            Times.Once);
+    }
+
+    [Fact]
+    public void SetLayout_BeforeTheLayoutsLoad_PostsNothingAndAddsAnErrorEvent()
+    {
+        _automateVx.SetLayout(0);
+
+        VerifyPosts("/api/ChangeLayout", Times.Never());
+        Assert.Contains(_automateVx.Events,
+            e => e.Type == EventType.Error && e.Info == "Layout 0 is out of range, 0 layouts are loaded");
+    }
+
+    [Fact]
+    public void SetLayout_AfterTheLayoutsLoad_PostsTheLayoutId()
+    {
+        Respond("/api/GetLayouts",
+            "{\"status\": \"OK\", \"layouts\": [{\"id\": \"A\", \"name\": \"Full Screen\"}, {\"id\": \"B\", \"name\": \"PiP\"}]}");
+
+        _automateVx.SetLayout(1);
+
+        _mockClient.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/ChangeLayout"), "{\"id\": \"B\"}",
+            "application/json"), Times.Once);
+    }
+
+    [Fact]
+    public void SetScenario_BeforeTheScenariosLoad_PostsNothingAndAddsAnErrorEvent()
+    {
+        _automateVx.SetScenario(0);
+
+        VerifyPosts("/api/GoToScenario", Times.Never());
+        Assert.Contains(_automateVx.Events,
+            e => e.Type == EventType.Error && e.Info == "Scenario 0 is out of range, 0 scenarios are loaded");
+    }
+
+    [Fact]
+    public void SetScenario_LogsTheScenarioName()
+    {
+        var (client, camera, logs) = CreateWithCapturedLogs();
+        client.Object.HttpResponseHandlers!.Invoke(Reply("/api/GetScenarios",
+            "{\"status\": \"OK\", \"scenarios\": [{\"id\": 1, \"name\": \"Lectern\"}]}"));
+
+        camera.SetScenario(0);
+
+        Assert.Contains(logs.Logs, log => log.Message == "Setting Scenario to Lectern");
+    }
+
+    [Fact]
+    public void ResponseHandler_NonStringStatus_LogsTheContentAsUnparseable()
+    {
+        var (client, camera, logs) = CreateWithCapturedLogs();
+
+        client.Object.HttpResponseHandlers!.Invoke(Reply("/api/GetLayouts", "{\"status\": 5}"));
+
+        Assert.Contains(logs.Logs, log => log.Message == "Failed to parse 1Beyond response: {\"status\": 5}");
+        Assert.Empty(camera.Errors);
     }
 }

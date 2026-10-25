@@ -79,15 +79,17 @@ public class TemperzoneUc8History : LogBase, IDisposable
 
     private const string FlushIssueKey = "history-flush";
     private const int PendingLineCap = 100_000;
+    private const double HundredthsPerUnit = 100;
 
     private static readonly TimeSpan CompactionInterval = TimeSpan.FromDays(1);
 
     private readonly object _lock = new();
+    private readonly object _fileLock = new();
     private readonly Dictionary<string, List<HistorySample>> _series = new();
     private readonly Dictionary<string, float> _lastValues = new();
     private readonly Dictionary<string, DateTimeOffset> _lastRecorded = new();
     private readonly Dictionary<string, DateTimeOffset> _lastSeen = new();
-    private readonly Dictionary<string, float> _deadbands = new();
+    private readonly Dictionary<string, double> _deadbandHundredths = new();
     private readonly List<string> _pendingLines = [];
     private readonly ThreadWorker? _flushWorker;
     private bool _pruned;
@@ -117,7 +119,7 @@ public class TemperzoneUc8History : LogBase, IDisposable
     public void SetDeadband(string point, float deadband)
     {
         lock (_lock)
-            _deadbands[point] = deadband;
+            _deadbandHundredths[point] = Hundredths(deadband);
     }
 
     public void Record(string point, float value) => Record(point, value, DateTimeOffset.UtcNow);
@@ -128,10 +130,10 @@ public class TemperzoneUc8History : LogBase, IDisposable
         lock (_lock)
         {
             _lastSeen[point] = timestamp;
-            var deadband = _deadbands.GetValueOrDefault(point);
+            var deadband = _deadbandHundredths.GetValueOrDefault(point);
             var hasLast = _lastValues.TryGetValue(point, out var last);
             var changed = !hasLast ||
-                          (deadband > 0 ? Math.Abs(value - last) >= deadband : !last.Equals(value));
+                          (deadband > 0 ? Math.Abs(Hundredths(value) - Hundredths(last)) >= deadband : !last.Equals(value));
             var stale = _lastRecorded.TryGetValue(point, out var lastRecordedAt) &&
                         timestamp - lastRecordedAt > Heartbeat;
             if (!changed && !stale)
@@ -207,26 +209,49 @@ public class TemperzoneUc8History : LogBase, IDisposable
     {
         if (FilePath == null)
             return;
-        List<string>? pending;
-        lock (_lock)
+        string? failure = null;
+        lock (_fileLock)
         {
-            if (_pendingLines.Count == 0)
-                return;
-            pending = [.._pendingLines];
-            _pendingLines.Clear();
+            List<string> pending;
+            lock (_lock)
+            {
+                if (_pendingLines.Count == 0)
+                    return;
+                pending = [.._pendingLines];
+                _pendingLines.Clear();
+            }
+            try
+            {
+                if (!File.Exists(FilePath))
+                    File.WriteAllLines(FilePath, [CsvHeader]);
+                AppendLines(FilePath, pending);
+            }
+            catch (Exception e)
+            {
+                RetainPending(pending);
+                failure = e.Message;
+            }
         }
+        if (failure == null)
+            ResolveIssue(FlushIssueKey);
+        else
+            RaiseMomentaryIssue($"Could not write history to {FilePath}: {failure}", key: FlushIssueKey,
+                escalateAfter: 3);
+    }
+
+    private static void AppendLines(string path, List<string> lines)
+    {
+        var length = new FileInfo(path).Length;
         try
         {
-            if (!File.Exists(FilePath))
-                File.WriteAllLines(FilePath, [CsvHeader]);
-            File.AppendAllLines(FilePath, pending);
-            ResolveIssue(FlushIssueKey);
+            File.AppendAllLines(path, lines);
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            RetainPending(pending);
-            RaiseMomentaryIssue($"Could not write history to {FilePath}: {e.Message}", key: FlushIssueKey,
-                escalateAfter: 3);
+            if (new FileInfo(path).Length != length)
+                using (var file = new FileStream(path, FileMode.Open, FileAccess.Write))
+                    file.SetLength(length);
+            throw;
         }
     }
 
@@ -261,47 +286,51 @@ public class TemperzoneUc8History : LogBase, IDisposable
     {
         if (FilePath == null)
             return;
-        List<string> lines;
-        List<string> pending;
-        lock (_lock)
+        string? failure;
+        lock (_fileLock)
         {
-            PruneLocked(DateTimeOffset.UtcNow - Retention);
-            if (!_pruned && _pendingLines.Count == 0)
+            List<string> lines;
+            List<string> pending;
+            lock (_lock)
             {
-                _lastCompaction = DateTimeOffset.UtcNow;
-                return;
+                PruneLocked(DateTimeOffset.UtcNow - Retention);
+                if (!_pruned && _pendingLines.Count == 0)
+                {
+                    _lastCompaction = DateTimeOffset.UtcNow;
+                    return;
+                }
+                lines = AllLinesLocked();
+                pending = [.._pendingLines];
+                _pendingLines.Clear();
+                _pruned = false;
             }
-            lines = AllLinesLocked();
-            pending = [.._pendingLines];
-            _pendingLines.Clear();
-            _pruned = false;
+            failure = WriteCompacted(FilePath, lines);
+            if (failure != null)
+                RetainPending(pending);
+            _lastCompaction = DateTimeOffset.UtcNow;
         }
-        if (WriteCompacted(lines))
+        if (failure == null)
             ResolveIssue(FlushIssueKey);
         else
         {
-            RetainPending(pending);
+            using (PushProperties(nameof(Compact)))
+                LogWarning("Could not compact history at {File}: {Error}", FilePath, failure);
             RaiseMomentaryIssue($"Could not compact history at {FilePath}", key: FlushIssueKey, escalateAfter: 3);
         }
-        _lastCompaction = DateTimeOffset.UtcNow;
     }
 
-    private bool WriteCompacted(List<string> lines)
+    private static string? WriteCompacted(string path, List<string> lines)
     {
-        if (FilePath == null)
-            return false;
         try
         {
-            var temporary = FilePath + ".tmp";
+            var temporary = path + ".tmp";
             File.WriteAllLines(temporary, lines.Prepend(CsvHeader));
-            File.Move(temporary, FilePath, true);
-            return true;
+            File.Move(temporary, path, true);
+            return null;
         }
         catch (Exception e)
         {
-            using (PushProperties(nameof(WriteCompacted)))
-                LogWarning("Could not compact history at {File}: {Error}", FilePath, e.Message);
-            return false;
+            return e.Message;
         }
     }
 
@@ -315,14 +344,18 @@ public class TemperzoneUc8History : LogBase, IDisposable
             var entries = new List<(string Point, HistorySample Sample)>();
             foreach (var line in File.ReadAllLines(FilePath))
             {
+                if (line == CsvHeader)
+                    continue;
                 var parts = line.Split(',');
-                if (parts.Length != 3)
+                if (parts.Length != 3 ||
+                    !DateTimeOffset.TryParse(parts[0], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind,
+                        out var timestamp) ||
+                    !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+                {
+                    using (PushProperties(nameof(Load)))
+                        LogWarning("Skipped an unreadable line in {File}: {Line}", FilePath, line);
                     continue;
-                if (!DateTimeOffset.TryParse(parts[0], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind,
-                        out var timestamp))
-                    continue;
-                if (!float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-                    continue;
+                }
                 if (timestamp < cutoff)
                     continue;
                 entries.Add((parts[1], new HistorySample(timestamp, value)));
@@ -345,7 +378,10 @@ public class TemperzoneUc8History : LogBase, IDisposable
                 }
                 lines = AllLinesLocked();
             }
-            WriteCompacted(lines);
+            var failure = WriteCompacted(FilePath, lines);
+            if (failure != null)
+                using (PushProperties(nameof(Load)))
+                    LogWarning("Could not compact history at {File}: {Error}", FilePath, failure);
             _lastCompaction = DateTimeOffset.UtcNow;
         }
         catch (Exception e)
@@ -394,6 +430,8 @@ public class TemperzoneUc8History : LogBase, IDisposable
             LogException(e, "A history sample handler threw an exception");
         }
     }
+
+    private static double Hundredths(float value) => Math.Round(value * HundredthsPerUnit);
 
     private static string Serialize(string point, HistorySample sample) =>
         $"{sample.Timestamp.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)},{point},{sample.Value.ToString("R", CultureInfo.InvariantCulture)}";

@@ -21,6 +21,8 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
     private const string NonHdcpMonitor = "1";
     private const string UnencryptedHdcpMonitor = "2";
     private const string EncryptedHdcpMonitor = "3";
+    private const string ModelIssueKey = "model";
+    private const int MaximumSyncTimeout = 501;
     public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
     public readonly List<ExtronMatrixInput> Inputs = [];
     public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs
@@ -60,7 +62,11 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         if (response.StartsWith("Ityp"))
         {
             var parts = response.TrimEnd('\r').Split('*');
-            if (parts.Length != 2) return;
+            if (parts.Length != 2)
+            {
+                LogWarning("Ignoring the input type {Response} as it isn't an input and a type", response);
+                return;
+            }
 
             var inputNumber = int.Parse(parts[0].Substring(4)) - 1;
             var status = parts[1];
@@ -76,10 +82,16 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         else if (response.StartsWith("HdcpI"))
         {
             if (!TryParseHdcpResponse(response, out var endpoint, out var value))
+            {
+                LogWarning("Ignoring the input HDCP status {Response} as it isn't an input and a status", response);
                 return;
+            }
             int inputNumber = int.Parse(endpoint.TakeWhile(char.IsDigit).ToArray());
             if (inputNumber <= 0 || inputNumber > Inputs.Count)
+            {
+                LogWarning("Ignoring the input HDCP status {Response} as it doesn't name one of the {InputCount} inputs", response, Inputs.Count);
                 return;
+            }
 
             var (connectionStatus, hdcpStatus) = ParseInputHdcp(value);
 
@@ -91,10 +103,16 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         else if (response.StartsWith("HdcpO"))
         {
             if (!TryParseHdcpResponse(response, out var endpoint, out var value))
+            {
+                LogWarning("Ignoring the output HDCP status {Response} as it isn't an output and a status", response);
                 return;
+            }
             int outputNumber = int.Parse(endpoint.TakeWhile(char.IsDigit).ToArray());
             if (outputNumber <= 0 || outputNumber > ComposedOutputs.Count)
+            {
+                LogWarning("Ignoring the output HDCP status {Response} as it doesn't name one of the {OutputCount} outputs", response, ComposedOutputs.Count);
                 return;
+            }
 
             var (connectionStatus, hdcpStatus) = ParseOutputHdcp(value);
             var output = endpoint.Contains('B')
@@ -109,14 +127,15 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
                 EndpointsChangedHandlers?.Invoke();
         }
         else if (response.StartsWith("Hplg"))
-        {
-            var outputNumber = response.Substring(5).TrimEnd();
-            WrapAndSendCommand($"O{outputNumber}HDCP");
-        }
+            HandleHotplug(response);
         else if (response.StartsWith("Nmi"))
         {
-            var parts = response.TrimEnd('\r').Split(',');
-            if (parts.Length != 2) return;
+            var parts = response.TrimEnd('\r').Split(',', 2);
+            if (parts.Length != 2)
+            {
+                LogWarning("Ignoring the input name {Response} as it isn't an input and a name", response);
+                return;
+            }
 
             var inputNumber = int.Parse(parts[0].Substring(3)) - 1;
             var name = parts[1];
@@ -128,8 +147,12 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         }
         else if (response.StartsWith("Nmo"))
         {
-            var parts = response.TrimEnd('\r').Split(',');
-            if (parts.Length != 2) return;
+            var parts = response.TrimEnd('\r').Split(',', 2);
+            if (parts.Length != 2)
+            {
+                LogWarning("Ignoring the output name {Response} as it isn't an output and a name", response);
+                return;
+            }
 
             var outputNumber = int.Parse(parts[0].Substring(3)) - 1;
             var name = parts[1];
@@ -142,39 +165,42 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         else if (response.StartsWith("Frq00"))
             HandleSignalPresence(response[6..]);
         else if (response.StartsWith("Inf00*DTPCP"))
-        {
-            var digits = response.Remove(0, 11).TrimEnd('\r');
-            if(digits.EndsWith(" 4K"))
-                digits = digits.Remove(digits.Length - 3);
-            int inputCount = 0;
-            int outputCount = 0;
-            switch (digits.Length)
-            {
-                case 2:
-                    inputCount = int.Parse(digits[..1]);
-                    outputCount = int.Parse(digits[^1].ToString());
-                    break;
-                case 3:
-                    inputCount = int.Parse(digits[..2]);
-                    outputCount = int.Parse(digits[^1].ToString());
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException("The model number digits are unsupported");
-            }
-
-            if (inputCount == 0 || outputCount == 0)
-                throw new ArgumentOutOfRangeException(
-                    "Unable to determine the number of inputs or outputs. Please check the model number and try again.");
-
-            SetPortCounts(inputCount, outputCount);
-            QueryPorts();
-        }
+            HandleModel(response);
         else if (response == "Qik")
             QueryTies();
         else if (VideoTieRegex().Match(response) is { Success: true } tie)
             SetVideoTie(int.Parse(tie.Groups[1].Value), int.Parse(tie.Groups[2].Value));
         else if (AllOutputsVideoTieRegex().Match(response) is { Success: true } allOutputsTie)
             SetVideoTieOnAllOutputs(int.Parse(allOutputsTie.Groups[1].Value));
+    }
+
+    private void HandleHotplug(string response)
+    {
+        var output = response[4..].TrimEnd();
+        var digits = string.Concat(output.TakeWhile(char.IsDigit));
+        if (!int.TryParse(digits, out var number))
+        {
+            LogWarning("Ignoring the hotplug event {Response} as it doesn't name an output", response);
+            return;
+        }
+        WrapAndSendCommand($"O{number}{output[digits.Length..]}HDCP");
+    }
+
+    private void HandleModel(string response)
+    {
+        var digits = response.Remove(0, 11).TrimEnd('\r');
+        if (digits.EndsWith(" 4K"))
+            digits = digits.Remove(digits.Length - 3);
+        if (digits.Length is not (2 or 3) || !int.TryParse(digits[..^1], out var inputCount) ||
+            !int.TryParse(digits[^1..], out var outputCount) || inputCount == 0 || outputCount == 0)
+        {
+            RaiseOngoingIssue(ModelIssueKey, $"Unable to read the input and output counts from the model {response}");
+            return;
+        }
+
+        ResolveIssue(ModelIssueKey);
+        SetPortCounts(inputCount, outputCount);
+        QueryPorts();
     }
 
     private static (ConnectionState Connection, HdcpStatus Hdcp) ParseInputHdcp(string value) => value switch
@@ -282,14 +308,14 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         sb.Append('\r');
         SendCommand(sb.ToString());
 
-        AddEvent(EventType.Input, $"Switched outputs {outputs} to input {input}");
+        AddEvent(EventType.Input, $"Switched outputs [{string.Join(", ", outputs)}] to input {input}");
     }
 
     public override int NumberOfOutputs => ComposedOutputs.Count;
 
     public override int NumberOfInputs => Inputs.Count;
 
-    public override bool SupportsAudioBreakaway { get; }
+    public override bool SupportsAudioBreakaway => true;
 
     public void RouteVideo(int input, List<int> outputs)
     {
@@ -301,7 +327,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         sb.Append('\r');
         SendCommand(sb.ToString());
 
-        AddEvent(EventType.Input, $"Switched video outputs {outputs} to input {input}");
+        AddEvent(EventType.Input, $"Switched video outputs [{string.Join(", ", outputs)}] to input {input}");
     }
 
     public void RouteAudio(int input, List<int> outputs)
@@ -316,20 +342,20 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         sb.Append('\r');
         SendCommand(sb.ToString());
 
-        AddEvent(EventType.Input, $"Switched audio output {outputs} to input {input}");
+        AddEvent(EventType.Input, $"Switched audio output [{string.Join(", ", outputs)}] to input {input}");
     }
 
     public void SetSyncTimeout(int seconds, int output)
     {
-        if (seconds < 502)
+        if (seconds <= MaximumSyncTimeout)
         {
-            SendCommand($"\u001bT{seconds}*{output}SSAV\u0027");
+            WrapAndSendCommand($"T{output}*{seconds}SSAV");
         }
         else
         {
-            AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
+            AddEvent(EventType.Error, $"The sync timeout can't be longer than {MaximumSyncTimeout} seconds");
             using (PushProperties("SetSyncTimeout"))
-                LogWarning("The sync timeout can't be longer than 502 seconds");
+                LogWarning("The sync timeout can't be longer than {MaximumSyncTimeout} seconds", MaximumSyncTimeout);
         }
     }
 }

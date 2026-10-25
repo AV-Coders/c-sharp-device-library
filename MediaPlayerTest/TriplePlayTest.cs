@@ -41,4 +41,24 @@ public class TriplePlayTest
 
         Assert.All(TraceContext.Headers, header => Assert.Null(headers[header]));
     }
+
+    [Fact]
+    public void SetChannel_WithANegativeChannel_IsLogged()
+    {
+        var logs = LogCapture.Create(() => new TriplePlay(1, "foo", "Logged"), out var triplePlay);
+
+        triplePlay.SetChannel(-1);
+
+        Assert.Contains(logs.Logs, log => log.Message == "Channel -1 is invalid, it can't be negative");
+    }
+
+    [Fact]
+    public void SetAudioMute_Unknown_IsLogged()
+    {
+        var logs = LogCapture.Create(() => new TriplePlay(1, "foo", "Logged"), out var triplePlay);
+
+        triplePlay.SetAudioMute(AVCoders.Core.MuteState.Unknown);
+
+        Assert.Contains(logs.Logs, log => log.Message == "Can't set the audio mute to Unknown");
+    }
 }

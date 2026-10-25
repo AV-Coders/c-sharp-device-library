@@ -20,6 +20,9 @@ public class RoomManager : DeviceBase
     {
         _device = device;
         _device.PowerStateHandlers += state => PowerState = state;
+        _device.DesiredPowerStateHandlers += state => DesiredPowerState = state;
+        PowerState = _device.PowerState;
+        DesiredPowerState = _device.DesiredPowerState;
     }
 
     public void SetProperty(string key, string value)

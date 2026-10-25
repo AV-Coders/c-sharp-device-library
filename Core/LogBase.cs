@@ -57,6 +57,7 @@ public abstract class LogBase
     // dictionary for the life of the process.
     private const int ConsecutiveMomentaryKeyLimit = 200;
     private readonly Dictionary<string, int> _consecutiveMomentary = new();
+    private readonly List<string> _consecutiveMomentaryOrder = [];
     private IReadOnlyList<Issue>? _issuesSnapshot;
     private IReadOnlyList<Issue>? _ongoingIssuesSnapshot;
     private readonly object _issuesLock = new();
@@ -337,8 +338,15 @@ public abstract class LogBase
             }
 
             var consecutive = _consecutiveMomentary.GetValueOrDefault(key) + 1;
-            if (consecutive == 1 && _consecutiveMomentary.Count >= ConsecutiveMomentaryKeyLimit)
-                _consecutiveMomentary.Remove(_consecutiveMomentary.Keys.First());
+            if (consecutive == 1)
+            {
+                if (_consecutiveMomentary.Count >= ConsecutiveMomentaryKeyLimit)
+                {
+                    _consecutiveMomentary.Remove(_consecutiveMomentaryOrder[0]);
+                    _consecutiveMomentaryOrder.RemoveAt(0);
+                }
+                _consecutiveMomentaryOrder.Add(key);
+            }
             _consecutiveMomentary[key] = consecutive;
             if (escalateAfter is { } threshold && consecutive >= threshold
                 && _issues.FindLastIndex(i => i.Key == key && i.Status == IssueStatus.Ongoing) < 0)
@@ -415,7 +423,8 @@ public abstract class LogBase
         Issue resolved;
         lock (_issuesLock)
         {
-            _consecutiveMomentary.Remove(key);
+            if (_consecutiveMomentary.Remove(key))
+                _consecutiveMomentaryOrder.Remove(key);
             var index = _issues.FindLastIndex(i => i.Key == key && i.Status == IssueStatus.Ongoing);
             if (index < 0)
                 return;

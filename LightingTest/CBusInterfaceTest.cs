@@ -9,6 +9,7 @@ public class CBusInterfaceTest
 {
     private const string FirstWire = "\\0538007919r\r";
     private const string SecondWire = "\\053800011Ar\r";
+    private const string ThirdWire = "\\053800791Ar\r";
     private static readonly Actor FirstActor = new(ActorKind.Browser, "10.0.0.1", "First browser", null, "first");
     private static readonly Actor SecondActor = new(ActorKind.Browser, "10.0.0.2", "Second browser", null, "second");
     private readonly CBusSerialInterface _interface;
@@ -91,6 +92,22 @@ public class CBusInterfaceTest
         _time.Advance(CBusSerialInterface.ConfirmationTimeout);
 
         Assert.Equal(["\\0538007919r\r", "\\053800011Ar\r"], _sent);
+    }
+
+    [Fact]
+    public void SendFailureAfterTheConfirmationTimeout_IsLoggedAndTheQueueMovesOn()
+    {
+        _interface.SendPointToMultipointPayload(0x38, [0x79, 0x19]);
+        _interface.SendPointToMultipointPayload(0x38, [0x01, 0x1A]);
+        _interface.SendPointToMultipointPayload(0x38, [0x79, 0x1A]);
+        var sendError = new IOException("Oh No!");
+        _mockClient.Setup(x => x.Send(SecondWire)).Throws(sendError);
+
+        _time.Advance(CBusSerialInterface.ConfirmationTimeout);
+        _time.Advance(CBusSerialInterface.ConfirmationTimeout);
+
+        Assert.Same(sendError, Assert.Single(_interface.Errors).Exception);
+        Assert.Equal([FirstWire, ThirdWire], _sent);
     }
 
     [Fact]

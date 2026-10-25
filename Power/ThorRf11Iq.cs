@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Xml;
@@ -71,11 +72,9 @@ public class ThorRf11IqPdu : Pdu
     private readonly Uri _statusUri = new(StatusPath, UriKind.Relative);
     private readonly ThreadWorker _pollWorker;
     private readonly object _lock = new();
-    // Responses only identify their request by path, so identical in-flight commands are
-    // matched to their replies first-in first-out.
-    private readonly Dictionary<string, Queue<TaskCompletionSource<string?>>> _pendingCommands = new();
+    private readonly AsyncLocal<TaskCompletionSource<string?>?> _sendingCommand = new();
     private readonly Dictionary<int, ChannelState> _channels = new();
-    private DateTime _pollDispatchedUtc;
+    private long _pollDispatched;
     private volatile bool _statusReceived;
     private volatile string? _pollFailure;
     private volatile IReadOnlyList<ThorRf11IqCircuitStatus> _circuits = [];
@@ -84,7 +83,7 @@ public class ThorRf11IqPdu : Pdu
 
     private sealed class ChannelState
     {
-        public DateTime LastCommandUtc;
+        public long LastCommand;
         public CancellationTokenSource? Reboot;
     }
 
@@ -177,13 +176,13 @@ public class ThorRf11IqPdu : Pdu
             }
 
             if (path.StartsWith(CommandPath))
-                CompleteCommand(path, response);
+                CompleteCommand(response);
             else if (path.StartsWith(StatusPath))
                 HandleStatusResponse(response);
         }
     }
 
-    private void CompleteCommand(string path, HttpResponseMessage response)
+    private void CompleteCommand(HttpResponseMessage response)
     {
         string? failure = null;
         if (!response.IsSuccessStatusCode)
@@ -194,14 +193,7 @@ public class ThorRf11IqPdu : Pdu
             if (!body.StartsWith(CommandAcknowledgement))
                 failure = $"the reply was '{body.Trim()}'";
         }
-
-        TaskCompletionSource<string?>? pending = null;
-        lock (_lock)
-        {
-            if (_pendingCommands.TryGetValue(path, out var queue) && queue.Count > 0)
-                pending = queue.Dequeue();
-        }
-        pending?.TrySetResult(failure);
+        _sendingCommand.Value?.TrySetResult(failure);
     }
 
     private void HandleStatusResponse(HttpResponseMessage response)
@@ -217,7 +209,7 @@ public class ThorRf11IqPdu : Pdu
             _pollFailure = "the response body could not be read";
             return;
         }
-        ParseStatus(body, _pollDispatchedUtc);
+        ParseStatus(body, _pollDispatched);
     }
 
     private string? ReadBody(HttpResponseMessage response)
@@ -233,7 +225,7 @@ public class ThorRf11IqPdu : Pdu
         }
     }
 
-    private void ParseStatus(string body, DateTime dispatchedUtc)
+    private void ParseStatus(string body, long dispatched)
     {
         XmlElement root;
         try
@@ -265,7 +257,7 @@ public class ThorRf11IqPdu : Pdu
             foreach (var outlet in Outlets.OfType<ThorRf11IqOutlet>())
             {
                 var state = Value($"p{outlet.Channel}");
-                if (state != null && PollMayUpdate(outlet.Channel, dispatchedUtc))
+                if (state != null && PollMayUpdate(outlet.Channel, dispatched))
                     outlet.OverridePowerState(state == "1" ? PowerState.On : PowerState.Off);
                 if (float.TryParse(Value($"c{outlet.Channel}"), NumberStyles.Float, CultureInfo.InvariantCulture,
                         out var amps))
@@ -298,12 +290,12 @@ public class ThorRf11IqPdu : Pdu
 
     // A poll dispatched before a command carries the pre-command state, and a rebooting
     // channel is deliberately off; neither may overwrite what the driver knows.
-    private bool PollMayUpdate(int channel, DateTime dispatchedUtc)
+    private bool PollMayUpdate(int channel, long dispatched)
     {
         lock (_lock)
         {
             var state = _channels[channel];
-            return state.Reboot == null && state.LastCommandUtc <= dispatchedUtc;
+            return state.Reboot == null && state.LastCommand <= dispatched;
         }
     }
 
@@ -311,7 +303,7 @@ public class ThorRf11IqPdu : Pdu
     {
         _statusReceived = false;
         _pollFailure = null;
-        _pollDispatchedUtc = DateTime.UtcNow;
+        _pollDispatched = Stopwatch.GetTimestamp();
         await _restClient.Get(_statusUri);
         if (_statusReceived)
         {
@@ -374,7 +366,7 @@ public class ThorRf11IqPdu : Pdu
     private Task<bool> SendOutletCommandAsync(ThorRf11IqOutlet outlet, bool on, PowerState acknowledgedState)
     {
         lock (_lock)
-            _channels[outlet.Channel].LastCommandUtc = DateTime.UtcNow;
+            _channels[outlet.Channel].LastCommand = Stopwatch.GetTimestamp();
         return SendCommandAsync($"p{outlet.Channel}", on ? "1" : "0",
             $"{(on ? "power on" : "power off")} command for outlet {outlet.Name}",
             () => outlet.OverridePowerState(acknowledgedState));
@@ -422,35 +414,10 @@ public class ThorRf11IqPdu : Pdu
 
     private async Task<bool> SendCommandAsync(string parameter, string value, string description, Action onAcknowledged)
     {
-        var path = $"{CommandPath}?param={parameter}&value={value}";
-        var pending = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (_lock)
-        {
-            if (!_pendingCommands.TryGetValue(path, out var queue))
-                _pendingCommands[path] = queue = new Queue<TaskCompletionSource<string?>>();
-            queue.Enqueue(pending);
-        }
-
-        await _restClient.Get(new Uri(path, UriKind.Relative));
-
-        string? failure;
-        if (pending.Task.IsCompleted)
-            failure = pending.Task.Result;
-        else
-        {
-            failure = "no response";
-            lock (_lock)
-            {
-                if (_pendingCommands.TryGetValue(path, out var queue))
-                {
-                    var remaining = queue.Where(item => item != pending).ToList();
-                    queue.Clear();
-                    remaining.ForEach(queue.Enqueue);
-                    if (queue.Count == 0)
-                        _pendingCommands.Remove(path);
-                }
-            }
-        }
+        var reply = new TaskCompletionSource<string?>();
+        _sendingCommand.Value = reply;
+        await _restClient.Get(new Uri($"{CommandPath}?param={parameter}&value={value}", UriKind.Relative));
+        var failure = reply.Task.IsCompleted ? reply.Task.Result : "no response";
 
         if (failure != null)
         {

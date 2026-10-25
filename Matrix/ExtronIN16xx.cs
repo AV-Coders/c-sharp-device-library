@@ -1,8 +1,9 @@
-﻿using AVCoders.Core;
+﻿using System.Text.RegularExpressions;
+using AVCoders.Core;
 
 namespace AVCoders.Matrix;
 
-public class ExtronIn16Xx : VideoMatrix
+public partial class ExtronIn16Xx : VideoMatrix
 {
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
@@ -14,8 +15,15 @@ public class ExtronIn16Xx : VideoMatrix
         .ToList();
 
     private const string EscapeHeader = "\x1b";
+    private const string SignalDetected = "1";
+    private const int MaximumSyncTimeout = 501;
+    private static readonly char[] LineSeparators = ['\r', '\n'];
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan VideoMuteStepGap = TimeSpan.FromMilliseconds(300);
     private readonly int _numberOfInputs;
     private readonly ThreadWorker _pollWorker;
+    private readonly object _spacedSendsLock = new();
+    private Task _spacedSends = Task.CompletedTask;
 
     public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name) 
         : base(1, communicationClient, name)
@@ -26,24 +34,79 @@ public class ExtronIn16Xx : VideoMatrix
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
         _pollWorker.Restart();
         communicationClient.ConnectionStateHandlers += HandleConnectionState;
+        communicationClient.ResponseHandlers += HandleResponse;
+    }
+
+    [GeneratedRegex(@"^In00 ([01](?:\*[01])*)$", RegexOptions.IgnoreCase)]
+    private static partial Regex SignalPresenceRegex();
+
+    private void HandleResponse(string response)
+    {
+        using (PushProperties("HandleResponse"))
+        {
+            foreach (var line in response.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (SignalPresenceRegex().Match(line.Trim()) is { Success: true } presence)
+                    HandleSignalPresence(presence.Groups[1].Value);
+            }
+        }
+    }
+
+    private void HandleSignalPresence(string statuses)
+    {
+        var values = statuses.Split('*');
+        SetInputCount(values.Length);
+        for (var index = 0; index < values.Length; index++)
+            Inputs[index].SetInputStatus(values[index] == SignalDetected ? ConnectionState.Connected : ConnectionState.Disconnected);
+    }
+
+    private void SetInputCount(int count)
+    {
+        if (Inputs.Count == count)
+            return;
+        while (Inputs.Count > count)
+        {
+            LogBaseRegistry.Deregister(Inputs[^1]);
+            Inputs.RemoveAt(Inputs.Count - 1);
+        }
+        while (Inputs.Count < count)
+        {
+            var number = Inputs.Count + 1;
+            Inputs.Add(new ExtronMatrixInput($"Input {number}", number));
+        }
+        EndpointsChangedHandlers?.Invoke();
     }
     
     private void HandleConnectionState(ConnectionState connectionState)
     {
         if(connectionState != ConnectionState.Connected)
             return;
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        WrapAndSendCommand("3CV");
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        SendCommand("I"); // To get the input and output count, resets the lists and all data
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(async _ =>
+            {
+                try
+                {
+                    await Task.Delay(ConnectStepGap);
+                    WrapAndSendCommand("3CV");
+                    await Task.Delay(ConnectStepGap);
+                    SendCommand("I");
+                    WrapAndSendCommand("0LS");
+                }
+                catch (Exception e)
+                {
+                    LogException(e, "The connection sequence failed");
+                }
+            }, TaskScheduler.Default).Unwrap();
     }
     
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
 
     private Task Poll(CancellationToken arg)
     {
-        if(CommunicationClient.ConnectionState == ConnectionState.Connected)
-            WrapAndSendCommand("CV");
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+            return Task.CompletedTask;
+        WrapAndSendCommand("CV");
+        WrapAndSendCommand("0LS");
         return Task.CompletedTask;
     }
 
@@ -105,7 +168,7 @@ public class ExtronIn16Xx : VideoMatrix
         }
     }
 
-    public override bool SupportsAudioBreakaway { get; }
+    public override bool SupportsAudioBreakaway => true;
 
     public override void RouteAudio(int input, int output)
     {
@@ -124,26 +187,37 @@ public class ExtronIn16Xx : VideoMatrix
 
     public void SetSyncTimeout(int seconds)
     {
-        if (seconds < 502)
+        if (seconds <= MaximumSyncTimeout)
         {
-            SendCommand($"\u001bT{seconds}SSAV\u0027");
+            WrapAndSendCommand($"T{seconds}SSAV");
             AddEvent(EventType.VideoMute, $"Set sync timeout to {seconds} seconds");
         }
         else
         {
-            AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
+            AddEvent(EventType.Error, $"The sync timeout can't be longer than {MaximumSyncTimeout} seconds");
             using (PushProperties("SetSyncTimeout"))
-                LogWarning("The sync timeout can't be longer than 502 seconds");
+                LogWarning("The sync timeout can't be longer than {MaximumSyncTimeout} seconds", MaximumSyncTimeout);
         }
     }
 
     public void SetVideoMute(MuteState state)
     {
-        SendCommand(state == MuteState.On ? "1*2B" : "1*0B");
-        Thread.Sleep(TimeSpan.FromMilliseconds(300));
-        SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
-        Thread.Sleep(TimeSpan.FromMilliseconds(300));
-        SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(async _ =>
+            {
+                try
+                {
+                    SendCommand(state == MuteState.On ? "1*2B" : "1*0B");
+                    await Task.Delay(VideoMuteStepGap);
+                    SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
+                    await Task.Delay(VideoMuteStepGap);
+                    SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
+                }
+                catch (Exception e)
+                {
+                    LogException(e, "The video mute sends failed");
+                }
+            }, TaskScheduler.Default).Unwrap();
         AddEvent(EventType.VideoMute, $"Switched video mute to {state}");
     }
 }

@@ -41,6 +41,12 @@ public class LogBaseRegistryTest : IDisposable
     }
 
     [Fact]
+    public void GetAll_DoesNotListTheNoneClient()
+    {
+        Assert.DoesNotContain(CommunicationClient.None, LogBaseRegistry.GetAll());
+    }
+
+    [Fact]
     public void GetOngoingIssues_AggregatesOngoingIssues_ExcludingResolvedAndMomentary()
     {
         _logBase.Ongoing("communication", "Comms error");

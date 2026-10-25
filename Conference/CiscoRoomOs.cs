@@ -6,6 +6,8 @@ public record CiscoRoomOsDeviceInfo(string Name, string SoftwareInfo, string Har
 
 public class CiscoRoomOsOutputFader : VolumeControl
 {
+  private const int MinimumVolume = 0;
+  private const int MaximumVolume = 100;
   private readonly CiscoRoomOs _codec;
     
   public CiscoRoomOsOutputFader(string name, CiscoRoomOs codec, VolumeType type) : base(name, type)
@@ -17,9 +19,11 @@ public class CiscoRoomOsOutputFader : VolumeControl
     MuteState = _codec.OutputMute.MuteState;
   }
 
-  public override void LevelUp(int amount) => _codec.SetOutputVolume(_codec.OutputVolume.Volume + amount);
+  public override void LevelUp(int amount) =>
+    _codec.SetOutputVolume(Math.Clamp(_codec.OutputVolume.Volume + amount, MinimumVolume, MaximumVolume));
 
-  public override void LevelDown(int amount) => _codec.SetOutputVolume(_codec.OutputVolume.Volume - amount);
+  public override void LevelDown(int amount) =>
+    _codec.SetOutputVolume(Math.Clamp(_codec.OutputVolume.Volume - amount, MinimumVolume, MaximumVolume));
 
   public override void SetLevel(int percentage) => _codec.SetOutputVolume(percentage);
 
@@ -61,7 +65,23 @@ public enum PeripheralType
 
 public class CiscoRoomOs : Conference
   {
+    private const int LoginTokens = 3;
+    private const int ValueTokens = 4;
+    private const int ItemValueTokens = 5;
+    private const int PathValueTokens = 6;
     private static readonly char[] LineSeparators = ['\r', '\n'];
+    private static readonly string[] FeedbackMarkers = ["*s ", "*r ", "*c ", "*e "];
+    private static readonly CallStatus[] CallStatusPriority =
+    [
+      CallStatus.Ringing,
+      CallStatus.Dialling,
+      CallStatus.Connecting,
+      CallStatus.Connected,
+      CallStatus.OnHold,
+      CallStatus.Disconnecting
+    ];
+    private static readonly Dictionary<string, CallStatus> CallStatuses =
+      Enum.GetValues<CallStatus>().ToDictionary(status => status.ToString());
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
@@ -125,11 +145,15 @@ public class CiscoRoomOs : Conference
           SendCommand("xFeedback register /Status/Call");
           SendCommand("xFeedback register /Event/CallDisconnect");
           SendCommand("xFeedback register /Status/Audio/Volume");
+          SendCommand("xFeedback register /Status/Audio/VolumeMute");
+          SendCommand("xFeedback register /Status/Audio/Microphones/Mute");
           SendCommand("xFeedback Register Configuration/Conference/AutoAnswer/Mode");
           SendCommand("xStatus Standby");
           SendCommand("xStatus Conference DoNotDisturb");
           SendCommand("xStatus Call");
           SendCommand("xStatus Audio Volume");
+          SendCommand("xStatus Audio VolumeMute");
+          SendCommand("xStatus Audio Microphones Mute");
           SendCommand("xStatus SIP Registration URI");
           SendCommand("xConfiguration Conference AutoAnswer Mode");
         }
@@ -149,8 +173,9 @@ public class CiscoRoomOs : Conference
         CommunicationClient.Send(command + "\r\n");
         CommunicationState = CommunicationState.Okay;
       }
-      catch (Exception)
+      catch (Exception e)
       {
+        LogException(e, $"Failed to send {command}");
         CommunicationState = CommunicationState.Error;
       }
     }
@@ -182,6 +207,7 @@ public class CiscoRoomOs : Conference
       {
         ActiveCalls.Clear();
         CallStatus = CallStatus.Idle;
+        RaiseActiveCallsChanged(GetActiveCalls());
       }
     }
 
@@ -228,7 +254,7 @@ public class CiscoRoomOs : Conference
     {
       using (PushProperties("ProcessResponse"))
       {
-        if (!response.Contains("*s") && !response.Contains("*r") && !response.Contains("*c") && !response.Contains("*e"))
+        if (!FeedbackMarkers.Any(marker => response.StartsWith(marker)))
           return;
 
         var responses = response.Split(' ');
@@ -246,58 +272,54 @@ public class CiscoRoomOs : Conference
               }
               return;
             case "CallDisconnectResult":
-              if (!response.Contains("status=OK"))
-                return;
-              ActiveCalls.Clear();
-              CallStatus = CallStatus.Idle;
-              SendCommand("xStatus Call");
+              if (response.Contains("status=OK"))
+                SendCommand("xStatus Call");
               return;
-            case "Call" when responses[3].Contains("(ghost=True)"):
+            case "Call" when responses.Length >= ValueTokens && responses[3].Contains("(ghost=True)"):
               EndCall(int.Parse(responses[2]));
               return;
-            case "Call":
+            case "Call" when responses.Length >= ItemValueTokens:
               ProcessCallResponse(responses);
               RaiseActiveCallsChanged(GetActiveCalls());
               return;
-            case "CallDisconnect" when responses[2] == "CallId:":
+            case "CallDisconnect" when responses.Length >= ValueTokens && responses[2] == "CallId:":
               EndCall(int.Parse(responses[3]));
               return;
-            case "Audio" when responses[2] == "Volume:":
+            case "Audio" when responses.Length >= ValueTokens && responses[2] == "Volume:":
               OutputVolume.SetVolumeFromPercentage(double.Parse(responses[3]));
               return;
-            case "Audio" when responses[2] == "VolumeMute:":
+            case "Audio" when responses.Length >= ValueTokens && responses[2] == "VolumeMute:":
               OutputMute.MuteState = responses[3].Contains("On") ? MuteState.On : MuteState.Off;
               return;
-            case "Audio" when responses[2] == "Microphones" && responses[3] == "Mute:":
+            case "Audio" when responses.Length >= ItemValueTokens && responses[2] == "Microphones" && responses[3] == "Mute:":
               MicrophoneMute.MuteState = responses[4].Contains("On") ? MuteState.On : MuteState.Off;
               return;
-            case "Conference" when responses[2] == "DoNotDisturb:":
+            case "Conference" when responses.Length >= ValueTokens && responses[2] == "DoNotDisturb:":
               DoNotDisturbState = responses[3].Contains("Active") ? PowerState.On : PowerState.Off;
               ValidateDoNotDisturbState();
               return;
-            case "xConfiguration" when responses[2] == "Conference" && responses[3] == "AutoAnswer" && responses[4] == "Mode:":
+            case "xConfiguration" when responses.Length >= PathValueTokens && responses[2] == "Conference" && responses[3] == "AutoAnswer" && responses[4] == "Mode:":
               AutoAnswerState = responses[5].Contains("On") ? PowerState.On : PowerState.Off;
               return;
 
-            case "SIP" when responses[2] == "Registration" && responses[4] == "URI:":
+            case "SIP" when responses.Length >= PathValueTokens && responses[2] == "Registration" && responses[4] == "URI:":
               Uri = responses[5].Trim().Trim('"');
               return;
-            case "Login" when responses[2].Trim()== "successful":
+            case "Login" when responses.Length >= LoginTokens && responses[2].Trim()== "successful":
               Reinitialise();
               return;
-            case "Standby" when responses[2] == "State:":
+            case "Standby" when responses.Length >= ValueTokens && responses[2] == "State:":
               PowerState = responses[3].Contains("Off") ? PowerState.On : PowerState.Off;
               ProcessPowerState();
+              return;
+            default:
+              LogDebug("Unhandled feedback {Response}", response);
               return;
           }
         }
         catch (Exception e)
         {
-          using (PushProperties("ProcessResponse"))
-          {
-            LogException(e, $"An exception was thrown while processing the string {response}");
-            throw;
-          }
+          LogException(e, $"An exception was thrown while processing the string {response}");
         }
       }
     }
@@ -331,7 +353,12 @@ public class CiscoRoomOs : Conference
 
       if (responses[3] == "Status:")
       {
-        ActiveCalls[callId].Status = Enum.Parse<CallStatus>(responses[4].Trim());
+        if (!CallStatuses.TryGetValue(responses[4].Trim(), out var status))
+        {
+          LogWarning("Unknown status {Status} for call {CallId}", responses[4], callId);
+          return;
+        }
+        ActiveCalls[callId].Status = status;
         CallStatusFeedback();
       }
       else if (responses[3] == "DisplayName:")
@@ -355,24 +382,11 @@ public class CiscoRoomOs : Conference
 
     private void CallStatusFeedback()
     {
-      var priorityOrder = new List<CallStatus>
-      {
-        CallStatus.Ringing,
-        CallStatus.Dialling,
-        CallStatus.Connecting,
-        CallStatus.Connected,
-        CallStatus.OnHold,
-        CallStatus.Disconnecting
-      };
-
       var idleCalls = ActiveCalls.Where(x => x.Value.Status == CallStatus.Idle).Select(x => x.Key).ToList();
       idleCalls.ForEach(x => ActiveCalls.Remove(x));
 
-      CallStatus status = ActiveCalls.Values
-        .Select(call => call.Status)
-        .FirstOrDefault(status => priorityOrder.Contains(status), CallStatus.Idle);
-
-      CallStatus = status;
+      CallStatus = CallStatusPriority.FirstOrDefault(
+        status => ActiveCalls.Values.Any(call => call.Status == status), CallStatus.Idle);
     }
 
     public override void SetOutputVolume(int volume)

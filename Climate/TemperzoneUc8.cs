@@ -63,6 +63,7 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
     public BoolHandler? DredHoldOffHandler;
     public BoolHandler? OilRecoveryHandler;
     public HvacModeHandler? ModeHandlers;
+    public ActionHandler? ControlReleasedHandlers;
 
     private const ushort OutdoorCoilTemperature = 1;
     private const ushort IndoorCoilTemperature = 2;
@@ -270,13 +271,17 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
     private readonly byte _deviceId;
     private readonly ThreadWorker _pollWorker;
     private readonly object _controlLock = new();
+    private readonly object _teardownLock = new();
     private readonly Dictionary<ushort, ushort> _lastCommanded = new();
+    private Task? _teardown;
     private readonly int[] _safetyTimers = new int[5];
     private ushort _desiredEnableMask;
+    private ushort _releasePending;
     private ushort _lastCompressorMask;
     private ushort _deIceControl;
     private ushort _forceDeIcePriorPermission;
     private int _desiredFanSpeed;
+    private int _controlEnableReadback;
     private int _armingGeneration;
     private int _sequencesInFlight;
     private bool _reapplyInFlight;
@@ -284,6 +289,7 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
     private volatile bool _identityPending = true;
     private volatile bool _safetyTimersRead;
     private bool _forceDeIceActive;
+    private bool _deIceRestorePending;
     private DateTimeOffset _forceDeIceStarted;
     private DateTimeOffset _lastPowerEnforcement = DateTimeOffset.MinValue;
     private int _pollCycle;
@@ -310,7 +316,14 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
 
     public ushort ExpectedIdCode { get; set; } = 210;
 
-    public int ControlEnableReadback { get; private set; }
+    public int ControlEnableReadback
+    {
+        get
+        {
+            lock (_controlLock)
+                return _controlEnableReadback;
+        }
+    }
 
     public bool DeIcePermission { get; private set; }
 
@@ -328,20 +341,38 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         }
     }
 
-    public IReadOnlyList<string> GetArmedFunctions() =>
-        EnableBitNames.Where(kv => (ControlEnableReadback & (1 << kv.Key)) != 0)
+    public IReadOnlyList<string> GetArmedFunctions()
+    {
+        var readback = ControlEnableReadback;
+        return EnableBitNames.Where(kv => (readback & (1 << kv.Key)) != 0)
             .OrderBy(kv => kv.Key)
             .Select(kv => kv.Value)
             .ToList();
+    }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new(Teardown());
+
+    public void Dispose()
+    {
+        if (!Teardown().Wait(DisposeTimeout))
+            using (PushProperties(nameof(Dispose)))
+                LogWarning("Dispose timed out waiting for the driver to release control");
+    }
+
+    private Task Teardown()
+    {
+        lock (_teardownLock)
+            return _teardown ??= RunTeardown();
+    }
+
+    private async Task RunTeardown()
     {
         CommunicationClient.ConnectionStateHandlers -= HandleConnectionState;
         CommunicationClient.ConnectionStateHandlers -= HandleRequestedDisconnect;
         await _pollWorker.Stop();
         ushort mask;
         lock (_controlLock)
-            mask = (ushort)(_desiredEnableMask | (ControlEnableReadback & KnownEnableBits));
+            mask = (ushort)(_desiredEnableMask | (_controlEnableReadback & KnownEnableBits));
         if (mask != 0)
             await DoReleaseControl();
         History.Dispose();
@@ -349,17 +380,18 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         GC.SuppressFinalize(this);
     }
 
-    public void Dispose()
-    {
-        if (!DisposeAsync().AsTask().Wait(DisposeTimeout))
-            using (PushProperties(nameof(Dispose)))
-                LogWarning("Dispose timed out waiting for the driver to release control");
-    }
-
     private void HandleConnectionState(ConnectionState state)
     {
-        if (state != ConnectionState.Connected)
-            _identityPending = true;
+        if (state == ConnectionState.Connected)
+            return;
+        _identityPending = true;
+        if (!_identityVerified)
+            return;
+        _identityVerified = false;
+        using (PushProperties(nameof(HandleConnectionState)))
+            LogInformation("The connection is {State}, so the UC8 identity will be checked again", state);
+        AddEvent(EventType.DriverState,
+            "The connection dropped, so the UC8 identity will be checked again and any override of the identity check is dropped");
     }
 
     private async Task Poll(CancellationToken token)
@@ -399,12 +431,20 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
                 RaiseMomentaryIssue($"The identity poll was not answered: {e.Message}", key: "unanswered-identity",
                     escalateAfter: 3);
             }
+            catch (Exception e) when (!token.IsCancellationRequested)
+            {
+                failures++;
+                LogException(e, "The identity poll failed");
+            }
         }
 
         await RunBlock("faults", FaultBank1, 5, ProcessFaults);
         await RunBlock("temperatures", OutdoorCoilTemperature, 14, ProcessTemperatures);
         await RunBlock("expansion valves", ExpansionValve1Position, 2, ProcessExpansionValves);
-        await RunBlock("control", ControlEnable, 21, ProcessControlBlock);
+        int controlGeneration;
+        lock (_controlLock)
+            controlGeneration = _armingGeneration;
+        await RunBlock("control", ControlEnable, 21, values => ProcessControlBlock(values, controlGeneration));
         await RunBlock("safety timers", SafetyTimerBlock, 16, ProcessSafetyTimers);
         await RunBlock("outputs", OutdoorFanSpeedFb, 7, ProcessOutputs);
         await RunBlock("thermostat", SetpointTemperature, 2, ProcessThermostatBlock);
@@ -438,6 +478,11 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         {
             RaiseMomentaryIssue($"The {blockName} poll was not answered: {e.Message}",
                 key: $"unanswered-{blockName}", escalateAfter: 3);
+            return false;
+        }
+        catch (Exception e) when (!token.IsCancellationRequested)
+        {
+            LogException(e, $"The {blockName} poll failed");
             return false;
         }
     }
@@ -526,13 +571,14 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         handler?.Invoke(raw);
     }
 
-    private void ProcessControlBlock(ushort[] values)
+    private void ProcessControlBlock(ushort[] values, int generation)
     {
         if (values.Length == 0)
             return;
-        ControlEnableReadback = values[0];
+        lock (_controlLock)
+            _controlEnableReadback = values[0];
         ControlEnableHandler?.Invoke(values[0]);
-        ProcessControlEnable(values[0]);
+        ProcessControlEnable(values[0], generation);
         if (values.Length <= HeatingSupplyAirTempTarget - ControlEnable)
             return;
         var fanSpeedRequest = values[IndoorFanSpeedControl - ControlEnable];
@@ -560,34 +606,46 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         HeatingTargetHandler?.Invoke(heatingTarget);
     }
 
-    private void ProcessControlEnable(ushort readback)
+    private void ProcessControlEnable(ushort readback, int generation)
     {
         ushort mask;
+        ushort adopted = 0;
+        ushort releasing;
         bool inFlight;
         lock (_controlLock)
         {
-            mask = _desiredEnableMask;
+            if (generation != _armingGeneration)
+                return;
+            _releasePending = (ushort)(_releasePending & readback);
+            releasing = _releasePending;
             inFlight = _sequencesInFlight > 0 || _reapplyInFlight;
-        }
-        var orphaned = (ushort)(readback & ~mask & KnownEnableBits);
-        if (orphaned != 0 && !inFlight)
-        {
-            lock (_controlLock)
+            if (!inFlight)
             {
-                _desiredEnableMask = (ushort)(_desiredEnableMask | orphaned);
-                mask = _desiredEnableMask;
+                adopted = (ushort)(readback & ~_desiredEnableMask & ~releasing & KnownEnableBits);
+                _desiredEnableMask = (ushort)(_desiredEnableMask | adopted);
             }
-            var names = EnableBitNames.Where(kv => (orphaned & (1 << kv.Key)) != 0)
+            mask = _desiredEnableMask;
+        }
+        if (adopted != 0)
+        {
+            var names = EnableBitNames.Where(kv => (adopted & (1 << kv.Key)) != 0)
                 .OrderBy(kv => kv.Key)
                 .Select(kv => kv.Value);
             RaiseOngoingIssue(AdoptedControlIssueKey,
                 $"Adopted pre-existing BMS control of: {string.Join(", ", names)}");
         }
+        if (releasing != 0 && !inFlight)
+        {
+            using (PushProperties(nameof(ProcessControlEnable)))
+                LogWarning("Control enable readback is {Readback}, releasing {Released} again", readback, releasing);
+            _ = RetryRelease(releasing, generation);
+            return;
+        }
         if (mask == 0)
             return;
         if ((readback & mask) == mask)
             return;
-        if (inFlight)
+        if (inFlight || !_identityVerified)
             return;
         using (PushProperties(nameof(ProcessControlEnable)))
             LogWarning("Control enable readback is {Readback}, re-arming {Desired} and re-applying commands", readback, mask);
@@ -612,7 +670,11 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
             {
                 generation = _armingGeneration;
                 mask = _desiredEnableMask;
-                commanded = _lastCommanded.OrderBy(kv => kv.Key).ToList();
+                commanded = _lastCommanded.OrderBy(kv => kv.Key)
+                    .Select(kv => kv.Key == OutdoorCoilDeIce
+                        ? new KeyValuePair<ushort, ushort>(kv.Key, (ushort)(kv.Value & ~ForceDeIceBit))
+                        : kv)
+                    .ToList();
             }
             foreach (var bit in ArmedBits(mask))
             {
@@ -671,7 +733,7 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         History.Record(TemperzoneUc8History.DeIceStatusPoint, deIceStatus ? 1 : 0);
         DeIceRequestHandler?.Invoke(deIceRequest);
         DeIceStatusHandler?.Invoke(deIceStatus);
-        var clearForce = false;
+        var sendRestore = false;
         ushort restore = 0;
         lock (_controlLock)
         {
@@ -680,12 +742,18 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
             {
                 _forceDeIceActive = false;
                 _deIceControl = _forceDeIcePriorPermission;
+                _lastCommanded.Remove(OutdoorCoilDeIce);
+                _deIceRestorePending = true;
+            }
+            if (_deIceRestorePending && _identityVerified)
+            {
+                _deIceRestorePending = false;
                 restore = _deIceControl;
-                clearForce = true;
+                sendRestore = true;
             }
         }
-        if (clearForce)
-            _ = WriteControl(EnableDeIce, OutdoorCoilDeIce, restore);
+        if (sendRestore)
+            _ = WriteDeIceRestore(restore);
         ProcessUnitMode(values[UnitModeFb - OutdoorFanSpeedFb]);
     }
 
@@ -980,7 +1048,8 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         if (!ControlAllowed())
             return;
         var clamped = Math.Clamp(speed, 0, 1000);
-        _desiredFanSpeed = clamped;
+        lock (_controlLock)
+            _desiredFanSpeed = clamped;
         _ = WriteFanSpeed((ushort)clamped);
     }
 
@@ -1050,6 +1119,7 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
             _forceDeIcePriorPermission = _deIceControl;
             _deIceControl = DeIcePermissionBit;
             _forceDeIceActive = true;
+            _deIceRestorePending = false;
             _forceDeIceStarted = DateTimeOffset.UtcNow;
         }
         _ = WriteControl(EnableDeIce, OutdoorCoilDeIce, DeIcePermissionBit | ForceDeIceBit);
@@ -1059,12 +1129,24 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
     {
         if (!ControlAllowed())
             return;
-        var cooling = (ushort)Math.Clamp((int)(coolingCelsius * 100), 400, 2000);
-        var heating = (ushort)Math.Clamp((int)(heatingCelsius * 100), 2000, 4500);
+        if (!float.IsFinite(coolingCelsius) || !float.IsFinite(heatingCelsius))
+        {
+            using (PushProperties(nameof(SetSupplyAirTargets)))
+                LogError("Supply air targets {Cooling} and {Heating} refused, both must be finite", coolingCelsius,
+                    heatingCelsius);
+            return;
+        }
+        var cooling = (ushort)MathF.Round(Math.Clamp(coolingCelsius * 100, 400f, 2000f));
+        var heating = (ushort)MathF.Round(Math.Clamp(heatingCelsius * 100, 2000f, 4500f));
         _ = WriteSupplyAirTargets(cooling, heating);
     }
 
-    public void ResetLockout() => _ = WriteLockoutReset();
+    public void ResetLockout()
+    {
+        if (!ControlAllowed())
+            return;
+        _ = WriteLockoutReset();
+    }
 
     public void ReleaseControl() => _ = DoReleaseControl();
 
@@ -1073,22 +1155,85 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         ushort mask;
         lock (_controlLock)
         {
-            mask = (ushort)(_desiredEnableMask | (ControlEnableReadback & KnownEnableBits));
+            mask = (ushort)(_desiredEnableMask | (_controlEnableReadback & KnownEnableBits));
             _desiredEnableMask = 0;
+            _releasePending = (ushort)(_releasePending | mask);
             _lastCommanded.Clear();
             _armingGeneration++;
             _sequencesInFlight++;
+            _deIceRestorePending = false;
+            if (_forceDeIceActive)
+            {
+                _forceDeIceActive = false;
+                _deIceControl = _forceDeIcePriorPermission;
+            }
         }
         try
         {
-            DesiredPowerState = PowerState.Unknown;
+            ClearDesiredPowerState();
             ResolveIssue(WatchdogIssueKey);
             ResolveIssue(PowerHoldIssueKey);
             ResolveIssue(AdoptedControlIssueKey);
+            RaiseControlReleased();
             if (mask == 0)
                 return;
             foreach (var bit in ArmedBits(mask))
-                await _client.WriteCoil(_deviceId, EnableBitCoils[bit], false);
+                await WriteCoilOff(bit);
+            CommunicationState = CommunicationState.Okay;
+        }
+        catch (Exception e)
+        {
+            HandleWriteFailure(e);
+        }
+        finally
+        {
+            EndSequence();
+        }
+    }
+
+    private void ClearDesiredPowerState()
+    {
+        try
+        {
+            DesiredPowerState = PowerState.Unknown;
+        }
+        catch (Exception e)
+        {
+            LogException(e, "A DesiredPowerStateHandlers or OnDesiredPowerStateChanged handler threw an exception");
+        }
+    }
+
+    private void RaiseControlReleased()
+    {
+        var handlers = ControlReleasedHandlers;
+        if (handlers == null)
+            return;
+        foreach (var handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                ((ActionHandler)handler)();
+            }
+            catch (Exception e)
+            {
+                LogException(e, "A ControlReleasedHandlers handler threw an exception");
+            }
+        }
+    }
+
+    private async Task RetryRelease(ushort bits, int generation)
+    {
+        BeginSequence();
+        try
+        {
+            var first = true;
+            foreach (var bit in ArmedBits(bits))
+            {
+                if (!first && SequenceStale(generation))
+                    return;
+                first = false;
+                await WriteCoilOff(bit);
+            }
             CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
@@ -1178,7 +1323,9 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
             await WriteCommand(CompressorPower, 0);
             if (SequenceStale(generation.Value))
                 return;
-            var speed = _desiredFanSpeed > 0 ? _desiredFanSpeed : (int)TemperzoneUc8FanSpeed.Low;
+            int speed;
+            lock (_controlLock)
+                speed = _desiredFanSpeed > 0 ? _desiredFanSpeed : (int)TemperzoneUc8FanSpeed.Low;
             await WriteCommand(IndoorFanSpeedControl, (ushort)speed);
             CommunicationState = CommunicationState.Okay;
         }
@@ -1209,6 +1356,29 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
             if (SequenceStale(generation.Value))
                 return;
             await WriteCommand(IndoorFanSpeedControl, speed);
+            CommunicationState = CommunicationState.Okay;
+        }
+        catch (Exception e)
+        {
+            HandleWriteFailure(e);
+        }
+        finally
+        {
+            EndSequence();
+        }
+    }
+
+    private async Task WriteDeIceRestore(ushort value)
+    {
+        BeginSequence();
+        try
+        {
+            bool released;
+            lock (_controlLock)
+                released = (_desiredEnableMask & EnableDeIce) == 0;
+            if (released)
+                return;
+            await WriteCommand(OutdoorCoilDeIce, value);
             CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
@@ -1266,6 +1436,16 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
             _lastCommanded[register] = value;
     }
 
+    private async Task WriteCoilOff(int bit)
+    {
+        await _client.WriteCoil(_deviceId, EnableBitCoils[bit], false);
+        lock (_controlLock)
+        {
+            _controlEnableReadback &= ~(1 << bit);
+            _releasePending = (ushort)(_releasePending & ~(1 << bit));
+        }
+    }
+
     private async Task<int?> ArmAndGetGeneration(ushort enableBits)
     {
         ushort newBits;
@@ -1274,6 +1454,7 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         {
             newBits = (ushort)(enableBits & ~_desiredEnableMask);
             _desiredEnableMask = (ushort)(_desiredEnableMask | enableBits);
+            _releasePending = (ushort)(_releasePending & ~enableBits);
             if (newBits != 0)
                 _armingGeneration++;
             generation = _armingGeneration;

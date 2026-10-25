@@ -20,6 +20,10 @@ public class LGCommercial : Display, ISetTopBox
     private readonly string _muteHeader = "ke";
     private readonly string _irccHeader = "mc";
     private readonly string _channelHeader = "ma";
+    private const char ReplyTerminator = 'x';
+    private const int GatherLimit = 1024;
+    private const string WakeOnLanIssueKey = "wake-on-lan";
+    private string _gather = "";
     private static readonly Dictionary<Input, string> InputDictionary = new()
     {
         { Input.Hdmi1, "90" },
@@ -95,52 +99,74 @@ public class LGCommercial : Display, ISetTopBox
     {
         using (PushProperties())
         {
-            if (!response.Contains($" {_setId:d2} OK"))
+            _gather += response;
+            int end;
+            while ((end = _gather.IndexOf(ReplyTerminator)) >= 0)
             {
-                if (response.Contains($" {_setId:d2} NG"))
-                    CommunicationState = CommunicationState.Error;
+                string reply = _gather[..(end + 1)];
+                _gather = _gather[(end + 1)..];
+                ProcessResponse(reply);
+            }
+
+            if (_gather.Length > GatherLimit)
+            {
+                LogWarning("Gather buffer exceeded {GatherLimit} characters, clearing {Gather}", GatherLimit, _gather);
+                _gather = "";
+            }
+        }
+    }
+
+    private void ProcessResponse(string response)
+    {
+        if (!response.Contains($" {_setId:d2} OK"))
+        {
+            if (response.Contains($" {_setId:d2} NG"))
+                CommunicationState = CommunicationState.Error;
+            return;
+        }
+        CommunicationState = CommunicationState.Okay;
+        var data = response.Split("OK");
+
+        if (data[0].Contains($"a {_setId:d2} "))
+        {
+            PowerState = data[1] switch
+            {
+                "01x" => PowerState.On,
+                "00x" => PowerState.Off,
+                _ => PowerState
+            };
+            ProcessPowerResponse();
+        }
+        else if (data[0].Contains($"b {_setId:d2} "))
+        {
+            Input = data[1] switch
+            {
+                "90x" => Input.Hdmi1,
+                "91x" => Input.Hdmi2,
+                "92x" => Input.Hdmi3,
+                "93x" => Input.Hdmi4,
+                "00x" => Input.DvbtTuner,
+                _ => Input
+            };
+            ProcessInputResponse();
+        }
+        else if (data[0].Contains($"f {_setId:d2} "))
+        {
+            if (data[1].Length < 2 || !int.TryParse(data[1][..2], NumberStyles.HexNumber, null, out var volumeLevel))
+            {
+                LogWarning("Unreadable volume in {Response}", response);
                 return;
             }
-            CommunicationState = CommunicationState.Okay;
-            var data = response.Split("OK");
-
-            if (data[0].Contains($"a {_setId:d2} "))
+            Volume = volumeLevel;
+        }
+        else if (data[0].Contains($"e {_setId:d2} "))
+        {
+            AudioMute = data[1] switch
             {
-                PowerState = data[1] switch
-                {
-                    "01x" => PowerState.On,
-                    "00x" => PowerState.Off,
-                    _ => PowerState
-                };
-                ProcessPowerResponse();
-            }
-            else if (data[0].Contains($"b {_setId:d2} "))
-            {
-                Input = data[1] switch
-                {
-                    "90x" => Input.Hdmi1,
-                    "91x" => Input.Hdmi2,
-                    "92x" => Input.Hdmi3,
-                    "93x" => Input.Hdmi4,
-                    "00x" => Input.DvbtTuner,
-                    _ => Input
-                };
-                ProcessInputResponse();
-            }
-            else if (data[0].Contains($"f {_setId:d2} "))
-            {
-                int.TryParse(data[1].Substring(0, 2), NumberStyles.HexNumber, null, out var volumeLevel);
-                Volume = volumeLevel;
-            }
-            else if (data[0].Contains($"e {_setId:d2} "))
-            {
-                AudioMute = data[1] switch
-                {
-                    "01x" => MuteState.Off,
-                    "00x" => MuteState.On,
-                    _ => AudioMute
-                };
-            }
+                "01x" => MuteState.Off,
+                "00x" => MuteState.On,
+                _ => AudioMute
+            };
         }
     }
 
@@ -148,7 +174,7 @@ public class LGCommercial : Display, ISetTopBox
 
     protected override async Task DoPoll(CancellationToken token)
     {
-        // PowerState is only updated from ka poll responses (see HandleResponse) - a
+        // PowerState is only updated from ka poll responses (see ProcessResponse) - a
         // dropped connection does not mean the display is off, and a display with
         // PM Mode set to Screen Off Always stays connected while off.
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
@@ -227,6 +253,7 @@ public class LGCommercial : Display, ISetTopBox
             using (PushProperties("TryBuildWolPacket"))
                 LogError("'{Mac}' is not a valid MAC address, Wake-on-LAN is disabled for this display", mac);
             AddEvent(EventType.Error, $"'{mac}' is not a valid MAC address, Wake-on-LAN is disabled");
+            RaiseOngoingIssue(WakeOnLanIssueKey, $"'{mac}' is not a valid MAC address, Wake-on-LAN is disabled");
             return null;
         }
 
@@ -272,7 +299,18 @@ public class LGCommercial : Display, ISetTopBox
             DesiredPowerState = PowerState.Unknown;
     }
 
-    public void SetChannel(int channel) => SendCommand(_channelHeader, $"00 {channel:X2} 10");
+    public void SetChannel(int channel)
+    {
+        if (channel < 0)
+        {
+            using (PushProperties("SetChannel"))
+                LogWarning("Channel {Channel} is negative", channel);
+            AddEvent(EventType.Error, $"Channel {channel} is negative");
+            return;
+        }
+        SendCommand(_channelHeader, $"00 {channel:X2} 10");
+    }
+
     public void ToggleSubtitles()
     {
         SendIRCode(RemoteButton.Subtitle);

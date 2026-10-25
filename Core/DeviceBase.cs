@@ -68,7 +68,8 @@ public abstract class DeviceBase : LogBase, IDevice
     protected DeviceBase(string name, CommunicationClient client) : base(name)
     {
         CommunicationClient = client;
-        CommunicationClient.ConnectionStateHandlers += HandleRequestedDisconnect;
+        if (client != CommunicationClient.None)
+            client.ConnectionStateHandlers += HandleRequestedDisconnect;
     }
 
     protected void HandleRequestedDisconnect(ConnectionState connectionState)
@@ -80,7 +81,7 @@ public abstract class DeviceBase : LogBase, IDevice
 
     protected void ProcessPowerState()
     {
-        if (PowerState == DesiredPowerState || DesiredPowerState == PowerState.Unknown)
+        if (PowerState == DesiredPowerState || DesiredPowerState is not (PowerState.On or PowerState.Off))
         {
             ResolveIssue(PowerStateIssueKey);
             return;

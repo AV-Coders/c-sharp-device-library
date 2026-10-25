@@ -66,4 +66,28 @@ public static class TestNetwork
         var field = client.GetType().GetField("_sendQueue", BindingFlags.Instance | BindingFlags.NonPublic)!;
         return ((ICollection)field.GetValue(client)!).Count;
     }
+
+    public static ThreadWorker SendQueueWorker(IpComms client) =>
+        (ThreadWorker)typeof(IpComms).GetField("SendQueueWorker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(client)!;
+
+    public static void SetQueuedAge<T>(IpComms client, TimeSpan age)
+    {
+        var queue = SendQueue<T>(client);
+        lock (queue)
+            for (var node = queue.First; node != null; node = node.Next)
+                node.Value = node.Value with { Timestamp = DateTimeOffset.UtcNow - age };
+    }
+
+    public static void AgeTheQueue<T>(IpComms client, TimeSpan by)
+    {
+        var queue = SendQueue<T>(client);
+        lock (queue)
+            for (var node = queue.First; node != null; node = node.Next)
+                node.Value = node.Value with { Timestamp = node.Value.Timestamp - by };
+    }
+
+    private static LinkedList<QueuedPayload<T>> SendQueue<T>(IpComms client) =>
+        (LinkedList<QueuedPayload<T>>)client.GetType()
+            .GetField("_sendQueue", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
 }

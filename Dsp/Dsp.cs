@@ -98,19 +98,19 @@ public class Fader : AudioBlock
     public void SetVolumeFromDb(double db)
     {
         _lastDb = db;
-        Volume = DbToPercentage(db);
+        _volume = DbToPercentage(db);
         Report();
     }
 
     private int DbToPercentage(double db)
     {
-        if (Curve == FaderCurve.Linear)
-            return (int)Math.Round(((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain), MidpointRounding.AwayFromZero);
-
         if (db >= MaxGain)
             return 100;
         if (db <= MinGain)
             return 0;
+
+        if (Curve == FaderCurve.Linear)
+            return (int)Math.Round(((db - MinGain) * 100) / CalculateRange(MinGain, MaxGain), MidpointRounding.AwayFromZero);
 
         var bottom = BottomOfTravel;
         return Math.Clamp((int)Math.Round((db - bottom) * 100 / CalculateRange(bottom, MaxGain), MidpointRounding.AwayFromZero), 1, 100);
@@ -119,7 +119,7 @@ public class Fader : AudioBlock
     public void SetVolumeFromPercentage(double percentage)
     {
         _lastDb = null;
-        Volume = (int)percentage;
+        _volume = (int)percentage;
         Report();
     }
 

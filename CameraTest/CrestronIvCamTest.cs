@@ -40,6 +40,18 @@ public class CrestronIvCamTest
     [Theory]
     [InlineData(95)]
     [InlineData(99)]
+    public void DoRecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
+    {
+        _camera.DoRecallPreset(preset);
+
+        Assert.Empty(_client.Sent);
+        Assert.Contains(_camera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
+    }
+
+    [Theory]
+    [InlineData(95)]
+    [InlineData(99)]
     public void SavePreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
     {
         _camera.SavePreset(preset);
@@ -145,6 +157,23 @@ public class CrestronIvCamI12Test
         Assert.Contains(_camera.Events,
             e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
         Assert.Equal(CameraBase.NoActivePreset, _camera.LastRecalledPreset);
+    }
+
+    [Theory]
+    [InlineData(80)]
+    [InlineData(81)]
+    [InlineData(84)]
+    [InlineData(85)]
+    [InlineData(86)]
+    [InlineData(95)]
+    [InlineData(99)]
+    public void DoRecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
+    {
+        _camera.DoRecallPreset(preset);
+
+        Assert.Empty(_client.Sent);
+        Assert.Contains(_camera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
     }
 
     [Theory]

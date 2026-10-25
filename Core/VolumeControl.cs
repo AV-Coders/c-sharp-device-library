@@ -15,6 +15,7 @@ public abstract class VolumeControl : LogBase
     public event Action<int>? OnVolumeChanged;
     public event Action<MuteState>? OnMuteStateChanged;
     private int _volume;
+    private bool _volumeReported;
     private int? _storedLevel = null;
     private MuteState _muteState;
     private MuteState? _storedMuteState = null;
@@ -24,6 +25,7 @@ public abstract class VolumeControl : LogBase
         get => _volume;
         protected set
         {
+            _volumeReported = true;
             if( _volume == value)
                 return;
             _volume = value;
@@ -55,7 +57,11 @@ public abstract class VolumeControl : LogBase
     {
         Type = type;
         
-        VolumeLevelHandlers += x => _volume = x;
+        VolumeLevelHandlers += x =>
+        {
+            _volume = x;
+            _volumeReported = true;
+        };
         MuteStateHandlers += x => _muteState = x;
     }
 
@@ -71,8 +77,8 @@ public abstract class VolumeControl : LogBase
     
     public void SaveLevel()
     {
-        _storedLevel = _volume;
-        _storedMuteState = _muteState;
+        _storedLevel = _volumeReported ? _volume : null;
+        _storedMuteState = _muteState == MuteState.Unknown ? null : _muteState;
     }
 
     public void RestoreLevel()

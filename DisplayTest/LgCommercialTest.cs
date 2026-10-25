@@ -6,6 +6,7 @@ using Moq;
 
 namespace AVCoders.Display.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class LgCommercialTest
 {
     private readonly LGCommercial _display;
@@ -268,6 +269,84 @@ public class LgCommercialTest
         _display.SendIRCode(button);
 
         Assert.DoesNotContain(button, _display.SupportedButtons);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void HandleResponse_HandlesAReplySplitAcrossTwoReceives()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("a 00 OK");
+        _mockClient.Object.ResponseHandlers!.Invoke("01x");
+
+        Assert.Equal(PowerState.On, _display.PowerState);
+    }
+
+    [Fact]
+    public void HandleResponse_HandlesTwoRepliesInOneReceive()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("a 00 OK01xb 00 OK91x");
+
+        Assert.Equal(PowerState.On, _display.PowerState);
+        Assert.Equal(Input.Hdmi2, _display.Input);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnUnreadableVolume_KeepsTheLastVolume()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("f 00 OK32x");
+
+        _mockClient.Object.ResponseHandlers!.Invoke("f 00 OKzzx");
+
+        Assert.Equal(50, _display.Volume);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenOver1024CharactersWithoutATerminator_ClearsTheBuffer()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = TestFactory.CreateTcpClient();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        LGCommercial display;
+        try
+        {
+            display = new LGCommercial(client.Object, "Test display", "00-00-00-00-00-00", null, 0);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        string garbage = new('a', 1025);
+
+        client.Object.ResponseHandlers!.Invoke(garbage);
+
+        Assert.Equal("", typeof(LGCommercial).GetField("_gather", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(display));
+        Assert.Contains(logs.Logs, l => l.Message == $"Gather buffer exceeded 1024 characters, clearing {garbage}");
+    }
+
+    [Fact]
+    public void SetChannel_GivenANegativeChannel_SendsNothing()
+    {
+        _display.SetChannel(-1);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        Assert.Contains(_display.Events, e => e.Type == EventType.Error && e.Info == "Channel -1 is negative");
+    }
+
+    [Fact]
+    public void Constructor_GivenAnInvalidMac_RaisesAnIssueWithTheMac()
+    {
+        var display = new LGCommercial(TestFactory.CreateTcpClient().Object, "Mac test display", "not a mac", null, 0);
+
+        var issue = Assert.Single(display.GetOngoingIssues(), i => i.Key == "wake-on-lan");
+        Assert.Equal("'not a mac' is not a valid MAC address, Wake-on-LAN is disabled", issue.Message);
+    }
+
+    [Fact]
+    public void SetAudioMute_Unknown_SendsNothing()
+    {
+        _display.SetAudioMute(MuteState.Unknown);
+
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 }

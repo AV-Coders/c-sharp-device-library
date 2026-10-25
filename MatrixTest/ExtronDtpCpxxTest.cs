@@ -1,12 +1,16 @@
-﻿using System.Reflection;
+﻿using System.Collections.Concurrent;
+using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
+[Collection("LoggerFactory")]
 public class ExtronDtpCpxxTest
 {
+    private static readonly TimeSpan HoldTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ReturnTimeout = TimeSpan.FromSeconds(5);
     private readonly ExtronDtpCpxx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private readonly string EscapeHeader = "\x1b";
@@ -15,6 +19,36 @@ public class ExtronDtpCpxxTest
     {
         _switcher = new ExtronDtpCpxx(_mockClient.Object, 8, "test matrix");
         _mockClient.Object.ResponseHandlers!.Invoke("Inf00*DTPCP108");
+    }
+
+    private static void SetConnection(Mock<CommunicationClient> client, ConnectionState state) => typeof(CommunicationClient)
+        .GetProperty(nameof(CommunicationClient.ConnectionState))!.SetValue(client.Object, state);
+
+    private static ConcurrentQueue<string> RecordSends(Mock<CommunicationClient> client, string heldCommand, ManualResetEventSlim release)
+    {
+        var sent = new ConcurrentQueue<string>();
+        client.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(command =>
+        {
+            sent.Enqueue(command);
+            if (command == heldCommand)
+                release.Wait(HoldTimeout);
+        });
+        return sent;
+    }
+
+    private static (ExtronDtpCpxx Switcher, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs(Mock<CommunicationClient> client)
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (new ExtronDtpCpxx(client.Object, 8, "Logged matrix"), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
     }
 
     [Fact]
@@ -136,7 +170,7 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void SetSyncTimeout_SendsTheCommand()
     {
-        string expectedCommand = "\u001bT0*3SSAV\u0027";
+        string expectedCommand = "\u001bT3*0SSAV\r";
         _switcher.SetSyncTimeout(0, 3);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
@@ -153,10 +187,90 @@ public class ExtronDtpCpxxTest
     [Fact]
     public void SetSyncTimeout_SetsToNeverDropSync()
     {
-        string expectedCommand = "\u001bT501*1SSAV\u0027";
+        string expectedCommand = "\u001bT1*501SSAV\r";
         _switcher.SetSyncTimeout(501, 1);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
+    }
+
+    [Fact]
+    public void SetSyncTimeout_StatesTheLimitItEnforces()
+    {
+        _switcher.SetSyncTimeout(502, 1);
+
+        Assert.Contains(_switcher.Events,
+            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
+    }
+
+    [Fact]
+    public async Task Connect_EnablesVerboseModeThenRequestsInformationWithoutBlockingTheClient()
+    {
+        using var release = new ManualResetEventSlim();
+        var sent = RecordSends(_mockClient, "\u001b3CV\r", release);
+
+        var connect = Task.Run(() => SetConnection(_mockClient, ConnectionState.Connected));
+
+        await connect.WaitAsync(ReturnTimeout);
+        release.Set();
+        await Wait.UntilAsync(() => sent.Count == 2, "The information request was never sent");
+        Assert.Equal(["\u001b3CV\r", "I"], sent);
+    }
+
+    [Fact]
+    public async Task Constructor_DoesNotBlockOnAnAlreadyConnectedClient()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        SetConnection(client, ConnectionState.Connected);
+        using var release = new ManualResetEventSlim();
+        var sent = RecordSends(client, "\u001b3CV\r", release);
+
+        var construct = Task.Run(() => new ExtronDtpCpxx(client.Object, 8, "Already connected"));
+
+        await construct.WaitAsync(ReturnTimeout);
+        release.Set();
+        await Wait.UntilAsync(() => sent.Count == 2, "The information request was never sent");
+        Assert.Equal(["\u001b3CV\r", "I"], sent);
+    }
+
+    [Fact]
+    public async Task Connect_KeepsSendingAfterAnEarlierSequenceFails()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = new ExtronDtpCpxx(client.Object, 8, "fresh matrix");
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends(client, "", release);
+        var changes = 0;
+        switcher.CommunicationStateHandlers += _ =>
+        {
+            if (Interlocked.Increment(ref changes) <= 2)
+                throw new InvalidOperationException("A subscriber failed");
+        };
+
+        SetConnection(client, ConnectionState.Connected);
+        SetConnection(client, ConnectionState.Disconnected);
+        SetConnection(client, ConnectionState.Connected);
+
+        await Wait.UntilAsync(() => sent.Contains("I"), "The second connection sequence never finished");
+        Assert.Equal(["\u001b3CV\r", "\u001b3CV\r", "I"], sent);
+        Assert.Contains(switcher.Errors, error => error.Message == "The connection sequence failed");
+    }
+
+    [Fact]
+    public void SupportsAudioBreakaway_IsTrueAsAudioTiesAreSent()
+    {
+        Assert.True(_switcher.SupportsAudioBreakaway);
+    }
+
+    [Fact]
+    public void RouteToAListOfOutputs_NamesTheOutputsInTheEvent()
+    {
+        _switcher.RouteAV(1, [1, 2, 8]);
+        _switcher.RouteVideo(2, [3, 4]);
+        _switcher.RouteAudio(3, [5]);
+
+        Assert.Contains(_switcher.Events, e => e.Info == "Switched outputs [1, 2, 8] to input 1");
+        Assert.Contains(_switcher.Events, e => e.Info == "Switched video outputs [3, 4] to input 2");
+        Assert.Contains(_switcher.Events, e => e.Info == "Switched audio output [5] to input 3");
     }
 
     [Theory]
@@ -186,6 +300,7 @@ public class ExtronDtpCpxxTest
     [InlineData("Nmi1,Laptop\r", 0, "Laptop")]
     [InlineData("Nmi2,Wireless\r", 1, "Wireless")]
     [InlineData("Nmi3,BluRay\r", 2, "BluRay")]
+    [InlineData("Nmi4,Lectern, left\r", 3, "Lectern, left")]
     public void HandleResponse_UpdatesInputName(string response, int index, string expectedName)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(response);
@@ -197,6 +312,7 @@ public class ExtronDtpCpxxTest
     [InlineData("Nmo1,Projector\r", 0, "Projector")]
     [InlineData("Nmo2,LCD\r", 1, "LCD")]
     [InlineData("Nmo3,Fountain\r", 2, "Fountain")]
+    [InlineData("Nmo4,Stage, rear\r", 3, "Stage, rear")]
     public void HandleResponse_UpdatesOutputName(string response, int index, string expectedName)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(response);
@@ -218,6 +334,60 @@ public class ExtronDtpCpxxTest
         
         Assert.Equal(inputs, _switcher.Inputs.Count);
         Assert.Equal(outputs, _switcher.ComposedOutputs.Count);
+    }
+
+    [Theory]
+    [InlineData("Inf00*DTPCP8")]
+    [InlineData("Inf00*DTPCP1080")]
+    [InlineData("Inf00*DTPCP80")]
+    [InlineData("Inf00*DTPCP08 4K")]
+    [InlineData("Inf00*DTPCPx4")]
+    public void ModelResponse_RaisesAnIssueForAnUnsupportedModel(string response)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = new ExtronDtpCpxx(client.Object, 8, "fresh matrix");
+
+        var exception = Record.Exception(() => client.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Null(exception);
+        var issue = Assert.Single(switcher.GetOngoingIssues());
+        Assert.Equal("model", issue.Key);
+        Assert.Contains(response, issue.Message);
+        Assert.Empty(switcher.Inputs);
+    }
+
+    [Fact]
+    public void ModelResponse_ResolvesTheModelIssueWhenASupportedModelReports()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var switcher = new ExtronDtpCpxx(client.Object, 8, "fresh matrix");
+
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP8");
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84 4K");
+
+        Assert.Empty(switcher.GetOngoingIssues());
+        Assert.Equal(8, switcher.Inputs.Count);
+    }
+
+    [Theory]
+    [InlineData("Ityp01")]
+    [InlineData("HdcpI01")]
+    [InlineData("HdcpO2")]
+    [InlineData("Nmi1Laptop")]
+    [InlineData("Nmo1Projector")]
+    [InlineData("HplgA")]
+    [InlineData("HdcpI09*1")]
+    [InlineData("HdcpO5*1")]
+    public void MalformedResponse_IsLoggedWithTheRawValue(string response)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (switcher, logs) = CreateWithCapturedLogs(client);
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84");
+
+        client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Contains(logs.Logs, log => log.Message.Contains(response));
+        Assert.All(switcher.Inputs, input => Assert.StartsWith("Input ", input.Name));
     }
 
     [Fact]
@@ -446,6 +616,8 @@ public class ExtronDtpCpxxTest
     [InlineData("Hplg03", "3")]
     [InlineData("Hplg05A", "5A")]
     [InlineData("Hplg05B", "5B")]
+    [InlineData("Hplg10", "10")]
+    [InlineData("Hplg12A", "12A")]
     public void HandleResponse_RequestsOutputFormatOnHotplugEvent(string eventResponse, string outputNumber)
     {
         _mockClient.Object.ResponseHandlers!.Invoke(eventResponse);

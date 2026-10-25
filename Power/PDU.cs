@@ -8,7 +8,7 @@ public abstract class Pdu : DeviceBase
 {
     public List<Outlet> Outlets => _outlets;
     public OutletDefinitionHandler? OutletDefinitionHandlers;
-    private List<Outlet> _outlets;
+    private volatile List<Outlet> _outlets;
 
     protected Pdu(string name, CommunicationClient comms) 
         : base(name, comms)
@@ -16,8 +16,11 @@ public abstract class Pdu : DeviceBase
         _outlets = [];
     }
 
-    protected void ClearOutlets() => _outlets.Clear();
-    
+    protected void SetOutlets(List<Outlet> outlets) => _outlets = outlets;
+
+    [Obsolete("This method is deprecated in favor of SetOutlets")]
+    protected void ClearOutlets() => SetOutlets([]);
+
     protected void AddOutlet(Outlet outlet) => _outlets.Add(outlet);
     
     

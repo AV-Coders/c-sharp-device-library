@@ -31,6 +31,8 @@ public class DyNetTest
     [InlineData(33, 2, 100, new byte[] { 0x1C, 0x21, 0x64, 0x01, 0x00, 0x00, 0xFF, 0x5F })]
     [InlineData(33, 3, 100, new byte[] { 0x1C, 0x21, 0x64, 0x02, 0x00, 0x00, 0xFF, 0x5E })]
     [InlineData(33, 4, 100, new byte[] { 0x1C, 0x21, 0x64, 0x03, 0x00, 0x00, 0xFF, 0x5D })]
+    [InlineData(33, 5, 100, new byte[] { 0x1C, 0x21, 0x64, 0x0A, 0x00, 0x00, 0xFF, 0x56 })]
+    [InlineData(33, 8, 100, new byte[] { 0x1C, 0x21, 0x64, 0x0D, 0x00, 0x00, 0xFF, 0x53 })]
     public void SelectCurrentPreset_SendsTheExpectedCommand(byte area, byte preset, byte rampTime, byte[] expectedCommand)
     {
         _dyNet.SelectCurrentPreset(area, preset, rampTime);
@@ -118,6 +120,38 @@ public class DyNetTest
         _mockClient.Object.ResponseByteHandlers!.Invoke([0x03, 0x00, 0x00, 0xFF, 0x5B]);
 
         Assert.Contains(_dyNet.Events, e => e.Type == EventType.Preset && e.Info == "Area 35 recalled preset 4");
+    }
+
+    [Fact]
+    public void HandleResponse_KeepsTheFramesOfAReadOver1024Bytes()
+    {
+        byte[] presetFour = [0x1C, 0x23, 0x64, 0x03, 0x00, 0x00, 0xFF, 0x5B];
+        byte[] presetOne = [0x1C, 0x23, 0x64, 0x00, 0x00, 0x00, 0xFF, 0x5E];
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([..Enumerable.Repeat(presetFour, 128).SelectMany(frame => frame), ..presetOne]);
+
+        Assert.Equal("Area 35 recalled preset 1", _dyNet.Events.Last().Info);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(9)]
+    public void SelectCurrentPreset_OutOfRange_SendsNothing(byte preset)
+    {
+        _dyNet.SelectCurrentPreset(33, preset);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void RampAreaToLevel_OutOfRange_SendsNothing(int level)
+    {
+        _dyNet.RampAreaToLevel(33, level);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+        Assert.Empty(_dyNet.Events);
     }
 
     [Theory]

@@ -24,6 +24,8 @@ public class VitecServerTest : IDisposable
     private readonly List<string> _posts = [];
     private readonly List<NameValueCollection> _postHeaders = [];
     private readonly object _postsLock = new();
+    private volatile string _channelsJson = ChannelsJson;
+    private volatile int _channelsStatus = (int)HttpStatusCode.OK;
 
     public VitecServerTest()
     {
@@ -83,7 +85,8 @@ public class VitecServerTest : IDisposable
             }
             else
             {
-                var responseBytes = Encoding.UTF8.GetBytes(ChannelsJson);
+                var responseBytes = Encoding.UTF8.GetBytes(_channelsJson);
+                context.Response.StatusCode = _channelsStatus;
                 context.Response.ContentType = "application/json";
                 context.Response.ContentLength64 = responseBytes.Length;
                 await context.Response.OutputStream.WriteAsync(responseBytes);
@@ -212,5 +215,68 @@ public class VitecServerTest : IDisposable
 
         Assert.Null(Record.Exception(() => server.SetChannel(99, DeviceMac)));
         Assert.Equal(0, PostCount);
+    }
+
+    [Fact]
+    public async Task SetChannel_PostsTheChannelCommandAsEscapedJson()
+    {
+        var server = CreateServer();
+
+        server.SetChannel("q\"\\\n\t\u0001\u00e9\u2028/", "a\"b\\c");
+
+        await WaitUntilAsync(() => PostCount > 0, "SetChannel never posted");
+        Assert.Equal(
+            "{\"devices\":[\"a\\\"b\\\\c\"],\"uri\":\"q\\\"\\\\\\n\\t\\u0001\u00e9\\u2028/\",\"isFullScreen\":0,\"params\":{}}",
+            LastPost);
+    }
+
+    [Fact]
+    public async Task ChannelList_SkipsAChannelWithoutAUri()
+    {
+        _channelsJson = """
+            [
+              {"channelid":"c1","number":1,"name":"One","uri":"uri-1"},
+              {"channelid":"c2","number":2,"name":"Two"},
+              {"channelid":"c3","number":3,"name":"Three","uri":""}
+            ]
+            """;
+        var logs = LogCapture.Create(CreateServer, out var server);
+        await WaitUntilAsync(() =>
+        {
+            server.SetChannel(1, DeviceMac);
+            return PostCount > 0;
+        }, "The channel list was never fetched");
+
+        server.SetChannel(2, DeviceMac);
+        server.SetChannel(3, DeviceMac);
+
+        Assert.Contains(logs.Logs, log => log.Message == "Skipping channel 2 (Two), it has no URI");
+        Assert.Contains(logs.Logs, log => log.Message == "Skipping channel 3 (Three), it has no URI");
+        Assert.Contains(logs.Logs, log => log.Message == "Channel 2 is not in the channel list");
+        Assert.Contains(logs.Logs, log => log.Message == "Channel 3 is not in the channel list");
+    }
+
+    [Fact]
+    public async Task ChannelList_AFailedRequestIsLogged()
+    {
+        _channelsStatus = (int)HttpStatusCode.InternalServerError;
+
+        var logs = LogCapture.Create(CreateServer, out _);
+
+        await WaitUntilAsync(
+            () => logs.Logs.Any(log => log.Message == "The channel list request failed: 500 Internal Server Error"),
+            "The failed channel list request was never logged");
+    }
+
+    [Fact]
+    public async Task ChannelList_ANullListIsLogged()
+    {
+        _channelsJson = "null";
+
+        var logs = LogCapture.Create(CreateServer, out _);
+
+        await WaitUntilAsync(
+            () => logs.Logs.Any(log => log.Message == "Ignoring a channel list that is not a JSON array: null"),
+            "The null channel list was never logged");
     }
 }

@@ -26,11 +26,19 @@ public class ThreadWorkerTest
     [Fact]
     public async Task ThreadWorker_Loops()
     {
-        await _threadWorker.Restart();
-        
-        Thread.Sleep(300);
-        
-        _actionMock.Verify(action => action(It.IsAny<CancellationToken>()), Times.Exactly(2));
+        var invocations = 0;
+        ThreadWorker? worker = null;
+        worker = new ThreadWorker(async _ =>
+        {
+            invocations++;
+            if (invocations == 2)
+                await worker!.Stop();
+        }, TimeSpan.FromMilliseconds(200));
+
+        await worker.Restart();
+
+        await Wait.UntilAsync(() => !worker.IsRunning, "The worker never ran a second pass");
+        Assert.Equal(2, invocations);
     }
 
     [Fact]

@@ -138,6 +138,32 @@ public class ExterityTciTest
         _mockClient.Verify(x => x.Send("^send:rm_enter!\n"));
     }
 
+    [Fact]
+    public void SetAudioMute_Unknown_LogsAndSendsNothing()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var logs = LogCapture.Create(() => new ExterityTci(client.Object, _password, "logged device"),
+            out var exterity);
+
+        exterity.SetAudioMute(MuteState.Unknown);
+
+        client.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        Assert.Contains(logs.Logs, log => log.Message == "Can't set the audio mute to Unknown");
+    }
+
+    [Fact]
+    public void SetChannel_WithANegativeChannel_LogsAndSendsNothing()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var logs = LogCapture.Create(() => new ExterityTci(client.Object, _password, "logged device"),
+            out var exterity);
+
+        exterity.SetChannel(-3);
+
+        client.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        Assert.Contains(logs.Logs, log => log.Message == "Channel -3 is invalid, it can't be negative");
+    }
+
     [Theory]
     [MemberData(nameof(RemoteButtonValues))]
     public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)

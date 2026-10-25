@@ -72,9 +72,12 @@ public class BoseCspSoIPVolumeControl : VolumeControl
 public class BoseCspSoIP : Dsp
 {
     public static readonly ushort DefaultPort = 10055;
+    private const double DefaultMinGain = -60.5;
+    private const double DefaultMaxGain = 12.0;
     private readonly Dictionary<string, BoseGain> _gains = new();
     private readonly Dictionary<string, BoseMute> _mutes = new();
     private readonly Dictionary<string, BoseSelect> _selects = new();
+    private readonly object _controlsLock = new();
     private readonly Regex _responseParser;
     
     public BoseCspSoIP(TcpClient tcpClient, string name = "Bose", int pollIntervalInMilliseconds = 50000) : base(name, tcpClient, pollIntervalInMilliseconds)
@@ -92,6 +95,24 @@ public class BoseCspSoIP : Dsp
         using (PushProperties("HandleConnectionState"))
         {
             AddEvent(EventType.Connection, connectionState.ToString());
+            if (connectionState == ConnectionState.Connected)
+                _ = Task.Run(QueryEveryControlAfterConnecting);
+            else
+                CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
+                    ? CommunicationState.NotAttempted
+                    : CommunicationState.Unknown;
+        }
+    }
+
+    private async Task QueryEveryControlAfterConnecting()
+    {
+        try
+        {
+            await Poll(CancellationToken.None);
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Querying the controls after connecting failed");
         }
     }
 
@@ -120,15 +141,15 @@ public class BoseCspSoIP : Dsp
         if (TryStripSuffix(controlName, " Gain", out var gainKey))
             ProcessGainResponse(gainKey, attribute, value);
         else if (TryStripSuffix(controlName, " Selector", out var selectKey)
-                 && attribute == "1" && _selects.TryGetValue(selectKey, out var select))
+                 && attribute == "1" && FindControl(_selects, selectKey) is { } select)
             select.Value = value;
     }
 
     private void ProcessGainResponse(string gainKey, string attribute, string value)
     {
-        if (attribute == "1" && _gains.TryGetValue(gainKey, out var gain))
+        if (attribute == "1" && FindControl(_gains, gainKey) is { } gain)
             gain.SetVolumeFromDb(double.Parse(value));
-        else if (attribute == "2" && _mutes.TryGetValue(gainKey, out var mute))
+        else if (attribute == "2" && FindControl(_mutes, gainKey) is { } mute)
             mute.MuteState = value switch
             {
                 "O" => MuteState.On,
@@ -153,84 +174,135 @@ public class BoseCspSoIP : Dsp
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
 
-        foreach (string key in _gains.Keys)
+        foreach (string key in ControlNames(_gains))
         {
             await Task.Delay(30, token);
             CommunicationClient.Send($"GA\"{key} Gain\">1\r");
         }
-        foreach (string key in _mutes.Keys)
+        foreach (string key in ControlNames(_mutes))
         {
             await Task.Delay(30, token);
             CommunicationClient.Send($"GA\"{key} Gain\">2\r");
         }
 
-        foreach (string key in _selects.Keys)
+        foreach (string key in ControlNames(_selects))
         {
             await Task.Delay(30, token);
             CommunicationClient.Send($"GA\"{key} Selector\">1\r");
         }
     }
 
+    private List<string> ControlNames<T>(Dictionary<string, T> controls)
+    {
+        lock (_controlsLock)
+            return controls.Keys.ToList();
+    }
+
+    private T? FindControl<T>(Dictionary<string, T> controls, string controlName) where T : class
+    {
+        lock (_controlsLock)
+            return controls.GetValueOrDefault(controlName);
+    }
+
     public override void PowerOn() { }
 
     public override void PowerOff() { }
 
-    public override void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName) 
-        => AddControl(volumeLevelHandler, controlName, -60.5, 12.0);
+    public override void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName)
+    {
+        BoseGain? gain;
+        lock (_controlsLock)
+        {
+            if (_gains.TryGetValue(controlName, out gain))
+                gain.VolumeLevelHandlers += volumeLevelHandler;
+            else
+                _gains.Add(controlName, new BoseGain(volumeLevelHandler, controlName, DefaultMinGain, DefaultMaxGain));
+        }
+        if (gain != null)
+        {
+            volumeLevelHandler.Invoke(gain.Volume);
+            return;
+        }
+        if (CommunicationClient.ConnectionState == ConnectionState.Connected)
+            CommunicationClient.Send($"GA\"{controlName} Gain\">1\r");
+    }
 
     public void AddControl(VolumeLevelHandler volumeLevelHandler, string controlName, double minGain, double maxGain)
-    {if (_gains.TryGetValue(controlName, out var gain))
+    {
+        BoseGain? gain;
+        lock (_controlsLock)
         {
-            gain.VolumeLevelHandlers += volumeLevelHandler;
+            if (_gains.TryGetValue(controlName, out gain))
+                gain.VolumeLevelHandlers += volumeLevelHandler;
+            else
+                _gains.Add(controlName, new BoseGain(volumeLevelHandler, controlName, minGain, maxGain));
+        }
+        if (gain != null)
+        {
+            gain.SetMinGain(minGain);
+            gain.SetMaxGain(maxGain);
             volumeLevelHandler.Invoke(gain.Volume);
+            return;
         }
-        else
-        {
-            _gains.Add(controlName, new BoseGain(volumeLevelHandler, controlName, minGain, maxGain));
-            // GA"Fitness Gain">1\r 
+        if (CommunicationClient.ConnectionState == ConnectionState.Connected)
             CommunicationClient.Send($"GA\"{controlName} Gain\">1\r");
-        }
     }
 
     public override void AddControl(MuteStateHandler muteStateHandler, string muteName)
     {
-        if (_mutes.TryGetValue(muteName, out var mute))
+        BoseMute? mute;
+        lock (_controlsLock)
         {
-            mute.MuteStateHandlers += muteStateHandler;
+            if (_mutes.TryGetValue(muteName, out mute))
+                mute.MuteStateHandlers += muteStateHandler;
+            else
+                _mutes.Add(muteName, new BoseMute(muteStateHandler, muteName));
+        }
+        if (mute != null)
+        {
             muteStateHandler.Invoke(mute.MuteState);
+            return;
         }
-        else
-        {
-            _mutes.Add(muteName, new BoseMute(muteStateHandler, muteName));
-
+        if (CommunicationClient.ConnectionState == ConnectionState.Connected)
             CommunicationClient.Send($"GA\"{muteName} Gain\">2\r");
-        }
     }
 
     public override void AddControl(StringValueHandler stringValueHandler, string controlName)
     {
-        if (_selects.TryGetValue(controlName, out var select))
+        BoseSelect? select;
+        lock (_controlsLock)
         {
-            select.StringValueHandlers += stringValueHandler;
+            if (_selects.TryGetValue(controlName, out select))
+                select.StringValueHandlers += stringValueHandler;
+            else
+                _selects.Add(controlName, new BoseSelect(stringValueHandler, controlName));
+        }
+        if (select != null)
+        {
             stringValueHandler.Invoke(select.Value);
+            return;
         }
-        else
-        {
-            _selects.Add(controlName, new BoseSelect(stringValueHandler, controlName));
+        if (CommunicationClient.ConnectionState == ConnectionState.Connected)
             CommunicationClient.Send($"GA\"{controlName} Selector\">1\r");
-        }
     }
 
     public override void SetLevel(string controlName, int percentage)
     {
-        CommunicationClient.Send($"SA\"{controlName} Gain\">1={_gains[controlName].PercentageToDb(percentage)}\r");
+        var gain = FindControl(_gains, controlName);
+        if (gain == null)
+        {
+            using (PushProperties("SetLevel"))
+                LogWarning("Unknown level {ControlName}, not setting it to {Percentage}", controlName, percentage);
+            return;
+        }
+        CommunicationClient.Send($"SA\"{controlName} Gain\">1={gain.PercentageToDb(percentage)}\r");
     }
 
     public override void LevelUp(string controlName, int amount = 1) 
         => CommunicationClient.Send($"SA\"{controlName} Gain\">3={amount}\r");
 
     public override void LevelDown(string controlName, int amount = 1) 
-        => CommunicationClient.Send($"SA\"{controlName} Gain\">3=-{amount}\r");
+        => CommunicationClient.Send($"SA\"{controlName} Gain\">3={-amount}\r");
 
     public override void SetAudioMute(string controlName, MuteState muteState)
     {
@@ -249,13 +321,40 @@ public class BoseCspSoIP : Dsp
         => CommunicationClient.Send($"SA\"{controlName} Selector\">1={value}\r");
 
     public override int GetLevel(string controlName)
-        => !_gains.TryGetValue(controlName, out var gain) ? 0 : gain.Volume;
+    {
+        var gain = FindControl(_gains, controlName);
+        if (gain == null)
+        {
+            using (PushProperties("GetLevel"))
+                LogWarning("Unknown level {ControlName}, returning 0", controlName);
+            return 0;
+        }
+        return gain.Volume;
+    }
 
     public override MuteState GetAudioMute(string controlName)
-        => !_mutes.TryGetValue(controlName, out var mute) ? MuteState.Unknown : mute.MuteState;
+    {
+        var mute = FindControl(_mutes, controlName);
+        if (mute == null)
+        {
+            using (PushProperties("GetAudioMute"))
+                LogWarning("Unknown mute {ControlName}, returning Unknown", controlName);
+            return MuteState.Unknown;
+        }
+        return mute.MuteState;
+    }
 
     public override string GetValue(string controlName)
-        => !_selects.TryGetValue(controlName, out var select) ? string.Empty : select.Value;
+    {
+        var select = FindControl(_selects, controlName);
+        if (select == null)
+        {
+            using (PushProperties("GetValue"))
+                LogWarning("Unknown selector {ControlName}, returning an empty value", controlName);
+            return string.Empty;
+        }
+        return select.Value;
+    }
 
     public override Task Reinitialise(CancellationToken token = default)
     {

@@ -197,8 +197,6 @@ public class MagewellDirectorPlus : Recorder
     public MagewellDirectorPlus(string name, RestComms restClient) : base(name, restClient)
     {
         _restClient = restClient;
-        _restClient.HttpResponseHandlers += HandleResponse;
-        _restClient.ConnectionStateHandlers += HandleConnectionState;
 
         ProgramAudio = new MagewellDirectorAudioChannel("Program", VolumeType.Speaker, ProgramAudioType, restClient);
         MonitorAudio = new MagewellDirectorAudioChannel("Monitor", VolumeType.Speaker, MonitorAudioType, restClient);
@@ -210,6 +208,9 @@ public class MagewellDirectorPlus : Recorder
         Hdmi4Audio = new MagewellDirectorAudioChannel("HDMI 4", VolumeType.LineIn, Hdmi4AudioType, restClient);
         BgmAudio = new MagewellDirectorAudioChannel("BGM", VolumeType.LineIn, BgmAudioType, restClient);
         AudioChannels = [ProgramAudio, MonitorAudio, Mic1Audio, Mic2Audio, Hdmi1Audio, Hdmi2Audio, Hdmi3Audio, Hdmi4Audio, BgmAudio];
+
+        _restClient.HttpResponseHandlers += HandleResponse;
+        _restClient.ConnectionStateHandlers += HandleConnectionState;
 
         _stateWorker = new ThreadWorker(PollState, StatePollInterval);
         _mixerWorker = new ThreadWorker(PollMixer, MixerPollInterval);
@@ -569,9 +570,19 @@ public class MagewellDirectorPlus : Recorder
         {
             var info = audio!["audioInfo"]!;
             var type = info["type"]!.GetValue<int>();
-            AudioChannels.FirstOrDefault(channel => channel.AudioType == type)
-                ?.Update(info["volume"]!.GetValue<int>(), (MagewellAudioState)info["muted"]!.GetValue<int>(),
-                    info["supportAFV"]!.GetValue<bool>());
+            var channel = AudioChannels.FirstOrDefault(candidate => candidate.AudioType == type);
+            if (channel == null)
+                continue;
+            var levelDb = info["volume"]!.GetValue<int>();
+            var muted = info["muted"]!.GetValue<int>();
+            var state = (MagewellAudioState)muted;
+            if (!Enum.IsDefined(state))
+            {
+                LogWarning("Unknown audio state {Muted} for {Channel}, keeping {AudioState}", muted, channel.Name,
+                    channel.AudioState);
+                state = channel.AudioState;
+            }
+            channel.Update(levelDb, state, info["supportAFV"]!.GetValue<bool>());
         }
     }
 

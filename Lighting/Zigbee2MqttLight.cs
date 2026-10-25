@@ -8,7 +8,11 @@ public class Zigbee2MqttLight : Light
     private readonly string _topic;
     private readonly MqttClient _client;
     private const string TopicPrefix = "zigbee2mqtt";
-    
+    private const string BrightnessProperty = "brightness";
+    private const double MinimumBrightness = 0;
+    private const double MaximumBrightness = 254;
+    private const double PercentScale = 100;
+
     public Zigbee2MqttLight(string name, string topic, MqttClient client) : base(name)
     {
         _topic = topic;
@@ -19,11 +23,18 @@ public class Zigbee2MqttLight : Light
 
     private void HandleValueChange(string valueChange)
     {
-        using var document = JsonDocument.Parse(valueChange);
-        var data = document.RootElement;
-        CommunicationState = CommunicationState.Okay;
-        TryToGetBrightness(data);
-        TryToGetPowerState(data);
+        try
+        {
+            using var document = JsonDocument.Parse(valueChange);
+            var data = document.RootElement;
+            CommunicationState = CommunicationState.Okay;
+            TryToGetBrightness(data);
+            TryToGetPowerState(data);
+        }
+        catch (JsonException e)
+        {
+            LogException(e, $"Unable to parse {valueChange}");
+        }
     }
 
     private void TryToGetPowerState(JsonElement data)
@@ -45,14 +56,14 @@ public class Zigbee2MqttLight : Light
 
     private void TryToGetBrightness(JsonElement data)
     {
-        try
+        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty(BrightnessProperty, out JsonElement brightness))
+            return;
+        if (brightness.ValueKind != JsonValueKind.Number || !brightness.TryGetDouble(out double value) || !double.IsInteger(value))
         {
-            Brightness = ScaleByteToPercentage(data.GetProperty("brightness").GetInt32());
+            LogException(new FormatException($"Unable to read the brightness from {data.GetRawText()}"));
+            return;
         }
-        catch (Exception e)
-        {
-            LogException(e);
-        }
+        Brightness = ScaleBrightnessToPercentage(value);
     }
 
     public override List<LightPreset> Presets() => [];
@@ -62,29 +73,21 @@ public class Zigbee2MqttLight : Light
         _client.Send($"{TopicPrefix}/{_topic}/set", $"{{\"scene_recall\": \"{preset}\"}}");
     }
 
-    protected override void DoPowerOn() => _client.Send($"{TopicPrefix}/{_topic}/set", "{\"state\": \"On\"}");
+    protected override void DoPowerOn() => _client.Send($"{TopicPrefix}/{_topic}/set", "{\"state\": \"ON\"}");
 
-    protected override void DoPowerOff() => _client.Send($"{TopicPrefix}/{_topic}/set", "{\"state\": \"Off\"}");
+    protected override void DoPowerOff() => _client.Send($"{TopicPrefix}/{_topic}/set", "{\"state\": \"OFF\"}");
 
     protected override void DoSetLevel(int level)
     {
-        byte scaled = (byte)Math.Clamp((int)Math.Round(level * 255.0 / 100.0), 0, 255);
-        _client.Send($"{TopicPrefix}/{_topic}/set", $"{{\"state\": \"On\", \"brightness\": {scaled}}}");
+        byte scaled = (byte)Math.Clamp(Math.Round(level * MaximumBrightness / PercentScale), MinimumBrightness, MaximumBrightness);
+        _client.Send($"{TopicPrefix}/{_topic}/set", $"{{\"state\": \"ON\", \"brightness\": {scaled}}}");
     }
 
-    private uint ScaleByteToPercentage(int value)
+    private uint ScaleBrightnessToPercentage(double value)
     {
-        switch (value)
-        {
-            case 0: return 0;
-            case 255: return 100;
-        }
+        if (value is < MinimumBrightness or > MaximumBrightness)
+            LogException(new ArgumentOutOfRangeException(nameof(value), value, $"Value must be between {MinimumBrightness} and {MaximumBrightness}."));
 
-        if (value is < 0 or > 255)
-        {
-            LogException(new ArgumentOutOfRangeException(nameof(value), "Value must be between 0 and 255."));
-        }
-
-        return (uint)(value * 100) / 255;
+        return (uint)Math.Round(Math.Clamp(value, MinimumBrightness, MaximumBrightness) * PercentScale / MaximumBrightness);
     }
 }

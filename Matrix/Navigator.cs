@@ -1,5 +1,4 @@
-﻿using System.Text.RegularExpressions;
-using AVCoders.Core;
+﻿using AVCoders.Core;
 
 namespace AVCoders.Matrix;
 
@@ -7,8 +6,8 @@ public class Navigator : VideoMatrix
 {
     public static readonly ushort DefaultPort = 22023;
     public readonly SshClient SshClient;
-    private readonly Dictionary<string, Action<string>> _callbacks;
-    private readonly Regex _deviceResponseParser;
+    private readonly Dictionary<string, Action<string>> _callbacks = new();
+    private readonly object _callbacksLock = new();
     public const string EscapeHeader = "\x1b";
     private int _unansweredDeviceForwards = 0;
 
@@ -34,10 +33,6 @@ public class Navigator : VideoMatrix
         SshClient = sshClient;
         CommunicationClient.ResponseHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
-        _callbacks = new Dictionary<string, Action<string>>();
-        
-        string responsePattern = @"\{(?<device>.*?)\}(?<response>.*?)";
-        _deviceResponseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(100));
     }
 
     private void HandleConnectionState(ConnectionState connectionState)
@@ -96,8 +91,7 @@ public class Navigator : VideoMatrix
         if (parts.Length != 3 || !int.TryParse(parts[0][3..], out var outputNumber))
             return;
         CommunicationState = CommunicationState.Okay;
-        if (_callbacks.TryGetValue($"{outputNumber:D4}o", out Action<string>? action))
-            action.Invoke($"{parts[1]} {parts[2]}");
+        FindCallback($"{outputNumber:D4}o")?.Invoke($"{parts[1]} {parts[2]}");
     }
 
     private void HandleDevicePresenceResponse(string response)
@@ -150,7 +144,8 @@ public class Navigator : VideoMatrix
         if (parts.Length != 3 || !int.TryParse(parts[0], out var outputNumber))
             return;
         CommunicationState = CommunicationState.Okay;
-        if (!_callbacks.TryGetValue($"{outputNumber:D4}o", out Action<string>? action))
+        var action = FindCallback($"{outputNumber:D4}o");
+        if (action == null)
             return;
         action.Invoke($"In{ParseTieReportInput(parts[1])} Vid");
         action.Invoke($"In{ParseTieReportInput(parts[2])} Aud");
@@ -191,15 +186,36 @@ public class Navigator : VideoMatrix
     
     public void RouteUsb(NavDeviceBase host, NavDeviceBase device)
     {
-        var inputString = $"{host.DeviceNumber}{host.GetLetterForDeviceType()}";
-        var outputString = $"{device.DeviceNumber}{device.GetLetterForDeviceType()}";
-        CommunicationClient.Send($"{EscapeHeader}{inputString}*{outputString}^\r");
+        using (PushProperties())
+        {
+            if (host.DeviceNumber == 0)
+            {
+                LogWarning("Not requesting a USB route from {HostName} as its device number is 0", host.Name);
+                return;
+            }
+            if (device.DeviceNumber == 0)
+            {
+                LogWarning("Not requesting a USB route to {DeviceName} as its device number is 0", device.Name);
+                return;
+            }
+            var inputString = $"{host.DeviceNumber}{host.GetLetterForDeviceType()}";
+            var outputString = $"{device.DeviceNumber}{device.GetLetterForDeviceType()}";
+            CommunicationClient.Send($"{EscapeHeader}{inputString}*{outputString}^\r");
+        }
     }
-    
+
     public void DerouteUsb(NavDeviceBase device)
     {
-        var outputString = $"{device.DeviceNumber}{device.GetLetterForDeviceType()}";
-        CommunicationClient.Send($"{EscapeHeader}0i*{outputString}^\r");
+        using (PushProperties())
+        {
+            if (device.DeviceNumber == 0)
+            {
+                LogWarning("Not requesting a USB deroute of {DeviceName} as its device number is 0", device.Name);
+                return;
+            }
+            var outputString = $"{device.DeviceNumber}{device.GetLetterForDeviceType()}";
+            CommunicationClient.Send($"{EscapeHeader}0i*{outputString}^\r");
+        }
     }
     
     public void DerouteAllUsb()
@@ -221,7 +237,8 @@ public class Navigator : VideoMatrix
                 return;
             }
             var respondant = response.Substring(0, hostEndIndex).Trim('{').Trim('}');
-            if (_callbacks.TryGetValue(respondant, out Action<string>? action))
+            var action = FindCallback(respondant);
+            if (action != null)
             {
                 action.Invoke(response.Substring(hostEndIndex + 1, response.Length - hostEndIndex - 1));
             }
@@ -235,7 +252,20 @@ public class Navigator : VideoMatrix
 
     public virtual void RegisterDevice(string deviceId, Action<string> responseHandler)
     {
-        _callbacks.Add(deviceId, responseHandler);
+        lock (_callbacksLock)
+            _callbacks[deviceId] = responseHandler;
+    }
+
+    public virtual void DeregisterDevice(string deviceId)
+    {
+        lock (_callbacksLock)
+            _callbacks.Remove(deviceId);
+    }
+
+    private Action<string>? FindCallback(string deviceId)
+    {
+        lock (_callbacksLock)
+            return _callbacks.GetValueOrDefault(deviceId);
     }
 
     public override void PowerOn() { }

@@ -6,7 +6,7 @@ public static class Bytes
 {
     public static byte[] FromString(string input)
     {
-        return Encoding.ASCII.GetBytes(input);
+        return Encoding.Latin1.GetBytes(input);
     }
     
     public static byte[] AsciiRepresentationOfHexEquivalentOf(int value, int padding = 0, bool capitalise = true)

@@ -103,6 +103,21 @@ public class ConnectionIssuesTest
     }
 
     [Fact]
+    public void ClearingConnectionFailures_WithNothingFailing_RaisesNoIssuesChanged()
+    {
+        var changes = 0;
+        _client.IssuesChanged += (_, _) => changes++;
+        var events = _client.Events.Count;
+
+        _client.SetConnectionState(ConnectionState.Connected);
+        _client.SetConnectionState(ConnectionState.Disconnected);
+        _client.SetConnectionState(ConnectionState.Connected);
+
+        Assert.Equal(0, changes);
+        Assert.Equal(events, _client.Events.Count);
+    }
+
+    [Fact]
     public void DesiredConnectionState_DefaultsToUnknown()
     {
         Assert.Equal(ConnectionState.Unknown, _client.DesiredConnectionState);
@@ -143,6 +158,46 @@ public class ConnectionIssuesTest
         _client.Connect();
         _client.ReportFailure("10.0.0.1:4999 refused the connection");
 
+        Assert.Empty(_client.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void Disconnect_DuringAFailureReport_LeavesNoConnectionIssue()
+    {
+        _client.ConnectionIssueThreshold = TimeSpan.Zero;
+        Thread? disconnect = null;
+        _client.IssuesChanged += (_, _) =>
+        {
+            if (disconnect != null)
+                return;
+            disconnect = new Thread(_client.Disconnect);
+            disconnect.Start();
+            disconnect.Join(TimeSpan.FromMilliseconds(200));
+        };
+
+        _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
+
+        Assert.True(disconnect!.Join(TimeSpan.FromSeconds(5)), "The disconnect never finished");
+        Assert.Empty(_client.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void IssuesChangedSubscriber_CanWaitForADisconnectOnAnotherThread()
+    {
+        _client.ConnectionIssueThreshold = TimeSpan.Zero;
+        bool? disconnectFinished = null;
+        _client.IssuesChanged += (_, _) =>
+        {
+            if (disconnectFinished != null)
+                return;
+            var disconnect = new Thread(_client.Disconnect);
+            disconnect.Start();
+            disconnectFinished = disconnect.Join(TimeSpan.FromSeconds(2));
+        };
+
+        _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
+
+        Assert.True(disconnectFinished, "The subscriber was still holding a lock the disconnect needed");
         Assert.Empty(_client.GetOngoingIssues());
     }
 

@@ -107,7 +107,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
 
     private void HandleConnectionState(ConnectionState connectionState)
     {
-        if (connectionState is ConnectionState.Connected or ConnectionState.Connecting)
+        if (connectionState is not (ConnectionState.Disconnected or ConnectionState.Error))
             return;
         using (PushProperties("HandleConnectionState"))
         {
@@ -134,7 +134,6 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
         try
         {
             CommunicationClient.Send(command + "\r\n");
-            CommunicationState = CommunicationState.Okay;
         }
         catch (Exception e)
         {
@@ -169,6 +168,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
     {
         if (!line.StartsWith("*s ") && !line.StartsWith("*c ") && !line.StartsWith("*r "))
             return;
+        CommunicationState = CommunicationState.Okay;
 
         var responses = line.Split(' ');
         if (responses.Length < 3)
@@ -219,7 +219,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
         switch (responses[5])
         {
             case "Connected:":
-                if (responses[6].Contains("False"))
+                if (responses[6].Trim() == "False")
                     input.SetConnectionState(ConnectionState.Disconnected);
                 return;
             case "SignalState:":
@@ -259,8 +259,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
                 SourceResolution resolution;
                 lock (_lock)
                 {
-                    if (!_sourceResolutions.TryGetValue(sourceId, out resolution!))
-                        _sourceResolutions[sourceId] = resolution = new SourceResolution();
+                    resolution = _sourceResolutions.GetValueOrDefault(sourceId) ?? new SourceResolution();
                     switch (responses[6])
                     {
                         case "Width:":
@@ -275,6 +274,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
                         default:
                             return;
                     }
+                    _sourceResolutions[sourceId] = resolution;
                     input = _inputs.GetValueOrDefault(_sourceIdToConnectorId.GetValueOrDefault(sourceId, sourceId));
                 }
                 if (input != null)
@@ -312,7 +312,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
                 output.SetConnectedDeviceName(JoinQuotedValue(responses, 7));
                 return;
             case "Connected:":
-                output.SetConnectionState(responses[6].Contains("True")
+                output.SetConnectionState(responses[6].Trim() == "True"
                     ? ConnectionState.Connected
                     : ConnectionState.Disconnected);
                 return;

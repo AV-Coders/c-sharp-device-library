@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Net;
+﻿using System.Net.Sockets;
 using System.Text;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
@@ -9,13 +8,15 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersUdpClient : Core_UdpClient
 {
     private static readonly TimeSpan SocketRetryInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan NoSocketReceiveWait = TimeSpan.FromMilliseconds(1100);
+    private readonly object _clientLock = new();
     private UdpClient? _client;
-    private readonly ConcurrentQueue<QueuedPayload<(byte[] Bytes, string? Message)>> _sendQueue = new();
+    private readonly LinkedList<QueuedPayload<(byte[] Bytes, string? Message)>> _sendQueue = new();
 
     public AvCodersUdpClient(string ipAddress, ushort port, string name, CommandStringFormat commandStringFormat) :
         base(ipAddress, port, name, commandStringFormat)
     {
-        _client = CreateClient();
+        ReplaceClient(CreateClient());
         ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
         SendQueueWorker.Restart();
@@ -41,7 +42,6 @@ public class AvCodersUdpClient : Core_UdpClient
             }
             catch (Exception e)
             {
-                LogException(e);
                 ReportConnectionFailure(DescribeConnectionError(e));
                 ConnectionState = ConnectionState.Disconnected;
             }
@@ -54,18 +54,19 @@ public class AvCodersUdpClient : Core_UdpClient
         using (PushProperties("Receive"))
         {
             var client = _client;
+            if (client == null)
+            {
+                await Task.Delay(NoSocketReceiveWait, token);
+                return;
+            }
+
             try
             {
-                if (client is not { Available: > 0 })
-                {
-                    await Task.Delay(1100, token);
-                    return;
-                }
-
-                IPEndPoint? sender = null;
-                var received = client.Receive(ref sender);
+                var result = await client.ReceiveAsync(token);
+                ClearConnectionFailures();
+                var received = result.Buffer;
                 var response = CommandStringFormat == CommandStringFormat.Ascii
-                    ? Encoding.ASCII.GetString(received)
+                    ? Encoding.Latin1.GetString(received)
                     : ConvertByteArrayToString(received);
                 InvokeResponseHandlers(response, received);
             }
@@ -73,24 +74,32 @@ public class AvCodersUdpClient : Core_UdpClient
             {
                 throw;
             }
+            catch (Exception e) when (client != _client)
+            {
+                LogDebug("Stopped receiving on the replaced socket: {Message}", e.Message);
+            }
+            catch (SocketException e) when (e.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionRefused)
+            {
+                ReportConnectionFailure(DescribeConnectionError(e));
+            }
             catch (Exception e)
             {
                 LogException(e);
-                if (client == _client)
-                    Reconnect();
+                Reconnect();
             }
         }
     }
 
     protected override async Task ProcessSendQueue(CancellationToken token)
     {
-        if (_client == null)
+        var client = _client;
+        if (client == null)
         {
             await Task.Delay(500, token);
         }
         else
         {
-            while (_sendQueue.TryDequeue(out var item))
+            while (Dequeue() is { } item)
             {
                 using (Trigger.Resume(item.TriggerId))
                 {
@@ -105,7 +114,7 @@ public class AvCodersUdpClient : Core_UdpClient
                     }
                     try
                     {
-                        await _client.SendAsync(item.Payload.Bytes, token);
+                        await client.SendAsync(item.Payload.Bytes, token);
                     }
                     catch (OperationCanceledException)
                     {
@@ -113,9 +122,11 @@ public class AvCodersUdpClient : Core_UdpClient
                     }
                     catch (Exception e)
                     {
-                        using (PushProperties("ProcessSendQueue"))
-                            LogException(e, "Failed to send a queued message, dropping it");
-                        continue;
+                        LogException(e);
+                        lock (_sendQueue)
+                            _sendQueue.AddFirst(item with { Timestamp = DateTimeOffset.UtcNow });
+                        ReconnectIfCurrent(client);
+                        break;
                     }
                     InvokeRequestHandlers(item.Payload.Bytes);
                     if (item.Payload.Message != null)
@@ -126,13 +137,31 @@ public class AvCodersUdpClient : Core_UdpClient
         }
     }
 
+    private QueuedPayload<(byte[] Bytes, string? Message)>? Dequeue()
+    {
+        lock (_sendQueue)
+        {
+            var first = _sendQueue.First;
+            if (first == null)
+                return null;
+            _sendQueue.RemoveFirst();
+            return first.Value;
+        }
+    }
+
+    private bool HasQueuedMessages()
+    {
+        lock (_sendQueue)
+            return _sendQueue.Count > 0;
+    }
+
     protected override async Task CheckConnectionState(CancellationToken token)
     {
         using (PushProperties("CheckConnectionState"))
         {
             await Task.Delay(SocketRetryInterval, token);
             if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
-                _client = CreateClient();
+                ReplaceClient(CreateClient());
         }
     }
 
@@ -140,7 +169,8 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         DesiredConnectionState = ConnectionState.Connected;
         AddEvent(EventType.Connection, "Connect requested");
-        _sendQueue.Clear();
+        lock (_sendQueue)
+            _sendQueue.Clear();
         Reconnect();
         ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
@@ -156,11 +186,30 @@ public class AvCodersUdpClient : Core_UdpClient
             return;
         }
         ConnectionState = ConnectionState.Disconnecting;
-        var oldClient = _client;
-        _client = null;
-        oldClient?.Close();
+        ReplaceClient(null);
         ConnectionState = ConnectionState.Disconnected;
-        _client = CreateClient();
+        ReplaceClient(CreateClient());
+    }
+
+    private void ReconnectIfCurrent(UdpClient client)
+    {
+        lock (_clientLock)
+        {
+            if (client != _client)
+                return;
+        }
+        Reconnect();
+    }
+
+    private void ReplaceClient(UdpClient? client)
+    {
+        UdpClient? previous;
+        lock (_clientLock)
+        {
+            previous = _client;
+            _client = client;
+        }
+        previous?.Close();
     }
 
     public override void Disconnect()
@@ -171,9 +220,9 @@ public class AvCodersUdpClient : Core_UdpClient
         ConnectionStateWorker.Stop();
         SendQueueWorker.Stop();
         ConnectionState = ConnectionState.Disconnecting;
-        _client?.Close();
-        _client = null;
-        _sendQueue.Clear();
+        ReplaceClient(null);
+        lock (_sendQueue)
+            _sendQueue.Clear();
         ClearConnectionFailures();
         ConnectionState = ConnectionState.Disconnected;
     }
@@ -192,19 +241,22 @@ public class AvCodersUdpClient : Core_UdpClient
                 return;
             }
 
+            var client = _client;
+            if (client == null || HasQueuedMessages())
+            {
+                EnqueueWithCap(bytes, message);
+                return;
+            }
+
             try
             {
-                if (_client == null || !_sendQueue.IsEmpty)
-                {
-                    EnqueueWithCap(bytes, message);
-                    return;
-                }
-
-                _client.Send(bytes, bytes.Length);
+                client.Send(bytes, bytes.Length);
             }
             catch (Exception e)
             {
                 LogException(e);
+                EnqueueWithCap(bytes, message);
+                _ = Task.Run(() => ReconnectIfCurrent(client));
                 return;
             }
             InvokeRequestHandlers(bytes);
@@ -215,12 +267,21 @@ public class AvCodersUdpClient : Core_UdpClient
 
     private void EnqueueWithCap(byte[] bytes, string? message)
     {
-        if (_sendQueue.Count >= MaxQueueSize && _sendQueue.TryDequeue(out var dropped))
+        QueuedPayload<(byte[] Bytes, string? Message)>? dropped = null;
+        lock (_sendQueue)
         {
-            using (Trigger.Resume(dropped.TriggerId))
-            using (PushProperties("EnqueueWithCap"))
-                LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+            if (_sendQueue.Count >= MaxQueueSize && _sendQueue.First is { } oldest)
+            {
+                dropped = oldest.Value;
+                _sendQueue.RemoveFirst();
+            }
+            _sendQueue.AddLast(new QueuedPayload<(byte[] Bytes, string? Message)>(DateTimeOffset.UtcNow, (bytes, message), Trigger.Id));
         }
-        _sendQueue.Enqueue(new QueuedPayload<(byte[] Bytes, string? Message)>(DateTimeOffset.UtcNow, (bytes, message), Trigger.Id));
+
+        if (dropped == null)
+            return;
+        using (Trigger.Resume(dropped.TriggerId))
+        using (PushProperties("EnqueueWithCap"))
+            LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
     }
 }

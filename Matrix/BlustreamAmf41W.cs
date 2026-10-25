@@ -6,8 +6,10 @@ namespace AVCoders.Matrix;
 public class BlustreamAmf41W : VideoMatrix
 {
     public static readonly ushort DefaultPort = 23;
+    private const string SuccessReply = "[SUCCESS]";
+    private const string FailureReply = "[FAIL]";
 
-    public BlustreamAmf41W(TcpClient tcpClient, string name) 
+    public BlustreamAmf41W(TcpClient tcpClient, string name)
         : base(1, tcpClient, name)
     {
         tcpClient.ResponseHandlers += HandleResponse;
@@ -18,18 +20,25 @@ public class BlustreamAmf41W : VideoMatrix
 
     private void HandleResponse(string response)
     {
-        CommunicationState = response.Contains("[SUCCESS]") ? CommunicationState.Okay : CommunicationState.Error;
+        if (response.Contains(SuccessReply))
+            CommunicationState = CommunicationState.Okay;
+        else if (response.Contains(FailureReply))
+            CommunicationState = CommunicationState.Error;
     }
 
     private void SourceSelect(int source, int window = 0)
     {
-        if (window == 0)
+        var command = window == 0
+            ? $"config --source-select hdmi{source}\r"
+            : $"config --source-select hdmi{source} {window}\r";
+        try
         {
-            CommunicationClient.Send($"config --source-select hdmi{source}\r");
+            CommunicationClient.Send(command);
         }
-        else
+        catch (Exception e)
         {
-            CommunicationClient.Send($"config --source-select hdmi{source} {window}\r");
+            LogException(e);
+            CommunicationState = CommunicationState.Error;
         }
     }
 

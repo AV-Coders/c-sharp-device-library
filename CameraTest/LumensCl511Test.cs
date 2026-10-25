@@ -75,4 +75,51 @@ public class LumensCl511Test
         Assert.Equal(PowerState.Off, _camera.DesiredPowerState);
         Assert.Equal(PowerState.Off, _camera.PowerState);
     }
+
+    [Theory]
+    [InlineData(0, 0x01)]
+    [InlineData(7, 0x08)]
+    public void RecallPreset_SendsTheOneBasedPresetIndex(int preset, byte expectedIndex)
+    {
+        _camera.RecallPreset(preset);
+
+        _mockClient.Verify(x => x.Send(new byte[] { 0xA0, 0x03, 0x00, 0x00, expectedIndex, 0xAF }), Times.Once);
+        Assert.Equal(preset, _camera.LastRecalledPreset);
+    }
+
+    [Theory]
+    [InlineData(0, 0x01)]
+    [InlineData(7, 0x08)]
+    public void SavePreset_SendsTheOneBasedPresetIndex(int preset, byte expectedIndex)
+    {
+        _camera.SavePreset(preset);
+
+        _mockClient.Verify(x => x.Send(new byte[] { 0xA0, 0x03, 0x00, 0x01, expectedIndex, 0xAF }), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(8)]
+    public void RecallPreset_OutOfRange_SendsNothing(int preset)
+    {
+        _camera.RecallPreset(2);
+        _mockClient.Invocations.Clear();
+
+        _camera.RecallPreset(preset);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+        Assert.Equal(2, _camera.LastRecalledPreset);
+        Assert.Contains(_camera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is out of range, this module supports presets 0-7");
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(8)]
+    public void SavePreset_OutOfRange_SendsNothing(int preset)
+    {
+        _camera.SavePreset(preset);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+    }
 }

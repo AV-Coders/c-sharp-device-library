@@ -13,13 +13,22 @@ public class CecDisplay : Display, ISetTopBox
     private const char DestinationTv = '\x00';
     private const char DestinationBroadcast = '\x0F';
     private const char Standby = '\x36';
+    private const char UserControlPressed = '\x44';
+    private const char UserControlReleased = '\x45';
     private const char ActiveSource = '\x82';
+    private const char ReportPowerStatus = '\x90';
     private const int PhysicalAddressLength = 2;
+    private const int PowerStatusReplyLength = 3;
     private static readonly TimeSpan ActiveSourceSettleTime = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan KeyPressTime = TimeSpan.FromMilliseconds(75);
+    private static readonly TimeSpan PowerOnSpacing = TimeSpan.FromMilliseconds(150);
+    private static readonly TimeSpan ChannelDigitSpacing = TimeSpan.FromMilliseconds(50);
 
     private readonly char _commandHeader;
     private readonly char _broadcastHeader;
     private readonly char _responseHeader;
+    private readonly object _sendLock = new();
+    private Task _sends = Task.CompletedTask;
 
     private static readonly Dictionary<char, RemoteButton> NumberpadMap = new()
     {
@@ -81,7 +90,7 @@ public class CecDisplay : Display, ISetTopBox
         { Input.Hdmi4, '\x40' },
         { Input.DvbtTuner, '\x50' },
         { Input.Network6, '\x60' }
-    }; 
+    };
 
     public CecDisplay(SerialClient cecStream, string name, Func<char[]> sourcePhysicalAddress, char sourceId = SourcePlayBack1, char destinationId = DestinationTv, int pollTime = 23)
         : base(InputMap.Keys.ToList(), name, null, cecStream, CommandStringFormat.Hex, pollTime)
@@ -89,16 +98,21 @@ public class CecDisplay : Display, ISetTopBox
         _cecStream = cecStream;
         _sourcePhysicalAddress = sourcePhysicalAddress;
         _cecStream.ResponseHandlers += HandleResponse;
-        _commandHeader = (char)(sourceId + destinationId);
+        _commandHeader = (char)(sourceId | destinationId);
         _responseHeader = '\x0F';
-        _broadcastHeader = (char)(sourceId + '\x0F');
+        _broadcastHeader = (char)(sourceId | DestinationBroadcast);
     }
 
     private void HandleResponse(string incoming)
     {
         using (PushProperties())
         {
-            if (incoming[0] == _responseHeader && incoming[1] == '\x90')
+            if (incoming.Length < PowerStatusReplyLength)
+            {
+                LogDebug("Ignoring a short reply {Reply}", Convert.ToHexString(incoming.Select(c => (byte)c).ToArray()));
+                return;
+            }
+            if (incoming[0] == _responseHeader && incoming[1] == ReportPowerStatus)
             {
                 CommunicationState = CommunicationState.Okay;
                 PowerState = incoming[2] switch
@@ -121,28 +135,59 @@ public class CecDisplay : Display, ISetTopBox
 
     protected override Task DoPoll(CancellationToken token)
     {
-        Send(['\xF0', '\x8F']);
+        using (PushProperties("DoPoll"))
+        {
+            var connectionState = CommunicationClient.ConnectionState;
+            switch (connectionState)
+            {
+                case ConnectionState.Disconnected:
+                case ConnectionState.Disconnecting:
+                case ConnectionState.Error:
+                    LogDebug("Not polling, the CEC stream is {ConnectionState}", connectionState);
+                    break;
+                default:
+                    Send(([SourceUnregistered, '\x8F'], TimeSpan.Zero));
+                    break;
+            }
+        }
         return Task.CompletedTask;
     }
 
-    private void RemoteControlPassthrough(char command)
+    private void Send(params (char[] Frame, TimeSpan SpacingAfter)[] frames)
     {
-        // Press
-        _cecStream.Send([_commandHeader, '\x44', command]);
-        Thread.Sleep(75);
-        // Release
-        _cecStream.Send([_commandHeader, '\x45']);
+        lock (_sendLock)
+            _sends = _sends.ContinueWith(_ => SendSpaced(frames), TaskScheduler.Default).Unwrap();
     }
-    
 
-    private void Send(char[] command) => _cecStream.Send(command);
+    private async Task SendSpaced((char[] Frame, TimeSpan SpacingAfter)[] frames)
+    {
+        try
+        {
+            foreach (var (frame, spacingAfter) in frames)
+            {
+                _cecStream.Send(frame);
+                await Task.Delay(spacingAfter);
+            }
+        }
+        catch (Exception e)
+        {
+            CommunicationState = CommunicationState.Error;
+            LogException(e, "Sending CEC frames failed");
+        }
+    }
+
+    private (char[] Frame, TimeSpan SpacingAfter)[] KeyPress(char command, TimeSpan spacingAfterRelease) =>
+    [
+        ([_commandHeader, UserControlPressed, command], KeyPressTime),
+        ([_commandHeader, UserControlReleased], spacingAfterRelease)
+    ];
+
+    private void RemoteControlPassthrough(char command) => Send(KeyPress(command, TimeSpan.Zero));
 
     protected override void DoPowerOn()
     {
-        RemoteControlPassthrough('\x6D');
-        Thread.Sleep(150);
         // One touch play - Image view on
-        Send([_commandHeader, '\x04']);
+        Send([..KeyPress('\x6D', PowerOnSpacing), ([_commandHeader, '\x04'], TimeSpan.Zero)]);
     }
 
     protected override void DoPowerOff()
@@ -153,25 +198,23 @@ public class CecDisplay : Display, ISetTopBox
             if (physicalAddress.Length == PhysicalAddressLength)
             {
                 // Samsung ignores Standby from a source that isn't the active source.
-                Send([_broadcastHeader, ActiveSource, physicalAddress[0], physicalAddress[1]]);
-                Thread.Sleep(ActiveSourceSettleTime);
+                Send(([_broadcastHeader, ActiveSource, physicalAddress[0], physicalAddress[1]], ActiveSourceSettleTime),
+                    ([_commandHeader, Standby], TimeSpan.Zero));
+                return;
             }
-            else
-            {
-                LogWarning("The source physical address is unknown, sending Standby without claiming active source");
-                AddEvent(EventType.Error, "Source physical address unknown, Standby sent without claiming active source");
-            }
-            Send([_commandHeader, Standby]);
+            LogWarning("The source physical address is unknown, sending Standby without claiming active source");
+            AddEvent(EventType.Error, "Source physical address unknown, Standby sent without claiming active source");
+            Send(([_commandHeader, Standby], TimeSpan.Zero));
         }
     }
 
-    protected override void DoSetInput(Input input) => Send([_commandHeader, '\x82', InputMap[input], '\x00']);
+    protected override void DoSetInput(Input input) => Send(([_commandHeader, ActiveSource, InputMap[input], '\x00'], TimeSpan.Zero));
 
     protected override void DoSetVolume(int percentage)
     {
         // scale to a value between 0-127
         char volume = (char)(percentage * 1.27);
-        Send([_commandHeader, '\x7A', volume]);
+        Send(([_commandHeader, '\x7A', volume], TimeSpan.Zero));
         DesiredAudioMute = MuteState.Off;
         AudioMute = MuteState.Off;
     }
@@ -187,7 +230,7 @@ public class CecDisplay : Display, ISetTopBox
                 RemoteControlPassthrough('\x66');
                 break;
         }
-        
+
     }
 
     public void ChannelUp() => RemoteControlPassthrough('\x30');
@@ -213,12 +256,14 @@ public class CecDisplay : Display, ISetTopBox
 
     public void SetChannel(int channel)
     {
-        var channelString = channel.ToString();
-        foreach (var c in channelString)
+        if (channel < 0)
         {
-            RemoteControlPassthrough(RemoteButtonMap[NumberpadMap[c]]);
-            Thread.Sleep(50);
+            using (PushProperties("SetChannel"))
+                LogWarning("Channel {Channel} can't be sent: CEC has no key for '-'", channel);
+            AddEvent(EventType.Error, $"Channel {channel} can't be sent: CEC has no key for '-'");
+            return;
         }
+        Send(channel.ToString().SelectMany(digit => KeyPress(RemoteButtonMap[NumberpadMap[digit]], ChannelDigitSpacing)).ToArray());
     }
 
     public void ToggleSubtitles()

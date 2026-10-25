@@ -24,7 +24,10 @@ public class SetTopBoxManager : DeviceBase
         : base(name, CommunicationClient.None)
     {
         if (device is not ISetTopBox setTopBox)
+        {
+            LogBaseRegistry.Deregister(this);
             throw new ArgumentException($"{device.Name} ({device.GetType().Name}) does not implement {nameof(ISetTopBox)}", nameof(device));
+        }
 
         _device = device;
         _setTopBox = setTopBox;

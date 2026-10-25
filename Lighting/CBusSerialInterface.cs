@@ -218,10 +218,17 @@ public class CBusSerialInterface : LogBase
         {
             if (!ReferenceEquals(command, _inFlight))
                 return;
-            using (Trigger.Resume(_inFlight!.TriggerId))
-            using (PushProperties("HandleConfirmationTimeout"))
-                LogWarning("No confirmation from the PCI within {Timeout} ms, sending the next command", ConfirmationTimeout.TotalMilliseconds);
-            SendNext();
+            try
+            {
+                using (Trigger.Resume(_inFlight!.TriggerId))
+                using (PushProperties("HandleConfirmationTimeout"))
+                    LogWarning("No confirmation from the PCI within {Timeout} ms, sending the next command", ConfirmationTimeout.TotalMilliseconds);
+                SendNext();
+            }
+            catch (Exception e)
+            {
+                LogException(e, "Sending the next command after the confirmation timeout failed");
+            }
         }
     }
 

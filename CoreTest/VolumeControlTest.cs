@@ -17,6 +17,14 @@ public class VolumeControlTest
             MuteState = muteState;
         }
 
+        public void ReportVolume(int volume) => Volume = volume;
+
+        public void ReportThroughTheHandlers(int volume, MuteState muteState)
+        {
+            VolumeLevelHandlers?.Invoke(volume);
+            MuteStateHandlers?.Invoke(muteState);
+        }
+
         public override void LevelUp(int amount) { }
 
         public override void LevelDown(int amount) { }
@@ -65,5 +73,70 @@ public class VolumeControlTest
 
         Assert.Empty(control.LevelsSet);
         Assert.Equal([MuteState.On], control.MuteStatesSet);
+    }
+
+    [Fact]
+    public void RestoreLevel_SavedBeforeAnyReport_RestoresNothing()
+    {
+        var control = new TestVolumeControl(supportsLevel: true, supportsMute: true);
+        control.SaveLevel();
+
+        control.RestoreLevel();
+
+        Assert.Empty(control.LevelsSet);
+        Assert.Empty(control.MuteStatesSet);
+    }
+
+    [Fact]
+    public void RestoreLevel_SavedBeforeAMuteReport_DoesNotSetTheMute()
+    {
+        var control = new TestVolumeControl(supportsLevel: true, supportsMute: true);
+        control.ReportVolume(40);
+        control.SaveLevel();
+
+        control.RestoreLevel();
+
+        Assert.Equal([40], control.LevelsSet);
+        Assert.Empty(control.MuteStatesSet);
+    }
+
+    [Fact]
+    public void RestoreLevel_AfterAReportOfZero_RestoresZero()
+    {
+        var control = new TestVolumeControl(supportsLevel: true, supportsMute: true);
+        control.Report(0, MuteState.Off);
+        control.SaveLevel();
+
+        control.RestoreLevel();
+
+        Assert.Equal([0], control.LevelsSet);
+        Assert.Equal([MuteState.Off], control.MuteStatesSet);
+    }
+
+    [Fact]
+    public void RestoreLevel_AfterAReportThroughTheHandlers_RestoresIt()
+    {
+        var control = new TestVolumeControl(supportsLevel: true, supportsMute: true);
+        control.ReportThroughTheHandlers(35, MuteState.On);
+        control.SaveLevel();
+
+        control.RestoreLevel();
+
+        Assert.Equal([35], control.LevelsSet);
+        Assert.Equal([MuteState.On], control.MuteStatesSet);
+    }
+
+    [Fact]
+    public void RestoreLevel_SavedAfterTheMuteWentBackToUnknown_DoesNotSetTheMute()
+    {
+        var control = new TestVolumeControl(supportsLevel: true, supportsMute: true);
+        control.Report(40, MuteState.On);
+        control.Report(40, MuteState.Unknown);
+        control.SaveLevel();
+
+        control.RestoreLevel();
+
+        Assert.Equal([40], control.LevelsSet);
+        Assert.Empty(control.MuteStatesSet);
     }
 }

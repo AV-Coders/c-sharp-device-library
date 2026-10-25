@@ -61,7 +61,9 @@ public class SonySerialControl : Display
 
     protected override void HandleConnectionState(ConnectionState connectionState) { }
 
-    protected override Task DoPoll(CancellationToken token) => PollWorker.Stop();
+    protected override void RestartPolling() { }
+
+    protected override Task DoPoll(CancellationToken token) => Task.CompletedTask;
 
     private void SendCommand(char [] command) => _client.Send(command);
 
@@ -72,16 +74,6 @@ public class SonySerialControl : Display
     protected override void DoSetInput(Input input) => SendCommand(InputDictionary[input]);
 
     protected override void DoSetAudioMute(MuteState state) => SendCommand(MuteDictionary[state]);
-
-    private byte CalculateChecksum(char[] command)
-    {
-        char checksum = '\u0000';
-        foreach (char value in command)
-        {
-            checksum += value;
-        }
-        return (byte)checksum;
-    }
 
     protected override void DoSetVolume(int volume)
     {

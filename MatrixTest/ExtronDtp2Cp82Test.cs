@@ -6,6 +6,7 @@ using Moq;
 namespace AVCoders.Matrix.Tests;
 
 // Response strings are taken verbatim from a DTP2 CrossPoint 82 (firmware 1.04) capture.
+[Collection("LoggerFactory")]
 public class ExtronDtp2Cp82Test
 {
     private readonly ExtronDtp2Cp82 _switcher;
@@ -19,6 +20,21 @@ public class ExtronDtp2Cp82Test
     }
 
     private void Respond(string response) => _mockClient.Object.ResponseHandlers!.Invoke(response);
+
+    private static (ExtronDtp2Cp82 Switcher, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs(Mock<CommunicationClient> client)
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (new ExtronDtp2Cp82(client.Object, "Logged matrix"), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
 
     [Fact]
     public void Constructor_BuildsTheFixedTopology()
@@ -101,6 +117,17 @@ public class ExtronDtp2Cp82Test
     }
 
     [Fact]
+    public void HandleResponse_LogsAnUnexpectedModelOnce()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (_, logs) = CreateWithCapturedLogs(client);
+
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84 4K");
+
+        Assert.Single(logs.Logs, log => log.Message.StartsWith("Expected a DTP2 CrossPoint 82 but the switcher reported DTPCP84 4K"));
+    }
+
+    [Fact]
     public void HandleResponse_ResolvesTheModelIssueWhenTheRightModelReports()
     {
         Respond("Inf00*DTPCP84 4K");
@@ -130,6 +157,20 @@ public class ExtronDtp2Cp82Test
         Respond(response);
 
         Assert.Equal(expectedName, _switcher.Outputs[index].Name);
+    }
+
+    [Theory]
+    [InlineData("VnamI*Nope")]
+    [InlineData("VnamX1*Nope")]
+    public void HandleResponse_LogsAMalformedName(string response)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (switcher, logs) = CreateWithCapturedLogs(client);
+
+        client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Contains(logs.Logs, log => log.Message.Contains(response));
+        Assert.All(switcher.Inputs, input => Assert.StartsWith("Input ", input.Name));
     }
 
     [Theory]
@@ -215,6 +256,20 @@ public class ExtronDtp2Cp82Test
         Assert.Equal(ConnectionState.Disconnected, _switcher.Inputs[1].InputConnectionStatus);
     }
 
+    [Theory]
+    [InlineData("In00 1*1*1")]
+    [InlineData("In00 1*1*1*1*1*1*1*1*1")]
+    public void HandleResponse_LogsAndIgnoresSignalPresenceThatDoesNotListEveryInput(string response)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (switcher, logs) = CreateWithCapturedLogs(client);
+
+        client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Contains(logs.Logs, log => log.Message.Contains(response[5..]) && log.Message.Contains("8 inputs"));
+        Assert.All(switcher.Inputs, input => Assert.False(input.InUse));
+    }
+
     [Fact]
     public void HandleResponse_RequestsSignalPresenceOnReconfig()
     {
@@ -287,6 +342,40 @@ public class ExtronDtp2Cp82Test
 
         Assert.Equal(ExtronDtp2Cp82.UntiedAddress, _switcher.Outputs[0].StreamAddress);
         Assert.Equal("2", _switcher.Outputs[1].StreamAddress);
+    }
+
+    [Fact]
+    public void HandleResponse_MatchesAnUntiedInputGivenWithALeadingZero()
+    {
+        Respond("In6*1 All");
+        Respond("In2*2 All");
+        Respond("Out00 In06 All");
+
+        Assert.Equal(ExtronDtp2Cp82.UntiedAddress, _switcher.Outputs[0].StreamAddress);
+        Assert.Equal("2", _switcher.Outputs[1].StreamAddress);
+    }
+
+    [Theory]
+    [InlineData("Out1 In00 All")]
+    [InlineData("In0*1 All")]
+    [InlineData("In00 All")]
+    [InlineData("Out00 In6 All")]
+    public void HandleResponse_GivesAnUntiedOutputTheAddressZero(string response)
+    {
+        Respond("In6*1 All");
+        Respond(response);
+
+        Assert.Equal("0", ExtronDtp2Cp82.UntiedAddress);
+        Assert.Equal("0", _switcher.Outputs[0].StreamAddress);
+    }
+
+    [Fact]
+    public void HandleResponse_RaisesAnIssueWhenTheSwitcherRejectsACommand()
+    {
+        Respond("E10");
+
+        Assert.Contains(_switcher.GetIssues(),
+            issue => issue.Key == "rejected-command" && issue.Status == IssueStatus.Momentary && issue.Message.Contains("E10"));
     }
 
     [Fact]

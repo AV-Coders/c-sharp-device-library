@@ -66,4 +66,30 @@ public class CiscoRoomOsRecentCallsTest
 
         _mockStringListHandler.Verify(x => x.Invoke(It.IsAny<List<string>>()));
     }
+
+    [Fact]
+    public void ResponseHandler_ParsesEveryLineOfAChunk()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(
+            "*r CallHistoryGetResult (status=OK):\r\n" +
+            "*r CallHistoryGetResult Entry 0 CallbackNumber: \"sip:+61355500193@local.domain\"\r\n" +
+            "*r CallHistoryGetResult Entry 0 DisplayName: \"External Room 54\"\r\n" +
+            "** end\r\n");
+
+        Assert.Equal("External Room 54", _recentCallManager.RecentCalls[0].Name);
+        _mockStringListHandler.Verify(
+            x => x.Invoke(It.Is<List<string>>(numbers => numbers.SequenceEqual(new[] { "sip:+61355500193@local.domain" }))),
+            Times.Once);
+    }
+
+    [Theory]
+    [InlineData("*r CallHistoryGetResult Entry 0 CallbackNumber: sip:+61355500193@local.domain")]
+    [InlineData("*r CallHistoryGetResult Entry 0 DisplayName: External")]
+    public void ResponseHandler_UnquotedValues_AreIgnored(string response)
+    {
+        var exception = Record.Exception(() => _mockClient.Object.ResponseHandlers!.Invoke(response));
+
+        Assert.Null(exception);
+        Assert.Equal(new RecentCall(string.Empty, string.Empty), Assert.Single(_recentCallManager.RecentCalls));
+    }
 }

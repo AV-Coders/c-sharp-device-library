@@ -14,16 +14,19 @@ public abstract class Display : VolumeControl, IDevice
     private PowerState _powerState = PowerState.Unknown;
     private PowerState _desiredPowerState = PowerState.Unknown;
     private CommunicationState _communicationState = CommunicationState.Unknown;
+    private MuteState _videoMute = MuteState.Unknown;
     public readonly Input? DefaultInput;
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
     public PowerStateHandler? DesiredPowerStateHandlers;
     public InputHandler? InputHandlers;
     public InputHandler? DesiredInputHandlers;
+    public MuteStateHandler? VideoMuteHandlers;
     public event Action<PowerState>? OnPowerStateChanged;
     public event Action<PowerState>? OnDesiredPowerStateChanged;
     public event Action<Input>? OnInputChanged;
     public event Action<Input>? OnDesiredInputChanged;
+    public event Action<MuteState>? OnVideoMuteChanged;
     public event Action<CommunicationState>? OnCommunicationStateChanged;
     public event Action<IReadOnlyList<Input>>? OnSupportedInputsChanged;
     protected MuteState DesiredAudioMute = MuteState.Unknown;
@@ -32,6 +35,8 @@ public abstract class Display : VolumeControl, IDevice
     protected const string InputIssueKey = "input";
     protected const string CommunicationIssueKey = "communication";
     protected const int MaxTransitionPolls = 5;
+    private const int MinVolume = 0;
+    private const int MaxVolume = 100;
     private int _transitionPolls;
 
     protected readonly ThreadWorker PollWorker;
@@ -136,7 +141,19 @@ public abstract class Display : VolumeControl, IDevice
         protected set => MuteState = value;
     }
 
-    public MuteState VideoMute { get; protected set; } = MuteState.Unknown;
+    public MuteState VideoMute
+    {
+        get => _videoMute;
+        protected set
+        {
+            if (_videoMute == value)
+                return;
+            _videoMute = value;
+            AddEvent(EventType.VideoMute, value.ToString());
+            VideoMuteHandlers?.Invoke(value);
+            OnVideoMuteChanged?.Invoke(value);
+        }
+    }
 
     public CommunicationState CommunicationState
     {
@@ -181,9 +198,15 @@ public abstract class Display : VolumeControl, IDevice
             LogWarning("{Name} has the incorrect power state - Forcing Power", Name);
             AddEvent(EventType.Power, $"The power state is incorrect, setting to desired power state {_desiredPowerState.ToString()}");
             if (DesiredPowerState == PowerState.Off)
-                PowerOff();
+            {
+                DoPowerOff();
+                PowerState = PowerState.Off;
+            }
             else if (DesiredPowerState == PowerState.On)
-                PowerOn();
+            {
+                DoPowerOn();
+                PowerState = PowerState.On;
+            }
         }
     }
     
@@ -263,7 +286,7 @@ public abstract class Display : VolumeControl, IDevice
     {
         using (PushProperties("SetVolume"))
         {
-            if (volume is > 100 or < 0)
+            if (volume is > MaxVolume or < MinVolume)
             {
                 LogWarning("Volume needs to be a value between 0 and 100, it's {Volume}", volume);
                 AddEvent(EventType.Error, $"Volume needs to be a value between 0 and 100, it's {volume}");
@@ -276,29 +299,26 @@ public abstract class Display : VolumeControl, IDevice
 
     protected abstract void DoSetVolume(int percentage);
 
-    public override void LevelUp(int amount)
-    {
-        int newVolume = Volume + amount;
-        if(newVolume > 100)
-            newVolume = 100;
-        SetVolume(newVolume);
-    }
+    public override void LevelUp(int amount) => SetVolume(Math.Clamp(Volume + amount, MinVolume, MaxVolume));
 
-    public override void LevelDown(int amount)
-    {
-        int newVolume = Volume - amount;
-        if(newVolume < 0)
-            newVolume = 0;
-        SetVolume(newVolume);
-    }
+    public override void LevelDown(int amount) => SetVolume(Math.Clamp(Volume - amount, MinVolume, MaxVolume));
 
     public override void SetLevel(int level) => SetVolume(level);
 
     public override void SetAudioMute(MuteState state)
     {
-        DesiredAudioMute = state;
-        DoSetAudioMute(state);
-        AudioMute = state;
+        using (PushProperties("SetAudioMute"))
+        {
+            if (state is not (MuteState.On or MuteState.Off))
+            {
+                LogWarning("Audio mute needs to be On or Off, it's {State}", state);
+                AddEvent(EventType.Error, $"Audio mute needs to be On or Off, it's {state}");
+                return;
+            }
+            DesiredAudioMute = state;
+            DoSetAudioMute(state);
+            AudioMute = state;
+        }
     }
 
     protected abstract void DoSetAudioMute(MuteState state);

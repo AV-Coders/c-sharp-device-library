@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AVCoders.Camera.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class SonyViscaSerialTest
 {
     private readonly SonyVisca _viscaCamera;
@@ -798,6 +799,147 @@ public class SonyViscaSerialTest
             e => e.Info == "Unable to recall preset Lectern: Command not executable");
         Assert.Equal(receiveId, error.Context[LogBase.TriggerIdProperty]);
     }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(255)]
+    [InlineData(256)]
+    public void RecallPreset_OutOfRange_SendsNothingAndAddsAnErrorEvent(int preset)
+    {
+        _viscaCamera.RecallPreset(preset);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is out of range, it must be between 0 and 254");
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(255)]
+    [InlineData(256)]
+    public void SavePreset_OutOfRange_SendsNothingAndAddsAnErrorEvent(int preset)
+    {
+        _viscaCamera.SavePreset(preset);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is out of range, it must be between 0 and 254");
+        Assert.DoesNotContain(_viscaCamera.Events, e => e.Type == EventType.Preset);
+    }
+
+    [Fact]
+    public void RecallPreset_OutOfRangeWhenTheDeviceDoesNotSendResponses_KeepsTheLastPreset()
+    {
+        _viscaCamera.DeviceSendsResponses = false;
+        _viscaCamera.RecallPreset(1);
+
+        _viscaCamera.RecallPreset(256);
+
+        Assert.Equal(1, _viscaCamera.LastRecalledPreset);
+    }
+
+    [Fact]
+    public void RecallPreset_HighestPreset_SendsIt()
+    {
+        _viscaCamera.RecallPreset(254);
+
+        _mockClient.Verify(x => x.Send(new byte[] { 0x81, 0x01, 0x04, 0x3F, 0x02, 0xFE, 0xFF }), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(0, 0x20, 0x30)]
+    [InlineData(7, 0x27, 0x37)]
+    public void SetZoomSpeed_InRange_SetsTheZoomSpeeds(byte speed, byte zoomIn, byte zoomOut)
+    {
+        _viscaCamera.SetZoomSpeed(speed);
+        _viscaCamera.ZoomIn();
+        _viscaCamera.ZoomOut();
+
+        _mockClient.Verify(x => x.Send(new byte[] { 0x81, 0x01, 0x04, 0x07, zoomIn, 0xFF }), Times.Once);
+        _mockClient.Verify(x => x.Send(new byte[] { 0x81, 0x01, 0x04, 0x07, zoomOut, 0xFF }), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(8)]
+    [InlineData(0x10)]
+    [InlineData(0xE0)]
+    public void SetZoomSpeed_OutOfRange_KeepsTheZoomSpeedsAndAddsAnErrorEvent(byte speed)
+    {
+        _viscaCamera.SetZoomSpeed(speed);
+        _viscaCamera.ZoomIn();
+
+        _mockClient.Verify(x => x.Send(new byte[] { 0x81, 0x01, 0x04, 0x07, 0x23, 0xFF }), Times.Once);
+        Assert.Contains(_viscaCamera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Zoom speed {speed} is out of range, it must be between 0 and 7");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(8)]
+    [InlineData(0x80)]
+    public async Task Constructor_CameraIdOutOfRange_RaisesAnIssueAndSendsNothing(byte cameraId)
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, false, "Test Cam", new Dictionary<int, string>(), cameraId);
+
+        camera.PowerOn();
+        await SonyViscaPolling.InvokePoll(camera);
+
+        Assert.Empty(client.Sent);
+        Assert.Contains(camera.GetOngoingIssues(),
+            i => i.Key == "camera-id" && i.Message == $"Camera id {cameraId} is out of range, it must be between 1 and 7");
+    }
+
+    [Fact]
+    public void SetCameraId_InRange_SendsToThatCameraAndResolvesTheIssue()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, false, "Test Cam", new Dictionary<int, string>(), 8);
+
+        camera.SetCameraId(7);
+        camera.PowerOn();
+
+        Assert.Equal([[0x87, 0x01, 0x04, 0x00, 0x02, 0xFF]], client.Sent);
+        Assert.DoesNotContain(camera.GetOngoingIssues(), i => i.Key == "camera-id");
+    }
+
+    [Fact]
+    public void PowerOn_WhenTheDeviceSendsResponses_LeavesTheCommunicationStateUntilAReply()
+    {
+        _viscaCamera.PowerOn();
+
+        Assert.Equal(CommunicationState.NotAttempted, _viscaCamera.CommunicationState);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF]);
+
+        Assert.Equal(CommunicationState.Okay, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void PowerOn_WhenTheDeviceDoesNotSendResponses_SetsTheCommunicationStateOkay()
+    {
+        _viscaCamera.DeviceSendsResponses = false;
+
+        _viscaCamera.PowerOn();
+
+        Assert.Equal(CommunicationState.Okay, _viscaCamera.CommunicationState);
+    }
+
+    [Fact]
+    public void Dispose_StopsThePollWorkerAndUnsubscribes()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, false, "Test Cam", new Dictionary<int, string>());
+        var pollWorker = (ThreadWorker)typeof(SonyVisca)
+            .GetField("_pollWorker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(camera)!;
+        Assert.True(pollWorker.IsRunning);
+
+        camera.Dispose();
+
+        Assert.False(pollWorker.IsRunning);
+        Assert.Null(client.ResponseByteHandlers);
+        Assert.Null(client.ConnectionStateHandlers);
+    }
 }
 
 public class SonyViscaIpTest
@@ -1024,12 +1166,88 @@ public class SonyViscaIpTest
     [Theory]
     [InlineData(new byte[] { 0x01, 0x11, 0x00, 0x04 })]
     [InlineData(new byte[] { 0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x01, 0x90, 0x61 })]
-    public void HandleResponse_TruncatedFrame_DoesNotThrow(byte[] response)
+    public void HandleResponse_TruncatedFrame_IsHeldWithoutAnError(byte[] response)
     {
         var exception = Record.Exception(() => _mockClient.Object.ResponseByteHandlers!.Invoke(response));
 
         Assert.Null(exception);
-        Assert.Equal(CommunicationState.Error, _viscaCamera.CommunicationState);
+        Assert.Equal(CommunicationState.NotAttempted, _viscaCamera.CommunicationState);
+        Assert.DoesNotContain(_viscaCamera.Events, e => e.Type == EventType.Error);
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(10)]
+    public async Task HandleResponse_SplitFrame_IsReassembled(int split)
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, true, "Test Camera", new Dictionary<int, string>());
+        await SonyViscaPolling.InvokePoll(camera);
+        byte[] reply = [0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x50, 0x02, 0xFF];
+
+        client.ResponseByteHandlers!.Invoke(reply[..split]);
+        client.ResponseByteHandlers!.Invoke(reply[split..]);
+
+        Assert.Equal(PowerState.On, camera.PowerState);
+        Assert.DoesNotContain(camera.Events, e => e.Type == EventType.Error);
+    }
+
+    [Fact]
+    public async Task HandleResponse_FrameLongerThanSixteenBytes_ReportsAMalformedResponseAndIsCleared()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, true, "Test Camera", new Dictionary<int, string>());
+        await SonyViscaPolling.InvokePoll(camera);
+
+        client.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x11, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x50]);
+
+        Assert.Equal(CommunicationState.Error, camera.CommunicationState);
+        Assert.Contains(camera.Events, e => e.Type == EventType.Error && e.Info == "The response was malformed");
+
+        client.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x50, 0x02, 0xFF]);
+
+        Assert.Equal(PowerState.On, camera.PowerState);
+    }
+
+    [Fact]
+    public async Task HandleResponse_CorruptDatagramThenAGoodReply_ReportsTheCorruptOneAndProcessesTheReply()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, true, "Test Camera", new Dictionary<int, string>());
+        await SonyViscaPolling.InvokePoll(camera);
+
+        client.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90]);
+        client.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x50, 0x02, 0xFF]);
+
+        Assert.Equal(PowerState.On, camera.PowerState);
+        Assert.Equal(CommunicationState.Okay, camera.CommunicationState);
+        Assert.Single(camera.Events, e => e.Type == EventType.Error && e.Info == "The response was malformed");
+    }
+
+    [Fact]
+    public async Task HandleResponse_PartialFrameBeforeAConnectionChange_IsDropped()
+    {
+        var client = new ConnectedClient();
+        var camera = new SonyVisca(client, true, "Test Camera", new Dictionary<int, string>());
+        await SonyViscaPolling.InvokePoll(camera);
+        client.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00]);
+
+        client.SetConnectionState(ConnectionState.Disconnected);
+        client.ResponseByteHandlers!.Invoke([0x01, 0x11, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0x00, 0x90, 0x50, 0x02, 0xFF]);
+
+        Assert.Equal(PowerState.On, camera.PowerState);
+        Assert.DoesNotContain(camera.Events, e => e.Type == EventType.Error);
+    }
+
+    [Fact]
+    public void SendCommand_PayloadLongerThan255Bytes_WritesTheLengthHighByte()
+    {
+        var client = new ConnectedClient();
+        var camera = new LongCommandCamera(client);
+
+        camera.SendLongCommand(300);
+
+        Assert.Equal([0x01, 0x00, 0x01, 0x2C], client.Sent[0][..4]);
     }
 
     [Fact]
@@ -1128,4 +1346,10 @@ internal class SecondInquiryCamera(CommunicationClient client, bool useIpHeaders
         base.SendPollInquiries();
         SendInquiry([_header, 0x09, 0x08, 0x01, CommandFooter], "query tracking", reply => SecondReplies.Add(reply));
     }
+}
+
+internal class LongCommandCamera(CommunicationClient client)
+    : SonyVisca(client, true, "Test Camera", new Dictionary<int, string>())
+{
+    public void SendLongCommand(int length) => SendCommand(new byte[length]);
 }

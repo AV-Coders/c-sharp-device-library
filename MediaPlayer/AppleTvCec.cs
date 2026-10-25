@@ -53,6 +53,8 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
     private const char CecVersion14 = '\x05';
     private const char DeckStatusRequestOnce = '\x03';
     private const char PowerOnFunctionKey = '\x6D';
+    private const byte MaxLogicalAddress = 0x0E;
+    private const string LogicalAddressIssueKey = "logical-address";
     public const int MaxUnansweredPolls = 3;
     public static readonly TimeSpan KeyHold = TimeSpan.FromMilliseconds(100);
     public static readonly TimeSpan MinimumFrameSpacing = TimeSpan.FromMilliseconds(150);
@@ -112,6 +114,7 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
     public BoolHandler? ActiveSourceHandlers;
 
     private readonly SerialClient _cecStream;
+    private readonly byte _logicalAddress;
     private readonly char _commandHeader;
     private readonly char _responseHeader;
     private readonly char _deviceBroadcastHeader;
@@ -153,17 +156,22 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
         bool answerTvQueries = true, int pollTime = 23, TimeSpan? duplicateResponseWindow = null)
         : base(name, cecStream)
     {
-        if (logicalAddress > 0x0E)
-            throw new ArgumentOutOfRangeException(nameof(logicalAddress), "CEC logical addresses are 0 to 14");
         _cecStream = cecStream;
+        _logicalAddress = logicalAddress;
         _duplicateResponseWindow = duplicateResponseWindow ?? DefaultDuplicateResponseWindow;
         _answerTvQueries = answerTvQueries;
         _commandHeader = (char)((LogicalAddressTv << 4) | logicalAddress);
         _responseHeader = (char)((logicalAddress << 4) | LogicalAddressTv);
         _deviceBroadcastHeader = (char)((logicalAddress << 4) | 0x0F);
+        CommunicationState = CommunicationState.NotAttempted;
+        if (logicalAddress > MaxLogicalAddress)
+        {
+            RaiseOngoingIssue(LogicalAddressIssueKey,
+                $"CEC logical address {logicalAddress} is invalid, it must be 0 to 14", IssueSeverity.Critical);
+            return;
+        }
         _cecStream.ResponseHandlers += HandleResponse;
         _cecStream.ConnectionStateHandlers += HandleConnectionState;
-        CommunicationState = CommunicationState.NotAttempted;
         if (pollTime <= 0)
             return;
         var pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
@@ -430,6 +438,13 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
 
     private void SendFrame(char[] frame, TimeSpan? spacingAfter = null)
     {
+        if (_logicalAddress > MaxLogicalAddress)
+        {
+            LogError("Not sending {Frame}, CEC logical address {LogicalAddress} is invalid", Describe(frame),
+                _logicalAddress);
+            return;
+        }
+
         lock (_sendLock)
         {
             var wait = _spacingAfterLastSend - Stopwatch.GetElapsedTime(_lastSendTimestamp);
@@ -533,6 +548,14 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
 
     public void SetChannel(int channel)
     {
+        if (channel < 0)
+        {
+            using (PushProperties("SetChannel"))
+                LogWarning("Channel {Channel} is invalid, it can't be negative", channel);
+            AddEvent(EventType.Error, $"Channel {channel} is invalid, it can't be negative");
+            return;
+        }
+
         lock (_sendLock)
         {
             foreach (var c in channel.ToString())

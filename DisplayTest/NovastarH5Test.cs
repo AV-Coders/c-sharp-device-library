@@ -1,3 +1,4 @@
+using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
@@ -30,5 +31,14 @@ public class NovastarH5Test
         _display.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
+    }
+
+    [Fact]
+    public void RestartPolling_LeavesThePollWorkerStopped()
+    {
+        typeof(Display).GetMethod("RestartPolling", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(_display, null);
+
+        var pollWorker = (ThreadWorker)typeof(Display).GetField("PollWorker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_display)!;
+        Assert.False(pollWorker.IsRunning);
     }
 }

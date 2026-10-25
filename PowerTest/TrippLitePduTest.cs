@@ -366,6 +366,37 @@ public class TrippLitePduTest
     }
 
     [Fact]
+    public async Task Reinitialise_ReplacesTheOutletsAndDeregistersTheOldOnes()
+    {
+        StubHealthyAtsPdu();
+        var pdu = await CreateInitialisedPdu();
+        var oldOutlets = pdu.Outlets;
+
+        pdu.Reinitialise();
+
+        await WaitUntilAsync(() => pdu.Outlets != oldOutlets, "The outlets were never rediscovered");
+        var registered = LogBaseRegistry.GetAll();
+        Assert.Equal(10, oldOutlets.Count);
+        Assert.All(oldOutlets, outlet => Assert.DoesNotContain<LogBase>(outlet, registered));
+        Assert.All(pdu.Outlets, outlet => Assert.Contains<LogBase>(outlet, registered));
+    }
+
+    [Fact]
+    public async Task Initialise_TreatsANoSuchObjectReplyAsMissing()
+    {
+        StubHealthyAtsPdu();
+        _mockClient.Setup(c => c.Get(FirmwareOid)).Returns(SnmpResult(new NoSuchObject()));
+        _mockClient.Setup(c => c.Get(SerialOid)).Returns(SnmpResult(new NoSuchInstance()));
+        _mockClient.Setup(c => c.Get(DeviceModelOid)).Returns(SnmpResult(new EndOfMibView()));
+
+        var pdu = await CreateInitialisedPdu();
+
+        Assert.Equal(string.Empty, pdu.FirmwareVersion);
+        Assert.Equal(string.Empty, pdu.SerialNumber);
+        Assert.Equal("Unknown", pdu.Model);
+    }
+
+    [Fact]
     public async Task PowerOn_SendsTheCommandWithoutBlocking()
     {
         StubHealthyAtsPdu();
@@ -404,6 +435,19 @@ public class TrippLitePduTest
         outlet.PowerOn();
 
         _mockClient.Verify(c => c.Set($"{OutletCommandOidPrefix}9", It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PowerOn_OnAnOutletOfAnUndiscoveredDevice_DoesNotSendACommand()
+    {
+        StubHealthyAtsPdu();
+        var pdu = await CreateInitialisedPdu();
+        var stray = new TrippLiteOutlet("Stray", pdu, 5, 1, true);
+
+        stray.PowerOn();
+
+        _mockClient.Verify(c => c.Set(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+        Assert.Equal(PowerState.Unknown, stray.PowerState);
     }
 
     [Fact]

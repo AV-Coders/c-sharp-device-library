@@ -16,7 +16,6 @@ public class ExterityTci : MediaPlayer, ISetTopBox
     {
         _password = password;
         CommunicationClient.ResponseHandlers += HandleResponse;
-        CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         PowerState = PowerState.Unknown;
         CommunicationState = CommunicationState.Unknown;
     }
@@ -55,10 +54,6 @@ public class ExterityTci : MediaPlayer, ISetTopBox
         }
     }
 
-    private void HandleConnectionState(ConnectionState connectionState)
-    {
-    }
-
     public void ChannelUp()
     {
         SimulateRemoteKeypress("chup");
@@ -88,11 +83,23 @@ public class ExterityTci : MediaPlayer, ISetTopBox
 
     public void SetAudioMute(MuteState state)
     {
-        WriteParameter("mute", _muteDictionary[state]);
+        if (!_muteDictionary.TryGetValue(state, out var mute))
+        {
+            LogError("Can't set the audio mute to {MuteState}", state);
+            return;
+        }
+
+        WriteParameter("mute", mute);
     }
 
     public void SetChannel(int channelNumber)
     {
+        if (channelNumber < 0)
+        {
+            LogError("Channel {Channel} is invalid, it can't be negative", channelNumber);
+            return;
+        }
+
         string channel = channelNumber.ToString();
         foreach (char digit in channel)
         {

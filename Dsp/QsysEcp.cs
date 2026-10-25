@@ -118,6 +118,9 @@ public class QsysEcp : Dsp
     private const int ChangeGroupSetupStepMs = 500;
     private const uint ChangeGroupPollPeriodMs = 100;
     private const uint MeterPollPeriodMs = 1000;
+    private const int ControlGetGapMs = 100;
+    private const int MaxControlStateAttempts = 3;
+    private const int MeterNameToken = 1;
     private const string StatusRequest = "sg\n";
     private const string StatusFlagSet = "1";
     private const string StandbyCoreMessage = "Connected to the standby Core, commands are ignored";
@@ -148,9 +151,12 @@ public class QsysEcp : Dsp
     private readonly Dictionary<string, QscInt> _strings = new();
     private readonly Dictionary<string, QscGain> _meters = new();
     private readonly HashSet<string> _missingControls = new();
+    private readonly object _controlsLock = new();
     private readonly Regex _responseParser;
     private readonly Regex _badIdParser;
     private readonly Regex _statusParser = new("^sr \"(?<design>[^\"]*)\" \"(?<id>[^\"]*)\" (?<primary>[01]) (?<active>[01])$",
+        RegexOptions.None, TimeSpan.FromMilliseconds(30));
+    private readonly Regex _meterTokenParser = new("\"(?<quoted>[^\"]*)\"|(?<bare>[^ ]+)",
         RegexOptions.None, TimeSpan.FromMilliseconds(30));
 
     // There is a limit of 4 change groups.
@@ -165,6 +171,8 @@ public class QsysEcp : Dsp
     private string? _designId;
     private bool _changeGroupsBuiltThisPoll;
     private bool _changeGroupsRefused;
+
+    public TimeSpan ControlStatesRetryDelay { get; set; } = TimeSpan.FromSeconds(5);
 
     public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = DefaultPollIntervalInMilliseconds) : base(name, tcpClient, pollIntervalInMilliseconds)
     {
@@ -304,16 +312,22 @@ public class QsysEcp : Dsp
 
         string controlName = badId.Groups[1].Value;
         RaiseOngoingIssue($"{BadControlIssuePrefix}{controlName}", $"Invalid named control {controlName}: {line}");
-        if (_missingControls.Add(controlName))
+        bool added;
+        lock (_controlsLock)
+            added = _missingControls.Add(controlName);
+        if (added)
             ShowMissingControls();
     }
 
     private void ShowMissingControls()
     {
-        if (_missingControls.Count == 0)
+        string missingControls;
+        lock (_controlsLock)
+            missingControls = string.Join(", ", _missingControls.Order());
+        if (missingControls.Length == 0)
             RemoveDetail(MissingControlsLabel);
         else
-            SetDetail(MissingControlsLabel, string.Join(", ", _missingControls.Order()), DetailTone.Warning);
+            SetDetail(MissingControlsLabel, missingControls, DetailTone.Warning);
     }
 
     private void HandleBadChangeGroup(string line)
@@ -344,12 +358,17 @@ public class QsysEcp : Dsp
 
     private void ProcessMeterChange(string line)
     {
-        var values = line.Split(' ');
-        string controlName = values[1].TrimStart('"').TrimEnd('"');
-        if (_meters.ContainsKey(controlName)) // Eg:cvv "rec_meter" 2 "-45.3dB" "-11.8dB" 2 -45.2769 -11.759 2 0.0736156 0.764821
-        {
-            _meters[controlName].SetVolumeFromPercentage(double.Parse(values[9]) * 100);
-        }
+        var tokens = _meterTokenParser.Matches(line)
+            .Select(token => token.Groups["quoted"].Success ? token.Groups["quoted"].Value : token.Groups["bare"].Value)
+            .ToArray();
+        var meter = FindControl(_meters, tokens[MeterNameToken]);
+        if (meter == null)
+            return;
+
+        var stringCountToken = MeterNameToken + 1;
+        var valueCountToken = stringCountToken + int.Parse(tokens[stringCountToken]) + 1;
+        var positionCountToken = valueCountToken + int.Parse(tokens[valueCountToken]) + 1; // Eg:cvv "rec_meter" 2 "-45.3dB" "-11.8dB" 2 -45.2769 -11.759 2 0.0736156 0.764821
+        meter.SetVolumeFromPercentage(double.Parse(tokens[positionCountToken + 1]) * 100);
     }
 
     private void ProcessValueChange(string response)
@@ -359,23 +378,39 @@ public class QsysEcp : Dsp
 
         try
         {
-            var matches = _responseParser.Matches(response);
+            var match = _responseParser.Match(response);
+            if (!match.Success)
+            {
+                LogWarning("Unparsed control value: {Line}", response);
+                return;
+            }
 
-            var controlName = matches[0].Groups[1].Value;
+            var controlName = match.Groups[1].Value;
             ResolveIssue($"{BadControlIssuePrefix}{controlName}");
-            if (_missingControls.Remove(controlName))
+            bool wasMissing;
+            QscGain? gain;
+            QscMute? mute;
+            QscInt? text;
+            lock (_controlsLock)
+            {
+                wasMissing = _missingControls.Remove(controlName);
+                gain = _gains.GetValueOrDefault(controlName);
+                mute = _mutes.GetValueOrDefault(controlName);
+                text = _strings.GetValueOrDefault(controlName);
+            }
+            if (wasMissing)
                 ShowMissingControls();
             ResolveIssue(BadCommandIssueKey);
             ResolveIssue(ReadOnlyIssueKey);
 
-            if (_gains.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
-                _gains[controlName].SetVolumeFromPercentage(double.Parse(matches[0].Groups[5].Value) * 100);
+            if (gain != null) // Eg:cv "Zone 1 BGM Gain" "-6.40dB" -6.4 0.989744
+                gain.SetVolumeFromPercentage(double.Parse(match.Groups[5].Value) * 100);
 
-            if (_mutes.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Mute" "unmuted" 1 1
-                _mutes[controlName].MuteState = FigureOutMuteState(matches[0].Groups[2].Value);
+            if (mute != null) // Eg:cv "Zone 1 BGM Mute" "unmuted" 1 1
+                mute.MuteState = FigureOutMuteState(match.Groups[2].Value);
 
-            if (_strings.ContainsKey(controlName)) // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
-                _strings[controlName].Value = matches[0].Groups[2].Value;
+            if (text != null) // Eg:cv "Zone 1 BGM Select" "5 sfasdfa" 5 0.571429
+                text.Value = match.Groups[2].Value;
         }
         catch (Exception e)
         {
@@ -438,13 +473,13 @@ public class QsysEcp : Dsp
             CreateEmptyChangeGroup(ChangeGroupMeters);
             Thread.Sleep(ChangeGroupSetupStepMs);
 
-            AddControlsToChangeGroup(ChangeGroupGains, _gains.Keys.ToList());
+            AddControlsToChangeGroup(ChangeGroupGains, ControlNames(_gains));
             Thread.Sleep(ChangeGroupSetupStepMs);
-            AddControlsToChangeGroup(ChangeGroupMutes, _mutes.Keys.ToList());
+            AddControlsToChangeGroup(ChangeGroupMutes, ControlNames(_mutes));
             Thread.Sleep(ChangeGroupSetupStepMs);
-            AddControlsToChangeGroup(ChangeGroupStrings, _strings.Keys.ToList());
+            AddControlsToChangeGroup(ChangeGroupStrings, ControlNames(_strings));
             Thread.Sleep(ChangeGroupSetupStepMs);
-            AddControlsToChangeGroup(ChangeGroupMeters, _meters.Keys.ToList());
+            AddControlsToChangeGroup(ChangeGroupMeters, ControlNames(_meters));
             Thread.Sleep(ChangeGroupSetupStepMs);
 
             ScheduleChangeGroupPoll(ChangeGroupGains);
@@ -510,44 +545,57 @@ public class QsysEcp : Dsp
 
     public void GetAllControlStates()
     {
-        new Thread(_ =>
+        new Thread(_ => GetAllControlStatesWithRetries()).Start();
+    }
+
+    private void GetAllControlStatesWithRetries()
+    {
+        using (PushProperties("GetAllControlStates"))
         {
-            using (PushProperties("GetAllControlStates"))
+            for (var attempt = 1; ; attempt++)
             {
                 try
                 {
-                    foreach (string key in _gains.Keys)
-                    {
-                        GetControl(key);
-                        Thread.Sleep(100);
-                    }
-
-                    foreach (string key in _mutes.Keys)
-                    {
-                        GetControl(key);
-                        Thread.Sleep(100);
-                    }
-
-                    foreach (string key in _strings.Keys)
-                    {
-                        GetControl(key);
-                        Thread.Sleep(100);
-                    }
-                    
-                    foreach (string key in _meters.Keys)
-                    {
-                        GetControl(key);
-                        Thread.Sleep(100);
-                    }
+                    GetEachControlState();
+                    return;
                 }
                 catch (Exception e)
                 {
                     LogException(e);
-                    Thread.Sleep(TimeSpan.FromSeconds(5));
-                    GetAllControlStates();
                 }
+                if (attempt == MaxControlStateAttempts)
+                {
+                    LogError("Gave up getting the control states after {Attempts} attempts", attempt);
+                    return;
+                }
+                Thread.Sleep(ControlStatesRetryDelay);
             }
-        }).Start();
+        }
+    }
+
+    private void GetEachControlState()
+    {
+        List<string> controlNames;
+        lock (_controlsLock)
+            controlNames = [.._gains.Keys, .._mutes.Keys, .._strings.Keys, .._meters.Keys];
+
+        foreach (string controlName in controlNames)
+        {
+            GetControl(controlName);
+            Thread.Sleep(ControlGetGapMs);
+        }
+    }
+
+    private List<string> ControlNames<T>(Dictionary<string, T> controls)
+    {
+        lock (_controlsLock)
+            return controls.Keys.ToList();
+    }
+
+    private T? FindControl<T>(Dictionary<string, T> controls, string controlName) where T : class
+    {
+        lock (_controlsLock)
+            return controls.GetValueOrDefault(controlName);
     }
 
     private void GetControl(string controlName)
@@ -557,10 +605,16 @@ public class QsysEcp : Dsp
 
     public override void AddControl(VolumeLevelHandler volumeLevelHandler, string levelName)
     {
-        if (_gains.TryGetValue(levelName, out var gain))
-            gain.VolumeLevelHandlers += volumeLevelHandler;
-        else
-            _gains.Add(levelName, new QscGain(volumeLevelHandler));
+        QscGain? gain;
+        lock (_controlsLock)
+        {
+            if (_gains.TryGetValue(levelName, out gain))
+                gain.VolumeLevelHandlers += volumeLevelHandler;
+            else
+                _gains.Add(levelName, new QscGain(volumeLevelHandler));
+        }
+        if (gain != null)
+            volumeLevelHandler.Invoke(gain.Volume);
 
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
@@ -572,10 +626,16 @@ public class QsysEcp : Dsp
 
     public override void AddControl(MuteStateHandler muteStateHandler, string muteName)
     {
-        if (_mutes.TryGetValue(muteName, out var mute))
-            mute.MuteStateHandlers += muteStateHandler;
-        else
-            _mutes.Add(muteName, new QscMute(muteStateHandler));
+        QscMute? mute;
+        lock (_controlsLock)
+        {
+            if (_mutes.TryGetValue(muteName, out mute))
+                mute.MuteStateHandlers += muteStateHandler;
+            else
+                _mutes.Add(muteName, new QscMute(muteStateHandler));
+        }
+        if (mute != null)
+            muteStateHandler.Invoke(mute.MuteState);
 
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
@@ -587,10 +647,16 @@ public class QsysEcp : Dsp
 
     public override void AddControl(StringValueHandler stringValueHandler, string controlName)
     {
-        if (_strings.TryGetValue(controlName, out var block))
-            block.StringValueHandlers += stringValueHandler;
-        else
-            _strings.Add(controlName, new QscInt(stringValueHandler));
+        QscInt? block;
+        lock (_controlsLock)
+        {
+            if (_strings.TryGetValue(controlName, out block))
+                block.StringValueHandlers += stringValueHandler;
+            else
+                _strings.Add(controlName, new QscInt(stringValueHandler));
+        }
+        if (block != null)
+            stringValueHandler.Invoke(block.Value);
 
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
@@ -602,10 +668,16 @@ public class QsysEcp : Dsp
 
     public void AddMonitor(VolumeLevelHandler volumeLevelHandler, string levelName)
     {
-        if (_meters.TryGetValue(levelName, out var meter))
-            meter.VolumeLevelHandlers += volumeLevelHandler;
-        else
-            _meters.Add(levelName, new QscGain(volumeLevelHandler));
+        QscGain? meter;
+        lock (_controlsLock)
+        {
+            if (_meters.TryGetValue(levelName, out meter))
+                meter.VolumeLevelHandlers += volumeLevelHandler;
+            else
+                _meters.Add(levelName, new QscGain(volumeLevelHandler));
+        }
+        if (meter != null)
+            volumeLevelHandler.Invoke(meter.Volume);
 
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
@@ -626,19 +698,38 @@ public class QsysEcp : Dsp
 
     public override void LevelUp(string controlName, int amount = 1)
     {
-        SetLevel(controlName, _gains[controlName].Volume + amount);
+        var gain = FindControl(_gains, controlName);
+        if (gain == null)
+        {
+            using (PushProperties("LevelUp"))
+                LogWarning("Unknown level {ControlName}, not raising it by {Amount}", controlName, amount);
+            return;
+        }
+        SetLevel(controlName, gain.Volume + amount);
     }
 
     public override void LevelDown(string controlName, int amount = 1)
     {
-        SetLevel(controlName, _gains[controlName].Volume - amount);
+        var gain = FindControl(_gains, controlName);
+        if (gain == null)
+        {
+            using (PushProperties("LevelDown"))
+                LogWarning("Unknown level {ControlName}, not lowering it by {Amount}", controlName, amount);
+            return;
+        }
+        SetLevel(controlName, gain.Volume - amount);
     }
 
     public override int GetLevel(string gainName)
     {
-        if (!_gains.ContainsKey(gainName))
+        var gain = FindControl(_gains, gainName);
+        if (gain == null)
+        {
+            using (PushProperties("GetLevel"))
+                LogWarning("Unknown level {ControlName}, returning 0", gainName);
             return 0;
-        return _gains[gainName].Volume;
+        }
+        return gain.Volume;
     }
 
     public override void SetAudioMute(string muteName, MuteState state)
@@ -648,7 +739,14 @@ public class QsysEcp : Dsp
 
     public override void ToggleAudioMute(string muteName)
     {
-        switch (_mutes[muteName].MuteState)
+        var mute = FindControl(_mutes, muteName);
+        if (mute == null)
+        {
+            using (PushProperties("ToggleAudioMute"))
+                LogWarning("Unknown mute {ControlName}, not toggling it", muteName);
+            return;
+        }
+        switch (mute.MuteState)
         {
             case MuteState.On:
                 SetAudioMute(muteName, MuteState.Off);
@@ -662,9 +760,14 @@ public class QsysEcp : Dsp
 
     public override MuteState GetAudioMute(string muteName)
     {
-        if (!_mutes.ContainsKey(muteName))
+        var mute = FindControl(_mutes, muteName);
+        if (mute == null)
+        {
+            using (PushProperties("GetAudioMute"))
+                LogWarning("Unknown mute {ControlName}, returning Unknown", muteName);
             return MuteState.Unknown;
-        return _mutes[muteName].MuteState;
+        }
+        return mute.MuteState;
     }
 
     public override void SetValue(string stringName, string value)
@@ -674,9 +777,14 @@ public class QsysEcp : Dsp
 
     public override string GetValue(string intName)
     {
-        if (!_strings.ContainsKey(intName))
+        var block = FindControl(_strings, intName);
+        if (block == null)
+        {
+            using (PushProperties("GetValue"))
+                LogWarning("Unknown string {ControlName}, returning an empty value", intName);
             return "";
-        return _strings[intName].Value;
+        }
+        return block.Value;
     }
 
     public override Task Reinitialise(CancellationToken token = default)

@@ -112,6 +112,8 @@ public class AntricaEncoderTest
     [InlineData("GIS_VIDEOLOSS1=-1\n")]
     [InlineData("VID_INPUTFORMAT=-1\n")]
     [InlineData("VID_INPUTFORMAT=ERROR\n")]
+    [InlineData("GIS_VIDEOLOSS1\n")]
+    [InlineData("VID_INPUTFORMAT\n")]
     public void ErrorReply_LeavesTheInputStatusAlone(string body)
     {
         Respond("GIS_VIDEOLOSS1=0\nVID_INPUTFORMAT=0x030A\n");

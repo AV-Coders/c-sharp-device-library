@@ -1,9 +1,14 @@
+using System.Reflection;
+using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Climate.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class TemperzoneUc8HistoryTest : IDisposable
 {
+    private const int DeadbandHundredths = 20;
     private readonly string _directory = Path.Combine(Path.GetTempPath(), $"uc8-history-test-{Guid.NewGuid():N}");
     private readonly List<TemperzoneUc8History> _recorders = [];
     private static readonly DateTimeOffset T1 = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
@@ -23,6 +28,36 @@ public class TemperzoneUc8HistoryTest : IDisposable
         history.Retention = TimeSpan.FromDays(3650);
         return history;
     }
+
+    private TemperzoneUc8History CreateWithAFlushedLine(DateTimeOffset recent)
+    {
+        var history = Create(_directory);
+        history.Record("Start", 0f, recent);
+        history.Flush();
+        history.Record("X", 1f, recent + TimeSpan.FromSeconds(1));
+        return history;
+    }
+
+    private static object FileLock(TemperzoneUc8History history) =>
+        typeof(TemperzoneUc8History).GetField("_fileLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(history)!;
+
+    private static Thread StartUntilBlockedOrFinished(Action action)
+    {
+        var thread = new Thread(() => action());
+        thread.Start();
+        SpinWait.SpinUntil(() => !thread.IsAlive || (thread.ThreadState & ThreadState.WaitSleepJoin) != 0,
+            TimeSpan.FromSeconds(5));
+        return thread;
+    }
+
+    private static void InvokeCompact(TemperzoneUc8History history) =>
+        typeof(TemperzoneUc8History).GetMethod("Compact", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(history, []);
+
+    private static void InvokeFlushWorker(TemperzoneUc8History history) =>
+        ((Task)typeof(TemperzoneUc8History).GetMethod("FlushWorker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(history, [CancellationToken.None])!).GetAwaiter().GetResult();
 
     public void Dispose()
     {
@@ -244,6 +279,37 @@ public class TemperzoneUc8HistoryTest : IDisposable
     }
 
     [Fact]
+    public void Record_RecordsAnExactDeadbandStep()
+    {
+        var history = CreateLongRetention();
+        history.SetDeadband("X", 0.2f);
+
+        history.Record("X", 20.2f, T1);
+        history.Record("X", 20.4f, T2);
+
+        Assert.Equal(new HistorySample[] { new(T1, 20.2f), new(T2, 20.4f) }, history.GetSamples("X"));
+    }
+
+    [Fact]
+    public void Record_RecordsEveryExactDeadbandStepOnTheHundredthsGrid()
+    {
+        var history = Create();
+
+        for (var offset = 0; offset < DeadbandHundredths; offset++)
+        {
+            var point = $"Walk {offset}";
+            history.SetDeadband(point, 0.2f);
+            var walk = new List<float>();
+            for (var raw = short.MinValue + offset; raw <= short.MaxValue; raw += DeadbandHundredths)
+                walk.Add(raw / 100f);
+            foreach (var value in walk)
+                history.Record(point, value);
+
+            Assert.Equal(walk, history.GetSamples(point).Select(sample => sample.Value));
+        }
+    }
+
+    [Fact]
     public void GetLastUpdated_TracksEveryRecordCallEvenWhenDeduplicated()
     {
         var history = CreateLongRetention();
@@ -290,6 +356,126 @@ public class TemperzoneUc8HistoryTest : IDisposable
 
         var line = Assert.Single(File.ReadAllLines(history.FilePath!));
         Assert.EndsWith(",X,1", line);
+    }
+
+    [Fact]
+    public void Flush_WritesEachLineOnceAfterAPartialAppendFails()
+    {
+        var recent = DateTimeOffset.UtcNow - TimeSpan.FromHours(1);
+        var history = Create(_directory);
+        history.Record("Start", 0f, recent);
+        history.Flush();
+        for (var i = 0; i < 1000; i++)
+            history.Record("X", i, recent + TimeSpan.FromSeconds(i));
+        var length = new FileInfo(history.FilePath!).Length;
+
+        using (var holder = new FileStream(history.FilePath!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            if (OperatingSystem.IsWindows())
+                holder.Lock(length + 8192, 1);
+            history.Flush();
+        }
+        Assert.Equal(OperatingSystem.IsWindows(), history.GetIssues().Any(i => i.Key == "history-flush"));
+        history.Flush();
+
+        var lines = File.ReadAllLines(history.FilePath!);
+        Assert.Equal(1002, lines.Length);
+        Assert.Equal(lines.Length, lines.Distinct().Count());
+    }
+
+    [Fact]
+    public void FlushAndCompact_DoNotOverlap()
+    {
+        var recent = DateTimeOffset.UtcNow - TimeSpan.FromHours(1);
+        var history = CreateWithAFlushedLine(recent);
+        var written = File.ReadAllLines(history.FilePath!);
+        Thread flush;
+        Thread compaction;
+
+        lock (FileLock(history))
+        {
+            flush = StartUntilBlockedOrFinished(history.Flush);
+            compaction = StartUntilBlockedOrFinished(() => InvokeCompact(history));
+            Assert.True(flush.IsAlive, "The flush didn't wait for the file");
+            Assert.True(compaction.IsAlive, "The compaction didn't wait for the file");
+            Assert.Equal(written, File.ReadAllLines(history.FilePath!));
+        }
+
+        Assert.True(flush.Join(TimeSpan.FromSeconds(5)), "The flush never finished");
+        Assert.True(compaction.Join(TimeSpan.FromSeconds(5)), "The compaction never finished");
+        Assert.Equal(history.ExportCsv().Split('\n'), File.ReadAllLines(history.FilePath!));
+    }
+
+    [Fact]
+    public void Dispose_DuringAWorkerFlush_WritesEachLineOnce()
+    {
+        var recent = DateTimeOffset.UtcNow - TimeSpan.FromHours(1);
+        var history = CreateWithAFlushedLine(recent);
+        var written = File.ReadAllLines(history.FilePath!);
+        Thread workerFlush;
+        Thread dispose;
+
+        lock (FileLock(history))
+        {
+            workerFlush = StartUntilBlockedOrFinished(() => InvokeFlushWorker(history));
+            history.Record("X", 2f, recent + TimeSpan.FromSeconds(2));
+            dispose = StartUntilBlockedOrFinished(history.Dispose);
+            Assert.True(workerFlush.IsAlive, "The worker flush didn't wait for the file");
+            Assert.True(dispose.IsAlive, "The dispose didn't wait for the file");
+            Assert.Equal(written, File.ReadAllLines(history.FilePath!));
+        }
+
+        Assert.True(workerFlush.Join(TimeSpan.FromSeconds(5)), "The worker flush never finished");
+        Assert.True(dispose.Join(TimeSpan.FromSeconds(5)), "The dispose never finished");
+        Assert.Equal(history.ExportCsv().Split('\n'), File.ReadAllLines(history.FilePath!));
+    }
+
+    [Fact]
+    public void IssuesChangedSubscriber_CanWaitForADisposeOnAnotherThread()
+    {
+        var history = CreateWithAFlushedLine(DateTimeOffset.UtcNow - TimeSpan.FromHours(1));
+        Thread? dispose = null;
+        var disposeFinished = false;
+        history.IssuesChanged += (_, _) =>
+        {
+            if (dispose != null)
+                return;
+            dispose = new Thread(history.Dispose);
+            dispose.Start();
+            disposeFinished = dispose.Join(TimeSpan.FromSeconds(2));
+        };
+
+        using (new FileStream(history.FilePath!, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            history.Flush();
+
+        Assert.True(disposeFinished, "The subscriber ran while the flush held the file lock");
+    }
+
+    [Fact]
+    public void Load_LogsUnreadableLines()
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "Test-HVAC.history.csv");
+        var recent = (DateTimeOffset.UtcNow - TimeSpan.FromHours(1)).UtcDateTime.ToString("O");
+        File.WriteAllLines(path,
+            [TemperzoneUc8History.CsvHeader, "garbage,here", "not,a,timestamp", $"{recent},X,warm", $"{recent},X,2"]);
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            Create(_directory);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+
+        var messages = logs.Logs.Select(log => log.Message).ToList();
+        Assert.Contains($"Skipped an unreadable line in {path}: garbage,here", messages);
+        Assert.Contains($"Skipped an unreadable line in {path}: not,a,timestamp", messages);
+        Assert.Contains($"Skipped an unreadable line in {path}: {recent},X,warm", messages);
+        Assert.DoesNotContain(messages, message => message.Contains(TemperzoneUc8History.CsvHeader));
     }
 
     [Fact]

@@ -21,7 +21,7 @@ public class ThorRf11IqPduTest
     // The poll worker and the test thread touch these concurrently.
     private readonly ConcurrentDictionary<string, Func<HttpResponseMessage>> _responses = new();
     private readonly ConcurrentQueue<string> _requests = new();
-    private volatile int _statusDelayMs;
+    private readonly ConcurrentDictionary<string, TaskCompletionSource> _holds = new();
 
     public ThorRf11IqPduTest()
     {
@@ -30,9 +30,10 @@ public class ThorRf11IqPduTest
             {
                 var path = uri!.OriginalString;
                 _requests.Enqueue(path);
-                if (path == "/status.xml" && _statusDelayMs > 0)
-                    await Task.Delay(_statusDelayMs);
-                if (_responses.TryGetValue(path, out var factory))
+                _responses.TryGetValue(path, out var factory);
+                if (_holds.TryRemove(path, out var hold))
+                    await hold.Task;
+                if (factory != null)
                     _restComms.Object.HttpResponseHandlers?.Invoke(factory());
             });
         Respond("/status.xml", StatusBody);
@@ -65,6 +66,15 @@ public class ThorRf11IqPduTest
     private static string CommandPath(int channel, bool on) => $"/cpan.cgi?param=p{channel}&value={(on ? "1" : "0")}";
 
     private int CountRequests(string path) => _requests.Count(request => request == path);
+
+    private TaskCompletionSource HoldNextRequest(string path)
+    {
+        var release = new TaskCompletionSource();
+        _holds[path] = release;
+        return release;
+    }
+
+    private bool HoldTaken(string path) => !_holds.ContainsKey(path);
 
     private static async Task WaitUntilAsync(Func<bool> condition, string failureMessage)
     {
@@ -344,17 +354,40 @@ public class ThorRf11IqPduTest
     }
 
     [Fact]
+    public async Task PowerOn_TwiceWithRepliesOutOfOrder_SettlesEachCommandWithItsOwnReply()
+    {
+        var pdu = await CreatePolledPdu();
+        var outlet = Outlet(pdu, 6);
+        var firstReply = HoldNextRequest(CommandPath(6, true));
+
+        outlet.PowerOn();
+        await WaitUntilAsync(() => HoldTaken(CommandPath(6, true)), "The first command was never in flight");
+        RespondToCommands("Error");
+        outlet.PowerOn();
+        await WaitUntilAsync(() => pdu.GetIssues().Any(issue => issue.Message.Contains("'Error'")),
+            "The second command was never rejected");
+        firstReply.SetResult();
+
+        await WaitUntilAsync(() => pdu.Events.Any(e => e.Info == "Sent the power on command for outlet Output 6"),
+            "The first command was never acknowledged");
+        Assert.Single(pdu.Events, e => e.Info == "Sent the power on command for outlet Output 6");
+        Assert.DoesNotContain(pdu.GetIssues(), issue => issue.Message.Contains("no response"));
+    }
+
+    [Fact]
     public async Task Poll_DispatchedBeforeACommand_DoesNotOverwriteTheCommandedState()
     {
         var pdu = await CreatePolledPdu();
         var outlet = Outlet(pdu, 6);
-        _statusDelayMs = 300;
-        await Task.Delay(PollInterval * 2); // let a slow poll (carrying p6=0) get in flight
+        var stalePoll = HoldNextRequest("/status.xml");
+        await WaitUntilAsync(() => HoldTaken("/status.xml"), "The slow poll (carrying p6=0) never got in flight");
 
         outlet.PowerOn();
         await WaitUntilAsync(() => outlet.PowerState == PowerState.On, "The outlet never turned on");
         Respond("/status.xml", StatusBody.Replace("<p6>0</p6>", "<p6>1</p6>"));
-        await Task.Delay(400); // the stale poll completes in this window
+        var polls = CountRequests("/status.xml");
+        stalePoll.SetResult();
+        await WaitUntilAsync(() => CountRequests("/status.xml") > polls, "The slow poll never completed");
 
         Assert.Equal(PowerState.On, outlet.PowerState);
     }

@@ -6,7 +6,10 @@ public class SvsiDecoder : SvsiBase
 {
     public MuteStateHandler? MuteStateHandlers;
     public VolumeLevelHandler? VolumeLevelHandlers;
+    private static readonly TimeSpan SetInputLiveGap = TimeSpan.FromMilliseconds(200);
     private readonly Dictionary<MuteState, string> _audoMuteDictionary;
+    private readonly object _sendLock = new();
+    private Task _sends = Task.CompletedTask;
     private MuteState _muteState = MuteState.Off;
     
     public SvsiDecoder(string name, TcpClient tcpClient) : base(name, tcpClient, AVEndpointType.Decoder)
@@ -20,9 +23,6 @@ public class SvsiDecoder : SvsiBase
 
     protected override void UpdateVariablesBasedOnStatus()
     {
-        if (StatusDictionary.TryGetValue("STREAM", out var streamId))
-            StreamId = uint.Parse(streamId);
-
         if (StatusDictionary.TryGetValue("MODE", out var resolution) &&
             StatusDictionary.TryGetValue("DVISTATUS", out var connected))
         {
@@ -47,35 +47,55 @@ public class SvsiDecoder : SvsiBase
         }
     }
 
-    public void SetInput(uint streamId)
+    private void Send(params (string Message, TimeSpan SpacingAfter)[] messages)
     {
-        CommunicationClient.Send($"set:{streamId}\r");
-        Thread.Sleep(200);
-        CommunicationClient.Send("live\r");
+        lock (_sendLock)
+            _sends = _sends.ContinueWith(_ => SendSpaced(messages), TaskScheduler.Default).Unwrap();
     }
 
-    public void SetPlaylist(uint playlistId)
+    private async Task SendSpaced((string Message, TimeSpan SpacingAfter)[] messages)
     {
-        CommunicationClient.Send($"local:{playlistId}\r");
+        try
+        {
+            foreach (var (message, spacingAfter) in messages)
+            {
+                CommunicationClient.Send(message);
+                await Task.Delay(spacingAfter);
+            }
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Sending to the decoder failed");
+        }
     }
+
+    public void SetInput(uint streamId) => Send(($"set:{streamId}\r", SetInputLiveGap), ("live\r", TimeSpan.Zero));
+
+    public void SetPlaylist(uint playlistId) => Send(($"local:{playlistId}\r", TimeSpan.Zero));
 
     public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
     
     public void SetAudioInput(SvsiEncoder encoder) => SetAudioInput(encoder.StreamId);
     
     /// <summary>Setting to 0 will enable audio follows video</summary>
-    public void SetAudioInput(uint streamId)
-    {
-        CommunicationClient.Send($"seta:{streamId}\r");
-    }
+    public void SetAudioInput(uint streamId) => Send(($"seta:{streamId}\r", TimeSpan.Zero));
 
-    public void SetAudioMute(MuteState muteState) => CommunicationClient.Send($"{_audoMuteDictionary[muteState]}\r");
+    public void SetAudioMute(MuteState muteState)
+    {
+        if (muteState == MuteState.Unknown)
+        {
+            using (PushProperties())
+                LogWarning("Cannot set the mute state to Unknown");
+            return;
+        }
+        Send(($"{_audoMuteDictionary[muteState]}\r", TimeSpan.Zero));
+    }
 
     public void ToggleAudioMute() => SetAudioMute(_muteState == MuteState.Off ? MuteState.On : MuteState.Off);
     
     public void SetVideoMute(MuteState muteState)
     {
         string command = muteState == MuteState.On ? "Off" : "On";
-        CommunicationClient.Send($"dvi{command}\r");
+        Send(($"dvi{command}\r", TimeSpan.Zero));
     }
 }

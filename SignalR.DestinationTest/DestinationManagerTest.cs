@@ -72,6 +72,41 @@ public class DestinationManagerTest
     }
 
     [Fact]
+    public void RouteSource_TheConfiguredOffSource_SetsPowerOff()
+    {
+        var destination = new DestinationManager("Display 2", "display-2", "tv", _sourceManager,
+            defaultSource: "laptop", offSource: "wireless");
+        destination.RouteSource("laptop");
+
+        destination.RouteSource("wireless");
+
+        Assert.Equal(PowerState.Off, destination.PowerState);
+    }
+
+    [Fact]
+    public void RouteSource_TheNoneSourceWhenItIsNotTheOffSource_SetsPowerOn()
+    {
+        var destination = new DestinationManager("Display 2", "display-2", "tv", _sourceManager,
+            defaultSource: "laptop", offSource: "wireless");
+
+        destination.RouteSource("None");
+
+        Assert.Equal(PowerState.On, destination.PowerState);
+    }
+
+    [Fact]
+    public void Constructor_WithAnOffSourceNotInTheSourceList_RaisesAnIssueAndShowsTheRawId()
+    {
+        var destination = new DestinationManager("Display 2", "display-2", "tv", _sourceManager,
+            offSource: "not-a-source");
+
+        var issue = Assert.Single(destination.GetOngoingIssues());
+        Assert.Contains("'not-a-source'", issue.Message);
+        Assert.Equal("not-a-source", destination.CurrentSource.SourceId);
+        Assert.Equal("not-a-source", destination.Snapshot.CurrentSource.Name);
+    }
+
+    [Fact]
     public void RouteSource_UnknownSource_DoesNotChangeState()
     {
         var initial = _destination.CurrentSource;

@@ -59,9 +59,15 @@ public class CiscoRoomOsTest
             "xFeedback register /Status/Standby",
             "xFeedback register /Status/Call",
             "xFeedback register /Event/CallDisconnect",
+            "xFeedback register /Status/Audio/Volume",
+            "xFeedback register /Status/Audio/VolumeMute",
+            "xFeedback register /Status/Audio/Microphones/Mute",
             "xFeedback Register Configuration/Conference/AutoAnswer/Mode",
             "xStatus Standby",
             "xStatus Call",
+            "xStatus Audio Volume",
+            "xStatus Audio VolumeMute",
+            "xStatus Audio Microphones Mute",
             "xStatus SIP Registration URI",
             "xConfiguration Conference AutoAnswer Mode",
         }.ForEach(s =>
@@ -331,14 +337,48 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
-    public void CallResponses_HandleHangupRequestResponse()
+    public void CallResponses_HangupRequestResponse_KeepsTheCalls_AndRequestsTheCallStatus()
     {
-        new List<string>
-        {
-            "*r CallDisconnectResult (status=OK): \n"
-        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
+        Receive(new List<string> { "*s Call 139 Status: Connected", "** end", "*s Call 7 Status: Connected", "** end" }, "\n");
+        ClearCallHandlerInvocations();
 
-        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle));
+        _codec.HangUp(139);
+        Receive(new List<string> { "*r CallDisconnectResult (status=OK): ", "** end" }, "\n");
+
+        Assert.Equal(2, _codec.GetActiveCalls().Count);
+        Assert.Equal(CallStatus.Connected, _codec.CallStatus);
+        _mockClient.Verify(x => x.Send("xStatus Call\r\n"));
+        _callStatusHandler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void HangUp_OneOfTwoCalls_EndsOnlyThatCall()
+    {
+        Receive(new List<string> { "*s Call 139 Status: Connected", "** end", "*s Call 7 Status: Connected", "** end" }, "\n");
+        ClearCallHandlerInvocations();
+
+        _codec.HangUp(139);
+        Receive(new List<string> { "*r CallDisconnectResult (status=OK): ", "** end" }, "\n");
+        Receive(_callDisconnectEvent, "\n");
+
+        _mockClient.Verify(x => x.Send("xCommand Call Disconnect CallId: 139\r\n"));
+        Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(7, _codec.FindCallId(_codec.GetActiveCalls()[0]));
+        Assert.Equal(CallStatus.Connected, _codec.CallStatus);
+        _callStatusHandler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void HangUp_AllCalls_ClearsTheCalls_AndRaisesActiveCallsChanged()
+    {
+        Receive(new List<string> { "*s Call 139 Status: Connected", "** end" }, "\n");
+        ClearCallHandlerInvocations();
+
+        _codec.HangUp();
+
+        _mockClient.Verify(x => x.Send("xCommand Call Disconnect\r\n"));
+        Assert.Empty(_codec.GetActiveCalls());
+        VerifyCallEndedOnce();
     }
 
     [Fact]
@@ -632,4 +672,112 @@ public class CiscoRoomOsTest
         Assert.Equal(CallStatus.Connected, _codec.CallStatus);
     }
 
+    [Fact]
+    public void SendCommand_WhenTheClientThrows_LogsTheErrorAndReportsIt()
+    {
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
+
+        _codec.PowerOn();
+
+        Assert.Equal(CommunicationState.Error, _codec.CommunicationState);
+        Assert.Single(_codec.Errors);
+    }
+
+    [Fact]
+    public void ProcessResponse_ABadLine_IsLoggedOnce_AndTheRestOfTheChunkIsProcessed()
+    {
+        var exception = Record.Exception(() =>
+            _mockClient.Object.ResponseHandlers!.Invoke("*s Call abc Status: Connected\n*s Audio Volume: 50\n"));
+
+        Assert.Null(exception);
+        Assert.Single(_codec.Errors);
+        _outputVolumeLevelHandler.Verify(x => x.Invoke(50));
+    }
+
+    [Theory]
+    [InlineData("Preserved")]
+    [InlineData("connected")]
+    [InlineData("1")]
+    [InlineData("Dialling,Connected")]
+    public void CallResponses_UnknownStatus_KeepsTheCallStatus(string status)
+    {
+        Receive(new List<string> { "*s Call 204 Status: Connected", "** end" }, "\n");
+        ClearCallHandlerInvocations();
+
+        var exception = Record.Exception(() => Receive(new List<string> { $"*s Call 204 Status: {status}" }, "\n"));
+
+        Assert.Null(exception);
+        Assert.Empty(_codec.Errors);
+        Assert.Equal(CallStatus.Connected, _codec.GetActiveCalls()[0].Status);
+        Assert.Equal(CallStatus.Connected, _codec.CallStatus);
+        _callStatusHandler.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("Connected", "Ringing", CallStatus.Ringing)]
+    [InlineData("OnHold", "Connected", CallStatus.Connected)]
+    [InlineData("Disconnecting", "Dialling", CallStatus.Dialling)]
+    public void CallStatus_IsTheHighestPriorityStatusOfTheCalls(string firstStatus, string secondStatus, CallStatus expected)
+    {
+        Receive(new List<string> { $"*s Call 102 Status: {firstStatus}", "** end", $"*s Call 103 Status: {secondStatus}", "** end" }, "\n");
+
+        Assert.Equal(expected, _codec.CallStatus);
+    }
+
+    [Fact]
+    public void Responses_WithAFeedbackMarkerAfterTheStart_AreIgnored()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("Echo Standby State: Off *s\n");
+
+        _powerStateHandlers.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("*s Call 204")]
+    [InlineData("*s Call 204 Status:")]
+    [InlineData("*e CallDisconnect CallId:")]
+    [InlineData("*s Audio Volume:")]
+    [InlineData("*s Audio VolumeMute:")]
+    [InlineData("*s Audio Microphones Mute:")]
+    [InlineData("*s Conference DoNotDisturb:")]
+    [InlineData("*c xConfiguration Conference AutoAnswer Mode:")]
+    [InlineData("*s SIP Registration 1 URI:")]
+    [InlineData("*r Login")]
+    [InlineData("*s Standby State:")]
+    public void ShortResponses_AreIgnored(string response)
+    {
+        var exception = Record.Exception(() => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
+
+        Assert.Null(exception);
+        Assert.Empty(_codec.Errors);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        _powerStateHandlers.VerifyNoOtherCalls();
+        _outputVolumeLevelHandler.VerifyNoOtherCalls();
+        _outputMuteStateHandler.VerifyNoOtherCalls();
+        _microphoneMuteStateHandler.VerifyNoOtherCalls();
+        _callStatusHandler.VerifyNoOtherCalls();
+        _activeCallHandler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void OutputFader_LevelUp_StopsAtTheMaximum()
+    {
+        var fader = new CiscoRoomOsOutputFader("Speakers", _codec, VolumeType.Speaker);
+        _mockClient.Object.ResponseHandlers!.Invoke("*s Audio Volume: 98\n");
+
+        fader.LevelUp(5);
+
+        _mockClient.Verify(x => x.Send("xCommand Audio Volume Set Level: 100\r\n"));
+    }
+
+    [Fact]
+    public void OutputFader_LevelDown_StopsAtTheMinimum()
+    {
+        var fader = new CiscoRoomOsOutputFader("Speakers", _codec, VolumeType.Speaker);
+        _mockClient.Object.ResponseHandlers!.Invoke("*s Audio Volume: 3\n");
+
+        fader.LevelDown(5);
+
+        _mockClient.Verify(x => x.Send("xCommand Audio Volume Set Level: 0\r\n"));
+    }
 }

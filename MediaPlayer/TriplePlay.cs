@@ -58,7 +58,18 @@ public class TriplePlay : MediaPlayer, ISetTopBox
 
     public void SendIRCode(RemoteButton button) { using (PushProperties("SendIRCode")) LogError("SendIRCode is not supported in TriplePlay"); }
 
-    public void SetChannel(int channel) => GoToChannelNumber((uint) channel);
+    public void SetChannel(int channel)
+    {
+        if (channel < 0)
+        {
+            using (PushProperties("SetChannel"))
+                LogError("Channel {Channel} is invalid, it can't be negative", channel);
+            return;
+        }
+
+        GoToChannelNumber((uint) channel);
+    }
+
     public void ToggleSubtitles()
     {
         
@@ -99,6 +110,13 @@ public class TriplePlay : MediaPlayer, ISetTopBox
 
     public void SetAudioMute(MuteState state)
     {
+        if (state is not (MuteState.On or MuteState.Off))
+        {
+            using (PushProperties("SetAudioMute"))
+                LogError("Can't set the audio mute to {MuteState}", state);
+            return;
+        }
+
         Get(GenerateCommandStringWithArgument("SetMute",state == MuteState.On? "true" : "false"));
         AudioMute = state;
     }

@@ -18,7 +18,27 @@ public class BytesTest
         var actual = Bytes.FromString("01\u0003\r");
 
         byte[] expected = [0x30, 0x31, 0x03, 0x0D];
-        
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void FromString_PassesCharactersUpTo0xFFThroughAsTheSameByte()
+    {
+        var actual = Bytes.FromString("\u0080\u00E9\u00FF");
+
+        byte[] expected = [0x80, 0xE9, 0xFF];
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void FromString_ReplacesCharactersAbove0xFFWithAQuestionMark()
+    {
+        var actual = Bytes.FromString("A\u20ACB");
+
+        byte[] expected = [0x41, 0x3F, 0x42];
+
         Assert.Equal(expected, actual);
     }
 

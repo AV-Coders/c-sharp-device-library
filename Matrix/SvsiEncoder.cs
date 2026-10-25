@@ -10,9 +10,6 @@ public class SvsiEncoder : SvsiBase
 
     protected override void UpdateVariablesBasedOnStatus()
     {
-        if(StatusDictionary.TryGetValue("STREAM", out var streamId))
-            StreamId = uint.Parse(streamId);
-
         if (StatusDictionary.TryGetValue("INPUTRES", out var resolution) &&
             StatusDictionary.TryGetValue("DVIINPUT", out var connected))
         {

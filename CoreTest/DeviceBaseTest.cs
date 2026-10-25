@@ -140,4 +140,30 @@ public class DeviceBaseTest
         Assert.Equal(0, _device.PowerOnCalls);
         Assert.Equal(0, _device.PowerOffCalls);
     }
+
+    [Theory]
+    [InlineData(PowerState.Warming)]
+    [InlineData(PowerState.Cooling)]
+    [InlineData(PowerState.Rebooting)]
+    public void ProcessPowerState_WithATransitionalDesiredState_RaisesNoIssueAndDoesNothing(PowerState desired)
+    {
+        _device.SetDesired(desired);
+        _device.SetActual(PowerState.On);
+
+        _device.InvokeProcessPowerState();
+
+        Assert.Empty(_device.GetOngoingIssues());
+        Assert.Equal(0, _device.PowerOnCalls);
+        Assert.Equal(0, _device.PowerOffCalls);
+    }
+
+    [Fact]
+    public void Constructor_OnTheNoneClient_DoesNotSubscribeToIt()
+    {
+        var before = CommunicationClient.None.ConnectionStateHandlers?.GetInvocationList().Length ?? 0;
+
+        _ = new TestDevice("Test Device", CommunicationClient.None);
+
+        Assert.Equal(before, CommunicationClient.None.ConnectionStateHandlers?.GetInvocationList().Length ?? 0);
+    }
 }

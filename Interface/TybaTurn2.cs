@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+﻿using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -28,10 +28,18 @@ public record TemperatureChangeData(
     double Value
 );
 
-public class TybaTurn2 : LogBase
+public class TybaTurn2 : LogBase, IDisposable
 {
-    private readonly Uri _baseUri;
+    private const string Heartbeat = ": heartbeat";
+    private const string EventField = "event:";
+    private const string DataField = "data:";
+    private const int MaxLevel = 100;
+    private const string AddressIssueKey = "address";
+
+    private readonly Uri? _baseUri;
+    private readonly string _ipAddress;
     private readonly Dictionary<string, string> _headers;
+    private readonly ThreadWorker _streamWorker;
     protected CommunicationState CommunicationState = CommunicationState.Unknown;
     public CommunicationStateHandler? CommunicationStateHandlers;
     private string _currentEvent = string.Empty;
@@ -47,22 +55,38 @@ public class TybaTurn2 : LogBase
 
     public TybaTurn2(string ipAddress, string name) : base(name)
     {
-        _baseUri = new Uri($"http://{ipAddress}:55555/api/v1.0/", UriKind.Absolute);
+        _ipAddress = ipAddress;
         _headers = new Dictionary<string, string>();
         _headers.Add("Sender-Id", _thisInstanceGuid.ToString());
         _headers.Add("Content-Type", "application/json");
+        _streamWorker = new ThreadWorker(ConnectToTyba, TimeSpan.FromSeconds(30));
 
-        var streamWorker = new ThreadWorker(ConnectToTyba, TimeSpan.FromSeconds(30));
-        streamWorker.Restart();
+        if (!Uri.TryCreate($"http://{ipAddress}:55555/api/v1.0/", UriKind.Absolute, out var baseUri))
+        {
+            RaiseOngoingIssue(AddressIssueKey,
+                $"The address {ipAddress} does not make a valid URI, so the Tyba is not contacted",
+                IssueSeverity.Critical);
+            return;
+        }
+        _baseUri = baseUri;
+        _streamWorker.Restart();
     }
 
-    private async Task ConnectToTyba(CancellationToken obj)
+    public void Dispose()
+    {
+        Task.Run(_streamWorker.Stop).GetAwaiter().GetResult();
+        LogBaseRegistry.Deregister(_streamWorker);
+        LogBaseRegistry.Deregister(this);
+        GC.SuppressFinalize(this);
+    }
+
+    private async Task ConnectToTyba(CancellationToken token)
     {
         if (!_streamConnected)
-            await CreateStream();
+            await CreateStream(token);
     }
 
-    private async Task CreateStream()
+    private async Task CreateStream(CancellationToken token)
     {
         _streamConnected = true;
         try
@@ -75,14 +99,13 @@ public class TybaTurn2 : LogBase
 
             httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "text/event-stream");
             httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
-            Uri requestUri = new Uri(_baseUri, "control/events/channels");
+            Uri requestUri = new Uri(_baseUri!, "control/events/channels");
 
-            var stream = await httpClient.GetStreamAsync(requestUri);
+            var stream = await httpClient.GetStreamAsync(requestUri, token);
             var streamReader = new StreamReader(stream);
 
-            while (!streamReader.EndOfStream)
+            while (await streamReader.ReadLineAsync(token) is { } line)
             {
-                var line = await streamReader.ReadLineAsync();
                 if (!string.IsNullOrEmpty(line))
                 {
                     using (Trigger.Begin())
@@ -90,22 +113,7 @@ public class TybaTurn2 : LogBase
                 }
             }
         }
-        catch (SocketException e)
-        {
-            LogException(e);
-            UpdateCommunicationState(CommunicationState.Error);
-        }
-        catch (IOException e)
-        {
-            LogException(e);
-            UpdateCommunicationState(CommunicationState.Error);
-        }
-        catch (HttpRequestException e)
-        {
-            LogException(e);
-            UpdateCommunicationState(CommunicationState.Error);
-        }
-        catch (Exception e)
+        catch (Exception e) when (!token.IsCancellationRequested)
         {
             LogException(e);
             UpdateCommunicationState(CommunicationState.Error);
@@ -118,7 +126,7 @@ public class TybaTurn2 : LogBase
     {
         using (PushProperties("ProcessLine"))
         {
-            if (line.Contains(": heartbeat"))
+            if (line.StartsWith(Heartbeat, StringComparison.Ordinal))
             {
                 UpdateCommunicationState(CommunicationState.Okay);
                 LogDebug("Heartbeat received");
@@ -126,12 +134,12 @@ public class TybaTurn2 : LogBase
                 return;
             }
 
-            if (line.Contains("event: "))
+            if (line.StartsWith(EventField, StringComparison.Ordinal))
             {
-                _currentEvent = line.Remove(0, 7);
+                _currentEvent = FieldValue(line, EventField);
                 LogDebug("Event received: {CurrentEvent}", _currentEvent);
             }
-            else if (line.Contains("data: "))
+            else if (line.StartsWith(DataField, StringComparison.Ordinal))
             {
                 if (_currentEvent.StartsWith("media")
                     || _currentEvent.StartsWith("source")
@@ -140,25 +148,40 @@ public class TybaTurn2 : LogBase
                    )
                     return;
                 LogVerbose("{Line}", line);
-                ProcessEvent(line.Remove(0, 6));
+                try
+                {
+                    ProcessEvent(FieldValue(line, DataField));
+                }
+                catch (Exception e)
+                {
+                    LogException(e, $"Unable to process {line}");
+                    UpdateCommunicationState(CommunicationState.Error);
+                    return;
+                }
                 _currentEvent = string.Empty;
             }
         }
+    }
+
+    private static string FieldValue(string line, string field)
+    {
+        var value = line[field.Length..];
+        return value.StartsWith(' ') ? value[1..] : value;
     }
 
     private void ProcessEvent(string line)
     {
         if (_currentEvent == string.Empty)
             return;
-        
+
         var eventData = _currentEvent.Split('/');
-        
+
         StreamData? streamData = JsonSerializer.Deserialize<StreamData>(line);
         if(streamData == null)
             throw new InvalidDataException("Data is invalid");
         ValueAndOnChangeData? valueAndOnChangeData = Deserialise<ValueAndOnChangeData>(streamData.State);
         TemperatureChangeData? temperatureChangeData = Deserialise<TemperatureChangeData>(streamData.State);
-        
+
         var handlers = new Dictionary<string, Action<int>>
         {
             { "light_scenes", index => LightSceneChangeHandlers?.Invoke(index, valueAndOnChangeData!.Value) },
@@ -168,7 +191,7 @@ public class TybaTurn2 : LogBase
             { "modes", index => ClimateModeChangeHandlers?.Invoke(index, valueAndOnChangeData!.Value) },
             { "temperature", index => TemperatureChangeHandlers?.Invoke(index, temperatureChangeData!.Value) }
         };
-        
+
         if (handlers.TryGetValue(eventData[0], out var handler))
         {
             if (valueAndOnChangeData == null && eventData[0] != "temperature" || temperatureChangeData == null && eventData[0] == "temperature")
@@ -177,7 +200,14 @@ public class TybaTurn2 : LogBase
                 return;
             }
 
-            handler(int.Parse(eventData[1]));
+            if (eventData.Length < 2 ||
+                !int.TryParse(eventData[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var index))
+            {
+                LogWarning("Event {Event} has no channel index", _currentEvent);
+                return;
+            }
+
+            handler(index);
         }
         else
         {
@@ -211,27 +241,37 @@ public class TybaTurn2 : LogBase
 
     private async Task SetLevel(string type, int index, int value)
     {
-        if (value > 100)
+        if (value > MaxLevel)
+        {
+            LogWarning("{Type} {Index} value {Value} is above {MaxLevel}, not sent", type, index, value, MaxLevel);
             return;
-        Uri channelUri = new Uri(_baseUri, $"control/channels/{type}/{index}/1/state");
+        }
         string payload = $"{{\"value\": {value}}}";
-        await Put(payload, channelUri);
-        
+        await Put(payload, $"control/channels/{type}/{index}/1/state");
+
     }
 
     private async Task SetLevel(string type, int index, double value)
     {
-        if (value > 100)
+        if (value > MaxLevel)
+        {
+            LogWarning("{Type} {Index} value {Value} is above {MaxLevel}, not sent", type, index, value, MaxLevel);
             return;
-        Uri channelUri = new Uri(_baseUri, $"control/channels/{type}/1/{index}/state");
-        string payload = $"{{\"value\": {value}}}";
-        
-        await Put(payload, channelUri);
+        }
+        string payload = $"{{\"value\": {value.ToString(CultureInfo.InvariantCulture)}}}";
+
+        await Put(payload, $"control/channels/{type}/1/{index}/state");
     }
 
-    private async Task Put(string payload, Uri channelUri)
+    private async Task Put(string payload, string channelPath)
     {
-        
+        if (_baseUri == null)
+        {
+            LogError("Payload {Payload} for {ChannelPath} not sent, {IpAddress} is not a valid address", payload,
+                channelPath, _ipAddress);
+            return;
+        }
+        Uri channelUri = new Uri(_baseUri, channelPath);
         try
         {
             LogVerbose("Sending payload {Payload} to URI {ChannelUriAbsoluteUri}", payload, channelUri.AbsoluteUri);
@@ -243,17 +283,20 @@ public class TybaTurn2 : LogBase
 
             httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
-            var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
+            using var response = await httpClient.PutAsync(channelUri, new StringContent(payload, Encoding.Default, "application/json"));
+            if (!response.IsSuccessStatusCode)
+            {
+                LogError("Response {ResponseStatusCode}: {ResponseReasonPhrase} from {ChannelUriAbsoluteUri}",
+                    (int)response.StatusCode, response.ReasonPhrase, channelUri.AbsoluteUri);
+                UpdateCommunicationState(CommunicationState.Error);
+                return;
+            }
             LogVerbose("Response {ResponseStatusCode}: {ResponseReasonPhrase}", response.StatusCode, response.ReasonPhrase);
-        }
-        catch (HttpRequestException e)
-        {
-            LogException(e);
-            UpdateCommunicationState(CommunicationState.Error);
         }
         catch (Exception e)
         {
             LogException(e);
+            UpdateCommunicationState(CommunicationState.Error);
         }
     }
 

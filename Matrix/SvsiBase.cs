@@ -8,11 +8,13 @@ public abstract class SvsiBase : AVoIPEndpoint
     public const ushort SerialPassthroughPort = 50004;
     public readonly Dictionary<string, string> StatusDictionary;
     protected readonly ThreadWorker PollWorker;
-    private uint _streamId;
+    private readonly object _partialLineLock = new();
+    private string _partialLine = string.Empty;
+    private uint? _streamId;
 
     public uint StreamId
     {
-        get => _streamId;
+        get => _streamId ?? 0;
         protected set
         {
             if (value == _streamId)
@@ -30,13 +32,18 @@ public abstract class SvsiBase : AVoIPEndpoint
         
         PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(45), true);
         PollWorker.Restart();
+        HandleConnectionState(CommunicationClient.ConnectionState);
     }
 
     private void HandleConnectionState(ConnectionState connectionState)
     {
         DeviceConnectionState = connectionState;
-        if (connectionState != ConnectionState.Connected) 
+        if (connectionState != ConnectionState.Connected)
+        {
+            lock (_partialLineLock)
+                _partialLine = string.Empty;
             return;
+        }
         Task.Delay(300).ContinueWith(_ =>
         {
             Poll(CancellationToken.None);
@@ -48,27 +55,33 @@ public abstract class SvsiBase : AVoIPEndpoint
     {
         using (PushProperties())
         {
-            response.Split('\r').ToList().ForEach(item =>
+            string[] lines;
+            lock (_partialLineLock)
             {
-                if (!item.Contains(':'))
-                    return;
-                var keyValuePairs = item.Split(':');
-                var key = keyValuePairs[0].Trim(':');
-                if (key.Length < 1)
-                    return;
-
-                if (key == "MAC")
-                {
-                    StatusDictionary[key] = item.Remove(0, 4);
-                    return;
-                }
-
-                StatusDictionary[key] = keyValuePairs[1];
-            });
+                lines = (_partialLine + response).Split('\r');
+                _partialLine = lines[^1];
+            }
+            foreach (var line in lines[..^1])
+            {
+                if (line.Split(':', 2) is not [var key, var value] || key.Length == 0)
+                    continue;
+                StatusDictionary[key] = value;
+            }
+            UpdateStreamId();
             UpdateVariablesBasedOnStatus();
         }
     }
-    
+
+    private void UpdateStreamId()
+    {
+        if (!StatusDictionary.TryGetValue("STREAM", out var streamId))
+            return;
+        if (uint.TryParse(streamId, out var parsedStreamId))
+            StreamId = parsedStreamId;
+        else
+            LogWarning("The stream id {StreamId} is not a number", streamId);
+    }
+
     protected abstract void UpdateVariablesBasedOnStatus();
 
     private Task Poll(CancellationToken token)

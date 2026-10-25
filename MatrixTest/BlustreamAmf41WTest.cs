@@ -31,6 +31,26 @@ public class BlustreamAmf41WTest
     }
 
     [Fact]
+    public void HandleResponse_IgnoresRepliesThatAreNeitherSuccessNorFailure()
+    {
+        _mockClient.Object.ResponseHandlers?.Invoke("[SUCCESS] Start Showing HDMI1");
+
+        _mockClient.Object.ResponseHandlers?.Invoke("config --source-select hdmi1\r\n");
+
+        Assert.Equal(CommunicationState.Okay, _matrix.CommunicationState);
+    }
+
+    [Fact]
+    public void RouteAV_ReportsCommunicationHasFailed()
+    {
+        _mockClient.Setup(client => client.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
+
+        _matrix.RouteAV(1, 0);
+
+        Assert.Equal(CommunicationState.Error, _matrix.CommunicationState);
+    }
+
+    [Fact]
     public void RouteAV_SetsHdmi1()
     {
         _matrix.RouteAV(1, 0);

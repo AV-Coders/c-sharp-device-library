@@ -485,6 +485,22 @@ public class MagewellDirectorPlusTest
         Assert.Equal([MuteState.On], mutes);
     }
 
+    [Fact]
+    public void Mixer_AnUnknownAudioState_KeepsThePreviousState()
+    {
+        Reply(MixerPath, MixerWithHdmi1(0, 0));
+        var states = new List<MagewellAudioState>();
+        _director.Hdmi1Audio.AudioStateChanged += (_, state) => states.Add(state);
+
+        Reply(MixerPath, MixerWithHdmi1(7, -15));
+        _director.Hdmi1Audio.SetAudioMute(MuteState.Off);
+
+        Assert.Empty(states);
+        Assert.Equal(MagewellAudioState.AlwaysOn, _director.Hdmi1Audio.AudioState);
+        Assert.Equal(50, _director.Hdmi1Audio.Volume);
+        VerifyGet("/V1.0/volume/setState?type=1792&state=0", Times.Once());
+    }
+
     [Theory]
     [InlineData(-40, 0)]
     [InlineData(-15, 50)]

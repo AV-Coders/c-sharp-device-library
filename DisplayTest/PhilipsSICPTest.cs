@@ -8,8 +8,8 @@ public class PhilipsSICPTest
 {
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly PhilipsSICP _display;
-    private readonly byte _displayId = 0x00;
-    private readonly byte _groupId = 0x00;
+    private readonly byte _displayId = 0x01;
+    private readonly byte _groupId = 0x01;
 
     public PhilipsSICPTest()
     {
@@ -19,7 +19,7 @@ public class PhilipsSICPTest
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
-        byte[] expectedPowerOnCommand = [0x06, 0x00, 0x00, 0x18, 0x02, 0x1C];
+        byte[] expectedPowerOnCommand = [0x06, 0x01, 0x01, 0x18, 0x02, 0x1C];
         _display.PowerOn();
 
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
@@ -38,7 +38,7 @@ public class PhilipsSICPTest
     [Fact]
     public void PowerOff_SendsThePowerOffCommand()
     {
-        byte[] expectedPowerOnCommand = [0x06, 0x00, 0x00, 0x18, 0x01, 0x1F];
+        byte[] expectedPowerOnCommand = [0x06, 0x01, 0x01, 0x18, 0x01, 0x1F];
         _display.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
@@ -55,10 +55,10 @@ public class PhilipsSICPTest
     }
 
     [Theory]
-    [InlineData(Input.Hdmi1, new byte[] { 0x09, 0x00, 0x00, 0xAC, 0x0D, 0x00, 0x01, 0x00, 0xA9 })]
-    [InlineData(Input.Hdmi2, new byte[] { 0x09, 0x00, 0x00, 0xAC, 0x06, 0x00, 0x01, 0x00, 0xA2 })]
-    [InlineData(Input.Hdmi3, new byte[] { 0x09, 0x00, 0x00, 0xAC, 0x0F, 0x00, 0x01, 0x00, 0xAB })]
-    [InlineData(Input.Hdmi4, new byte[] { 0x09, 0x00, 0x00, 0xAC, 0x19, 0x00, 0x01, 0x00, 0xBD })]
+    [InlineData(Input.Hdmi1, new byte[] { 0x09, 0x01, 0x01, 0xAC, 0x0D, 0x00, 0x01, 0x00, 0xA9 })]
+    [InlineData(Input.Hdmi2, new byte[] { 0x09, 0x01, 0x01, 0xAC, 0x06, 0x00, 0x01, 0x00, 0xA2 })]
+    [InlineData(Input.Hdmi3, new byte[] { 0x09, 0x01, 0x01, 0xAC, 0x0F, 0x00, 0x01, 0x00, 0xAB })]
+    [InlineData(Input.Hdmi4, new byte[] { 0x09, 0x01, 0x01, 0xAC, 0x19, 0x00, 0x01, 0x00, 0xBD })]
     public void SetInput_SendsTheCommand(Input input, byte[] expectedCommand)
     {
         _display.SetInput(input);
@@ -67,8 +67,8 @@ public class PhilipsSICPTest
     }
 
     [Theory]
-    [InlineData(MuteState.On, new byte[] { 0x06, 0x00, 0x00, 0x47, 0x01, 0x40 })]
-    [InlineData(MuteState.Off, new byte[] { 0x06, 0x00, 0x00, 0x47, 0x00, 0x41 })]
+    [InlineData(MuteState.On, new byte[] { 0x06, 0x01, 0x01, 0x47, 0x01, 0x40 })]
+    [InlineData(MuteState.Off, new byte[] { 0x06, 0x01, 0x01, 0x47, 0x00, 0x41 })]
     public void SetAudioMute_SendsTheCommand(MuteState state, byte[] expectedState)
     {
         _display.SetAudioMute(state);
@@ -76,17 +76,17 @@ public class PhilipsSICPTest
     }
 
     [Theory]
-    [InlineData(0, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x00, 0x00, 0x43 })]
-    [InlineData(10, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x0A, 0x0A, 0x43 })]
-    [InlineData(20, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x14, 0x14, 0x43 })]
-    [InlineData(30, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x1E, 0x1E, 0x43 })]
-    [InlineData(40, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x28, 0x28, 0x43 })]
-    [InlineData(50, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x32, 0x32, 0x43 })]
-    [InlineData(60, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x3C, 0x3C, 0x43 })]
-    [InlineData(70, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x46, 0x46, 0x43 })]
-    [InlineData(80, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x50, 0x50, 0x43 })]
-    [InlineData(90, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x5A, 0x5A, 0x43 })]
-    [InlineData(100, new byte[] { 0x07, 0x00, 0x00, 0x44, 0x64, 0x64, 0x43 })]
+    [InlineData(0, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x00, 0x00, 0x43 })]
+    [InlineData(10, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x0A, 0x0A, 0x43 })]
+    [InlineData(20, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x14, 0x14, 0x43 })]
+    [InlineData(30, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x1E, 0x1E, 0x43 })]
+    [InlineData(40, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x28, 0x28, 0x43 })]
+    [InlineData(50, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x32, 0x32, 0x43 })]
+    [InlineData(60, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x3C, 0x3C, 0x43 })]
+    [InlineData(70, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x46, 0x46, 0x43 })]
+    [InlineData(80, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x50, 0x50, 0x43 })]
+    [InlineData(90, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x5A, 0x5A, 0x43 })]
+    [InlineData(100, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x64, 0x64, 0x43 })]
     public void SetVolume_SendsTheCommand(int volume, byte[] expectedCommand)
     {
         _display.SetVolume(volume);
@@ -135,5 +135,41 @@ public class PhilipsSICPTest
         _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x00 });
 
         Assert.Equal(CommunicationState.Error, _display.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_HandlesAReplySplitAcrossTwoReceives()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x06, 0x01, 0x01 });
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x19, 0x02, 0x1D });
+
+        Assert.Equal(PowerState.On, _display.PowerState);
+    }
+
+    [Fact]
+    public void HandleResponse_HandlesTwoRepliesInOneReceive()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x06, 0x01, 0x01, 0x19, 0x02, 0x1D, 0x06, 0x01, 0x01, 0x45, 0x32, 0x71 });
+
+        Assert.Equal(PowerState.On, _display.PowerState);
+        Assert.Equal(50, _display.Volume);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAWrongChecksum_IgnoresTheReply()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x06, 0x01, 0x01, 0x19, 0x02, 0x00 });
+
+        Assert.Equal(PowerState.Unknown, _display.PowerState);
+        Assert.Equal(CommunicationState.Error, _display.CommunicationState);
+    }
+
+    [Fact]
+    public void HandleResponse_IgnoresAReplyFromAnotherMonitor()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x06, 0x02, 0x01, 0x19, 0x02, 0x1E });
+
+        Assert.Equal(PowerState.Unknown, _display.PowerState);
+        Assert.Equal(CommunicationState.NotAttempted, _display.CommunicationState);
     }
 }

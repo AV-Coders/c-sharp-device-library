@@ -11,9 +11,9 @@ public class SonySimpleIpControl : Display, ISetTopBox
     public const int ExternalAudioConfirmations = 2;
     public const int ExternalAudioReprobeInterval = 4;
     public const int HomeConfirmations = 2;
-    public static TimeSpan OutstandingExpiry { get; set; } = TimeSpan.FromSeconds(8);
-    public static TimeSpan ExternalAudioGrace { get; set; } = TimeSpan.FromSeconds(45);
-    public static TimeSpan PowerOnBootWindow { get; set; } = TimeSpan.FromSeconds(30);
+    protected virtual TimeSpan OutstandingExpiry => TimeSpan.FromSeconds(8);
+    protected virtual TimeSpan ExternalAudioGrace => TimeSpan.FromSeconds(45);
+    protected virtual TimeSpan PowerOnBootWindow => TimeSpan.FromSeconds(30);
     private const int MaxGatherLength = 4096;
     private const int FrameLength = 23;
     private const string SuccessValue = "0000000000000000";
@@ -88,7 +88,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
     private readonly HashSet<string> _unsupportedCommands = new();
     private readonly HashSet<string> _warnedInputValues = new();
     private string _gather = string.Empty;
-    private volatile bool _externalAudio;
+    private bool _externalAudio;
     private volatile bool _tvConfirmedOn;
     private PowerState _tvReportedPower = PowerState.Unknown;
     private DateTime _onSince;
@@ -100,7 +100,16 @@ public class SonySimpleIpControl : Display, ISetTopBox
     private bool _inputProbeAnsweredNotApplicable;
 
     public string Channel { get; private set; } = string.Empty;
-    public bool ExternalAudio => _externalAudio;
+
+    public bool ExternalAudio
+    {
+        get
+        {
+            lock (_lock)
+                return _externalAudio;
+        }
+    }
+
     public bool TvConfirmedOn => _tvConfirmedOn;
 
     public IReadOnlyCollection<string> UnsupportedCommands
@@ -134,8 +143,8 @@ public class SonySimpleIpControl : Display, ISetTopBox
             _consecutiveHome = 0;
             _inputProbeAnsweredNotApplicable = false;
             _tvReportedPower = PowerState.Unknown;
+            _externalAudio = false;
         }
-        _externalAudio = false;
         _tvConfirmedOn = false;
         RemoveDetail(UnsupportedDetailLabel);
         RemoveDetail(AudioDetailLabel);
@@ -254,7 +263,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         }
     }
 
-    private static void PurgeExpired(Queue<(char Type, DateTime SentAt, string? TriggerId)> queue)
+    private void PurgeExpired(Queue<(char Type, DateTime SentAt, string? TriggerId)> queue)
     {
         var cutoff = DateTime.UtcNow - OutstandingExpiry;
         while (queue.Count > 0 && queue.Peek().SentAt < cutoff)
@@ -414,9 +423,8 @@ public class SonySimpleIpControl : Display, ISetTopBox
         {
             case "VOLU":
             case "AMUT":
-                if (!ShouldLatchExternalAudio())
+                if (!LatchExternalAudio())
                     return;
-                _externalAudio = true;
                 AudioMute = MuteState.Unknown;
                 SetDetail(AudioDetailLabel, "External audio system");
                 LogDebug("The TV is not controlling audio; volume and mute polling reduced");
@@ -437,13 +445,13 @@ public class SonySimpleIpControl : Display, ISetTopBox
         }
     }
 
-    private bool ShouldLatchExternalAudio()
+    private bool LatchExternalAudio()
     {
-        if (!_tvConfirmedOn || _externalAudio)
+        if (!_tvConfirmedOn)
             return false;
         lock (_lock)
         {
-            if (_audioProbeAnsweredNotApplicable)
+            if (_externalAudio || _audioProbeAnsweredNotApplicable)
                 return false;
             _audioProbeAnsweredNotApplicable = true;
             _consecutiveAudioNotApplicable++;
@@ -452,6 +460,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
             if (DateTime.UtcNow - _onSince < ExternalAudioGrace)
                 return false;
             _externalAudioSkips = 0;
+            _externalAudio = true;
             return true;
         }
     }
@@ -572,10 +581,11 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     private void ResetAudioDetection()
     {
-        bool wasExternal = _externalAudio;
-        _externalAudio = false;
+        bool wasExternal;
         lock (_lock)
         {
+            wasExternal = _externalAudio;
+            _externalAudio = false;
             _externalAudioSkips = 0;
             _consecutiveAudioNotApplicable = 0;
             _audioProbeAnsweredNotApplicable = false;
@@ -601,8 +611,10 @@ public class SonySimpleIpControl : Display, ISetTopBox
     private void MarkTvAudio()
     {
         lock (_lock)
+        {
             _consecutiveAudioNotApplicable = 0;
-        _externalAudio = false;
+            _externalAudio = false;
+        }
         SetDetail(AudioDetailLabel, "TV speakers");
     }
 
@@ -621,8 +633,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
         if (known.Value != null)
             return known.Key;
 
-        if (value.Length == 16 && int.TryParse(value.AsSpan(0, 8), out int type) &&
-            int.TryParse(value.AsSpan(8, 8), out int number))
+        if (int.TryParse(value.AsSpan(0, 8), out int type) && int.TryParse(value.AsSpan(8, 8), out int number))
         {
             Input? mapped = type switch
             {
@@ -709,7 +720,7 @@ public class SonySimpleIpControl : Display, ISetTopBox
 
     private bool RefuseWhileExternalAudio(string what)
     {
-        if (!_externalAudio)
+        if (!ExternalAudio)
             return false;
         using (PushProperties("RefuseWhileExternalAudio"))
             LogWarning("{What} is controlled by the external audio system, not the TV", what);

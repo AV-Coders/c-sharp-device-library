@@ -4,8 +4,11 @@ using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
+[Collection("LoggerFactory")]
 public class ExtronSwTest : IDisposable
 {
+    private static readonly TimeSpan HoldTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ReturnTimeout = TimeSpan.FromSeconds(5);
     private readonly ExtronSw _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
@@ -25,6 +28,33 @@ public class ExtronSwTest : IDisposable
     private Task Poll() => (Task)typeof(ExtronSw)
         .GetMethod("Poll", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
         .Invoke(_switcher, [CancellationToken.None])!;
+
+    private static (ExtronSw Switcher, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs(Mock<CommunicationClient> client)
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (new ExtronSw(client.Object, "Logged switch"), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private static void HoldFirstInputChange(SyncStatus input, ManualResetEventSlim entered, ManualResetEventSlim release)
+    {
+        var changes = 0;
+        input.InputStatusChangedHandlers += (_, _, _) =>
+        {
+            if (Interlocked.Increment(ref changes) != 1)
+                return;
+            entered.Set();
+            release.Wait(HoldTimeout);
+        };
+    }
 
     [Fact]
     public void ConnectAndReconnect_EnableVerboseAndQueryStatus()
@@ -159,6 +189,86 @@ public class ExtronSwTest : IDisposable
         Assert.Empty(_switcher.GetOutputs()[0].StreamAddress);
     }
 
+    [Theory]
+    [InlineData("Sig1 0 x 0*1", "Malformed signal status 1 0 x 0*1")]
+    [InlineData("Sig1 0 1*1", "Malformed signal status 1 0 1*1")]
+    [InlineData("Hdcp I1 2 3 1", "Malformed HDCP status I1 2 3 1")]
+    [InlineData("Hdcp I1 2", "Ignoring the input HDCP status I1 2 as it doesn't list the 4 inputs")]
+    [InlineData("Hdcp O1 2", "Ignoring the output HDCP status O1 2 as it doesn't list the one output")]
+    [InlineData("In99999999999999999999 All", "Ignoring the tie In99999999999999999999 All as it names an input outside the 4 inputs")]
+    [InlineData("In5 All", "Ignoring the tie In5 All as it names an input outside the 4 inputs")]
+    public void InvalidResponses_AreLoggedWithTheRawValue(string response, string logged)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (switcher, logs) = CreateWithCapturedLogs(client);
+        client.Object.ResponseHandlers!("Inf01*SW4 HD 4K PLUS Series");
+
+        client.Object.ResponseHandlers!(response);
+
+        Assert.Contains(logs.Logs, log => log.Message == logged);
+        switcher.Dispose();
+    }
+
+    [Fact]
+    public void TieBeforeTheInputCountIsKnown_IsLoggedAsSuch()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (switcher, logs) = CreateWithCapturedLogs(client);
+
+        client.Object.ResponseHandlers!("In2 All");
+
+        Assert.Contains(logs.Logs, log => log.Message == "Ignoring the tie In2 All as it arrived before the input count is known");
+        Assert.Empty(switcher.GetOutputs()[0].StreamAddress);
+        switcher.Dispose();
+    }
+
+    [Fact]
+    public async Task ConnectionChange_IsNotHeldUpByASlowSubscriberOnTheReceiveThread()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        HoldFirstInputChange(_switcher.GetInputs()[0], entered, release);
+        var receive = Task.Run(() => Respond("Sig1 0 1 0*1"));
+        Assert.True(entered.Wait(ReturnTimeout), "The subscriber was never called");
+
+        var disconnect = Task.Run(() => SetConnection(ConnectionState.Disconnected));
+
+        await disconnect.WaitAsync(ReturnTimeout);
+        release.Set();
+        await receive;
+    }
+
+    [Fact]
+    public async Task Dispose_DuringAResponse_StopsTheRestOfItCreatingEndpoints()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        HoldFirstInputChange(_switcher.GetInputs()[0], entered, release);
+        var receive = Task.Run(() => Respond("Sig1 0 1 0*1\r\nInf01*SW8 HD 4K PLUS Series"));
+        Assert.True(entered.Wait(ReturnTimeout), "The subscriber was never called");
+
+        var dispose = Task.Run(_switcher.Dispose);
+
+        await dispose.WaitAsync(ReturnTimeout);
+        release.Set();
+        await receive;
+        Assert.Empty(_switcher.GetInputs());
+        Assert.Empty(_switcher.GetOutputs());
+    }
+
+    [Fact]
+    public void Dispose_DeregistersAndClearsTheEndpoints()
+    {
+        var inputs = _switcher.GetInputs();
+        var output = _switcher.GetOutputs()[0];
+
+        _switcher.Dispose();
+
+        Assert.Empty(_switcher.GetInputs());
+        Assert.Empty(_switcher.GetOutputs());
+        Assert.DoesNotContain(LogBaseRegistry.GetAll(), instance => inputs.Contains(instance) || instance == output);
+    }
+
     [Fact]
     public void Disconnect_ClearsStaleStatusWithoutReplacingEndpoints()
     {
@@ -214,5 +324,18 @@ public class ExtronSwTest : IDisposable
         _switcher.RouteAV(2, 1);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
+    }
+
+    [Fact]
+    public void RouteVideoAndRouteAudio_RecordAnEventAsTheyAreRefused()
+    {
+        _switcher.RouteVideo(2, 1);
+        _switcher.RouteAudio(3, 1);
+
+        Assert.Contains(_switcher.Events, e => e.Type == EventType.Input &&
+            e.Info == "Not switching video output 1 to input 2 as this device doesn't support video breakaway");
+        Assert.Contains(_switcher.Events, e => e.Type == EventType.Input &&
+            e.Info == "Not switching audio output 1 to input 3 as this device doesn't support audio breakaway");
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 }

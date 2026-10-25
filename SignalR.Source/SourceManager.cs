@@ -26,23 +26,25 @@ public class SourceManager : DeviceBase
         foreach (var source in _sources)
         {
             source.OnConnectedChanged += HandleSourceConnectedChanged;
+            source.OnPreviewUrlChanged += HandleSourcePreviewUrlChanged;
         }
     }
 
     private void HandleSourceConnectedChanged(bool _) => OnSourceListChanged?.Invoke(Sources);
 
+    private void HandleSourcePreviewUrlChanged(string _) => OnSourceListChanged?.Invoke(Sources);
+
     public void SetCurrentSource(string sourceName)
     {
         using (PushProperties("SetCurrentSource - by name"))
         {
-            try
+            var sourceIndex = _sources.FindIndex(source => source.Name == sourceName);
+            if (sourceIndex < 0)
             {
-                SetCurrentSource(_sources.FindIndex(source => source.Name == sourceName));
+                LogWarning("Source {SourceName} not in source list, ignoring selection on {Name}", sourceName, Name);
+                return;
             }
-            catch (Exception e)
-            {
-                LogException(e, $"There was an error setting the source to name {sourceName}.");
-            }
+            SetCurrentSource(sourceIndex);
         }
     }
 
@@ -50,14 +52,21 @@ public class SourceManager : DeviceBase
     {
         using (PushProperties("SetCurrentSource - by index"))
         {
+            if (sourceIndex < 0 || sourceIndex >= _sources.Count)
+            {
+                LogWarning("Source index {SourceIndex} is outside the {SourceCount} sources, ignoring selection on {Name}",
+                    sourceIndex, _sources.Count, Name);
+                return;
+            }
             try
             {
                 _currentSourceIndex = sourceIndex;
-                LogDebug("Setting source to {SourceName}, index {SourceIndex}", _sources[sourceIndex].Name, sourceIndex);
-                CurrentSource = _sources[sourceIndex].SourceId;
+                var source = _sources[sourceIndex];
+                LogDebug("Setting source to {SourceName}, index {SourceIndex}", source.Name, sourceIndex);
+                CurrentSource = source.SourceId;
                 OnSourceIndexChanged?.Invoke(sourceIndex);
                 OnSourceChanged?.Invoke(CurrentSource);
-                PowerState = CurrentSource == "None" ? PowerState.Off : PowerState.On;
+                PowerState = source.Name == _offSource ? PowerState.Off : PowerState.On;
             }
             catch (Exception e)
             {

@@ -317,6 +317,42 @@ public class CiscoRoomOsVideoMatrixTest
         Assert.NotEqual(CommunicationState.Error, _matrix.CommunicationState);
     }
 
+    [Theory]
+    [InlineData(ConnectionState.Unknown)]
+    [InlineData(ConnectionState.Disconnecting)]
+    [InlineData(ConnectionState.Idle)]
+    [InlineData(ConnectionState.Degraded)]
+    public void ClientStatesOtherThanADrop_LeaveTheConnectorStatesAlone(ConnectionState state)
+    {
+        Respond("*s Video Input Connector 1 SignalState: OK\n");
+
+        ClientConnection(state);
+
+        Assert.Equal(ConnectionState.Connected, Input(1).InputConnectionStatus);
+        Assert.Equal(CommunicationState.Okay, _matrix.CommunicationState);
+    }
+
+    [Fact]
+    public void ClientError_ForgetsTheConnectorStates()
+    {
+        Respond("*s Video Input Connector 1 SignalState: OK\n");
+
+        ClientConnection(ConnectionState.Error);
+
+        Assert.Equal(ConnectionState.Unknown, Input(1).InputConnectionStatus);
+        Assert.Equal(CommunicationState.Error, _matrix.CommunicationState);
+    }
+
+    [Fact]
+    public void Refresh_ReportsOkayOnlyOnceTheCodecReplies()
+    {
+        _matrix.Refresh();
+        Assert.Equal(CommunicationState.NotAttempted, _matrix.CommunicationState);
+
+        Respond("*s Standby State: Off\n");
+        Assert.Equal(CommunicationState.Okay, _matrix.CommunicationState);
+    }
+
     [Fact]
     public void SendCommand_ReportsCommunicationHasFailed()
     {
@@ -334,7 +370,7 @@ public class CiscoRoomOsVideoMatrixTest
         method?.Invoke(_matrix, ["Foo"]);
 
         _mockClient.Verify(x => x.Send("Foo\r\n"), Times.Once);
-        Assert.Equal(CommunicationState.Okay, _matrix.CommunicationState);
+        Assert.Equal(CommunicationState.NotAttempted, _matrix.CommunicationState);
     }
 
     [Theory]
@@ -358,6 +394,39 @@ public class CiscoRoomOsVideoMatrixTest
         Respond("*s Video Input Connector 2 Connected: False\n");
 
         Assert.Equal(ConnectionState.Disconnected, Input(2).InputConnectionStatus);
+    }
+
+    [Fact]
+    public void InputConnected_OnlyAnExactFalseDisconnects()
+    {
+        Respond("*s Video Input Connector 2 SignalState: OK\n");
+        Respond("*s Video Input Connector 2 Connected: NotFalse\n");
+
+        Assert.Equal(ConnectionState.Connected, Input(2).InputConnectionStatus);
+    }
+
+    [Fact]
+    public void OutputConnected_OnlyAnExactTrueConnects()
+    {
+        Respond("*s Video Output Connector 1 Connected: NotTrue\n");
+
+        Assert.Equal(ConnectionState.Disconnected, Output(1).OutputConnectionStatus);
+    }
+
+    [Fact]
+    public void UnknownSourceResolutionField_StoresNothing()
+    {
+        Respond(
+        [
+            "*s Video Input Connector 1 SourceId: 1\n",
+            "*s Video Input Source 1 Resolution Height: 1080\n",
+            "*s Video Input Source 1 Resolution RefreshRate: 60\n",
+            "*s Video Input Source 1 Resolution Width: 1920\n",
+            "*s Video Input Source 2 Resolution Depth: 10\n",
+            "*s Video Input Source 2 ConnectorId: 1\n"
+        ]);
+
+        Assert.Equal("1920x1080@60", Input(1).InputResolution);
     }
 
     [Fact]
@@ -492,7 +561,8 @@ public class CiscoRoomOsVideoMatrixTest
 
         Assert.Empty(_matrix.Inputs);
         Assert.Empty(_matrix.Outputs);
-        Assert.Single(_matrix.Events); // Only the constructor's NotAttempted communication state
+        Assert.Equal([nameof(CommunicationState.NotAttempted), nameof(CommunicationState.Okay)],
+            _matrix.Events.Select(e => e.Info));
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 

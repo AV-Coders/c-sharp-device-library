@@ -1,4 +1,5 @@
-﻿using System.Net.Sockets;
+﻿using System.Diagnostics;
+using System.Net.Sockets;
 using System.Text;
 
 namespace AVCoders.Core;
@@ -10,7 +11,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     private string _host = host;
     private ushort _port = port;
     private readonly object _connectionIssueLock = new();
-    private DateTimeOffset? _connectionFailingSince;
+    private (long Timestamp, DateTimeOffset At)? _connectionFailingSince;
     public StringHandler? RequestHandlers;
     public ByteHandler? RequestByteHandlers;
     public StringHandler? ResponseHandlers;
@@ -70,25 +71,36 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     /// </summary>
     protected void ReportConnectionFailure(string reason)
     {
-        if (DesiredConnectionState == ConnectionState.Disconnected)
-            return;
-        DateTimeOffset failingSince;
+        (long Timestamp, DateTimeOffset At) failingSince;
+        bool escalate;
         lock (_connectionIssueLock)
         {
-            _connectionFailingSince ??= DateTimeOffset.UtcNow;
+            if (DesiredConnectionState == ConnectionState.Disconnected)
+                return;
+            _connectionFailingSince ??= (Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
             failingSince = _connectionFailingSince.Value;
+            escalate = Stopwatch.GetElapsedTime(failingSince.Timestamp) >= ConnectionIssueThreshold;
         }
         RaiseMomentaryIssue(reason, key: ConnectionIssueKey);
-        if (DateTimeOffset.UtcNow - failingSince >= ConnectionIssueThreshold)
+        if (escalate)
             RaiseOngoingIssue(ConnectionIssueKey,
-                $"Unable to connect since {failingSince.ToLocalTime():HH:mm:ss}. {reason}",
+                $"Unable to connect since {failingSince.At.ToLocalTime():HH:mm:ss}. {reason}",
                 IssueSeverity.Critical);
+        bool cleared;
+        lock (_connectionIssueLock)
+            cleared = _connectionFailingSince != failingSince;
+        if (cleared)
+            ResolveIssue(ConnectionIssueKey);
     }
 
     protected void ClearConnectionFailures()
     {
         lock (_connectionIssueLock)
+        {
+            if (_connectionFailingSince == null)
+                return;
             _connectionFailingSince = null;
+        }
         ResolveIssue(ConnectionIssueKey);
     }
 
@@ -121,8 +133,13 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     /// <summary>
     /// Internal no-op implementation. All operations are ignored.
     /// </summary>
-    private sealed class NoneCommunicationClient() : CommunicationClient("None", "None", 0, CommandStringFormat.Ascii)
+    private sealed class NoneCommunicationClient : CommunicationClient
     {
+        public NoneCommunicationClient() : base("None", "None", 0, CommandStringFormat.Ascii)
+        {
+            LogBaseRegistry.Deregister(this);
+        }
+
         public override void Send(string message)
         {
             // intentionally no-op

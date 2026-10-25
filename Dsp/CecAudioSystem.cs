@@ -5,7 +5,7 @@ using AVCoders.Core;
 namespace AVCoders.Dsp;
 
 /// <summary>A CEC audio system (soundbar or AVR at logical address 5) as one <see cref="VolumeControl"/>, driven by volume and mute key presses; not a <see cref="Dsp"/>.</summary>
-public class CecAudioSystem : VolumeControl, IDevice
+public class CecAudioSystem : VolumeControl, IDevice, IDisposable
 {
     public const byte LogicalAddressAudioSystem = 0x05;
     public const byte LogicalAddressPlayback1 = 0x04;
@@ -15,6 +15,8 @@ public class CecAudioSystem : VolumeControl, IDevice
     public const string VendorDetailLabel = "Vendor";
     public const string CecVersionDetailLabel = "CEC version";
     public const string SystemAudioModeDetailLabel = "System audio mode";
+    public const string LogicalAddressIssueKey = "logical-address";
+    private const byte MaxLogicalAddress = 0x0E;
 
     private const char FeatureAbort = '\x00';
     private const char UserControlPressed = '\x44';
@@ -71,14 +73,22 @@ public class CecAudioSystem : VolumeControl, IDevice
     private readonly char _commandHeader;
     private readonly char _responseHeader;
     private readonly char _deviceBroadcastHeader;
+    private readonly string? _logicalAddressError;
     private readonly ThreadWorker? _pollWorker;
-    private readonly Timer _statusReadTimer;
+    private Timer? _statusReadTimer;
+    private readonly object _statusReadTimerLock = new();
     private readonly object _sendLock = new();
     private readonly object _statusLock = new();
     private readonly object _walkLock = new();
+    private readonly object _pollsLock = new();
+    private readonly object _muteLock = new();
+    private readonly object _queuedSendsLock = new();
+    private Task _queuedSends = Task.CompletedTask;
     private long _lastSendTimestamp = Stopwatch.GetTimestamp() - Stopwatch.Frequency;
     private TimeSpan _spacingAfterLastSend = TimeSpan.Zero;
 
+    private bool _disposed;
+    private MuteState _mute = MuteState.Unknown;
     private bool _discovered;
     private int _unansweredPolls;
     private int _audioStatusReports;
@@ -90,9 +100,17 @@ public class CecAudioSystem : VolumeControl, IDevice
     public int VolumeStep
     {
         get => _volumeStep;
-        set => _volumeStep = value < 1
-            ? throw new ArgumentOutOfRangeException(nameof(value), "The volume step is at least one level per press")
-            : value;
+        set
+        {
+            if (value < 1)
+            {
+                using (PushProperties("VolumeStep"))
+                    LogWarning("The volume step is at least one level per press, not {Value}, so it stays {VolumeStep}", value, _volumeStep);
+                AddEvent(EventType.Error, $"The volume step is at least one level per press, not {value}");
+                return;
+            }
+            _volumeStep = value;
+        }
     }
 
     /// <summary>False until a Report Audio Status carries a real level, and after one that reports it unknown (0x7F).</summary>
@@ -103,28 +121,28 @@ public class CecAudioSystem : VolumeControl, IDevice
         byte ownLogicalAddress = LogicalAddressPlayback1, int pollTime = 10)
         : base(name, VolumeType.Speaker)
     {
-        if (audioSystemLogicalAddress > 0x0E)
-            throw new ArgumentOutOfRangeException(nameof(audioSystemLogicalAddress), "CEC logical addresses are 0 to 14");
-        if (ownLogicalAddress > 0x0E)
-            throw new ArgumentOutOfRangeException(nameof(ownLogicalAddress), "CEC logical addresses are 0 to 14");
         _cecStream = cecStream;
         CommunicationClient = cecStream;
+        if (audioSystemLogicalAddress > MaxLogicalAddress || ownLogicalAddress > MaxLogicalAddress)
+        {
+            _logicalAddressError = $"CEC logical addresses are 0x00 to 0x0E, the audio system is 0x{audioSystemLogicalAddress:X2} and this device is 0x{ownLogicalAddress:X2}";
+            RaiseOngoingIssue(LogicalAddressIssueKey, _logicalAddressError, IssueSeverity.Critical);
+        }
         _commandHeader = (char)((ownLogicalAddress << 4) | audioSystemLogicalAddress);
         _responseHeader = (char)((audioSystemLogicalAddress << 4) | ownLogicalAddress);
         _deviceBroadcastHeader = (char)((audioSystemLogicalAddress << 4) | 0x0F);
-        _statusReadTimer = new Timer(_ => ReadStatusNow(), null, Timeout.Infinite, Timeout.Infinite);
         _cecStream.ResponseHandlers += HandleResponse;
-        _cecStream.ConnectionStateHandlers += x => AddEvent(EventType.Connection, x.ToString());
+        _cecStream.ConnectionStateHandlers += AddConnectionEvent;
         _cecStream.ConnectionStateHandlers += HandleConnectionState;
+        _cecStream.ConnectionStateHandlers += HandleRequestedDisconnect;
         CommunicationState = CommunicationState.NotAttempted;
-        if (pollTime <= 0)
+        if (pollTime <= 0 || _logicalAddressError != null)
             return;
-        var pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
-        _pollWorker = pollWorker;
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
         new Thread(_ =>
         {
             Thread.Sleep(1000);
-            pollWorker.Restart();
+            RestartPolling();
         }) { IsBackground = true }.Start();
     }
 
@@ -167,50 +185,83 @@ public class CecAudioSystem : VolumeControl, IDevice
             AddEvent(EventType.DriverState, value.ToString());
             if (value == CommunicationState.Error)
                 RaiseOngoingIssue(CommunicationIssueKey, "Device communication error", IssueSeverity.Critical);
-            else if (value == CommunicationState.Okay)
+            else if (value is CommunicationState.Okay or CommunicationState.NotAttempted)
                 ResolveIssue(CommunicationIssueKey);
             CommunicationStateHandlers?.Invoke(value);
             OnCommunicationStateChanged?.Invoke(value);
         }
     }
 
+    private void AddConnectionEvent(ConnectionState connectionState) => AddEvent(EventType.Connection, connectionState.ToString());
+
     private void HandleConnectionState(ConnectionState connectionState)
     {
         if (connectionState != ConnectionState.Connected)
             return;
         _discovered = false;
-        _pollWorker?.Restart();
+        RestartPolling();
+    }
+
+    private void RestartPolling()
+    {
+        lock (_pollsLock)
+        {
+            if (!_disposed)
+                _pollWorker?.Restart();
+        }
+    }
+
+    private void HandleRequestedDisconnect(ConnectionState connectionState)
+    {
+        if (CommunicationClient.DesiredConnectionState != ConnectionState.Disconnected)
+            return;
+        CommunicationState = CommunicationState.NotAttempted;
     }
 
     private Task Poll(CancellationToken token)
     {
-        PollAudioStatus();
+        var connectionState = CommunicationClient.ConnectionState;
+        if (connectionState is ConnectionState.Disconnected or ConnectionState.Disconnecting or ConnectionState.Error)
+        {
+            using (PushProperties("Poll"))
+                LogDebug("Not polling, the CEC stream is {ConnectionState}", connectionState);
+            return Task.CompletedTask;
+        }
+        SendPoll();
         return Task.CompletedTask;
     }
 
     /// <summary>One poll cycle: discovery if not yet done, then Give Audio Status.</summary>
-    public void PollAudioStatus()
+    public void PollAudioStatus() => QueueSend(SendPoll, "Polling the audio status failed");
+
+    private void SendPoll()
     {
         using (PushProperties("PollAudioStatus"))
         {
             if (!_discovered)
-                Discover();
-            if (_unansweredPolls >= MaxUnansweredPolls && CommunicationState != CommunicationState.Error)
+                SendDiscovery();
+            int unansweredPolls;
+            lock (_pollsLock)
+                unansweredPolls = _unansweredPolls++;
+            if (unansweredPolls >= MaxUnansweredPolls && CommunicationState != CommunicationState.Error)
             {
-                LogWarning("No answer to the last {Count} audio status polls", _unansweredPolls);
+                LogWarning("No answer to the last {Count} audio status polls", unansweredPolls);
                 CommunicationState = CommunicationState.Error;
                 PowerState = PowerState.Unknown;
-                MuteState = MuteState.Unknown;
+                lock (_muteLock)
+                    _mute = MuteState.Unknown;
+                PublishMute();
                 IsLevelKnown = false;
                 _discovered = false;
             }
-            _unansweredPolls++;
             RequestAudioStatus();
         }
     }
 
     /// <summary>Queries the physical address, name, vendor, CEC version, system audio mode and power into <see cref="LogBase.Details"/>.</summary>
-    public void Discover()
+    public void Discover() => QueueSend(SendDiscovery, "Sending the discovery requests failed");
+
+    private void SendDiscovery()
     {
         using (PushProperties("Discover"))
         {
@@ -252,7 +303,8 @@ public class CecAudioSystem : VolumeControl, IDevice
                 return;
 
             CommunicationState = CommunicationState.Okay;
-            _unansweredPolls = 0;
+            lock (_pollsLock)
+                _unansweredPolls = 0;
 
             switch (frame[1])
             {
@@ -298,7 +350,9 @@ public class CecAudioSystem : VolumeControl, IDevice
 
     private void HandleAudioStatus(char status)
     {
-        MuteState = (status & AudioStatusMuteBit) != 0 ? MuteState.On : MuteState.Off;
+        lock (_muteLock)
+            _mute = (status & AudioStatusMuteBit) != 0 ? MuteState.On : MuteState.Off;
+        PublishMute();
         var level = status & AudioStatusVolumeMask;
         if (level == AudioStatusVolumeUnknown)
         {
@@ -405,8 +459,16 @@ public class CecAudioSystem : VolumeControl, IDevice
 
     private void SendFrame(char[] frame, TimeSpan? spacingAfter = null)
     {
+        if (_logicalAddressError != null)
+        {
+            using (PushProperties("SendFrame"))
+                LogWarning("Not sending {Frame}: {LogicalAddressError}", Describe(frame), _logicalAddressError);
+            return;
+        }
         lock (_sendLock)
         {
+            if (_disposed)
+                return;
             var wait = _spacingAfterLastSend - Stopwatch.GetElapsedTime(_lastSendTimestamp);
             if (wait > TimeSpan.Zero)
                 Thread.Sleep(wait);
@@ -425,7 +487,47 @@ public class CecAudioSystem : VolumeControl, IDevice
         }
     }
 
-    private void ReadStatusAfterKey() => _statusReadTimer.Change(StatusReadDelayAfterKey, Timeout.InfiniteTimeSpan);
+    private Task QueueSend(Action send, string failure)
+    {
+        lock (_queuedSendsLock)
+        {
+            _queuedSends = _queuedSends.ContinueWith(_ => SendLoggingFailure(send, failure), TaskScheduler.Default);
+            return _queuedSends;
+        }
+    }
+
+    private void SendLoggingFailure(Action send, string failure)
+    {
+        try
+        {
+            send();
+        }
+        catch (Exception e)
+        {
+            LogException(e, failure);
+        }
+    }
+
+    private Task QueueKeyPresses(char key, int presses) =>
+        QueueSend(() => SendKeyPresses(key, presses), $"Sending {presses} presses of key 0x{(int)key:X2} failed");
+
+    private void SendKeyPresses(char key, int presses)
+    {
+        for (var i = 0; i < presses; i++)
+            SendKey(key);
+        ReadStatusAfterKey();
+    }
+
+    private void ReadStatusAfterKey()
+    {
+        lock (_statusReadTimerLock)
+        {
+            if (_disposed)
+                return;
+            _statusReadTimer?.Dispose();
+            _statusReadTimer = new Timer(_ => ReadStatusNow(), null, StatusReadDelayAfterKey, Timeout.InfiniteTimeSpan);
+        }
+    }
 
     private int PressesFor(int levels) => (levels + VolumeStep - 1) / VolumeStep;
 
@@ -451,10 +553,7 @@ public class CecAudioSystem : VolumeControl, IDevice
             AddEvent(EventType.Error, $"The amount needs to be at least one percent, it's {amount}");
             return;
         }
-        var presses = PressesFor(amount);
-        for (var i = 0; i < presses; i++)
-            SendKey(key);
-        ReadStatusAfterKey();
+        QueueKeyPresses(key, PressesFor(amount));
     }
 
     /// <summary>Walks the level to <paramref name="percentage"/> with key presses in the background; a call mid-walk retargets it.</summary>
@@ -590,17 +689,14 @@ public class CecAudioSystem : VolumeControl, IDevice
                 return Task.CompletedTask;
             }
             if (MuteState != MuteState.Unknown)
-            {
-                ApplyMute(state);
-                return Task.CompletedTask;
-            }
-            return Task.Run(() =>
+                return ApplyMute(state);
+            return Task.Run(async () =>
             {
                 using (PushProperties("SetAudioMute"))
                 {
                     if (WaitForAudioStatus())
                     {
-                        ApplyMute(state);
+                        await ApplyMute(state);
                         return;
                     }
                     LogWarning("No Report Audio Status within {Timeout} ms, not sending the mute key blind", ReplyTimeout.TotalMilliseconds);
@@ -610,13 +706,18 @@ public class CecAudioSystem : VolumeControl, IDevice
         }
     }
 
-    private void ApplyMute(MuteState state)
+    private Task ApplyMute(MuteState state)
     {
-        if (MuteState == state)
-            return;
-        SendKey(MuteKey);
-        MuteState = state;
-        ReadStatusAfterKey();
+        Task keySent;
+        lock (_muteLock)
+        {
+            if (_mute == state)
+                return Task.CompletedTask;
+            _mute = state;
+            keySent = QueueKeyPresses(MuteKey, 1);
+        }
+        PublishMute();
+        return keySent;
     }
 
     /// <summary>Sends the Mute toggle key once.</summary>
@@ -624,15 +725,34 @@ public class CecAudioSystem : VolumeControl, IDevice
     {
         using (PushProperties("ToggleAudioMute"))
         {
-            SendKey(MuteKey);
-            MuteState = MuteState switch
+            lock (_muteLock)
             {
-                MuteState.On => MuteState.Off,
-                MuteState.Off => MuteState.On,
-                _ => MuteState.Unknown
-            };
-            ReadStatusAfterKey();
+                _mute = _mute switch
+                {
+                    MuteState.On => MuteState.Off,
+                    MuteState.Off => MuteState.On,
+                    _ => MuteState.Unknown
+                };
+                QueueKeyPresses(MuteKey, 1);
+            }
+            PublishMute();
         }
+    }
+
+    private void PublishMute()
+    {
+        var mute = ReadMute();
+        while (MuteState != mute)
+        {
+            MuteState = mute;
+            mute = ReadMute();
+        }
+    }
+
+    private MuteState ReadMute()
+    {
+        lock (_muteLock)
+            return _mute;
     }
 
     /// <summary>No-op: the Sonos Beam is always On over CEC.</summary>
@@ -649,5 +769,32 @@ public class CecAudioSystem : VolumeControl, IDevice
         using (PushProperties("PowerOff"))
             LogInformation("PowerOff is a no-op: the audio system ignores Standby and stays On");
         AddEvent(EventType.Power, "PowerOff ignored - the audio system ignores Standby");
+    }
+
+    public void Dispose()
+    {
+        lock (_sendLock)
+        lock (_pollsLock)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+        }
+        _cecStream.ResponseHandlers -= HandleResponse;
+        _cecStream.ConnectionStateHandlers -= AddConnectionEvent;
+        _cecStream.ConnectionStateHandlers -= HandleConnectionState;
+        _cecStream.ConnectionStateHandlers -= HandleRequestedDisconnect;
+        if (_pollWorker != null)
+        {
+            Task.Run(_pollWorker.Stop).GetAwaiter().GetResult();
+            LogBaseRegistry.Deregister(_pollWorker);
+        }
+        lock (_statusReadTimerLock)
+        {
+            _statusReadTimer?.Dispose();
+            _statusReadTimer = null;
+        }
+        LogBaseRegistry.Deregister(this);
+        GC.SuppressFinalize(this);
     }
 }

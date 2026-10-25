@@ -1,5 +1,6 @@
 using AVCoders.CommunicationClients;
 using AVCoders.Core;
+using Lextm.SharpSnmpLib;
 
 namespace AVCoders.Power;
 
@@ -247,8 +248,16 @@ public class TrippLitePdu : Pdu
                     outlet.Name);
             return false;
         }
+        var device = _devices.FirstOrDefault(discovered => discovered.Index == outlet.DeviceIndex);
+        if (device == null)
+        {
+            using (PushProperties(nameof(SendOutletCommand)))
+                LogWarning("Ignoring the {Command} command, outlet {Outlet} is on device {DeviceIndex}, which was not discovered",
+                    description, outlet.Name, outlet.DeviceIndex);
+            return false;
+        }
         var response = _client.Set(
-            $"{DeviceRoot(outlet.DeviceIndex)}.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", command);
+            $"{device.Root}.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", command);
         if (response.Count == 0)
         {
             RaiseMomentaryIssue($"The {description} command for outlet {outlet.Name} was not acknowledged",
@@ -258,9 +267,6 @@ public class TrippLitePdu : Pdu
         AddEvent(EventType.Power, $"Sent the {description} command to outlet {outlet.Name}");
         return true;
     }
-
-    private string DeviceRoot(int deviceIndex) =>
-        _devices.FirstOrDefault(device => device.Index == deviceIndex)?.Root ?? AtsBranch;
 
     private Task Poll(CancellationToken token)
     {
@@ -354,9 +360,10 @@ public class TrippLitePdu : Pdu
         }
         _devices = devices;
         _sensors = sensors;
-        ClearOutlets();
-        foreach (var outlet in devices.SelectMany(device => device.OutletsByNumber.OrderBy(pair => pair.Key)))
-            AddOutlet(outlet.Value);
+        foreach (var previous in Outlets)
+            LogBaseRegistry.Deregister(previous);
+        SetOutlets(devices.SelectMany(device => device.OutletsByNumber.OrderBy(pair => pair.Key))
+            .Select(pair => (Outlet)pair.Value).ToList());
         var combinedModel = string.Join(", ", devices.Select(device => device.Model));
         if (Model != combinedModel)
         {
@@ -529,7 +536,10 @@ public class TrippLitePdu : Pdu
     private string? GetText(string oid)
     {
         var response = _client.Get(oid);
-        return response.Count == 0 ? null : response[0].Data.ToString();
+        if (response.Count == 0 ||
+            response[0].Data.TypeCode is SnmpType.NoSuchObject or SnmpType.NoSuchInstance or SnmpType.EndOfMibView)
+            return null;
+        return response[0].Data.ToString();
     }
 
     private Dictionary<string, string> WalkColumn(string columnOid)

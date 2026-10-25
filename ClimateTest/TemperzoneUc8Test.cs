@@ -1,9 +1,11 @@
 using System.Reflection;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Climate.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class TemperzoneUc8Test
 {
     private readonly TemperzoneUc8 _uc8;
@@ -24,7 +26,15 @@ public class TemperzoneUc8Test
                 _ops.Add($"coil:{coil}={(value ? 1 : 0)}"))
             .Returns(Task.CompletedTask);
         _uc8 = new TemperzoneUc8("Test HVAC", _mockClient.Object);
+        StopPollWorker();
         VerifyIdentity();
+    }
+
+    private void StopPollWorker()
+    {
+        var worker = (ThreadWorker)_uc8.GetType().GetField("_pollWorker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(_uc8)!;
+        Task.Run(worker.Stop).GetAwaiter().GetResult();
     }
 
     private static async Task WaitUntil(Func<bool> condition)
@@ -42,6 +52,24 @@ public class TemperzoneUc8Test
         var method = _uc8.GetType().GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic);
         method!.Invoke(_uc8, args);
     }
+
+    private int ArmingGeneration() =>
+        (int)typeof(TemperzoneUc8).GetField("_armingGeneration", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(_uc8)!;
+
+    private void ProcessControlBlock(ushort[] values) =>
+        InvokePrivate("ProcessControlBlock", values, ArmingGeneration());
+
+    private void ProcessControlEnable(ushort readback) =>
+        InvokePrivate("ProcessControlEnable", readback, ArmingGeneration());
+
+    private Task InvokePoll(CancellationToken token) =>
+        (Task)_uc8.GetType().GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(_uc8, [token])!;
+
+    private void SetConnectionState(ConnectionState state) =>
+        typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
+            .SetValue(_mockClient.Object, state);
 
     private static ushort[] TemperatureBlock()
     {
@@ -505,7 +533,7 @@ public class TemperzoneUc8Test
         var handler = new Mock<BoolHandler>();
         _uc8.DeIcePermissionHandler += handler.Object;
 
-        InvokePrivate("ProcessControlBlock", ControlBlock());
+        ProcessControlBlock(ControlBlock());
 
         Assert.True(_uc8.DeIcePermission);
         handler.Verify(x => x.Invoke(true), Times.Once);
@@ -532,8 +560,8 @@ public class TemperzoneUc8Test
     [Fact]
     public void MonitoringOnly_NeverWritesCoilsOrRegisters()
     {
-        InvokePrivate("ProcessControlEnable", (ushort)0);
-        InvokePrivate("ProcessControlBlock", new ushort[21]);
+        ProcessControlEnable((ushort)0);
+        ProcessControlBlock(new ushort[21]);
         InvokePrivate("ProcessTemperatures", TemperatureBlock());
         InvokePrivate("ProcessOutputs", OutputBlock(3));
 
@@ -547,7 +575,7 @@ public class TemperzoneUc8Test
         _uc8.SetFanSpeed(550);
         _ops.Clear();
 
-        InvokePrivate("ProcessControlEnable", (ushort)0);
+        ProcessControlEnable((ushort)0);
 
         Assert.Equal(new[] { "coil:4=1", "coil:7=1", "coil:8=1", "reg:105=15", "reg:108=550", "reg:109=65" }, _ops);
     }
@@ -558,7 +586,7 @@ public class TemperzoneUc8Test
         _uc8.SetCapacity(65);
         _ops.Clear();
 
-        InvokePrivate("ProcessControlEnable", (ushort)128);
+        ProcessControlEnable((ushort)128);
 
         Assert.Empty(_ops);
     }
@@ -571,7 +599,7 @@ public class TemperzoneUc8Test
         _ops.Clear();
 
         _uc8.ReleaseControl();
-        InvokePrivate("ProcessControlEnable", (ushort)0);
+        ProcessControlEnable((ushort)0);
 
         Assert.Equal(new[] { "coil:8=0", "coil:10=0" }, _ops);
     }
@@ -622,6 +650,33 @@ public class TemperzoneUc8Test
         _uc8.Dispose();
 
         Assert.Contains("coil:8=0", _ops);
+    }
+
+    [Fact]
+    public void Dispose_AgainWaitsOnTheTeardownAlreadyRunning()
+    {
+        _uc8.SetCapacity(65);
+        ProcessControlBlock(ControlBlock(128));
+        _ops.Clear();
+        var released = new TaskCompletionSource();
+        _mockClient.Setup(client => client.WriteCoil(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<byte, ushort, bool, CancellationToken>((_, coil, value, _) =>
+                _ops.Add($"coil:{coil}={(value ? 1 : 0)}"))
+            .Returns(released.Task);
+
+        var first = _uc8.DisposeAsync().AsTask();
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(100);
+            released.SetResult();
+        });
+        _uc8.Dispose();
+
+        Assert.True(first.IsCompleted);
+        _uc8.Dispose();
+        Assert.True(_uc8.DisposeAsync().IsCompleted);
+        Assert.Equal(1, _ops.Count(op => op == "coil:8=0"));
     }
 
     [Fact]
@@ -693,7 +748,7 @@ public class TemperzoneUc8Test
     [Fact]
     public void ProcessControlEnable_AdoptsOrphanedArming()
     {
-        InvokePrivate("ProcessControlEnable", (ushort)(128 | 512));
+        ProcessControlEnable((ushort)(128 | 512));
 
         var issue = Assert.Single(_uc8.GetOngoingIssues(), i => i.Key == "adopted-control");
         Assert.Contains("Capacity", issue.Message);
@@ -708,7 +763,7 @@ public class TemperzoneUc8Test
     [Fact]
     public void ReleaseControl_ClearsAdoptedArming()
     {
-        InvokePrivate("ProcessControlEnable", (ushort)(128 | 512));
+        ProcessControlEnable((ushort)(128 | 512));
 
         _uc8.ReleaseControl();
 
@@ -719,11 +774,111 @@ public class TemperzoneUc8Test
     [Fact]
     public void ReleaseControl_ClearsAnOrphanedUnitUsingTheReadback()
     {
-        InvokePrivate("ProcessControlBlock", ControlBlock(64));
+        ProcessControlBlock(ControlBlock(64));
 
         _uc8.ReleaseControl();
 
         Assert.Contains("coil:7=0", _ops);
+    }
+
+    [Fact]
+    public void ReleaseControl_AFailedCoilWriteIsCompletedByTheNextPollNotAdopted()
+    {
+        _uc8.SetCapacity(65);
+        ProcessControlBlock(ControlBlock(128));
+        _ops.Clear();
+        var failures = 1;
+        _mockClient.Setup(client => client.WriteCoil(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<byte, ushort, bool, CancellationToken>((_, coil, value, _) =>
+                _ops.Add($"coil:{coil}={(value ? 1 : 0)}"))
+            .Returns<byte, ushort, bool, CancellationToken>((_, _, value, _) => !value && failures-- > 0
+                ? Task.FromException(new TimeoutException("No response"))
+                : Task.CompletedTask);
+
+        _uc8.ReleaseControl();
+        ProcessControlBlock(ControlBlock(128));
+        ProcessControlBlock(ControlBlock());
+
+        Assert.Equal(new[] { "coil:8=0", "coil:8=0" }, _ops);
+        Assert.DoesNotContain(_uc8.GetOngoingIssues(), i => i.Key == "adopted-control");
+        Assert.Empty(_uc8.GetArmedFunctions());
+    }
+
+    [Fact]
+    public void ReleaseControl_AFunctionArmedAgainAfterASuccessfulReleaseIsAdopted()
+    {
+        _uc8.SetCapacity(65);
+        ProcessControlBlock(ControlBlock(128));
+        _uc8.ReleaseControl();
+        _ops.Clear();
+
+        ProcessControlBlock(ControlBlock(128));
+
+        Assert.Empty(_ops);
+        Assert.Contains(_uc8.GetOngoingIssues(), i => i.Key == "adopted-control");
+    }
+
+    [Fact]
+    public void ReleaseControl_AThrowingControlReleasedHandlerStillSendsTheReleaseWrites()
+    {
+        var failure = new InvalidOperationException("Handler failed");
+        _uc8.SetCapacity(65);
+        _ops.Clear();
+        _uc8.ControlReleasedHandlers += () => throw failure;
+
+        _uc8.ReleaseControl();
+
+        Assert.Equal(new[] { "coil:8=0" }, _ops);
+        Assert.Equal(CommunicationState.Okay, _uc8.CommunicationState);
+        Assert.Contains(_uc8.Errors, e => e.Exception == failure &&
+            e.Message == "A ControlReleasedHandlers handler threw an exception");
+    }
+
+    [Fact]
+    public void ReleaseControl_AThrowingDesiredPowerStateHandlerStillSendsTheReleaseWrites()
+    {
+        var failure = new InvalidOperationException("Handler failed");
+        _uc8.PowerOn();
+        _ops.Clear();
+        _uc8.DesiredPowerStateHandlers += _ => throw failure;
+
+        _uc8.ReleaseControl();
+
+        Assert.Equal(new[] { "coil:1=0", "coil:3=0" }, _ops);
+        Assert.Equal(CommunicationState.Okay, _uc8.CommunicationState);
+        Assert.Equal(PowerState.Unknown, _uc8.DesiredPowerState);
+        Assert.Contains(_uc8.Errors, e => e.Exception == failure &&
+            e.Message == "A DesiredPowerStateHandlers or OnDesiredPowerStateChanged handler threw an exception");
+    }
+
+    [Fact]
+    public void ProcessControlBlock_AReplyReadBeforeAReleaseIsNotAdopted()
+    {
+        _uc8.SetCapacity(65);
+        ProcessControlBlock(ControlBlock(128));
+        var generationBeforeTheRead = ArmingGeneration();
+        _uc8.ReleaseControl();
+        _ops.Clear();
+
+        InvokePrivate("ProcessControlBlock", ControlBlock(128), generationBeforeTheRead);
+        ProcessControlBlock(ControlBlock());
+
+        Assert.Empty(_ops);
+        Assert.DoesNotContain(_uc8.GetOngoingIssues(), i => i.Key == "adopted-control");
+    }
+
+    [Fact]
+    public void Dispose_AfterAReleaseDoesNotReleaseAgain()
+    {
+        _uc8.SetCapacity(65);
+        ProcessControlBlock(ControlBlock(128));
+        _uc8.ReleaseControl();
+        _ops.Clear();
+
+        _uc8.Dispose();
+
+        Assert.Empty(_ops);
     }
 
     [Fact]
@@ -737,13 +892,13 @@ public class TemperzoneUc8Test
             .Returns(gate.Task);
         _uc8.SetCapacity(65);
 
-        InvokePrivate("ProcessControlEnable", (ushort)512);
+        ProcessControlEnable((ushort)512);
 
         Assert.DoesNotContain(_uc8.GetOngoingIssues(), i => i.Key == "adopted-control");
         gate.SetResult();
         await WaitUntil(() => _ops.Contains("reg:109=65"));
 
-        InvokePrivate("ProcessControlEnable", (ushort)(128 | 512));
+        ProcessControlEnable((ushort)(128 | 512));
 
         Assert.Single(_uc8.GetOngoingIssues(), i => i.Key == "adopted-control");
     }
@@ -774,13 +929,154 @@ public class TemperzoneUc8Test
     }
 
     [Fact]
-    public void ResetLockout_IsNotGatedByIdentity()
+    public void ResetLockout_IsGatedByIdentity()
     {
         InvokePrivate("ProcessIdentity", new ushort[] { 123, 209 }, new ushort[] { DeviceId });
 
         _uc8.ResetLockout();
 
-        Assert.Equal(new[] { "reg:1901=21930", "reg:1901=3855" }, _ops);
+        Assert.Empty(_ops);
+    }
+
+    [Fact]
+    public void Disconnect_BlocksControlWritesUntilTheIdentityIsCheckedAgain()
+    {
+        SetConnectionState(ConnectionState.Connected);
+        SetConnectionState(ConnectionState.Disconnected);
+
+        _uc8.SetCapacity(65);
+
+        Assert.False(_uc8.IdentityVerified);
+        Assert.Empty(_ops);
+
+        VerifyIdentity();
+        _uc8.SetCapacity(65);
+
+        Assert.Equal(new[] { "coil:8=1", "reg:109=65" }, _ops);
+    }
+
+    [Fact]
+    public void ForceDeIce_TheRestoreIsGatedByIdentity()
+    {
+        _uc8.ForceDeIce();
+        _ops.Clear();
+        InvokePrivate("ProcessIdentity", new ushort[] { 123, 209 }, new ushort[] { DeviceId });
+        var values = OutputBlock(9);
+        values[5] = 1 << 12;
+
+        InvokePrivate("ProcessOutputs", values);
+
+        Assert.Empty(_ops);
+
+        VerifyIdentity();
+        InvokePrivate("ProcessOutputs", values);
+        ProcessControlEnable((ushort)0);
+
+        Assert.Equal(new[] { "reg:110=0", "coil:9=1", "reg:110=0" }, _ops);
+    }
+
+    [Fact]
+    public void ForceDeIce_TheRestoreGoesOutOnTheFirstVerifiedPassAfterTheDeIceHasEnded()
+    {
+        _uc8.ForceDeIce();
+        _ops.Clear();
+        InvokePrivate("ProcessIdentity", new ushort[] { 123, 209 }, new ushort[] { DeviceId });
+        var deIcing = OutputBlock(9);
+        deIcing[5] = 1 << 12;
+        InvokePrivate("ProcessOutputs", deIcing);
+
+        VerifyIdentity();
+        ProcessControlEnable((ushort)0);
+        InvokePrivate("ProcessOutputs", OutputBlock(9));
+        InvokePrivate("ProcessOutputs", OutputBlock(9));
+
+        Assert.Equal(new[] { "coil:9=1", "reg:110=0" }, _ops);
+    }
+
+    [Fact]
+    public void Reconnect_ReappliesTheDeIcePermissionWithoutTheForceBit()
+    {
+        _uc8.ForceDeIce();
+        SetConnectionState(ConnectionState.Connected);
+        SetConnectionState(ConnectionState.Disconnected);
+        _uc8.ForceDeIceTimeout = TimeSpan.Zero;
+        SetConnectionState(ConnectionState.Connected);
+        VerifyIdentity();
+        _ops.Clear();
+
+        ProcessControlEnable((ushort)0);
+        InvokePrivate("ProcessOutputs", OutputBlock(9));
+
+        Assert.Equal(new[] { "coil:9=1", "reg:110=1", "reg:110=0" }, _ops);
+    }
+
+    [Fact]
+    public void Disconnect_DropsAnIdentityOverrideWithAnEvent()
+    {
+        InvokePrivate("ProcessIdentity", new ushort[] { 123, 209 }, new ushort[] { DeviceId });
+        _uc8.OverrideIdentityCheck();
+
+        SetConnectionState(ConnectionState.Connected);
+        SetConnectionState(ConnectionState.Disconnected);
+
+        Assert.False(_uc8.IdentityVerified);
+        Assert.Contains(_uc8.Events, e => e.Info ==
+            "The connection dropped, so the UC8 identity will be checked again and any override of the identity check is dropped");
+    }
+
+    [Fact]
+    public void ProcessControlEnable_StaysQuietWhileTheIdentityIsUnverified()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        TemperzoneUc8 unit;
+        try
+        {
+            unit = new TemperzoneUc8("Unverified HVAC", _mockClient.Object);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        var processControlEnable =
+            typeof(TemperzoneUc8).GetMethod("ProcessControlEnable", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        processControlEnable.Invoke(unit, [(ushort)128, 0]);
+        processControlEnable.Invoke(unit, [(ushort)0, 0]);
+
+        Assert.Empty(_ops);
+        Assert.DoesNotContain(logs.Logs,
+            log => log.Message.Contains("refused") || log.Message.Contains("re-arming"));
+    }
+
+    [Fact]
+    public void ProcessControlEnable_DoesNotReapplyWhileTheIdentityIsUnverified()
+    {
+        _uc8.SetCapacity(65);
+        _ops.Clear();
+        InvokePrivate("ProcessIdentity", new ushort[] { 123, 209 }, new ushort[] { DeviceId });
+
+        ProcessControlEnable((ushort)0);
+
+        Assert.Empty(_ops);
+    }
+
+    [Fact]
+    public void ReleaseControl_CancelsAForcedDeIce()
+    {
+        _uc8.SetDeIcePermission(false);
+        _uc8.ForceDeIce();
+        _uc8.ReleaseControl();
+        _ops.Clear();
+        var values = OutputBlock(9);
+        values[5] = 1 << 12;
+
+        InvokePrivate("ProcessOutputs", values);
+        _uc8.ForceDeIce();
+        InvokePrivate("ProcessOutputs", values);
+
+        Assert.Equal(new[] { "coil:9=1", "reg:110=17", "reg:110=0" }, _ops);
     }
 
     [Fact]
@@ -838,7 +1134,7 @@ public class TemperzoneUc8Test
         var handler = new Mock<IntHandler>();
         _uc8.ControlEnableHandler += handler.Object;
 
-        InvokePrivate("ProcessControlBlock", ControlBlock(65));
+        ProcessControlBlock(ControlBlock(65));
 
         Assert.Equal(65, _uc8.ControlEnableReadback);
         handler.Verify(x => x.Invoke(65), Times.Once);
@@ -863,7 +1159,7 @@ public class TemperzoneUc8Test
         _uc8.FanSpeedRequestHandler += fanSpeedHandler.Object;
         _uc8.CapacityRequestHandler += capacityHandler.Object;
 
-        InvokePrivate("ProcessControlBlock", ControlBlock());
+        ProcessControlBlock(ControlBlock());
 
         quietHandler.Verify(x => x.Invoke(true), Times.Once);
         dryHandler.Verify(x => x.Invoke(false), Times.Once);
@@ -877,7 +1173,7 @@ public class TemperzoneUc8Test
     [Fact]
     public void ProcessControlBlock_RecordsRequestsAndTargetsIntoHistory()
     {
-        InvokePrivate("ProcessControlBlock", ControlBlock());
+        ProcessControlBlock(ControlBlock());
 
         Assert.Equal(550f, Assert.Single(_uc8.History.GetSamples(TemperzoneUc8History.FanSpeedRequestPoint)).Value);
         Assert.Equal(65f, Assert.Single(_uc8.History.GetSamples(TemperzoneUc8History.CapacityRequestPoint)).Value);
@@ -1208,6 +1504,60 @@ public class TemperzoneUc8Test
         _uc8.SetSupplyAirTargets(cooling, heating);
 
         Assert.Equal(new[] { $"reg:118={expectedCooling}", $"reg:119={expectedHeating}" }, _ops);
+    }
+
+    [Theory]
+    [InlineData(4.2f, 32.1f, 420, 3210)]
+    [InlineData(4.18f, 20.05f, 418, 2005)]
+    public void SetSupplyAirTargets_WritesTheTargetsAsWritten(float cooling, float heating, int expectedCooling,
+        int expectedHeating)
+    {
+        _uc8.SetSupplyAirTargets(cooling, heating);
+
+        Assert.Equal(new[] { $"reg:118={expectedCooling}", $"reg:119={expectedHeating}" }, _ops);
+    }
+
+    [Theory]
+    [InlineData(float.NaN, 36f)]
+    [InlineData(12f, float.NaN)]
+    [InlineData(float.PositiveInfinity, 36f)]
+    [InlineData(12f, float.NegativeInfinity)]
+    public void SetSupplyAirTargets_RefusesNonFiniteTargets(float cooling, float heating)
+    {
+        _uc8.SetSupplyAirTargets(cooling, heating);
+
+        Assert.Empty(_ops);
+    }
+
+    [Fact]
+    public async Task Poll_AFailingBlockDoesNotStopTheRestOfThePass()
+    {
+        SetConnectionState(ConnectionState.Connected);
+        _mockClient.Setup(client => client.ReadHoldingRegisters(It.IsAny<byte>(), It.IsAny<ushort>(),
+                It.IsAny<ushort>(), It.IsAny<CancellationToken>()))
+            .Returns<byte, ushort, ushort, CancellationToken>((_, start, count, _) => start == 901
+                ? Task.FromException<ushort[]>(new InvalidOperationException("The port is closed"))
+                : Task.FromResult(new ushort[count]));
+
+        await InvokePoll(CancellationToken.None);
+
+        _mockClient.Verify(x => x.ReadHoldingRegisters(DeviceId, 1201, 6, It.IsAny<CancellationToken>()), Times.Once);
+        _mockClient.Verify(x => x.ReadHoldingRegisters(DeviceId, 1025, 14, It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(CommunicationState.Okay, _uc8.CommunicationState);
+        Assert.Contains(_uc8.Errors, e => e.Message == "The faults poll failed");
+    }
+
+    [Fact]
+    public async Task Poll_LetsACancellationReachTheWorker()
+    {
+        SetConnectionState(ConnectionState.Connected);
+        using var stop = new CancellationTokenSource();
+        await stop.CancelAsync();
+        _mockClient.Setup(client => client.ReadHoldingRegisters(It.IsAny<byte>(), It.IsAny<ushort>(),
+                It.IsAny<ushort>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.FromCanceled<ushort[]>(stop.Token));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => InvokePoll(stop.Token));
     }
 
     [Fact]

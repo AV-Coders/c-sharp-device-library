@@ -16,7 +16,11 @@ public class ExtronAnnotator401 : AnnotatorBase
     private readonly string _fileprefix;
     private const string EscapeHeader = "\x1b";
     public static readonly ushort DefaultPort = 22023;
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan OutputStepGap = TimeSpan.FromMilliseconds(200);
     private readonly ThreadWorker _pollWorker;
+    private readonly object _spacedSendsLock = new();
+    private Task _spacedSends = Task.CompletedTask;
     private readonly Annotator401Outputs _annotationOutputs;
     private readonly Annotator401Outputs _cursorOutputs;
     public DrawingTool? CurrentTool { get; private set; }
@@ -50,28 +54,40 @@ public class ExtronAnnotator401 : AnnotatorBase
         _pollWorker.Restart();
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationClient.ResponseHandlers += HandleResponse;
+        HandleConnectionState(CommunicationClient.ConnectionState);
     }
 
     private void HandleResponse(string response)
     {
         if (response.StartsWith("Ims1*"))
         {
-            OnFileSaved?.Invoke(response.Substring(5));
+            OnFileSaved?.Invoke(response.Substring(5).TrimEnd());
         }
         if (response.StartsWith("Ims0*"))
         {
-            OnFileSaved?.Invoke(response.Substring(5));
+            OnFileSaved?.Invoke(response.Substring(5).TrimEnd());
         }
-        if (response.StartsWith("Draw") && response.Length >= 6
-            && int.TryParse(response.AsSpan(4, 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int toolValue)
-            && ToolsByCode.TryGetValue(toolValue, out DrawingTool tool))
+        if (response.StartsWith("Draw"))
         {
-            CurrentTool = tool;
-            OnDrawingToolChanged?.Invoke(tool);
+            ProcessDraw(response);
         }
     }
 
-    public override void Clear() => WrapAndSendCommand("0EDIT");
+    private void ProcessDraw(string response)
+    {
+        if (response.Length < 6
+            || !int.TryParse(response.AsSpan(4, 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out int toolValue)
+            || !ToolsByCode.TryGetValue(toolValue, out DrawingTool tool))
+        {
+            using (PushProperties())
+                LogWarning("Unknown drawing tool in {Response}", response);
+            return;
+        }
+        CurrentTool = tool;
+        OnDrawingToolChanged?.Invoke(tool);
+    }
+
+    public override void Clear() => QueueCommands(("0EDIT", TimeSpan.Zero));
 
     public void StartCalibration() => WrapAndSendCommand("1PCAL");
 
@@ -81,13 +97,26 @@ public class ExtronAnnotator401 : AnnotatorBase
     {
         if(connectionState != ConnectionState.Connected)
             return;
-        WrapAndSendCommand("3CV");
-        Thread.Sleep(TimeSpan.FromSeconds(1));
-        WrapAndSendCommand("ASHW");
-        Thread.Sleep(TimeSpan.FromSeconds(1));
-        WrapAndSendCommand($"P{_fileprefix}CFMT");
-        Thread.Sleep(TimeSpan.FromSeconds(1));
-        QueryTool();
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(_ => Initialise(), TaskScheduler.Default).Unwrap();
+    }
+
+    private async Task Initialise()
+    {
+        try
+        {
+            WrapAndSendCommand("3CV");
+            await Task.Delay(ConnectStepGap);
+            WrapAndSendCommand("ASHW");
+            await Task.Delay(ConnectStepGap);
+            WrapAndSendCommand($"P{_fileprefix}CFMT");
+            await Task.Delay(ConnectStepGap);
+            QueryTool();
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Initialising the annotator failed");
+        }
     }
 
     private Task Poll(CancellationToken arg)
@@ -102,22 +131,36 @@ public class ExtronAnnotator401 : AnnotatorBase
         return Task.CompletedTask;
     }
 
-    public override void PowerOn()
+    public override void PowerOn() => QueueCommands(
+        ($"{(int)_annotationOutputs}ASHW", OutputStepGap),
+        ($"{(int)_cursorOutputs}CSHW", OutputStepGap));
+
+    public override void PowerOff() => QueueCommands(
+        ($"{(int)Annotator401Outputs.None}ASHW", OutputStepGap),
+        ($"{(int)Annotator401Outputs.None}CSHW", OutputStepGap));
+
+    private void QueueCommands(params (string Command, TimeSpan SpacingAfter)[] commands)
     {
-        SetAnnotationOutput(_annotationOutputs);
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        SetCursorOutput(_cursorOutputs);
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(_ => SendSpaced(commands), TaskScheduler.Default).Unwrap();
     }
 
-    public override void PowerOff()
+    private async Task SendSpaced((string Command, TimeSpan SpacingAfter)[] commands)
     {
-        SetAnnotationOutput(Annotator401Outputs.None);
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        SetCursorOutput(Annotator401Outputs.None);
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
+        try
+        {
+            foreach (var (command, spacingAfter) in commands)
+            {
+                WrapAndSendCommand(command);
+                await Task.Delay(spacingAfter);
+            }
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Sending to the annotator failed");
+        }
     }
-    
+
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
 
     private void SendCommand(string command)
@@ -134,7 +177,7 @@ public class ExtronAnnotator401 : AnnotatorBase
         }
     }
     
-    public override void SaveToInternalMemory() => SendCommand("W0*/graphics/MF!");
+    public override void SaveToInternalMemory() => SendCommand("W0*/graphics/MF|");
     public override void SaveToUsb() => SendCommand($"W1*/graphics/{_fileprefix}-{DateTime.Now:yyyy-MM-dd-HH-mm-ss}.pngMF|");
     
     public override void SaveToNetworkShare(string folderPath) => SendCommand($"W0*/shares/{folderPath.Trim('/')}/{_fileprefix}-{DateTime.Now:yyyy-MM-dd-HH-mm-ss}.pngMF|");
@@ -144,9 +187,9 @@ public class ExtronAnnotator401 : AnnotatorBase
 
     public void QueryTool() => WrapAndSendCommand("DRAW");
 
-    public void SetAnnotationOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}ASHW");
-    
-    public void SetCursorOutput(Annotator401Outputs output) => WrapAndSendCommand($"{(int)output}CSHW");
+    public void SetAnnotationOutput(Annotator401Outputs output) => QueueCommands(($"{(int)output}ASHW", TimeSpan.Zero));
+
+    public void SetCursorOutput(Annotator401Outputs output) => QueueCommands(($"{(int)output}CSHW", TimeSpan.Zero));
 
     public void SetVideoMute(Annotator401Outputs output, MuteState state)
     {
@@ -166,5 +209,5 @@ public class ExtronAnnotator401 : AnnotatorBase
         SendCommand(state == MuteState.On ? "0*2B" : "0*0B");
     }
 
-    public void Reboot() => WrapAndSendCommand("1boot");
+    public void Reboot() => QueueCommands(("1boot", TimeSpan.Zero));
 }

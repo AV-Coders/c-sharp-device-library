@@ -58,5 +58,22 @@ public class SvsiEncoderTest
         
         _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080", HdcpStatus.Unknown));
     }
-    
+
+    [Fact]
+    public void ResponseHandler_KeepsValuesThatContainAColon()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(_sampleNetworkStatusResponse);
+
+        Assert.Equal("mac e4:38:00:00:00:00", _svsiEncoder.StatusDictionary["CHASSISID"]);
+    }
+
+    [Fact]
+    public void ResponseHandler_SkipsANonNumericStreamId()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("STREAM:abc\rINPUTRES:1920x1080\rDVIINPUT:connected\r");
+
+        Assert.Equal((uint)0, _svsiEncoder.StreamId);
+        _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080", HdcpStatus.Unknown));
+    }
+
 }

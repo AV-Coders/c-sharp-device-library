@@ -16,6 +16,8 @@ namespace AVCoders.CommunicationClients.Tests;
 [Collection(LoggerFactoryCollection.Name)]
 public class AvCodersTcpClientResilienceTest : IDisposable
 {
+    private const int QueueTimeoutSeconds = 10;
+    private static readonly TimeSpan AgeMargin = TimeSpan.FromSeconds(2);
     private AvCodersTcpClient? _client;
 
     public void Dispose()
@@ -171,8 +173,6 @@ public class AvCodersTcpClientResilienceTest : IDisposable
 
             firstConnection.Close();
 
-            // The connection-state worker polls every 15s while connected, so a
-            // dropped link can take up to ~20s to re-establish.
             using var secondConnection = await TestNetwork.AcceptAsync(listener, 30);
             await TestNetwork.WaitUntilAsync(
                 () => _client.ConnectionState == ConnectionState.Connected,
@@ -184,10 +184,324 @@ public class AvCodersTcpClientResilienceTest : IDisposable
         }
     }
 
-    // A genuine zero-window wedge is not reproducible on Windows loopback (window
-    // autotuning ignores SO_RCVBUF), so these two tests force the same code paths
-    // deterministically: a write that cannot proceed within WriteTimeout, and a write the
-    // socket rejects outright.
+    [Fact]
+    public async Task Client_ReconnectsWithinSeconds_WhenTheServerDropsAnEstablishedConnection()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "PromptReconnectTestClient", CommandStringFormat.Ascii);
+
+        try
+        {
+            var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected the first time");
+            await Task.Delay(TimeSpan.FromSeconds(3));
+
+            firstConnection.Close();
+            var sinceTheDrop = Stopwatch.StartNew();
+
+            using var secondConnection = await TestNetwork.AcceptAsync(listener, 30);
+            Assert.True(sinceTheDrop.Elapsed < TimeSpan.FromSeconds(5),
+                $"the client took {sinceTheDrop.Elapsed} to reconnect after the drop");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Reconnect_AfterAGoodConnectionDrops_FirstRetryWaitsTheInitialBackoff()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "BackoffTestClient", CommandStringFormat.Ascii);
+        var clock = Stopwatch.StartNew();
+        var transitions = new ConcurrentQueue<(ConnectionState State, TimeSpan At)>();
+
+        try
+        {
+            var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            _client.ConnectionStateHandlers += state => transitions.Enqueue((state, clock.Elapsed));
+
+            listener.Stop();
+            firstConnection.Close();
+
+            await TestNetwork.WaitUntilAsync(
+                () => transitions.Count(t => t.State == ConnectionState.Connecting) >= 2,
+                30, "the client never retried twice after the drop");
+            var recorded = transitions.ToList();
+            var firstAttempt = recorded.FindIndex(t => t.State == ConnectionState.Connecting);
+            var firstFailure = recorded.FindIndex(firstAttempt, t => t.State == ConnectionState.Disconnected);
+            var secondAttempt = recorded.FindIndex(firstFailure, t => t.State == ConnectionState.Connecting);
+            var wait = recorded[secondAttempt].At - recorded[firstFailure].At;
+            Assert.True(wait < TimeSpan.FromMilliseconds(1500),
+                $"the first retry after the drop waited {wait}, not the initial 1 s backoff");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_WhenAQueuedWriteFails_RetriesItAheadOfTheMessagesQueuedAfterIt()
+    {
+        var port = TestNetwork.GetFreePort();
+        _client = new AvCodersTcpClient("127.0.0.1", port, "RetryOrderTestClient", CommandStringFormat.Ascii);
+        _client.SetQueueTimeout(60);
+        var writeLock = GetWriteLock(_client);
+        await writeLock.WaitAsync();
+        _client.Send("first|");
+        _client.Send("second|");
+        _client.Send("third|");
+
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 30);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.Errors.Any(e => e.Message.StartsWith("Write timed out")),
+                30, "the queued write never timed out");
+            writeLock.Release();
+
+            using var second = await TestNetwork.AcceptAsync(listener, 30);
+            var received = await ReadUntilQuietAsync(second, "first|second|third|".Length);
+            Assert.Equal("first|second|third|", System.Text.Encoding.ASCII.GetString(received));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_WhenAQueuedWriteFails_GetsTheWholeQueueTimeoutAfterTheReconnect()
+    {
+        var port = TestNetwork.GetFreePort();
+        _client = new AvCodersTcpClient("127.0.0.1", port, "FreshTimestampTestClient", CommandStringFormat.Ascii);
+        _client.SetQueueTimeout(QueueTimeoutSeconds);
+        var sendQueueWorker = TestNetwork.SendQueueWorker(_client);
+        await sendQueueWorker.Stop();
+        var sent = new ConcurrentQueue<string>();
+        _client.RequestHandlers += sent.Enqueue;
+        _client.Send("requeued|");
+        _client.Send("stale|");
+
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 30);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            var writeLock = GetWriteLock(_client);
+            await writeLock.WaitAsync();
+            TestNetwork.SetQueuedAge<(byte[], string?)>(_client, TimeSpan.FromSeconds(QueueTimeoutSeconds) - AgeMargin);
+
+            await sendQueueWorker.Restart();
+            await TestNetwork.WaitUntilAsync(
+                () => _client.Errors.Any(e => e.Message.StartsWith("Write timed out")),
+                30, "the queued write never timed out");
+            writeLock.Release();
+
+            using var second = await TestNetwork.AcceptAsync(listener, 30);
+            Assert.Equal("requeued|", await TestNetwork.ReadStringAsync(second, 10));
+            await TestNetwork.WaitUntilAsync(() => TestNetwork.SendQueueCount(_client) == 0, 10,
+                "the message queued behind it was never taken off the queue");
+            Assert.Equal(["requeued|"], sent);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_WhenTheWriteTimesOut_ReconnectsOnceForThatFailure()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "OneReconnectTestClient", CommandStringFormat.Ascii);
+        var states = new ConcurrentQueue<ConnectionState>();
+
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            _client.ConnectionStateHandlers += states.Enqueue;
+            var writeLock = GetWriteLock(_client);
+            await writeLock.WaitAsync();
+            try
+            {
+                _client.Send("timeout-marker"u8.ToArray());
+            }
+            finally
+            {
+                writeLock.Release();
+            }
+
+            using var second = await TestNetwork.AcceptAsync(listener, 30);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never reconnected");
+            Assert.Equal(1, states.Count(s => s == ConnectionState.Disconnecting));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Reconnect_CalledAgainForTheSameConnection_ClosesItOnce()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "ReconnectTwiceTestClient", CommandStringFormat.Ascii);
+        var states = new ConcurrentQueue<ConnectionState>();
+
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            _client.ConnectionStateHandlers += states.Enqueue;
+
+            _client.Reconnect();
+            _client.Reconnect();
+
+            Assert.Equal(1, states.Count(s => s == ConnectionState.Disconnecting));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Reconnect_WhileAConnectionAttemptIsRunning_LeavesItRunning()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "ReconnectWhileConnectingTestClient", CommandStringFormat.Ascii);
+        var backoffField = typeof(AvCodersTcpClient).GetField("_reconnectBackoffMs", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var states = new ConcurrentQueue<ConnectionState>();
+        int? backoffAfterTheReconnect = null;
+
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            _client.ConnectionStateHandlers += state =>
+            {
+                states.Enqueue(state);
+                if (state != ConnectionState.Connecting || backoffAfterTheReconnect != null)
+                    return;
+                backoffField.SetValue(_client, 8000);
+                _client.Reconnect();
+                backoffAfterTheReconnect = (int)backoffField.GetValue(_client)!;
+            };
+
+            _client.Reconnect();
+
+            using var secondConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never reconnected");
+            Assert.Equal(1000, backoffAfterTheReconnect);
+            Assert.Equal(1, states.Count(s => s == ConnectionState.Connecting));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Reconnect_WhileNotConnected_StartsAConnectionAttemptAtOnce()
+    {
+        var port = TestNetwork.GetFreePort();
+        _client = new AvCodersTcpClient("127.0.0.1", port, "ReconnectNowTestClient", CommandStringFormat.Ascii);
+        var failures = 0;
+        _client.ConnectionStateHandlers += state =>
+        {
+            if (state == ConnectionState.Disconnected)
+                Interlocked.Increment(ref failures);
+        };
+        await TestNetwork.WaitUntilAsync(() => Volatile.Read(ref failures) >= 3, 60,
+            "the client never failed three connection attempts");
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+
+        try
+        {
+            var sinceTheReconnect = Stopwatch.StartNew();
+            _client.Reconnect();
+
+            using var connection = await TestNetwork.AcceptAsync(listener, 30);
+            Assert.True(sinceTheReconnect.Elapsed < TimeSpan.FromMilliseconds(2500),
+                $"the client took {sinceTheReconnect.Elapsed} to try again after Reconnect");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task ConnectionWorkerStopped_WhileConnecting_LeavesTheClientDisconnected()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+        _client = new AvCodersTcpClient("127.0.0.1", port, "StoppedWhileConnectingTestClient", CommandStringFormat.Ascii);
+        var connectionWorker = TestNetwork.Workers(_client)[1];
+
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, 15);
+            await TestNetwork.WaitUntilAsync(
+                () => _client.ConnectionState == ConnectionState.Connected,
+                15, "client never connected");
+            var stopRequested = false;
+            _client.ConnectionStateHandlers += state =>
+            {
+                if (state != ConnectionState.Connecting || stopRequested)
+                    return;
+                stopRequested = true;
+                _ = connectionWorker.Stop();
+            };
+
+            _client.Reconnect();
+
+            await TestNetwork.WaitUntilAsync(() => stopRequested, 15, "the client never started a new attempt");
+            await connectionWorker.Stop();
+            Assert.Equal(ConnectionState.Disconnected, _client.ConnectionState);
+            Assert.False(listener.Pending(), "the stopped attempt left a connection open");
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
 
     [Fact]
     public async Task Send_WhenTheWriteCannotProceed_TimesOutAndDeliversThePayloadOnce()
@@ -231,8 +545,8 @@ public class AvCodersTcpClientResilienceTest : IDisposable
             // once, not twice (the old Send enqueued a failed payload in the catch AND on
             // the fall-through path).
             using var second = await TestNetwork.AcceptAsync(listener, 30);
-            var totalReceived = await ReadUntilQuietAsync(second, payload.Length);
-            Assert.Equal(payload.Length, totalReceived);
+            var received = await ReadUntilQuietAsync(second, payload.Length);
+            Assert.Equal(payload, received);
         }
         finally
         {
@@ -256,20 +570,20 @@ public class AvCodersTcpClientResilienceTest : IDisposable
                 () => _client.ConnectionState == ConnectionState.Connected,
                 15, "client never connected");
 
-            // After a send-side shutdown the socket still reports connected, so Send takes
-            // the write path and the write itself throws.
             var innerField = typeof(AvCodersTcpClient).GetField("_client", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var inner = (System.Net.Sockets.TcpClient)innerField.GetValue(_client)!;
-            inner.Client.Shutdown(SocketShutdown.Send);
+            var rejectingStream = new NetworkStream(inner.Client, ownsSocket: false);
+            rejectingStream.Dispose();
+            typeof(System.Net.Sockets.TcpClient).GetField("_dataStream", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(inner, rejectingStream);
 
             var payload = "reject-marker"u8.ToArray();
             _client.Send(payload);
 
-            firstConnection.Close();
-
+            Assert.Contains(_client.Errors, error => error.Exception is ObjectDisposedException);
             using var second = await TestNetwork.AcceptAsync(listener, 30);
-            var totalReceived = await ReadUntilQuietAsync(second, payload.Length);
-            Assert.Equal(payload.Length, totalReceived);
+            var received = await ReadUntilQuietAsync(second, payload.Length);
+            Assert.Equal(payload, received);
         }
         finally
         {
@@ -422,11 +736,11 @@ public class AvCodersTcpClientResilienceTest : IDisposable
     /// Reads until at least <paramref name="expectedAtLeast"/> bytes have arrived followed by
     /// five seconds of silence (long enough for a duplicate queue delivery to show up).
     /// </summary>
-    private static async Task<int> ReadUntilQuietAsync(System.Net.Sockets.TcpClient serverSide, int expectedAtLeast)
+    private static async Task<byte[]> ReadUntilQuietAsync(System.Net.Sockets.TcpClient serverSide, int expectedAtLeast)
     {
         var stream = serverSide.GetStream();
         var buffer = new byte[65536];
-        var total = 0;
+        var received = new List<byte>();
         var deadline = DateTime.UtcNow.AddSeconds(45);
         var lastData = DateTime.UtcNow;
         Task<int>? pendingRead = null;
@@ -441,15 +755,15 @@ public class AvCodersTcpClientResilienceTest : IDisposable
                 pendingRead = null;
                 if (bytesRead == 0)
                     break;
-                total += bytesRead;
+                received.AddRange(buffer.Take(bytesRead));
                 lastData = DateTime.UtcNow;
             }
-            else if (total >= expectedAtLeast && DateTime.UtcNow - lastData > TimeSpan.FromSeconds(5))
+            else if (received.Count >= expectedAtLeast && DateTime.UtcNow - lastData > TimeSpan.FromSeconds(5))
             {
                 break;
             }
         }
-        return total;
+        return received.ToArray();
     }
 
     [Fact]

@@ -16,6 +16,14 @@ public class NecUhdExternalControl : Display
     private const byte MessageTypeGetParameter = 0x43;
     private const byte MessageTypeGetParameterReply = 0x44;
     private const byte MessageTypeSetParameter = 0x45;
+    private const byte MessageTypeSetParameterReply = 0x46;
+    private const byte FirstMonitorId = 0x41;
+    private const byte LastMonitorId = 0xA4;
+    private const int SourceIndex = 3;
+    private const int ReplyLength = 27;
+    private const byte PowerStatusOn = 0x31;
+    private const byte PowerStatusStandby = 0x32;
+    private const byte PowerStatusOff = 0x34;
     private const byte Stx = 0x02;
     private const byte Etx = 0x03;
     private const byte Delimiter = 0x0d;
@@ -38,15 +46,21 @@ public class NecUhdExternalControl : Display
 
     protected override void HandleConnectionState(ConnectionState connectionState)
     {
-        if (connectionState != ConnectionState.Connected) 
+        if (connectionState != ConnectionState.Connected)
             return;
-        
-        Thread.Sleep(1500);
-        PollWorker.Restart();
+
+        Task.Delay(1500).ContinueWith(_ => PollWorker.Restart());
     }
 
     protected override async Task DoPoll(CancellationToken token)
     {
+        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+        {
+            using (PushProperties("DoPoll"))
+                LogDebug("Not polling");
+            return;
+        }
+
         //Power
         PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeCommand), [Stx, 0x30, 0x31, 0x44, 0x36, Etx]);
         await Task.Delay(1500, token);
@@ -81,13 +95,6 @@ public class NecUhdExternalControl : Display
         {
             _gather.AddRange(response);
 
-            if (_gather.Count > 1024)
-            {
-                LogWarning("Gather buffer exceeded 1024 bytes, clearing");
-                _gather.Clear();
-                return;
-            }
-
             while (_gather.Contains(0x0D))
             {
                 int endIndex = _gather.IndexOf(0x0D) + 1;
@@ -96,33 +103,67 @@ public class NecUhdExternalControl : Display
 
                 ProcessResponse(aResponsePayload);
             }
+
+            if (_gather.Count > 1024)
+            {
+                LogWarning("Gather buffer exceeded 1024 bytes, clearing");
+                _gather.Clear();
+            }
         }
     }
 
     private void ProcessResponse(byte[] response)
     {
+        if (response.Length < ReplyLength || !IsFromThisMonitor(response))
+        {
+            LogDebug("Ignored reply {Response}", Convert.ToHexString(response));
+            return;
+        }
+
         if (response[4] == MessageTypeCommandReply)
         {
             if (response[12] != 0x44 || response[13] != 0x36)
-                return; // Only care about power responses
+            {
+                LogDebug("Ignored reply {Response}", Convert.ToHexString(response));
+                return;
+            }
+
+            if (response[10] != 0x30 || response[11] != 0x30)
+            {
+                ReportErrorResult(response);
+                return;
+            }
 
             CommunicationState = CommunicationState.Okay;
             switch (response[23])
             {
-                case 0x34:
+                case PowerStatusOff:
+                case PowerStatusStandby:
                     PowerState = PowerState.Off;
                     break;
-                case 0x31:
+                case PowerStatusOn:
                     PowerState = PowerState.On;
+                    break;
+                default:
+                    LogWarning("Unknown power status in {Response}", Convert.ToHexString(response));
                     break;
             }
 
             ProcessPowerResponse();
         }
-        else if (response[4] == MessageTypeGetParameterReply)
+        else if (response[4] is MessageTypeGetParameterReply or MessageTypeSetParameterReply)
         {
-            if (response[8] != 0x30 || response[9] != 0x30 || response[10] != 0x30 || response[11] != 0x30 || response[12] != 0x36)
+            if (response[8] != 0x30 || response[9] != 0x30)
+            {
+                ReportErrorResult(response);
                 return;
+            }
+
+            if (response[10] != 0x30 || response[11] != 0x30 || response[12] != 0x36)
+            {
+                LogDebug("Ignored reply {Response}", Convert.ToHexString(response));
+                return;
+            }
 
             CommunicationState = CommunicationState.Okay;
             switch (response[13])
@@ -137,6 +178,8 @@ public class NecUhdExternalControl : Display
                         0x0F => Input.DisplayPort,
                         _ => Input.Unknown
                     };
+                    if (Input == Input.Unknown)
+                        LogWarning("Unknown input code in {Response}", Convert.ToHexString(response));
                     ProcessInputResponse();
                     break;
                 case 0x32: // Volume Response
@@ -144,6 +187,19 @@ public class NecUhdExternalControl : Display
                     break;
             }
         }
+        else
+        {
+            LogDebug("Ignored reply {Response}", Convert.ToHexString(response));
+        }
+    }
+
+    private bool IsFromThisMonitor(byte[] response) =>
+        _displayId is < FirstMonitorId or > LastMonitorId || response[SourceIndex] == _displayId;
+
+    private void ReportErrorResult(byte[] response)
+    {
+        LogWarning("The display returned an error result: {Response}", Convert.ToHexString(response));
+        AddEvent(EventType.Error, "The display returned an error result");
     }
 
     private void PrepareAndSendCommand(List<byte> header, byte[] payload)
@@ -164,7 +220,15 @@ public class NecUhdExternalControl : Display
         // add soh
         theCommand.Insert(0, StartOfHeader);
         theCommand.Add(Delimiter);
-        CommunicationClient.Send(theCommand.ToArray());
+        try
+        {
+            CommunicationClient.Send(theCommand.ToArray());
+        }
+        catch (Exception e)
+        {
+            LogException(e);
+            CommunicationState = CommunicationState.Error;
+        }
     }
 
     private void AddPayloadLengthToCommand(List<byte> command, int payloadLength)

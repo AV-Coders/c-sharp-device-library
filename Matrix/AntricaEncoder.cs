@@ -86,14 +86,18 @@ public class AntricaEncoder : SyncStatus
         {
             foreach (var line in response.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries))
             {
-                var pair = line.Trim().Split('=', 2);
-                switch (pair[0])
+                if (line.Trim().Split('=', 2) is not [var key, var value])
+                {
+                    LogWarning("The encoder replied {Reply}", line);
+                    continue;
+                }
+                switch (key)
                 {
                     case VideoLossKey:
-                        HandleVideoLoss(pair[1]);
+                        HandleVideoLoss(value);
                         break;
                     case InputFormatKey:
-                        HandleInputFormat(pair[1]);
+                        HandleInputFormat(value);
                         break;
                     default:
                         LogWarning("The encoder replied {Reply}", line);

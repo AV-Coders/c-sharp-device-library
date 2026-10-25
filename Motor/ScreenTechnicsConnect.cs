@@ -12,7 +12,7 @@ public class ScreenTechnicsConnect : Motor
     private Guid _currentConnectionKeepAlive = Guid.Empty;
 
     public ScreenTechnicsConnect(string name, TcpClient client, RelayAction powerOnAction,int moduleId = 1, int moveSeconds = 36)
-        : base(name, powerOnAction, moveSeconds)
+        : base(name, powerOnAction, moveSeconds, client)
     {
         _client = client;
         _moduleId = moduleId;
@@ -24,12 +24,14 @@ public class ScreenTechnicsConnect : Motor
     {
         if (connectionState != ConnectionState.Connected)
             return;
-        if (_queuedMessage is { } queued)
+        if (Interlocked.Exchange(ref _queuedMessage, null) is { } queued)
         {
             Thread.Sleep(500); // You need a slight pause because the device doesn't accept commands when the event is triggered.
             using (Trigger.Resume(queued.TriggerId))
+            {
                 _client.Send(queued.Message);
-            _queuedMessage = null;
+                CommunicationState = CommunicationState.Okay;
+            }
         }
     }
 
@@ -39,7 +41,10 @@ public class ScreenTechnicsConnect : Motor
         _currentConnectionKeepAlive = thisConnectionKeepAlive;
         
         if(_client.ConnectionState == ConnectionState.Connected)
+        {
             _client.Send(message);
+            CommunicationState = CommunicationState.Okay;
+        }
         else
         {
             _queuedMessage = new QueuedMessage(message, Trigger.Id);

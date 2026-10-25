@@ -67,9 +67,17 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void Constructor_RejectsAnInvalidLogicalAddress()
+    public void Constructor_WithAnInvalidLogicalAddress_RaisesAnIssueAndSendsNothing()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new AppleTvCec(_mockClient.Object, "Bad", 0x0F, pollTime: 0));
+        var mock = TestFactory.CreateSerialClient();
+        var appleTv = new AppleTvCec(mock.Object, "Bad", 0x0F, pollTime: 0);
+
+        appleTv.PowerOn();
+        appleTv.PollPowerStatus();
+
+        mock.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
+        Assert.Contains(appleTv.GetOngoingIssues(),
+            issue => issue.Key == "logical-address" && issue.Message.Contains("15") && issue.Severity == IssueSeverity.Critical);
     }
 
     [Fact]
@@ -539,6 +547,15 @@ public class AppleTvCecTest
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x21' }));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x22' }));
+    }
+
+    [Fact]
+    public void SetChannel_WithANegativeChannel_SendsNothing()
+    {
+        _appleTv.SetChannel(-12);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
+        Assert.Contains(_appleTv.Events, e => e.Type == EventType.Error && e.Info.Contains("-12"));
     }
 
     [Fact]

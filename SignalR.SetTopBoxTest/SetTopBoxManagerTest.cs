@@ -25,6 +25,18 @@ public class SetTopBoxManagerTest
     }
 
     [Fact]
+    public void Constructor_RejectingADevice_LeavesNothingRegistered()
+    {
+        var plain = new TestPlainMediaPlayer();
+        var noneHandlers = CommunicationClient.None.ConnectionStateHandlers?.GetInvocationList().Length ?? 0;
+
+        Assert.Throws<ArgumentException>(() => new SetTopBoxManager("Rejected manager", plain, "Player"));
+
+        Assert.DoesNotContain(LogBaseRegistry.GetAll(), i => i is SetTopBoxManager { Name: "Rejected manager" });
+        Assert.Equal(noneHandlers, CommunicationClient.None.ConnectionStateHandlers?.GetInvocationList().Length ?? 0);
+    }
+
+    [Fact]
     public void Name_IsTheGroupNameNotTheDeviceName()
     {
         Assert.Equal("Boardroom", _manager.Name);

@@ -1,8 +1,11 @@
+using System.Collections.Concurrent;
+using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 
 namespace AVCoders.Dsp.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class CecAudioSystemTest
 {
     private readonly CecAudioSystem _audioSystem;
@@ -15,6 +18,11 @@ public class CecAudioSystemTest
     private static readonly char[] MutePressed = ['\x45', '\x44', '\x43'];
     private static readonly char[] KeyReleased = ['\x45', '\x45'];
     private const string ReportPhysicalAddress = "\x5F\x84\x20\x00\x05";
+    private static readonly TimeSpan ToggleJoinTimeout = TimeSpan.FromSeconds(2);
+    private static readonly char[][] DiscoveryRequests =
+    [
+        GivePhysicalAddress, ['\x45', '\x46'], ['\x45', '\x8C'], ['\x45', '\x9F'], ['\x45', '\x7D'], ['\x45', '\x8F']
+    ];
 
     public CecAudioSystemTest()
     {
@@ -26,6 +34,49 @@ public class CecAudioSystemTest
         new(client.Object, "Test Sonos", pollTime: 0);
 
     private void Receive(string frame) => _mockClient.Object.ResponseHandlers!.Invoke(frame);
+
+    private static int Sent(Mock<SerialClient> client, char[] frame) =>
+        client.Invocations.Count(i => i.Arguments.Count == 1 && i.Arguments[0] is char[] sent && sent.SequenceEqual(frame));
+
+    private static List<string> SentFrames(Mock<SerialClient> client) =>
+        client.Invocations
+            .Where(i => i.Arguments.Count == 1 && i.Arguments[0] is char[])
+            .Select(i => new string((char[])i.Arguments[0]))
+            .ToList();
+
+    private static Task QueuedSends(CecAudioSystem audioSystem) =>
+        (Task)typeof(CecAudioSystem).GetField("_queuedSends", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(audioSystem)!;
+
+    private static ThreadWorker PollWorker(CecAudioSystem audioSystem) =>
+        (ThreadWorker)typeof(CecAudioSystem).GetField("_pollWorker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(audioSystem)!;
+
+    private static Timer StatusReadTimer(CecAudioSystem audioSystem) =>
+        (Timer)typeof(CecAudioSystem).GetField("_statusReadTimer", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(audioSystem)!;
+
+    private static void SetConnectionState(Mock<SerialClient> client, ConnectionState state) =>
+        typeof(CommunicationClient).GetField("_connectionState", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(client.Object, state);
+
+    private static void PollNow(CecAudioSystem audioSystem) =>
+        ((Task)typeof(CecAudioSystem).GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(audioSystem, [CancellationToken.None])!).GetAwaiter().GetResult();
+
+    private static T CreateLogged<T>(ScopeCapturingLoggerFactory logs, Func<T> create)
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return create();
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
 
     private sealed class SimulatedBeam
     {
@@ -113,13 +164,14 @@ public class CecAudioSystemTest
     }
 
     [Fact]
-    public void HandleResponse_IgnoresAMergedPhysicalAddressFrame()
+    public async Task HandleResponse_IgnoresAMergedPhysicalAddressFrame()
     {
         var mock = TestFactory.CreateSerialClient();
         var audioSystem = CreateUndiscovered(mock);
 
         mock.Object.ResponseHandlers!.Invoke("\x5F\x84\x20\x54\x7E\x01");
         audioSystem.PollAudioStatus();
+        await QueuedSends(audioSystem);
 
         Assert.DoesNotContain(audioSystem.Details, d => d.Label == CecAudioSystem.PhysicalAddressDetailLabel);
         mock.Verify(x => x.Send(GivePhysicalAddress), Times.Once);
@@ -149,47 +201,59 @@ public class CecAudioSystemTest
     }
 
     [Fact]
-    public void Discover_SendsTheDiscoveryRequests()
+    public async Task Discover_ReturnsBeforeTheRequestsAreSentThenSendsThemInOrder()
     {
         _audioSystem.Discover();
 
-        _mockClient.Verify(x => x.Send(GivePhysicalAddress));
-        _mockClient.Verify(x => x.Send(new[] { '\x45', '\x46' }));
-        _mockClient.Verify(x => x.Send(new[] { '\x45', '\x8C' }));
-        _mockClient.Verify(x => x.Send(new[] { '\x45', '\x9F' }));
-        _mockClient.Verify(x => x.Send(new[] { '\x45', '\x7D' }));
-        _mockClient.Verify(x => x.Send(new[] { '\x45', '\x8F' }));
+        Assert.True(SentFrames(_mockClient).Count < DiscoveryRequests.Length);
+        await QueuedSends(_audioSystem);
+        Assert.Equal(DiscoveryRequests.Select(frame => new string(frame)), SentFrames(_mockClient));
     }
 
     [Fact]
-    public void PollAudioStatus_DiscoversFirstThenAsksForAudioStatus()
+    public async Task PollAudioStatus_ReturnsAtOnce()
+    {
+        _audioSystem.PollAudioStatus();
+        _audioSystem.PollAudioStatus();
+
+        Assert.True(Sent(_mockClient, GiveAudioStatus) < 2);
+        await QueuedSends(_audioSystem);
+        Assert.Equal(2, Sent(_mockClient, GiveAudioStatus));
+    }
+
+    [Fact]
+    public async Task PollAudioStatus_DiscoversFirstThenAsksForAudioStatus()
     {
         var mock = TestFactory.CreateSerialClient();
         var audioSystem = CreateUndiscovered(mock);
 
         audioSystem.PollAudioStatus();
+        await QueuedSends(audioSystem);
 
         mock.Verify(x => x.Send(GivePhysicalAddress), Times.Once);
         mock.Verify(x => x.Send(GiveAudioStatus), Times.Once);
 
         mock.Object.ResponseHandlers!.Invoke(ReportPhysicalAddress);
         audioSystem.PollAudioStatus();
+        await QueuedSends(audioSystem);
 
         mock.Verify(x => x.Send(GivePhysicalAddress), Times.Once);
         mock.Verify(x => x.Send(GiveAudioStatus), Times.Exactly(2));
     }
 
     [Fact]
-    public void PollAudioStatus_UnansweredPollsBecomeACommunicationError()
+    public async Task PollAudioStatus_UnansweredPollsBecomeACommunicationError()
     {
         Receive("\x54\x7A\x1C");
         Assert.Equal(CommunicationState.Okay, _audioSystem.CommunicationState);
 
         for (var i = 0; i < CecAudioSystem.MaxUnansweredPolls; i++)
             _audioSystem.PollAudioStatus();
+        await QueuedSends(_audioSystem);
         Assert.Equal(CommunicationState.Okay, _audioSystem.CommunicationState);
 
         _audioSystem.PollAudioStatus();
+        await QueuedSends(_audioSystem);
         Assert.Equal(CommunicationState.Error, _audioSystem.CommunicationState);
         Assert.Equal(PowerState.Unknown, _audioSystem.PowerState);
         Assert.Equal(MuteState.Unknown, _audioSystem.MuteState);
@@ -201,14 +265,16 @@ public class CecAudioSystemTest
         Assert.Equal(MuteState.Off, _audioSystem.MuteState);
 
         _audioSystem.PollAudioStatus();
+        await QueuedSends(_audioSystem);
         _mockClient.Verify(x => x.Send(GivePhysicalAddress), Times.Once);
     }
 
     [Fact]
-    public void ConnectionState_ConnectedRunsDiscoveryAgain()
+    public async Task ConnectionState_ConnectedRunsDiscoveryAgain()
     {
         _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
         _audioSystem.PollAudioStatus();
+        await QueuedSends(_audioSystem);
 
         _mockClient.Verify(x => x.Send(GivePhysicalAddress), Times.Once);
     }
@@ -217,6 +283,7 @@ public class CecAudioSystemTest
     public async Task PollWorker_PollsAfterStartup()
     {
         var mock = TestFactory.CreateSerialClient();
+        SetConnectionState(mock, ConnectionState.Connected);
         _ = new CecAudioSystem(mock.Object, "Polling", pollTime: 1);
 
         await Task.Delay(2500);
@@ -224,27 +291,111 @@ public class CecAudioSystemTest
         mock.Verify(x => x.Send(GivePhysicalAddress), Times.AtLeastOnce);
     }
 
+    [Fact]
+    public async Task PollWorker_WhileTheStreamStateIsUnknown_Polls()
+    {
+        var mock = TestFactory.CreateSerialClient();
+        _ = new CecAudioSystem(mock.Object, "Unknown stream", pollTime: 1);
+
+        await Task.Delay(2500);
+
+        mock.Verify(x => x.Send(GivePhysicalAddress), Times.AtLeastOnce);
+    }
+
+    [Theory]
+    [InlineData(ConnectionState.Disconnected)]
+    [InlineData(ConnectionState.Disconnecting)]
+    [InlineData(ConnectionState.Error)]
+    public void Poll_GivenADownStream_SendsNothing(ConnectionState state)
+    {
+        SetConnectionState(_mockClient, state);
+
+        PollNow(_audioSystem);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ClientDisconnectedOnRequest_ReportsNotAttemptedAndResolvesTheCommunicationIssue()
+    {
+        Receive("\x54\x7A\x1C");
+        for (var i = 0; i <= CecAudioSystem.MaxUnansweredPolls; i++)
+            _audioSystem.PollAudioStatus();
+        await QueuedSends(_audioSystem);
+        Assert.Equal(CommunicationState.Error, _audioSystem.CommunicationState);
+
+        typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.DesiredConnectionState))!
+            .SetValue(_mockClient.Object, ConnectionState.Disconnected);
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Disconnected);
+
+        Assert.Equal(CommunicationState.NotAttempted, _audioSystem.CommunicationState);
+        Assert.DoesNotContain(_audioSystem.GetOngoingIssues(), i => i.Key == "communication");
+    }
+
     [Theory]
     [InlineData(1, 1)]
     [InlineData(2, 1)]
     [InlineData(3, 2)]
     [InlineData(5, 3)]
-    public void LevelUp_SendsOnePressPerVolumeStepOfTheAmount(int amount, int expectedPresses)
+    public async Task LevelUp_SendsOnePressPerVolumeStepOfTheAmount(int amount, int expectedPresses)
     {
         _audioSystem.LevelUp(amount);
+        await Wait.UntilAsync(() => Sent(_mockClient, KeyReleased) == expectedPresses, "the key presses");
 
         _mockClient.Verify(x => x.Send(VolumeUpPressed), Times.Exactly(expectedPresses));
         _mockClient.Verify(x => x.Send(KeyReleased), Times.Exactly(expectedPresses));
     }
 
     [Fact]
-    public void LevelDown_SendsOnePressPerVolumeStepOfTheAmount()
+    public async Task LevelDown_SendsOnePressPerVolumeStepOfTheAmount()
     {
         _audioSystem.LevelDown(4);
+        await Wait.UntilAsync(() => Sent(_mockClient, KeyReleased) == 2, "the key presses");
 
         _mockClient.Verify(x => x.Send(VolumeDownPressed), Times.Exactly(2));
         _mockClient.Verify(x => x.Send(KeyReleased), Times.Exactly(2));
         _mockClient.Verify(x => x.Send(VolumeUpPressed), Times.Never);
+    }
+
+    [Fact]
+    public async Task LevelUp_ReturnsBeforeThePressesAreSent()
+    {
+        _audioSystem.LevelUp(10);
+
+        Assert.True(Sent(_mockClient, KeyReleased) < 5);
+        await Wait.UntilAsync(() => Sent(_mockClient, KeyReleased) == 5, "the key presses");
+    }
+
+    [Fact]
+    public async Task Keys_AreSentInTheOrderTheyWereAskedFor()
+    {
+        Receive("\x54\x7A\x1C");
+
+        _audioSystem.LevelUp(2);
+        _audioSystem.LevelDown(2);
+        _audioSystem.ToggleAudioMute();
+        await Wait.UntilAsync(() => Sent(_mockClient, KeyReleased) == 3, "the key presses");
+
+        var pressedKeys = _mockClient.Invocations
+            .Select(i => i.Arguments[0])
+            .OfType<char[]>()
+            .Where(frame => frame.Length == VolumeUpPressed.Length && frame[1] == VolumeUpPressed[1])
+            .Select(frame => new string(frame));
+        Assert.Equal([new string(VolumeUpPressed), new string(VolumeDownPressed), new string(MutePressed)], pressedKeys);
+    }
+
+    [Fact]
+    public async Task Keys_AreSentAndReadBackUnderTheKeyPressTriggerId()
+    {
+        var sentUnder = new ConcurrentQueue<(char[] Frame, string? TriggerId)>();
+        _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback<char[]>(frame => sentUnder.Enqueue((frame, Trigger.Id)));
+        Trigger.Start();
+        var keyPressTriggerId = Trigger.Id;
+
+        _audioSystem.LevelUp(1);
+        await Wait.UntilAsync(() => sentUnder.Any(s => s.Frame.SequenceEqual(GiveAudioStatus)), "the status read after the key");
+
+        Assert.All(sentUnder, s => Assert.Equal(keyPressTriggerId, s.TriggerId));
     }
 
     [Fact]
@@ -401,6 +552,7 @@ public class CecAudioSystemTest
 
         _audioSystem.RestoreLevel();
         await _audioSystem.SetLevelAsync(28);
+        await Wait.UntilAsync(() => Sent(_mockClient, MutePressed) == 1, "the mute key");
 
         Assert.Equal(28, beam.Level);
         Assert.True(beam.Muted);
@@ -409,32 +561,33 @@ public class CecAudioSystemTest
     }
 
     [Fact]
-    public void SetAudioMute_SendsTheMuteKeyOnlyWhenTheStateDiffers()
+    public async Task SetAudioMute_SendsTheMuteKeyOnlyWhenTheStateDiffers()
     {
         Receive("\x54\x7A\x1C");
 
-        _audioSystem.SetAudioMute(MuteState.Off);
+        await _audioSystem.SetAudioMuteAsync(MuteState.Off);
         _mockClient.Verify(x => x.Send(MutePressed), Times.Never);
 
-        _audioSystem.SetAudioMute(MuteState.On);
+        await _audioSystem.SetAudioMuteAsync(MuteState.On);
         _mockClient.Verify(x => x.Send(MutePressed), Times.Once);
         _mockClient.Verify(x => x.Send(KeyReleased), Times.Once);
 
         Receive("\x54\x7A\x9C");
-        _audioSystem.SetAudioMute(MuteState.On);
+        await _audioSystem.SetAudioMuteAsync(MuteState.On);
         _mockClient.Verify(x => x.Send(MutePressed), Times.Once);
 
-        _audioSystem.SetAudioMute(MuteState.Off);
+        await _audioSystem.SetAudioMuteAsync(MuteState.Off);
         _mockClient.Verify(x => x.Send(MutePressed), Times.Exactly(2));
     }
 
     [Fact]
-    public void SetAudioMute_TwiceInARowSendsOneKey()
+    public async Task SetAudioMute_TwiceInARowSendsOneKey()
     {
         Receive("\x54\x7A\x1C");
 
-        _audioSystem.SetAudioMute(MuteState.On);
-        _audioSystem.SetAudioMute(MuteState.On);
+        var first = _audioSystem.SetAudioMuteAsync(MuteState.On);
+        var second = _audioSystem.SetAudioMuteAsync(MuteState.On);
+        await Task.WhenAll(first, second);
 
         _mockClient.Verify(x => x.Send(MutePressed), Times.Once);
         Assert.Equal(MuteState.On, _audioSystem.MuteState);
@@ -459,6 +612,28 @@ public class CecAudioSystemTest
     }
 
     [Fact]
+    public async Task SetAudioMuteAsync_AfterReadingTheStatus_CompletesOnceTheKeyIsSent()
+    {
+        _ = new SimulatedBeam(_mockClient, 28);
+
+        await _audioSystem.SetAudioMuteAsync(MuteState.On);
+
+        _mockClient.Verify(x => x.Send(MutePressed), Times.Once);
+        _mockClient.Verify(x => x.Send(KeyReleased), Times.Once);
+    }
+
+    [Fact]
+    public async Task SetAudioMuteAsync_WithAKnownState_CompletesOnceTheKeyIsSent()
+    {
+        Receive("\x54\x7A\x1C");
+
+        await _audioSystem.SetAudioMuteAsync(MuteState.On);
+
+        _mockClient.Verify(x => x.Send(MutePressed), Times.Once);
+        _mockClient.Verify(x => x.Send(KeyReleased), Times.Once);
+    }
+
+    [Fact]
     public async Task SetAudioMute_DoesNotSendBlindWhenNothingAnswers()
     {
         await _audioSystem.SetAudioMuteAsync(MuteState.On);
@@ -469,15 +644,48 @@ public class CecAudioSystemTest
     }
 
     [Fact]
-    public void ToggleAudioMute_SendsTheMuteKeyOnce()
+    public async Task ToggleAudioMute_SendsTheMuteKeyOnce()
     {
         Receive("\x54\x7A\x1C");
 
         _audioSystem.ToggleAudioMute();
+        await Wait.UntilAsync(() => Sent(_mockClient, KeyReleased) == 1, "the mute key");
 
         _mockClient.Verify(x => x.Send(MutePressed), Times.Once);
         _mockClient.Verify(x => x.Send(KeyReleased), Times.Once);
         Assert.Equal(MuteState.On, _audioSystem.MuteState);
+    }
+
+    [Fact]
+    public async Task ToggleAudioMute_FromTwoThreadsAtOnce_EndsWhereItStarted()
+    {
+        Receive("\x54\x7A\x1C");
+
+        await Task.WhenAll(Task.Run(_audioSystem.ToggleAudioMute), Task.Run(_audioSystem.ToggleAudioMute));
+        await Wait.UntilAsync(() => Sent(_mockClient, MutePressed) == 2, "two mute keys");
+
+        Assert.Equal(MuteState.Off, _audioSystem.MuteState);
+    }
+
+    [Fact]
+    public async Task ToggleAudioMute_FromAMuteSubscriberOnAnotherThread_DoesNotDeadlock()
+    {
+        Receive("\x54\x7A\x1C");
+        Task? toggle = null;
+        var joined = false;
+        _audioSystem.MuteStateHandlers += _ =>
+        {
+            if (toggle != null)
+                return;
+            toggle = Task.Run(_audioSystem.ToggleAudioMute);
+            joined = toggle.Wait(ToggleJoinTimeout);
+        };
+
+        _audioSystem.ToggleAudioMute();
+
+        Assert.True(joined);
+        await Wait.UntilAsync(() => Sent(_mockClient, MutePressed) == 2, "two mute keys");
+        Assert.Equal(MuteState.Off, _audioSystem.MuteState);
     }
 
     [Fact]
@@ -503,29 +711,75 @@ public class CecAudioSystemTest
     }
 
     [Fact]
-    public void LogicalAddresses_ChangeTheHeaders()
+    public async Task LogicalAddresses_ChangeTheHeaders()
     {
         var mock = TestFactory.CreateSerialClient();
         var audioSystem = new CecAudioSystem(mock.Object, "From the TV", 5, 0, pollTime: 0);
 
         audioSystem.ToggleAudioMute();
+        await Wait.UntilAsync(() => Sent(mock, ['\x05', '\x45']) == 1, "the mute key");
         mock.Verify(x => x.Send(new[] { '\x05', '\x44', '\x43' }));
 
         mock.Object.ResponseHandlers!.Invoke("\x50\x7A\x1C");
         Assert.Equal(28, audioSystem.Volume);
     }
 
-    [Fact]
-    public void Constructor_RejectsAnInvalidLogicalAddress()
+    [Theory]
+    [InlineData(0x0F, 0x04, "CEC logical addresses are 0x00 to 0x0E, the audio system is 0x0F and this device is 0x04")]
+    [InlineData(0x05, 0x0F, "CEC logical addresses are 0x00 to 0x0E, the audio system is 0x05 and this device is 0x0F")]
+    public async Task Constructor_GivenAnInvalidLogicalAddress_RaisesAnIssueAndSendsNothing(int audioSystemAddress, int ownAddress, string expectedMessage)
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new CecAudioSystem(_mockClient.Object, "Bad", 0x0F, pollTime: 0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new CecAudioSystem(_mockClient.Object, "Bad", 5, 0x0F, pollTime: 0));
+        var logs = new ScopeCapturingLoggerFactory();
+        var mock = TestFactory.CreateSerialClient();
+        var audioSystem = CreateLogged(logs, () => new CecAudioSystem(mock.Object, "Bad", (byte)audioSystemAddress, (byte)ownAddress, pollTime: 0));
+
+        audioSystem.PollAudioStatus();
+        await QueuedSends(audioSystem);
+
+        var issue = Assert.Single(audioSystem.GetOngoingIssues(), i => i.Key == CecAudioSystem.LogicalAddressIssueKey);
+        Assert.Equal(expectedMessage, issue.Message);
+        Assert.Equal(IssueSeverity.Critical, issue.Severity);
+        mock.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
+        Assert.Contains(logs.Logs, x => x.Message.StartsWith("Not sending ") && x.Message.EndsWith($": {expectedMessage}"));
     }
 
     [Fact]
-    public void VolumeStep_RejectsZero()
+    public void VolumeStep_GivenZero_KeepsTheStepAndLogs()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => _audioSystem.VolumeStep = 0);
+        var logs = new ScopeCapturingLoggerFactory();
+        var audioSystem = CreateLogged(logs, () => CreateUndiscovered(TestFactory.CreateSerialClient()));
+
+        audioSystem.VolumeStep = 0;
+
+        Assert.Equal(CecAudioSystem.DefaultVolumeStep, audioSystem.VolumeStep);
+        Assert.Contains(logs.Logs, x => x.Message == "The volume step is at least one level per press, not 0, so it stays 2");
+        Assert.Contains(audioSystem.Events, e => e.Type == EventType.Error);
+    }
+
+    [Fact]
+    public async Task Dispose_StopsRespondingToTheClientAndStopsThePollAndTheStatusRead()
+    {
+        var mock = TestFactory.CreateSerialClient();
+        SetConnectionState(mock, ConnectionState.Disconnected);
+        var audioSystem = new CecAudioSystem(mock.Object, "Disposed", pollTime: 1);
+        var pollWorker = PollWorker(audioSystem);
+        await Wait.UntilAsync(() => pollWorker.IsRunning, "the poll never started");
+        audioSystem.LevelUp(1);
+        await QueuedSends(audioSystem);
+        var statusRead = StatusReadTimer(audioSystem);
+
+        audioSystem.Dispose();
+        audioSystem.Dispose();
+        mock.Invocations.Clear();
+
+        Assert.Null(mock.Object.ResponseHandlers);
+        Assert.Null(mock.Object.ConnectionStateHandlers);
+        Assert.False(pollWorker.IsRunning);
+        Assert.False(statusRead.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan));
+        Assert.DoesNotContain<LogBase>(audioSystem, LogBaseRegistry.GetAll());
+        Assert.DoesNotContain<LogBase>(pollWorker, LogBaseRegistry.GetAll());
+        await Task.Delay(CecAudioSystem.StatusReadDelayAfterKey + TimeSpan.FromMilliseconds(400));
+        mock.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
     }
 
     [Fact]

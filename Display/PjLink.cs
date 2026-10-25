@@ -746,6 +746,8 @@ public class PjLink : Display
             RaiseParseIssue("POWR", value);
             return;
         }
+        if (!PowerStateDictionary.ContainsValue(code))
+            LogWarning("Unknown POWR code {Value}", value);
         PowerState = PowerStateDictionary.FirstOrDefault(x => x.Value == code).Key;
         if (PowerState != PowerState.On)
         {
@@ -759,7 +761,10 @@ public class PjLink : Display
     {
         var map = _inputMap;
         // Class 2 allows alphanumeric input numbers ("3A"); those can't be in the map, so they read as Unknown.
-        Input = int.TryParse(value, out int code) ? map.FirstOrDefault(x => x.Value == code).Key : Input.Unknown;
+        Input input = int.TryParse(value, out int code) ? map.FirstOrDefault(x => x.Value == code).Key : Input.Unknown;
+        if (input == Input.Unknown)
+            LogDebug("No input is mapped to INPT {Value}", value);
+        Input = input;
         ProcessInputResponse();
     }
 
@@ -905,9 +910,11 @@ public class PjLink : Display
 
     private void HandleInputList(string value)
     {
-        string[] tokens = value.Split(' ', StringSplitOptions.RemoveEmptyEntries).Distinct().ToArray();
-        var codes = tokens.Where(t => int.TryParse(t, out _)).Select(int.Parse).ToList();
-        var unrecognised = tokens.Where(t => !int.TryParse(t, out _)).ToList();
+        string[] tokens = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var codes = tokens.Where(t => int.TryParse(t, out _)).Select(int.Parse).Distinct().ToList();
+        var unrecognised = tokens.Where(t => !int.TryParse(t, out _)).Distinct().ToList();
+        if (codes.Count + unrecognised.Count < tokens.Length)
+            LogWarning("The input list {Inputs} names an input more than once", value);
         bool changed = !codes.SequenceEqual(AvailableInputCodes) || !unrecognised.SequenceEqual(_unrecognisedInputCodes);
         AvailableInputCodes = codes;
         _unrecognisedInputCodes = unrecognised;

@@ -1,4 +1,5 @@
 using System.Reflection;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.CommunicationClients.Tests;
 
@@ -6,6 +7,7 @@ namespace AVCoders.CommunicationClients.Tests;
 /// Wake() sends to the network broadcast address, which cannot be observed on
 /// loopback, so these tests verify the packet construction logic via reflection.
 /// </summary>
+[Collection(LoggerFactoryCollection.Name)]
 public class AvCodersWakeOnLanTest
 {
     private static byte[] ParseMacAddress(string mac)
@@ -57,5 +59,27 @@ public class AvCodersWakeOnLanTest
     public void BuildMagicPacket_RejectsMacsThatAreNot6Bytes(int length)
     {
         Assert.Throws<ArgumentException>(() => BuildMagicPacket(new byte[length]));
+    }
+
+    [Theory]
+    [InlineData("AA:BB:CC")]
+    [InlineData("GG:BB:CC:DD:EE:FF")]
+    [InlineData("AA:BB:CC:DD:EE:100")]
+    public void Wake_WithAnInvalidMac_LogsTheMacInsteadOfThrowing(string mac)
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            var exception = Record.Exception(() => new AvCodersWakeOnLan().Wake(mac));
+
+            Assert.Null(exception);
+            Assert.Contains(logs.Logs, log => log.Message.Contains($"'{mac}' is not a valid MAC address"));
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
     }
 }

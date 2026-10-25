@@ -10,8 +10,11 @@ public class AvCodersUdpClientTest : IDisposable
 {
     private const string UnresolvableHost = "udp-test.invalid";
     private const int RetryWaitSeconds = 10;
+    private const int QueueTimeoutSeconds = 5;
+    private static readonly TimeSpan AgeMargin = TimeSpan.FromMilliseconds(500);
     private static readonly PropertyInfo HostProperty = typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.Host))!;
     private static readonly FieldInfo SocketField = typeof(AvCodersUdpClient).GetField("_client", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    private static readonly MethodInfo ReceiveMethod = typeof(AvCodersUdpClient).GetMethod("Receive", BindingFlags.Instance | BindingFlags.NonPublic)!;
     private static readonly TimeSpan SocketRetryInterval = (TimeSpan)typeof(AvCodersUdpClient)
         .GetField("SocketRetryInterval", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
 
@@ -129,6 +132,208 @@ public class AvCodersUdpClientTest : IDisposable
 
         await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
         Assert.Equal(@"\x01 \xAA \xFF", response);
+    }
+
+    [Fact]
+    public async Task Receive_AsciiClient_PassesBytesAbove0x7FThroughAsTheSameCharacters()
+    {
+        string? response = null;
+        var client = CreateClient();
+        client.ResponseHandlers += text => response = text;
+
+        client.Send("ping");
+        var request = await ReceiveAsync(10);
+        var payload = new byte[] { 0xE9, 0x4F, 0x4B, 0x0D };
+        await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
+
+        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
+        Assert.Equal("\u00E9OK\r", response);
+    }
+
+    [Fact]
+    public async Task Send_PassesCharactersUpTo0xFFThroughAsTheSameByte()
+    {
+        var client = CreateClient();
+        client.Send("\u00E9OK\r");
+
+        var result = await ReceiveAsync(10);
+        Assert.Equal(new byte[] { 0xE9, 0x4F, 0x4B, 0x0D }, result.Buffer);
+    }
+
+    [Fact]
+    public async Task Receive_ADatagramArrivingAfterTheReceiveStarted_IsDeliveredByThatReceive()
+    {
+        string? response = null;
+        var client = CreateClient();
+        client.ResponseHandlers += text => response = text;
+        client.Send("ping");
+        var request = await ReceiveAsync(10);
+        await TestNetwork.Workers(client)[0].Stop();
+
+        var receive = (Task)ReceiveMethod.Invoke(client, [CancellationToken.None])!;
+        await Task.Delay(200);
+        var payload = Encoding.ASCII.GetBytes("pong");
+        await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
+
+        Assert.Same(receive, await Task.WhenAny(receive, Task.Delay(TimeSpan.FromSeconds(10))));
+        Assert.Equal("pong", response);
+    }
+
+    [Fact]
+    public async Task Send_WhenTheSocketFails_QueuesTheDatagramAndSendsItAfterReconnecting()
+    {
+        var client = CreateClient();
+        client.SetQueueTimeout(60);
+        using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
+        var failingSocket = new UdpClient();
+        failingSocket.Dispose();
+        SocketField.SetValue(client, failingSocket);
+
+        client.Send("after a failed send");
+
+        var result = await ReceiveAsync(10);
+        Assert.Equal("after a failed send", Encoding.ASCII.GetString(result.Buffer));
+    }
+
+    [Fact]
+    public async Task Send_WhenAQueuedDatagramFails_SendsItAgainAheadOfTheDatagramsQueuedAfterIt()
+    {
+        var client = CreateClient();
+        client.SetQueueTimeout(60);
+        using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
+        SocketField.SetValue(client, null);
+        client.Send("first");
+        client.Send("second");
+        var failingSocket = new UdpClient();
+        failingSocket.Dispose();
+
+        SocketField.SetValue(client, failingSocket);
+
+        var received = new List<string>();
+        for (var i = 0; i < 2; i++)
+            received.Add(Encoding.ASCII.GetString((await ReceiveAsync(10)).Buffer));
+        Assert.Equal(["first", "second"], received);
+    }
+
+    [Fact]
+    public async Task Send_WhenAQueuedDatagramFails_GetsTheWholeQueueTimeoutAfterTheRebuild()
+    {
+        var client = CreateClient();
+        client.SetQueueTimeout(QueueTimeoutSeconds);
+        var sendQueueWorker = TestNetwork.SendQueueWorker(client);
+        await sendQueueWorker.Stop();
+        var sent = new ConcurrentQueue<string>();
+        client.RequestHandlers += sent.Enqueue;
+        using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
+        SocketField.SetValue(client, null);
+        client.Send("requeued");
+        client.Send("stale");
+        var failingSocket = new UdpClient();
+        failingSocket.Dispose();
+        SocketField.SetValue(client, failingSocket);
+        TestNetwork.SetQueuedAge<(byte[], string?)>(client, TimeSpan.FromSeconds(QueueTimeoutSeconds) - AgeMargin);
+
+        await sendQueueWorker.Restart();
+
+        Assert.Equal("requeued", Encoding.ASCII.GetString((await ReceiveAsync(10)).Buffer));
+        await TestNetwork.WaitUntilAsync(() => TestNetwork.SendQueueCount(client) == 0, 10,
+            "the datagram queued behind it was never taken off the queue");
+        Assert.Equal(["requeued"], sent);
+    }
+
+    [Fact]
+    public async Task Send_WhenTheSocketFails_RebuildsTheSocketOffTheCallersThread()
+    {
+        var client = CreateClient();
+        client.SetQueueTimeout(60);
+        using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
+        var failingSocket = new UdpClient();
+        failingSocket.Dispose();
+        SocketField.SetValue(client, failingSocket);
+        var callerThread = Environment.CurrentManagedThreadId;
+        var changesOnTheCallersThread = new ConcurrentQueue<ConnectionState>();
+        client.ConnectionStateHandlers += state =>
+        {
+            if (Environment.CurrentManagedThreadId == callerThread)
+                changesOnTheCallersThread.Enqueue(state);
+        };
+
+        client.Send("rebuilt elsewhere");
+
+        Assert.Empty(changesOnTheCallersThread);
+        var result = await ReceiveAsync(10);
+        Assert.Equal("rebuilt elsewhere", Encoding.ASCII.GetString(result.Buffer));
+    }
+
+    [Fact]
+    public async Task Receive_FromAPortThatIsClosed_RaisesTheConnectionIssueAndKeepsTheSocket()
+    {
+        var client = CreateClient("127.0.0.1", ClosedUdpPort());
+        var socket = SocketField.GetValue(client);
+        var states = new ConcurrentQueue<ConnectionState>();
+        client.ConnectionStateHandlers += states.Enqueue;
+
+        client.Send("ping");
+
+        await TestNetwork.WaitUntilAsync(
+            () => client.GetIssues().Any(i => i.Key == CommunicationClient.ConnectionIssueKey),
+            10, "the closed port never raised the connection issue");
+        Assert.Empty(states);
+        Assert.Same(socket, SocketField.GetValue(client));
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+        Assert.Empty(client.Errors);
+    }
+
+    [Fact]
+    public async Task Receive_AfterThePortWasClosed_ResolvesTheConnectionIssueWhenADatagramArrives()
+    {
+        var port = ClosedUdpPort();
+        var client = CreateClient("127.0.0.1", port);
+        client.ConnectionIssueThreshold = TimeSpan.Zero;
+        client.Send("ping");
+        await TestNetwork.WaitUntilAsync(
+            () => client.GetOngoingIssues().Any(i => i.Key == CommunicationClient.ConnectionIssueKey),
+            10, "the closed port never raised the ongoing connection issue");
+        using var server = new UdpClient(new IPEndPoint(IPAddress.Loopback, port));
+
+        client.Send("ping again");
+        var request = await ReceiveAsync(server, 10);
+        var payload = Encoding.ASCII.GetBytes("pong");
+        await server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
+
+        await TestNetwork.WaitUntilAsync(() => client.GetOngoingIssues().Count == 0, 10,
+            "the datagram never resolved the connection issue");
+    }
+
+    [Fact]
+    public void Reconnect_OverlappingAnotherRebuild_LeavesOnlyOneSocketOpen()
+    {
+        var client = CreateClient();
+        UdpClient? builtByTheOverlappingRebuild = null;
+        var overlapped = false;
+        client.ConnectionStateHandlers += state =>
+        {
+            if (state != ConnectionState.Connected || overlapped)
+                return;
+            overlapped = true;
+            client.Reconnect();
+            builtByTheOverlappingRebuild = (UdpClient?)SocketField.GetValue(client);
+        };
+
+        client.Reconnect();
+
+        var kept = (UdpClient?)SocketField.GetValue(client);
+        Assert.NotNull(builtByTheOverlappingRebuild);
+        Assert.NotNull(kept);
+        Assert.NotSame(builtByTheOverlappingRebuild, kept);
+        Assert.Null(builtByTheOverlappingRebuild!.Client);
+        Assert.NotNull(kept!.Client);
+    }
+
+    private static ushort ClosedUdpPort()
+    {
+        using var probe = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        return PortOf(probe);
     }
 
     [Fact]
@@ -255,6 +460,19 @@ public class AvCodersUdpClientTest : IDisposable
         var issue = Assert.Single(client.GetIssues(), i => i.Key == CommunicationClient.ConnectionIssueKey);
         Assert.Contains(UnresolvableHost, issue.Message);
         Assert.Equal(ConnectionState.Disconnected, client.ConnectionState);
+    }
+
+    [Fact]
+    public async Task Constructor_HostThatDoesNotResolve_LogsTheFailureOnceAcrossRetries()
+    {
+        var client = CreateClient(UnresolvableHost, _port);
+        var retried = false;
+        client.ConnectionStateHandlers += state => retried |= state == ConnectionState.Disconnected;
+
+        await TestNetwork.WaitUntilAsync(() => retried, RetryWaitSeconds, "the client never retried opening its socket");
+
+        Assert.Empty(client.Errors);
+        Assert.Single(client.Events, e => e.Type == EventType.Error);
     }
 
     [Fact]

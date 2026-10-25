@@ -8,7 +8,7 @@ namespace AVCoders.Display.Tests;
 
 public class SonySimpleIPControlTest
 {
-    private readonly SonySimpleIpControl _sonyTv;
+    private readonly TimedSony _sonyTv;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     readonly Mock<PowerStateHandler> _powerStateHandler = new ();
     private static readonly RemoteButton[] _excludedButtons = 
@@ -28,11 +28,18 @@ public class SonySimpleIPControlTest
 
     public SonySimpleIPControlTest()
     {
-        // Most tests want the external-audio latch to be reachable without waiting out the boot grace.
-        SonySimpleIpControl.ExternalAudioGrace = TimeSpan.Zero;
-        SonySimpleIpControl.OutstandingExpiry = TimeSpan.FromSeconds(8);
-        _sonyTv = new SonySimpleIpControl(_mockClient.Object, "Test display", Input.Hdmi1);
+        _sonyTv = new TimedSony(_mockClient.Object, "Test display", Input.Hdmi1);
         _sonyTv.PowerStateHandlers += _powerStateHandler.Object;
+    }
+
+    private class TimedSony(TcpClient client, string name, Input? defaultInput) : SonySimpleIpControl(client, name, defaultInput)
+    {
+        public TimeSpan Expiry = TimeSpan.FromSeconds(8);
+        public TimeSpan Grace = TimeSpan.Zero;
+        public TimeSpan BootWindow = TimeSpan.FromSeconds(30);
+        protected override TimeSpan OutstandingExpiry => Expiry;
+        protected override TimeSpan ExternalAudioGrace => Grace;
+        protected override TimeSpan PowerOnBootWindow => BootWindow;
     }
 
     [Fact]
@@ -40,7 +47,7 @@ public class SonySimpleIPControlTest
     {
         string input = "Foo";
 
-        var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(SonySimpleIpControl).GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
         method?.Invoke(_sonyTv, [input]);
         _mockClient.Verify(x => x.Send(input), Times.Once);
@@ -62,7 +69,7 @@ public class SonySimpleIPControlTest
         string input = "Foo";
 
         _mockClient.Setup(client => client.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
-        var method = _sonyTv.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+        var method = typeof(SonySimpleIpControl).GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
         method?.Invoke(_sonyTv, [input]);
         Assert.Equal(CommunicationState.Error, _sonyTv.CommunicationState);
@@ -701,28 +708,21 @@ public class SonySimpleIPControlTest
     [Fact]
     public void HandleResponse_ExternalAudioDoesNotLatchInsideTheBootGrace()
     {
-        SonySimpleIpControl.ExternalAudioGrace = TimeSpan.FromSeconds(45);
-        try
-        {
-            TurnOn();
-            Feed("*SAVOLUFFFFFFFFFFFFFFFF\n*SAAMUTFFFFFFFFFFFFFFFF\n");
-            _sonyTv.QueryStatus();
-            Feed("*SAVOLUFFFFFFFFFFFFFFFF\n*SAAMUTFFFFFFFFFFFFFFFF\n");
-            Assert.False(_sonyTv.ExternalAudio);
+        _sonyTv.Grace = TimeSpan.FromSeconds(45);
+        TurnOn();
+        Feed("*SAVOLUFFFFFFFFFFFFFFFF\n*SAAMUTFFFFFFFFFFFFFFFF\n");
+        _sonyTv.QueryStatus();
+        Feed("*SAVOLUFFFFFFFFFFFFFFFF\n*SAAMUTFFFFFFFFFFFFFFFF\n");
+        Assert.False(_sonyTv.ExternalAudio);
 
-            _sonyTv.SetVolume(4);
-            Assert.Equal(1, Sent("*SCVOLU"));
-            Feed("*SAVOLU0000000000000000\n");
+        _sonyTv.SetVolume(4);
+        Assert.Equal(1, Sent("*SCVOLU"));
+        Feed("*SAVOLU0000000000000000\n");
 
-            SonySimpleIpControl.ExternalAudioGrace = TimeSpan.Zero;
-            _sonyTv.QueryStatus();
-            Feed("*SAVOLUFFFFFFFFFFFFFFFF\n");
-            Assert.True(_sonyTv.ExternalAudio);
-        }
-        finally
-        {
-            SonySimpleIpControl.ExternalAudioGrace = TimeSpan.Zero;
-        }
+        _sonyTv.Grace = TimeSpan.Zero;
+        _sonyTv.QueryStatus();
+        Feed("*SAVOLUFFFFFFFFFFFFFFFF\n");
+        Assert.True(_sonyTv.ExternalAudio);
     }
 
     [Fact]
@@ -845,65 +845,43 @@ public class SonySimpleIPControlTest
         Feed("*SAINPTFFFFFFFFFFFFFFFF\n");
         Assert.NotEqual(Input.Home, _sonyTv.Input);
 
-        SonySimpleIpControl.PowerOnBootWindow = TimeSpan.Zero;
-        try
-        {
-            // Rounds inside the boot window were deferred, not counted, so two rounds are needed now.
-            _sonyTv.QueryStatus();
-            Feed("*SAINPTFFFFFFFFFFFFFFFF\n");
-            Assert.NotEqual(Input.Home, _sonyTv.Input);
-            _sonyTv.QueryStatus();
-            Feed("*SAINPTFFFFFFFFFFFFFFFF\n");
-            Assert.Equal(Input.Home, _sonyTv.Input);
-        }
-        finally
-        {
-            SonySimpleIpControl.PowerOnBootWindow = TimeSpan.FromSeconds(30);
-        }
+        _sonyTv.BootWindow = TimeSpan.Zero;
+        // Rounds inside the boot window were deferred, not counted, so two rounds are needed now.
+        _sonyTv.QueryStatus();
+        Feed("*SAINPTFFFFFFFFFFFFFFFF\n");
+        Assert.NotEqual(Input.Home, _sonyTv.Input);
+        _sonyTv.QueryStatus();
+        Feed("*SAINPTFFFFFFFFFFFFFFFF\n");
+        Assert.Equal(Input.Home, _sonyTv.Input);
     }
 
     [Fact]
     public void HandleResponse_OffAnswerOutsideBootClearsInputState()
     {
-        SonySimpleIpControl.PowerOnBootWindow = TimeSpan.Zero;
-        try
-        {
-            TurnOn();
-            Feed("*SNINPT0000000100000002\n");
-            _sonyTv.PowerOn();
-            Feed("*SAPOWR0000000000000000\n"); // ack of the power-on control
-            _sonyTv.QueryStatus();
-            Feed("*SAPOWR0000000000000000\n");
+        _sonyTv.BootWindow = TimeSpan.Zero;
+        TurnOn();
+        Feed("*SNINPT0000000100000002\n");
+        _sonyTv.PowerOn();
+        Feed("*SAPOWR0000000000000000\n"); // ack of the power-on control
+        _sonyTv.QueryStatus();
+        Feed("*SAPOWR0000000000000000\n");
 
-            Assert.Equal(Input.Unknown, _sonyTv.Input);
-        }
-        finally
-        {
-            SonySimpleIpControl.PowerOnBootWindow = TimeSpan.FromSeconds(30);
-        }
+        Assert.Equal(Input.Unknown, _sonyTv.Input);
     }
 
     [Fact]
     public void Untrack_ExpiredRequestsDoNotMistypeLaterAnswers()
     {
-        var previous = SonySimpleIpControl.OutstandingExpiry;
-        SonySimpleIpControl.OutstandingExpiry = TimeSpan.Zero;
-        try
-        {
-            _sonyTv.QueryStatus();
-            Feed("*SAPOWR0000000000000001\n");
-            _sonyTv.QueryStatus();
+        _sonyTv.Expiry = TimeSpan.Zero;
+        _sonyTv.QueryStatus();
+        Feed("*SAPOWR0000000000000001\n");
+        _sonyTv.QueryStatus();
 
-            _sonyTv.PowerOn();
-            Feed("*SAPOWR0000000000000000\n");
+        _sonyTv.PowerOn();
+        Feed("*SAPOWR0000000000000000\n");
 
-            Assert.Equal(PowerState.On, _sonyTv.PowerState);
-            Assert.Equal(1, Sent("*SCPOWR"));
-        }
-        finally
-        {
-            SonySimpleIpControl.OutstandingExpiry = previous;
-        }
+        Assert.Equal(PowerState.On, _sonyTv.PowerState);
+        Assert.Equal(1, Sent("*SCPOWR"));
     }
 
     [Fact]
@@ -1045,7 +1023,7 @@ public class SonySimpleIPControlTest
     {
         private readonly object _sentLock = new();
         private readonly List<string> _sent = [];
-        public List<string> Sent { get { lock (_sentLock) return [.._sent]; } }
+        public IReadOnlyList<string> Sent { get { lock (_sentLock) return [.._sent]; } }
         public void ClearSent() { lock (_sentLock) _sent.Clear(); }
         public override void Send(string message) { lock (_sentLock) _sent.Add(message); }
         public override void Send(byte[] bytes) { lock (_sentLock) _sent.Add(System.Text.Encoding.ASCII.GetString(bytes)); }
@@ -1059,11 +1037,17 @@ public class SonySimpleIPControlTest
         public void Feed(string response) => InvokeResponseHandlers(response);
     }
 
-    private class TestableSony(TcpClient client) : SonySimpleIpControl(client, "Test", null)
+    private class TestableSony(TcpClient client) : TimedSony(client, "Test", null)
     {
+        private readonly int _testThreadId = Environment.CurrentManagedThreadId;
         public int RestartCount;
         public Task Poll() => DoPoll(CancellationToken.None);
-        protected override void RestartPolling() => RestartCount++;
+
+        protected override void RestartPolling()
+        {
+            if (Environment.CurrentManagedThreadId == _testThreadId)
+                RestartCount++;
+        }
     }
 
     [Fact]
@@ -1107,7 +1091,7 @@ public class SonySimpleIPControlTest
         var client = new TestTcpClient();
         var tv = new TestableSony(client);
         client.SetConnectionState(ConnectionState.Disconnected);
-        client.Sent.Clear();
+        client.ClearSent();
 
         await tv.Poll();
 

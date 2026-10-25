@@ -83,4 +83,33 @@ public class ScreenTechnicsConnectTest
         _motor.Stop();
         _mockClient.Verify(x => x.Connect(), Times.Once);
     }
+
+    [Fact]
+    public void CommandQueuedWhileTheQueuedOneIsSent_IsKeptForTheNextConnection()
+    {
+        _mockClient.Setup(x => x.Send("30 1\r")).Callback(() => _motor.Lower());
+        _motor.Raise();
+
+        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+        _mockClient.Verify(x => x.Send("33 1\r"), Times.Never);
+        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+
+        _mockClient.Verify(x => x.Send("33 1\r"), Times.Once);
+    }
+
+    [Fact]
+    public void QueuedCommand_SentOnConnection_SetsTheCommunicationStateToOkay()
+    {
+        _motor.Raise();
+
+        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+
+        Assert.Equal(CommunicationState.Okay, _motor.CommunicationState);
+    }
+
+    [Fact]
+    public void CommunicationClient_IsTheTcpClient()
+    {
+        Assert.Same(_mockClient.Object, _motor.CommunicationClient);
+    }
 }

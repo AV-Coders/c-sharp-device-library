@@ -49,7 +49,9 @@ public class AutomateVX : DeviceBase
     private readonly string _encodedUserAndPassword;
     private readonly List<OneBeyondLayout> _layouts = [];
     private readonly List<OneBeyondScenario> _scenarios = [];
-    private Action _lastAction;
+    private readonly object _actionsLock = new();
+    private readonly Dictionary<string, Action> _lastActions = new();
+    private readonly List<Action> _actionsAwaitingToken = [];
 
     public LayoutsChangedHandler? LayoutsChangedHandlers;
     public ScenariosChangedHandler? ScenariosChangedHandlers;
@@ -101,8 +103,8 @@ public class AutomateVX : DeviceBase
                 LogException(e);
             }
         };
+        _actionsAwaitingToken.Add(GetEverything);
         GetToken();
-        _lastAction = GetEverything; // Used to fetch layouts after getting the token
     }
 
     private async Task Handle1BeyondResponse(HttpResponseMessage response)
@@ -117,6 +119,7 @@ public class AutomateVX : DeviceBase
                 return;
             }
 
+            var path = response.RequestMessage?.RequestUri?.AbsolutePath;
             var responseContent = await response.Content.ReadAsStringAsync();
             try
             {
@@ -135,7 +138,7 @@ public class AutomateVX : DeviceBase
                                 CommunicationState = CommunicationState.Okay;
                                 break;
                             case "Error":
-                                Handle1BeyondError(root);
+                                Handle1BeyondError(root, path);
                                 return;
                             default:
                                 LogError("1Beyond returned an unknown status");
@@ -149,7 +152,7 @@ public class AutomateVX : DeviceBase
                     LogVerbose("1Beyond token received");
                     _token = tokenElement.GetString() ?? string.Empty;
                     _client.AddDefaultHeader("Authorization", _token);
-                    _lastAction.Invoke();
+                    SendActionsAwaitingToken();
                 }
                 else if (root.TryGetProperty("layouts", out JsonElement layoutsElement))
                 {
@@ -198,16 +201,15 @@ public class AutomateVX : DeviceBase
                         }
                     }
                 }
-                _lastAction = () => { };
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 LogError(ex, "Failed to parse 1Beyond response: {content}", responseContent);
             }
         }
     }
 
-    private void Handle1BeyondError(JsonElement root)
+    private void Handle1BeyondError(JsonElement root, string? path)
     {
         CommunicationState = CommunicationState.Error;
         if(root.TryGetProperty("status", out JsonElement statusElement))
@@ -218,10 +220,43 @@ public class AutomateVX : DeviceBase
                 LogError("1Beyond error: {oneBeyondErrorText}", errElement.GetString());
                 if (errElement.GetString() == "Unauthorized")
                 {
+                    RetryAfterToken(path);
                     GetToken();
                 }
             }
         }
+    }
+
+    private void RetryAfterToken(string? path)
+    {
+        lock (_actionsLock)
+        {
+            if (path != null && _lastActions.TryGetValue(path, out var action))
+            {
+                _actionsAwaitingToken.Add(action);
+                return;
+            }
+        }
+        LogWarning("The unauthorized reply to {path} matches no request, so nothing is retried", path);
+    }
+
+    private void SendActionsAwaitingToken()
+    {
+        Action[] actions;
+        lock (_actionsLock)
+        {
+            actions = [.._actionsAwaitingToken];
+            _actionsAwaitingToken.Clear();
+        }
+        foreach (var action in actions)
+            action.Invoke();
+    }
+
+    private void Post(Uri uri, string payload, Action action)
+    {
+        lock (_actionsLock)
+            _lastActions[uri.OriginalString] = action;
+        _client.Post(uri, payload, "application/json");
     }
 
     private void GetEverything()
@@ -245,8 +280,7 @@ public class AutomateVX : DeviceBase
         using (PushProperties("StartAutoSwitch"))
         {
             LogInformation("Starting auto switch");
-            _client.Post(_startAutoSwitchUri, "", "application/json");
-            _lastAction = StartAutoSwitch;
+            Post(_startAutoSwitchUri, "", StartAutoSwitch);
         }
     }
 
@@ -255,8 +289,7 @@ public class AutomateVX : DeviceBase
         using (PushProperties("StopAutoSwitch"))
         {
             LogInformation("Stopping auto switch");
-            _client.Post(_stopAutoSwitchUri, "", "application/json");
-            _lastAction = StopAutoSwitch;
+            Post(_stopAutoSwitchUri, "", StopAutoSwitch);
         }
     }
 
@@ -265,8 +298,7 @@ public class AutomateVX : DeviceBase
         using (PushProperties("GetLayouts"))
         {
             LogInformation("Getting Layouts");
-            _client.Post(_getLayoutsUri, "", "application/json");
-            _lastAction = GetLayouts;
+            Post(_getLayoutsUri, "", GetLayouts);
         }
     }
 
@@ -274,9 +306,14 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("SetLayout"))
         {
+            if (layoutId < 0 || layoutId >= _layouts.Count)
+            {
+                LogWarning("Layout {layoutId} is out of range, {layoutCount} layouts are loaded", layoutId, _layouts.Count);
+                AddEvent(EventType.Error, $"Layout {layoutId} is out of range, {_layouts.Count} layouts are loaded");
+                return;
+            }
             LogInformation("Setting Layout to {layoutId}", _layouts[layoutId].Name);
-            _client.Post(_changeLayoutUri, $"{{\"id\": \"{_layouts[layoutId].Id}\"}}", "application/json");
-            _lastAction = () => SetLayout(layoutId);
+            Post(_changeLayoutUri, $"{{\"id\": \"{_layouts[layoutId].Id}\"}}", () => SetLayout(layoutId));
         }
     }
 
@@ -285,8 +322,7 @@ public class AutomateVX : DeviceBase
         using (PushProperties("GetScenarios"))
         {
             LogInformation("Getting Scenarios");
-            _client.Post(_getScenariosUri, "", "application/json");
-            _lastAction = GetLayouts;
+            Post(_getScenariosUri, "", GetScenarios);
         }
     }
 
@@ -294,9 +330,14 @@ public class AutomateVX : DeviceBase
     {
         using (PushProperties("SetScenario"))
         {
-            LogInformation("Setting Layout to {layoutId}", _scenarios[scenarioId].Name);
-            _client.Post(_goToScenarioUri, $"{{\"id\": \"{_scenarios[scenarioId].Id}\"}}", "application/json");
-            _lastAction = () => SetScenario(scenarioId);
+            if (scenarioId < 0 || scenarioId >= _scenarios.Count)
+            {
+                LogWarning("Scenario {scenarioId} is out of range, {scenarioCount} scenarios are loaded", scenarioId, _scenarios.Count);
+                AddEvent(EventType.Error, $"Scenario {scenarioId} is out of range, {_scenarios.Count} scenarios are loaded");
+                return;
+            }
+            LogInformation("Setting Scenario to {scenarioName}", _scenarios[scenarioId].Name);
+            Post(_goToScenarioUri, $"{{\"id\": \"{_scenarios[scenarioId].Id}\"}}", () => SetScenario(scenarioId));
         }
     }
 
@@ -305,8 +346,7 @@ public class AutomateVX : DeviceBase
         using (PushProperties("SetScenarioById"))
         {
             LogInformation("Setting Scenario to id {scenarioId}", id);
-            _client.Post(_goToScenarioUri, $"{{\"id\": \"{id}\"}}", "application/json");
-            _lastAction = () => SetScenarioById(id);
+            Post(_goToScenarioUri, $"{{\"id\": \"{id}\"}}", () => SetScenarioById(id));
         }
     }
 

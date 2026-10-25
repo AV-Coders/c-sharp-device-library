@@ -43,6 +43,8 @@ public class DummyDisplay : Display
     }
 
     public void CommunicationErrorResponse() => CommunicationState = CommunicationState.Error;
+
+    public void VideoMuteResponse(MuteState state) => VideoMute = state;
 }
 
 public class DisplayTest
@@ -103,6 +105,19 @@ public class DisplayTest
         _display.PowerOffResponse();
 
         _mockClient.Verify(x => x.Send("Power On"), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void ProcessPowerResponse_ForcingPowerOn_KeepsTheDesiredInput()
+    {
+        var display = new DummyDisplay(_mockClient.Object, [Input.Hdmi1, Input.Hdmi2]);
+        display.PowerOn();
+        display.SetInput(Input.Hdmi2);
+
+        display.PowerOffResponse();
+
+        _mockClient.Verify(x => x.Send("Power On"), Times.Exactly(2));
+        Assert.Equal(Input.Hdmi2, display.DesiredInput);
     }
 
     [Fact]
@@ -182,6 +197,28 @@ public class DisplayTest
         volumeLevelHandler.Verify(x => x.Invoke(volume));
     }
 
+    [Fact]
+    public void LevelUp_GivenANegativeAmount_StopsAtZero()
+    {
+        _display.SetVolume(10);
+
+        _display.LevelUp(-50);
+
+        Assert.Equal(0, _display.Volume);
+        _mockClient.Verify(x => x.Send("Volume 0"), Times.Once);
+    }
+
+    [Fact]
+    public void LevelDown_GivenANegativeAmount_StopsAt100()
+    {
+        _display.SetVolume(90);
+
+        _display.LevelDown(-50);
+
+        Assert.Equal(100, _display.Volume);
+        _mockClient.Verify(x => x.Send("Volume 100"), Times.Once);
+    }
+
     [Theory]
     [InlineData(MuteState.On)]
     [InlineData(MuteState.Off)]
@@ -200,5 +237,31 @@ public class DisplayTest
         _display.SetAudioMute(MuteState.On);
 
         Assert.Equal(MuteState.On, _display.AudioMute);
+    }
+
+    [Fact]
+    public void SetAudioMute_GivenUnknown_SendsNothingAndKeepsTheMuteState()
+    {
+        _display.SetAudioMute(MuteState.On);
+
+        _display.SetAudioMute(MuteState.Unknown);
+
+        Assert.Equal(MuteState.On, _display.AudioMute);
+        _mockClient.Verify(x => x.Send("Mute Unknown"), Times.Never);
+        Assert.Contains(_display.Events, e => e.Type == EventType.Error && e.Info == "Audio mute needs to be On or Off, it's Unknown");
+    }
+
+    [Fact]
+    public void VideoMute_CallsTheDelegateOncePerChange()
+    {
+        Mock<MuteStateHandler> videoMuteHandler = new Mock<MuteStateHandler>();
+        _display.VideoMuteHandlers += videoMuteHandler.Object;
+
+        _display.VideoMuteResponse(MuteState.On);
+        _display.VideoMuteResponse(MuteState.On);
+
+        videoMuteHandler.Verify(x => x.Invoke(MuteState.On), Times.Once);
+        Assert.Equal(MuteState.On, _display.VideoMute);
+        Assert.Contains(_display.Events, e => e.Type == EventType.VideoMute && e.Info == "On");
     }
 }

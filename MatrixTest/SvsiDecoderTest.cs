@@ -46,64 +46,175 @@ public class SvsiDecoderTest
         _mockClient.Object.ResponseHandlers!.Invoke("ND_V\r");
     }
 
+    private List<string> SentMessages() => _mockClient.Invocations
+        .Where(invocation => invocation.Method.Name == nameof(TcpClient.Send) && invocation.Arguments[0] is string)
+        .Select(invocation => (string)invocation.Arguments[0])
+        .ToList();
+
+    private void SetConnection(ConnectionState state) => typeof(CommunicationClient)
+        .GetProperty(nameof(CommunicationClient.ConnectionState))!.SetValue(_mockClient.Object, state);
+
     [Fact]
-    public void SetInput_AcceptsAStreamId()
+    public async Task SetInput_AcceptsAStreamId()
     {
         _svsiDecoder.SetInput(1);
-        
-        _mockClient.Verify(x => x.Send("set:1\r"));
+
+        await Wait.UntilAsync(() => SentMessages().Contains("set:1\r"), "set:1 was never sent");
     }
 
     [Fact]
-    public void SetInput_AcceptsAnEncoder()
+    public async Task SetInput_AcceptsAnEncoder()
     {
         _svsiDecoder.SetInput(new TestSvsiEncoder(_mockClient.Object));
-        
-        _mockClient.Verify(x => x.Send("set:3\r"));
-        _mockClient.Verify(x => x.Send("live\r"));
+
+        await Wait.UntilAsync(() => SentMessages().Contains("live\r"), "live was never sent");
+        Assert.Contains("set:3\r", SentMessages());
     }
 
     [Fact]
-    public void SetAudioInput_AcceptsAStreamId()
+    public async Task SetInput_ReturnsBeforeTheLiveCommandAndSendsItAfterTheStreamId()
+    {
+        _svsiDecoder.SetInput(1);
+
+        Assert.DoesNotContain("live\r", SentMessages());
+        await Wait.UntilAsync(() => SentMessages().Contains("live\r"), "live was never sent");
+        Assert.True(SentMessages().IndexOf("set:1\r") < SentMessages().IndexOf("live\r"));
+    }
+
+    [Fact]
+    public async Task SetInput_SendsEachRequestInTheOrderItWasMade()
+    {
+        _svsiDecoder.SetInput(1);
+        _svsiDecoder.SetInput(2);
+
+        await Wait.UntilAsync(() => SentMessages().Count(message => message == "live\r") == 2, "live was never sent twice");
+        Assert.Equal(["set:1\r", "live\r", "set:2\r", "live\r"],
+            SentMessages().Where(message => message != "\r"));
+    }
+
+    [Fact]
+    public void SetAudioMute_Unknown_SendsNothing()
+    {
+        _svsiDecoder.SetAudioMute(MuteState.Unknown);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void ResponseHandler_SkipsANonNumericStreamId()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("STREAM:abc\rMODE:1080p60.mode\rDVISTATUS:connected\r");
+
+        Assert.Equal(string.Empty, _svsiDecoder.StreamAddress);
+        _mockOutputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Connected, "1080p60", HdcpStatus.Unknown));
+    }
+
+    [Fact]
+    public void ResponseHandler_SetsTheStreamAddressOnTheFirstReport()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("STREAM:0\r");
+
+        Assert.Equal("0", _svsiDecoder.StreamAddress);
+    }
+
+    [Fact]
+    public void ResponseHandler_KeepsALineSplitAcrossReceives()
+    {
+        var split = _sampleStatusResponse.IndexOf("STREAM:2", StringComparison.Ordinal) + 4;
+
+        _mockClient.Object.ResponseHandlers!.Invoke(_sampleStatusResponse[..split]);
+        _mockClient.Object.ResponseHandlers!.Invoke(_sampleStatusResponse[split..]);
+
+        Assert.Equal("2", _svsiDecoder.StatusDictionary["STREAM"]);
+        Assert.Equal((uint)2, _svsiDecoder.StreamId);
+        Assert.False(_svsiDecoder.StatusDictionary.ContainsKey("AM"));
+    }
+
+    [Fact]
+    public void ResponseHandler_DropsAPartialLineWhenTheConnectionDrops()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("STREAM:9");
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Disconnected);
+
+        _mockClient.Object.ResponseHandlers!.Invoke("\r");
+
+        Assert.False(_svsiDecoder.StatusDictionary.ContainsKey("STREAM"));
+    }
+
+    [Fact]
+    public void Constructor_TakesTheStateOfAnAlreadyConnectedClient()
+    {
+        SetConnection(ConnectionState.Connected);
+
+        var decoder = new SvsiDecoder("Second Decoder", _mockClient.Object);
+
+        Assert.Equal(ConnectionState.Connected, decoder.DeviceConnectionState);
+    }
+
+    [Fact]
+    public async Task SetAudioInput_AcceptsAStreamId()
     {
         _svsiDecoder.SetAudioInput(1);
-        
-        _mockClient.Verify(x => x.Send("seta:1\r"));
+
+        await Wait.UntilAsync(() => SentMessages().Contains("seta:1\r"), "seta:1 was never sent");
     }
 
     [Fact]
-    public void SetAudioInput_AcceptsAnEncoder()
+    public async Task SetAudioInput_AcceptsAnEncoder()
     {
         _svsiDecoder.SetAudioInput(new TestSvsiEncoder(_mockClient.Object));
-        
-        _mockClient.Verify(x => x.Send("seta:3\r"));
+
+        await Wait.UntilAsync(() => SentMessages().Contains("seta:3\r"), "seta:3 was never sent");
     }
 
     [Fact]
-    public void SetPlaylist_AcceptsAStreamId()
+    public async Task SetPlaylist_AcceptsAStreamId()
     {
         _svsiDecoder.SetPlaylist(1);
-        
-        _mockClient.Verify(x => x.Send("local:1\r"));
+
+        await Wait.UntilAsync(() => SentMessages().Contains("local:1\r"), "local:1 was never sent");
     }
 
     [Theory]
     [InlineData(MuteState.On, "mute\r")]
     [InlineData(MuteState.Off, "unmute\r")]
-    public void SetAudioMute_SendsTheCommand(MuteState state, string expectedCommand)
+    public async Task SetAudioMute_SendsTheCommand(MuteState state, string expectedCommand)
     {
         _svsiDecoder.SetAudioMute(state);
-        
-        _mockClient.Verify(x => x.Send(expectedCommand));
+
+        await Wait.UntilAsync(() => SentMessages().Contains(expectedCommand), $"{expectedCommand} was never sent");
     }
 
     [Theory]
     [InlineData(MuteState.On, "dviOff\r")]
     [InlineData(MuteState.Off, "dviOn\r")]
-    public void SetVideoMute_SendsTheCommand(MuteState state, string expectedCommand)
+    public async Task SetVideoMute_SendsTheCommand(MuteState state, string expectedCommand)
     {
         _svsiDecoder.SetVideoMute(state);
-        
-        _mockClient.Verify(x => x.Send(expectedCommand));
+
+        await Wait.UntilAsync(() => SentMessages().Contains(expectedCommand), $"{expectedCommand} was never sent");
+    }
+
+    [Fact]
+    public async Task SetInput_ThenSetVideoMute_KeepsTheOrder()
+    {
+        _svsiDecoder.SetInput(1);
+        _svsiDecoder.SetVideoMute(MuteState.Off);
+
+        await Wait.UntilAsync(() => SentMessages().Contains("dviOn\r"), "dviOn was never sent");
+        Assert.Equal(["set:1\r", "live\r", "dviOn\r"], SentMessages().Where(message => message != "\r"));
+    }
+
+    [Fact]
+    public async Task SetInput_AFailedSend_DoesNotStopLaterSends()
+    {
+        _mockClient.Setup(client => client.Send("set:1\r")).Throws(new IOException("Oh No!"));
+
+        _svsiDecoder.SetInput(1);
+        _svsiDecoder.SetInput(2);
+
+        await Wait.UntilAsync(() => SentMessages().Contains("live\r"), "live was never sent");
+        Assert.Equal(["set:1\r", "set:2\r", "live\r"], SentMessages().Where(message => message != "\r"));
+        Assert.Single(_svsiDecoder.Errors);
     }
 }

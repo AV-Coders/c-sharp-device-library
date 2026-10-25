@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
@@ -5,8 +6,11 @@ using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
+[Collection("LoggerFactory")]
 public class ExtronIn18XxTest
 {
+    private static readonly TimeSpan HoldTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan ReturnTimeout = TimeSpan.FromSeconds(5);
     private readonly ExtronIn18Xx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
@@ -23,6 +27,36 @@ public class ExtronIn18XxTest
     private Task Poll() => (Task)typeof(ExtronIn18Xx)
         .GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!
         .Invoke(_switcher, [CancellationToken.None])!;
+
+    private static bool Sent(Mock<CommunicationClient> client, string command) =>
+        client.Invocations.Any(invocation => Equals(invocation.Arguments[0], command));
+
+    private ConcurrentQueue<string> RecordSends(string heldCommand, ManualResetEventSlim release)
+    {
+        var sent = new ConcurrentQueue<string>();
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(command =>
+        {
+            sent.Enqueue(command);
+            if (command == heldCommand)
+                release.Wait(HoldTimeout);
+        });
+        return sent;
+    }
+
+    private static (ExtronIn18Xx Switcher, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs(Mock<CommunicationClient> client)
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (new ExtronIn18Xx(client.Object, 8, "Logged matrix"), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
 
     [Fact]
     public void SendCommand_DoesNotManipulateInput()
@@ -160,6 +194,68 @@ public class ExtronIn18XxTest
     }
 
     [Fact]
+    public void Routes_BeforeTheModelReply_UseTheConstructorsInputCount()
+    {
+        _switcher.RouteAV(6, 1);
+        _switcher.RouteVideo(7, 1);
+        _switcher.RouteAudio(7, 1);
+
+        _mockClient.Verify(x => x.Send("6*1!"), Times.Once);
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public void NumberOfInputs_BeforeTheModelReply_IsTheConstructorsCount()
+    {
+        Assert.Equal(6, _switcher.NumberOfInputs);
+    }
+
+    [Fact]
+    public void Routes_AfterAModelReplyWithMoreInputs_UseTheDiscoveredCount()
+    {
+        Respond("Inf01*IN1808\r\n");
+        _mockClient.Invocations.Clear();
+
+        _switcher.RouteAV(8, 1);
+        _switcher.RouteVideo(8, 1);
+        _switcher.RouteAudio(8, 1);
+
+        _mockClient.Verify(x => x.Send("8*1!"), Times.Once);
+        _mockClient.Verify(x => x.Send("8*1%"), Times.Once);
+        _mockClient.Verify(x => x.Send("8*1$"), Times.Once);
+    }
+
+    [Fact]
+    public void Routes_AfterAModelReplyWithFewerInputs_UseTheDiscoveredCountAndWarnOnce()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (switcher, logs) = CreateWithCapturedLogs(client);
+        client.Object.ResponseHandlers!.Invoke("Inf01*IN1806\r\n");
+        client.Invocations.Clear();
+
+        switcher.RouteAV(6, 1);
+        switcher.RouteAV(7, 1);
+        switcher.RouteVideo(8, 1);
+        switcher.RouteAudio(7, 1);
+
+        client.Verify(x => x.Send("6*1!"), Times.Once);
+        client.Verify(x => x.Send(It.IsAny<string>()), Times.Once);
+        Assert.Single(logs.Logs, log => log.Message.Contains("reports 6 inputs") && log.Message.Contains("constructed with 8"));
+        Assert.Contains(switcher.Events, e => e.Type == EventType.Error && e.Info.EndsWith("must be between 1 and 6"));
+    }
+
+    [Fact]
+    public void ModelReply_MatchingTheConstructorsInputCount_DoesNotWarn()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (_, logs) = CreateWithCapturedLogs(client);
+
+        client.Object.ResponseHandlers!.Invoke("Inf01*IN1808\r\n");
+
+        Assert.DoesNotContain(logs.Logs, log => log.Message.Contains("constructed with"));
+    }
+
+    [Fact]
     public void SetSyncTimeout_SendsTheCommand()
     {
         string expectedCommand = "\u001bT1*0SSAV\r";
@@ -262,16 +358,17 @@ public class ExtronIn18XxTest
     }
 
     [Fact]
-    public void Connect_EnablesVerboseModeAndAsksForTheModel()
+    public async Task Connect_EnablesVerboseModeAndAsksForTheModel()
     {
         SetConnection(ConnectionState.Connected);
 
+        await Wait.UntilAsync(() => Sent(_mockClient, "1I"), "The model was never asked for");
         _mockClient.Verify(client => client.Send("\u001b3CV\r"), Times.Once);
         _mockClient.Verify(client => client.Send("1I"), Times.Once);
     }
 
     [Fact]
-    public void Constructor_InitialisesAnAlreadyConnectedClient()
+    public async Task Constructor_InitialisesAnAlreadyConnectedClient()
     {
         var client = TestFactory.CreateCommunicationClient();
         typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
@@ -279,8 +376,39 @@ public class ExtronIn18XxTest
 
         _ = new ExtronIn18Xx(client.Object, 8, "Already connected");
 
+        await Wait.UntilAsync(() => Sent(client, "1I"), "The model was never asked for");
         client.Verify(c => c.Send("\u001b3CV\r"), Times.Once);
         client.Verify(c => c.Send("1I"), Times.Once);
+    }
+
+    [Fact]
+    public async Task Connect_DoesNotBlockTheClientWhileTheSpacedSendsRun()
+    {
+        using var release = new ManualResetEventSlim();
+        var sent = RecordSends("\u001b3CV\r", release);
+
+        var connect = Task.Run(() => SetConnection(ConnectionState.Connected));
+
+        await connect.WaitAsync(ReturnTimeout);
+        release.Set();
+        await Wait.UntilAsync(() => sent.Count == 2, "The model was never asked for");
+        Assert.Equal(["\u001b3CV\r", "1I"], sent);
+    }
+
+    [Fact]
+    public async Task Constructor_DoesNotBlockOnAnAlreadyConnectedClient()
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
+            .SetValue(client.Object, ConnectionState.Connected);
+        using var release = new ManualResetEventSlim();
+        client.Setup(x => x.Send("\u001b3CV\r")).Callback(() => release.Wait(HoldTimeout));
+
+        var construct = Task.Run(() => new ExtronIn18Xx(client.Object, 8, "Already connected"));
+
+        await construct.WaitAsync(ReturnTimeout);
+        release.Set();
+        await Wait.UntilAsync(() => Sent(client, "1I"), "The model was never asked for");
     }
 
     [Fact]
@@ -305,6 +433,7 @@ public class ExtronIn18XxTest
         _mockClient.Verify(client => client.Send(It.IsAny<string>()), Times.Never);
 
         SetConnection(ConnectionState.Connected);
+        await Wait.UntilAsync(() => Sent(_mockClient, "1I"), "The model was never asked for");
         _mockClient.Invocations.Clear();
         await Poll();
         _mockClient.Verify(client => client.Send("1I"), Times.Once);
@@ -363,6 +492,21 @@ public class ExtronIn18XxTest
     [Theory]
     [InlineData("IN00 1*1*1")]
     [InlineData("IN00 1*1*1*1*1*1*1*1*1")]
+    public void SignalPresence_LogsRepliesThatDoNotCoverEveryInput(string response)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (switcher, logs) = CreateWithCapturedLogs(client);
+        client.Object.ResponseHandlers!.Invoke("Inf01*IN1808\r\n");
+
+        client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Contains(logs.Logs, log => log.Message.Contains(response[4..]) && log.Message.Contains("8 inputs"));
+        Assert.All(switcher.GetInputs(), input => Assert.Equal(ConnectionState.Unknown, input.InputConnectionStatus));
+    }
+
+    [Theory]
+    [InlineData("IN00 1*1*1")]
+    [InlineData("IN00 1*1*1*1*1*1*1*1*1")]
     [InlineData("1*1*1*1*1*1*1*1")]
     public void SignalPresence_IgnoresRepliesThatDoNotCoverEveryInput(string response)
     {
@@ -390,6 +534,21 @@ public class ExtronIn18XxTest
         Assert.Equal(HdcpStatus.Unknown, inputs[1].InputHdcpStatus);
         Assert.Equal(ConnectionState.Connected, inputs[1].InputConnectionStatus);
         Assert.Equal(ConnectionState.Disconnected, inputs[0].InputConnectionStatus);
+    }
+
+    [Theory]
+    [InlineData("HdcpI00*2")]
+    [InlineData("HdcpI09*2")]
+    [InlineData("HdcpI02")]
+    public void InputHdcp_LogsPortsOutsideTheInputs(string response)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var (_, logs) = CreateWithCapturedLogs(client);
+        client.Object.ResponseHandlers!.Invoke("Inf01*IN1808\r\n");
+
+        client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Contains(logs.Logs, log => log.Message.Contains($"HDCP status {response[5..]} "));
     }
 
     [Theory]
@@ -503,5 +662,84 @@ public class ExtronIn18XxTest
         Respond("VnamO1*Projector\r");
 
         Assert.Equal("Input 1", _switcher.Inputs[0].Name);
+    }
+
+    [Fact]
+    public void HandleResponse_KeepsAnInputNameThatContainsAnAsterisk()
+    {
+        Respond("IN1808\r");
+
+        Respond("VnamI3*Cam*1\r");
+
+        Assert.Equal("Cam*1", _switcher.Inputs[2].Name);
+    }
+
+    [Fact]
+    public void SetSyncTimeout_StatesTheLimitItEnforces()
+    {
+        _switcher.SetSyncTimeout(502);
+
+        Assert.Contains(_switcher.Events,
+            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
+    }
+
+    [Fact]
+    public async Task SetVideoMute_ReturnsBeforeTheSpacedSends()
+    {
+        using var release = new ManualResetEventSlim();
+        var sent = RecordSends("1*2B", release);
+
+        var mute = Task.Run(() => _switcher.SetVideoMute(MuteState.On));
+
+        await mute.WaitAsync(ReturnTimeout);
+        release.Set();
+        await Wait.UntilAsync(() => sent.Count == 3, "The video mute never reached output 3");
+        Assert.Equal(["1*2B", "2*2B", "3*2B"], sent);
+    }
+
+    [Fact]
+    public async Task SetVideoMute_SendsSuccessiveCallsInTheOrderTheyWereMade()
+    {
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends("", release);
+
+        _switcher.SetVideoMute(MuteState.On);
+        _switcher.SetVideoMute(MuteState.Off);
+
+        await Wait.UntilAsync(() => sent.Count == 6, "The video mutes never reached output 3");
+        Assert.Equal(["1*2B", "2*2B", "3*2B", "1*0B", "2*0B", "3*0B"], sent);
+    }
+
+    [Fact]
+    public async Task SetVideoMute_SendsUnderTheCallersTriggerId()
+    {
+        var ids = new ConcurrentQueue<string?>();
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback(() => ids.Enqueue(Trigger.Id));
+        var id = Trigger.Start();
+
+        _switcher.SetVideoMute(MuteState.On);
+
+        await Wait.UntilAsync(() => ids.Count == 3, "The video mute never reached output 3");
+        Assert.All(ids, sentUnder => Assert.Equal(id, sentUnder));
+    }
+
+    [Fact]
+    public async Task SetVideoMute_KeepsSendingAfterAnEarlierSequenceFails()
+    {
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends("", release);
+        var changes = 0;
+        _switcher.CommunicationStateHandlers += _ =>
+        {
+            if (Interlocked.Increment(ref changes) <= 2)
+                throw new InvalidOperationException("A subscriber failed");
+        };
+
+        _switcher.SetVideoMute(MuteState.On);
+        _switcher.SetVideoMute(MuteState.Off);
+
+        await Wait.UntilAsync(() => sent.Contains("3*0B"), "The second video mute never reached output 3");
+        Assert.Equal(["1*2B", "1*0B", "2*0B", "3*0B"], sent);
+        Assert.Contains(_switcher.Errors, error => error.Message == "The video mute sends failed");
     }
 }

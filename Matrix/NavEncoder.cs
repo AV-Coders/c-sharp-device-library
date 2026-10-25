@@ -19,7 +19,13 @@ public class NavEncoder : NavDeviceBase
     {
         if (response.StartsWith("In00"))
         {
-            InputConnectionStatus = response.Split(' ')[1] == "1" ? ConnectionState.Connected : ConnectionState.Disconnected;
+            var parts = response.Split(' ');
+            if (parts.Length < 2)
+            {
+                LogWarning("The input status {Response} has no value", response);
+                return;
+            }
+            InputConnectionStatus = parts[1] == "1" ? ConnectionState.Connected : ConnectionState.Disconnected;
 
             switch (InputConnectionStatus)
             {

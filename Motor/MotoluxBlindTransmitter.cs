@@ -20,7 +20,7 @@ public class MotoluxBlindTransmitter : Motor
     private readonly char[] _stopCommand;
 
     public MotoluxBlindTransmitter(string name, char deviceId, char blindId, RelayAction powerOnAction, int moveSeconds, SerialClient client)
-        : base(name, powerOnAction, moveSeconds)
+        : base(name, powerOnAction, moveSeconds, client)
     {
         _client = client;
         (char blindIdLow, char blindIdHigh) = GetIdBytes(blindId);
@@ -67,15 +67,18 @@ public class MotoluxBlindTransmitter : Motor
     public override void Raise()
     {
         _client.Send(_raiseCommand);
+        CommunicationState = CommunicationState.Okay;
     }
 
     public override void Lower()
     {
         _client.Send(_lowerCommand);
+        CommunicationState = CommunicationState.Okay;
     }
 
     public override void Stop()
     {
         _client.Send(_stopCommand);
+        CommunicationState = CommunicationState.Okay;
     }
 }

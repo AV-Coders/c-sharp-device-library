@@ -16,7 +16,9 @@ Published to [nuget.org](https://www.nuget.org/packages/AVCoders.Matrix). See th
 - `ExtronIn18Xx` — IN1806 / IN1808 scaling switchers. Inputs are discovered from the model reply
   (`EndpointsChangedHandlers` fires when the count changes; existing ports are kept) and carry signal presence and
   HDCP status. Output 1A (HDMI) and 1B (DTP2/HDBT) exist from construction as `GetOutputs()[0]` and `[1]` and carry
-  sink detection and HDCP status. The HDMI loop out is not exposed.
+  sink detection and HDCP status. The HDMI loop out is not exposed. `NumberOfInputs`, which the route checks use, is
+  the constructor's `numberOfInputs` until the model reply arrives, then the discovered count; a model reply whose
+  count differs from the constructor's logs a warning naming both.
 - `ExtronAnnotator401VideoMatrix` — the HDMI input and two HDMI outputs of an Extron Annotator 401 as a
   routing-free `VideoMatrix`, sharing the annotator's communication client with the `AVCoders.Annotator` driver.
   The endpoints exist from construction and carry sync state and HDCP status; both outputs always show the only

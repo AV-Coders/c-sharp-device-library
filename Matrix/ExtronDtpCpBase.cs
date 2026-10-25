@@ -14,7 +14,10 @@ public abstract class ExtronDtpCpBase : VideoMatrix
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
     protected const string EscapeHeader = "\x1b";
     private static readonly char[] LineSeparators = ['\r', '\n'];
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
     private readonly ThreadWorker _pollWorker;
+    private readonly object _spacedSendsLock = new();
+    private Task _spacedSends = Task.CompletedTask;
 
     protected ExtronDtpCpBase(CommunicationClient communicationClient, int numberOfOutputs, string name)
         : base(numberOfOutputs, communicationClient, name)
@@ -56,10 +59,21 @@ public abstract class ExtronDtpCpBase : VideoMatrix
     {
         if (connectionState != ConnectionState.Connected)
             return;
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        WrapAndSendCommand("3CV");
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        SendCommand("I");
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(async _ =>
+            {
+                try
+                {
+                    await Task.Delay(ConnectStepGap);
+                    WrapAndSendCommand("3CV");
+                    await Task.Delay(ConnectStepGap);
+                    SendCommand("I");
+                }
+                catch (Exception e)
+                {
+                    LogException(e, "The connection sequence failed");
+                }
+            }, TaskScheduler.Default).Unwrap();
     }
 
     protected void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");

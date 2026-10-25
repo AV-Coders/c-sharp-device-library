@@ -9,6 +9,7 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersMqttClient : MqttClient
 {
     private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private readonly MqttClientOptions _mqttClientOptions;
     private readonly IMqttClient _mqttClient;
     private readonly ThreadWorker _connectionWorker;
@@ -45,12 +46,20 @@ public class AvCodersMqttClient : MqttClient
             return;
         }
         ConnectionState = ConnectionState.Connecting;
+        using var timeout = new CancellationTokenSource(ConnectTimeout);
         try
         {
-            var result = await _mqttClient.ConnectAsync(_mqttClientOptions, CancellationToken.None);
+            var result = await _mqttClient.ConnectAsync(_mqttClientOptions, timeout.Token);
             if (result.ResultCode == MqttClientConnectResultCode.Success)
                 return;
             ReportConnectionFailure($"{Host}:{Port} rejected the connection: {result.ResultCode}");
+            ConnectionState = ConnectionState.Disconnected;
+        }
+        catch (Exception e) when (timeout.IsCancellationRequested)
+        {
+            using (PushProperties())
+                LogException(e, $"MQTT connection attempt did not complete within {ConnectTimeout.TotalSeconds} s");
+            ReportConnectionFailure($"The connection attempt to {Host}:{Port} timed out");
             ConnectionState = ConnectionState.Disconnected;
         }
         catch (Exception e)
@@ -67,12 +76,14 @@ public class AvCodersMqttClient : MqttClient
         using var trigger = Trigger.Begin();
         string topic = arg.ApplicationMessage.Topic;
         var rawPayload = Encoding.UTF8.GetString(arg.ApplicationMessage.Payload);
+        List<Action<string>> matching;
         lock (_handlersLock)
-        {
-            if(_handlers.TryGetValue(topic, out var handlers))
-                foreach (var handler in handlers)
-                    handler(rawPayload);
-        }
+            matching = _handlers
+                .Where(subscription => MqttTopicFilterComparer.Compare(topic, subscription.Key) == MqttTopicFilterCompareResult.IsMatch)
+                .SelectMany(subscription => subscription.Value)
+                .ToList();
+        foreach (var handler in matching)
+            handler(rawPayload);
 
         InvokeResponseHandlers($"{topic} - {rawPayload}");
         return Task.CompletedTask;
@@ -164,17 +175,13 @@ public class AvCodersMqttClient : MqttClient
         InvokeRequestHandlers(request);
     }
 
-    /// <summary>
-    /// Deprecated: Use Send(MqttApplicationMessage) instead.
-    /// </summary>
+    [Obsolete("Send is not supported for MQTT clients, use Send(topic, payload). This method always throws InvalidOperationException.", error: true)]
     public override void Send(string message)
     {
         throw new InvalidOperationException("Use the Send(MqttApplicationMessage) method instead.");
     }
 
-    /// <summary>
-    /// Deprecated: Use Send(MqttApplicationMessage) instead.
-    /// </summary>
+    [Obsolete("Send is not supported for MQTT clients, use Send(topic, payload). This method always throws InvalidOperationException.", error: true)]
     public override void Send(byte[] bytes)
     {
         throw new InvalidOperationException("Use the Send(MqttApplicationMessage) method instead.");

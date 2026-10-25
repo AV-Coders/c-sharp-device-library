@@ -5,6 +5,7 @@ namespace AVCoders.SignalR.Destination;
 
 public class DestinationManager : DeviceBase
 {
+    private const string OffSourceIssueKey = "off-source";
     private SourceDefinition _currentSource;
     public string DestinationId { get; }
     public string Icon { get; }
@@ -40,7 +41,14 @@ public class DestinationManager : DeviceBase
         _sourceManager = sourceManager;
         _defaultSource = defaultSource;
         _offSource = offSource;
-        _currentSource = _sourceManager.Sources.First(s => s.SourceId == offSource);
+        var off = _sourceManager.Sources.FirstOrDefault(s => s.SourceId == offSource);
+        if (off is null)
+        {
+            RaiseOngoingIssue(OffSourceIssueKey,
+                $"Off source '{offSource}' is not in the source list of {sourceManager.Name}");
+            off = new SourceDefinition(offSource, string.Empty, offSource, string.Empty);
+        }
+        _currentSource = off;
     }
 
     public void RouteSource(string sourceId)
@@ -57,7 +65,7 @@ public class DestinationManager : DeviceBase
                 }
                 LogDebug("Routing source {SourceId} to destination {Name}", sourceId, Name);
                 CurrentSource = source;
-                PowerState = sourceId == "None" ? PowerState.Off : PowerState.On;
+                PowerState = sourceId == _offSource ? PowerState.Off : PowerState.On;
                 OnDestinationChanged?.Invoke(Snapshot);
             }
             catch (Exception e)

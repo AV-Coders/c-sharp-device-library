@@ -7,8 +7,13 @@ public class DyNet : DeviceBase
     public static readonly ushort DefaultPort = 50000;
     private readonly byte _syncByteLogicalAddressingScheme = 0x1c;
     private const byte Broadcast = 0xFF;
+    private const int MinimumPreset = 1;
+    private const int MaximumPreset = 8;
+    private const int MinimumLevel = 0;
+    private const int MaximumLevel = 100;
     //From https://docs.dynalite.com/system-builder/latest/quick_start/dynet_opcodes.html
-    
+    private static readonly byte[] PresetOpcodes = [0x00, 0x01, 0x02, 0x03, 0x0A, 0x0B, 0x0C, 0x0D];
+
     private readonly List<byte> _gather = new();
 
     public DyNet(CommunicationClient commsClient, string name) : base(name, commsClient)
@@ -21,13 +26,6 @@ public class DyNet : DeviceBase
         using (PushProperties())
         {
             _gather.AddRange(response);
-
-            if (_gather.Count > 1024)
-            {
-                LogWarning("Gather buffer exceeded 1024 bytes, clearing");
-                _gather.Clear();
-                return;
-            }
 
             while (true)
             {
@@ -82,10 +80,13 @@ public class DyNet : DeviceBase
 
     public void SelectCurrentPreset(byte area, byte preset, byte rampTimeIn100thsOfASecond = 0x64)
     {
-        if(preset < 1 || preset > 8)
-            throw new ArgumentOutOfRangeException(nameof(preset), "Preset must be between 1 and 8.");
-        
-        byte zeroBased = (byte)(preset - 1);
+        if (preset is < MinimumPreset or > MaximumPreset)
+        {
+            using (PushProperties())
+                LogWarning("Not recalling preset {Preset} for area {Area} as it is out of range, must be between {MinimumPreset} and {MaximumPreset}", preset, area, MinimumPreset, MaximumPreset);
+            return;
+        }
+
         byte fadeLow = rampTimeIn100thsOfASecond;
         byte fadeHigh = 0x00;
         byte bank = 0x00;
@@ -94,7 +95,7 @@ public class DyNet : DeviceBase
             _syncByteLogicalAddressingScheme,
             area,
             fadeLow,
-            GetByteForPreset(zeroBased),
+            PresetOpcodes[preset - MinimumPreset],
             fadeHigh,
             bank,
             Broadcast
@@ -134,6 +135,13 @@ public class DyNet : DeviceBase
 
     public void RampAreaToLevel(byte area, int level, byte rampTimeIn100thsOfASecond = 0x64)
     {
+        if (level is < MinimumLevel or > MaximumLevel)
+        {
+            using (PushProperties())
+                LogWarning("Not ramping area {Area} to level {Level} as it is out of range, must be between {MinimumLevel} and {MaximumLevel}", area, level, MinimumLevel, MaximumLevel);
+            return;
+        }
+
         Send([
             _syncByteLogicalAddressingScheme,
             area,
@@ -148,26 +156,8 @@ public class DyNet : DeviceBase
 
     private byte GetLevelFromPercentage(int level)
     {
-        if(level < 0 || level > 100)
-            throw new ArgumentOutOfRangeException(nameof(level), "Level must be between 0 and 100.");
         // Levels are inverted on the wire - 0x01 is 100%, 0xFF is 0%
         return (byte)Math.Round(255 - level * 2.54);
-    }
-
-    private byte GetByteForPreset(int preset)
-    {
-        return preset switch
-        {
-            0 => 0x00,
-            1 => 0x01,
-            2 => 0x02,
-            3 => 0x03,
-            4 => 0x0A,
-            5 => 0x0B,
-            6 => 0x0C,
-            7 => 0x0D,
-            _ => throw new ArgumentOutOfRangeException(nameof(preset), "Preset must be >= 1 and <= 8.")
-        };
     }
 
     private void Send(byte[] messageWithoutChecksum)

@@ -10,6 +10,8 @@ public class PhilipsSICP : Display
 
     private readonly byte _monitorId;
     private readonly byte _groupId;
+    private readonly List<byte> _gather = [];
+    private const int MinimumResponseLength = 6;
 
     private static readonly Dictionary<Input, byte> InputMap = new Dictionary<Input, byte>
     {
@@ -31,51 +33,78 @@ public class PhilipsSICP : Display
     {
         using (PushProperties())
         {
-            // A complete reply (size, monitor id, group id, command, data, checksum) is
-            // at least 6 bytes; the leading byte declares the full frame length.
-            if (response.Length < 6 || response.Length < response[0])
+            _gather.AddRange(response);
+            while (_gather.Count > 0)
             {
-                CommunicationState = CommunicationState.Error;
-                LogWarning("The response was too small");
-                AddEvent(EventType.Error, "The response was too small");
-                return;
-            }
+                if (_gather[0] < MinimumResponseLength)
+                {
+                    CommunicationState = CommunicationState.Error;
+                    LogWarning("The response was too small: {Response}", Convert.ToHexString(_gather.ToArray()));
+                    AddEvent(EventType.Error, "The response was too small");
+                    _gather.Clear();
+                    return;
+                }
 
-            CommunicationState = CommunicationState.Okay;
-            switch (response[3])
-            {
-                case 0x19:
-                    PowerState = response[4] switch
-                    {
-                        0x01 => PowerState.Off,
-                        0x02 => PowerState.On,
-                        _ => PowerState
-                    };
-                    ProcessPowerResponse();
-                    break;
-                case 0xAD:
-                    Input = response[4] switch
-                    {
-                        0x0d => Input.Hdmi1,
-                        0x06 => Input.Hdmi2,
-                        0x0f => Input.Hdmi3,
-                        0x19 => Input.Hdmi4,
-                        _ => Input
-                    };
-                    ProcessInputResponse();
-                    break;
-                case 0x45:
-                    Volume = response[4];
-                    break;
-                case 0x46:
-                    AudioMute = response[4] switch
-                    {
-                        0x00 => MuteState.Off,
-                        0x01 => MuteState.On,
-                        _ => MuteState.Unknown
-                    };
-                    break;
+                if (_gather.Count < _gather[0])
+                    return;
+
+                byte[] frame = _gather.GetRange(0, _gather[0]).ToArray();
+                _gather.RemoveRange(0, frame.Length);
+                ProcessResponse(frame);
             }
+        }
+    }
+
+    private void ProcessResponse(byte[] response)
+    {
+        if (GenerateChecksum(response[..^1]) != response[^1])
+        {
+            CommunicationState = CommunicationState.Error;
+            LogWarning("The response checksum is wrong: {Response}", Convert.ToHexString(response));
+            AddEvent(EventType.Error, "The response checksum is wrong");
+            return;
+        }
+
+        if (response[1] != _monitorId)
+        {
+            LogDebug("Ignored reply for monitor {MonitorId}: {Response}", response[1], Convert.ToHexString(response));
+            return;
+        }
+
+        CommunicationState = CommunicationState.Okay;
+        switch (response[3])
+        {
+            case 0x19:
+                PowerState = response[4] switch
+                {
+                    0x01 => PowerState.Off,
+                    0x02 => PowerState.On,
+                    _ => PowerState
+                };
+                ProcessPowerResponse();
+                break;
+            case 0xAD:
+                Input = response[4] switch
+                {
+                    0x0d => Input.Hdmi1,
+                    0x06 => Input.Hdmi2,
+                    0x0f => Input.Hdmi3,
+                    0x19 => Input.Hdmi4,
+                    _ => Input
+                };
+                ProcessInputResponse();
+                break;
+            case 0x45:
+                Volume = response[4];
+                break;
+            case 0x46:
+                AudioMute = response[4] switch
+                {
+                    0x00 => MuteState.Off,
+                    0x01 => MuteState.On,
+                    _ => MuteState.Unknown
+                };
+                break;
         }
     }
 

@@ -110,6 +110,68 @@ public class LumensLc300Test
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
 
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(5)]
+    public void SetVideoSourceId_WithAnInvalidChannel_LogsTheChannelAndSendsNothing(int channel)
+    {
+        var client = TestFactory.CreateTcpClient();
+        var logs = LogCapture.Create(() => new LumensLc300("Logged Rec", client.Object), out var recorder);
+
+        recorder.SetVideoSourceId(channel, 1);
+
+        client.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+        Assert.Contains(logs.Logs, log => log.Message == $"Channel {channel} is invalid.  It must be between 0 and 4");
+    }
+
+    [Fact]
+    public void ResponseHandler_HandlesEveryReplyInOneRead()
+    {
+        Mock<IntHandler> handler = new Mock<IntHandler>();
+        _recorder.LayoutChanged += handler.Object;
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[]
+        {
+            0x55, 0xF0, 0x05, 0x01, 0x06, 0x53, 0x54, 0x33, 0x0d,
+            0x55, 0xF0, 0x05, 0x01, 0x06, 0x4C, 0x4F, 0x0D, 0x0d
+        });
+
+        Assert.Equal(TransportState.Recording, _recorder.TransportState);
+        handler.Verify(x => x.Invoke(13), Times.Once);
+    }
+
+    [Fact]
+    public void ResponseHandler_HandlesAReplySplitAcrossReads()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x23, 0x53 });
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x54, 0x33, 0x0d, 0x55, 0xF0, 0x05 });
+        Assert.Equal(TransportState.Recording, _recorder.TransportState);
+
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x01, 0x06, 0x53, 0x54, 0x34, 0x0d });
+
+        Assert.Equal(TransportState.RecordingPaused, _recorder.TransportState);
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0x55, 0xF0, 0x00, 0x0d })]
+    [InlineData(new byte[] { 0x23, 0x0d })]
+    [InlineData(new byte[] { 0x23, 0x53, 0x54, 0x0d })]
+    public void ResponseHandler_IgnoresAShortFrame(byte[] response)
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(response);
+
+        Assert.Equal(CommunicationState.Unknown, _recorder.CommunicationState);
+        Assert.Equal(TransportState.Unknown, _recorder.TransportState);
+    }
+
+    [Fact]
+    public void ResponseHandler_SkipsBytesBeforeAFrame()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x0d, 0x0a, 0x23, 0x53, 0x54, 0x33, 0x0d });
+
+        Assert.Equal(TransportState.Recording, _recorder.TransportState);
+    }
+
     [Fact]
     public void ResponseHandler_UpdatesTheCommunicationState()
     {
@@ -121,7 +183,15 @@ public class LumensLc300Test
     [Fact]
     public void ResponseHandler_GivenANak_ReportsAnError()
     {
-        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x55, 0xf0, 0x06, 0x01, 0x15 });
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x55, 0xf0, 0x04, 0x01, 0x15, 0x53, 0x54, 0x0d });
+
+        Assert.Equal(CommunicationState.Error, _recorder.CommunicationState);
+    }
+
+    [Fact]
+    public void ResponseHandler_GivenABareNak_ReportsAnError()
+    {
+        _mockClient.Object.ResponseByteHandlers!.Invoke(new byte[] { 0x15, 0x0d });
 
         Assert.Equal(CommunicationState.Error, _recorder.CommunicationState);
     }

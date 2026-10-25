@@ -25,18 +25,18 @@ public class CrestronIvCam : SonyVisca
 
     public string MainStreamUrl() => $"rtsp://{CommunicationClient.Host}:{_rtspPort}/1.h264";
 
-    public override void RecallPreset(int presetNumber)
+    public override void DoRecallPreset(int presetNumber)
     {
         if (PresetsBlockedOnRecall.Contains(presetNumber))
         {
-            using (PushProperties("RecallPreset"))
+            using (PushProperties("DoRecallPreset"))
             {
                 LogWarning("Preset {presetNumber} is reserved and can't be recalled", presetNumber);
                 AddEvent(EventType.Error, $"Preset {presetNumber} is reserved and can't be recalled");
             }
             return;
         }
-        base.RecallPreset(presetNumber);
+        base.DoRecallPreset(presetNumber);
     }
 
     public override void SavePreset(int presetNumber)

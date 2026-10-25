@@ -8,6 +8,14 @@ public class AverVisca : SonyVisca, ITrackingCamera
         SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232
     );
 
+    private static readonly Dictionary<CameraTrackingMode, byte> TrackingCodes = new()
+    {
+        { CameraTrackingMode.TriggerOnce, 0x00 },
+        { CameraTrackingMode.Disabled, 0x01 },
+        { CameraTrackingMode.Auto, 0x02 },
+        { CameraTrackingMode.Manual, 0x03 }
+    };
+
     private CameraTrackingMode _trackingMode = CameraTrackingMode.Unknown;
 
     public CameraTrackingMode TrackingMode
@@ -36,26 +44,21 @@ public class AverVisca : SonyVisca, ITrackingCamera
     {
         using (PushProperties("SetTracking"))
         {
-            switch (mode)
+            if (!TrackingCodes.TryGetValue(mode, out var code))
             {
-                case CameraTrackingMode.Auto:
-                    SendCommand([_header, 0x01, 0x04, 0x7D, 0x02, 0x00, CommandFooter]);
-                    LogVerbose("Tracking Mode: Auto");
-                    break;
-                case CameraTrackingMode.Disabled:
-                    SendCommand([_header, 0x01, 0x04, 0x7D, 0x01, 0x00, CommandFooter]);
-                    LogVerbose("Tracking Mode: Disabled");
-                    break;
-                case CameraTrackingMode.TriggerOnce:
-                    SendCommand([_header, 0x01, 0x04, 0x7D, 0x00, 0x00, CommandFooter]);
-                    LogVerbose("Tracking Mode: Trigger Once");
-                    break;
-                case CameraTrackingMode.Manual:
-                    SendCommand([_header, 0x01, 0x04, 0x7D, 0x03, 0x00, CommandFooter]);
-                    LogVerbose("Tracking Mode: Manual");
-                    break;
+                LogWarning("Tracking mode {mode} has no command", mode);
+                return;
             }
-            TrackingMode = mode;
+            void Confirm()
+            {
+                TrackingMode = mode;
+                LogVerbose("Tracking Mode: {mode}", mode);
+            }
+            var sendsResponses = DeviceSendsResponses;
+            var sent = SendCommand([_header, 0x01, 0x04, 0x7D, code, 0x00, CommandFooter],
+                $"set tracking to {mode}", sendsResponses ? Confirm : null);
+            if (!sendsResponses && sent)
+                Confirm();
         }
     }
 

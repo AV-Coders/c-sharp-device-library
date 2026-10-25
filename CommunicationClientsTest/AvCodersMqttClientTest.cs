@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
@@ -23,6 +24,7 @@ public class AvCodersMqttClientTest : IDisposable
     private static readonly byte[] PingResponse = [0xD0, 0x00];
     private static readonly TimeSpan ObservationWindow = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan SendSpacing = TimeSpan.FromMilliseconds(600);
+    private static readonly TimeSpan ClosedWithin = TimeSpan.FromSeconds(5);
     private static readonly Actor Sender = new(ActorKind.Browser, "10.0.0.1", "Test agent", null, "connection-1");
 
     private readonly ushort _port = TestNetwork.GetFreePort();
@@ -214,5 +216,61 @@ public class AvCodersMqttClientTest : IDisposable
         listener.Stop();
 
         Assert.Contains(client.GetIssues(), issue => issue.Message.Contains("BadUserNameOrPassword"));
+    }
+
+    [Fact]
+    public async Task WildcardSubscription_ReachesItsHandlerAndNotTheHandlersOfOtherFilters()
+    {
+        var wildcardMessages = 0;
+        var otherMessages = 0;
+        var client = CreateClient();
+        client.SubscribeToTopic("room/+", _ => Interlocked.Increment(ref wildcardMessages));
+        client.SubscribeToTopic("lobby/#", _ => Interlocked.Increment(ref otherMessages));
+
+        var listener = new TcpListener(IPAddress.Loopback, _port);
+        listener.Start();
+        using var connection = await TestNetwork.AcceptAsync(listener, 20);
+        _ = ServeSessionAsync(connection);
+        await TestNetwork.WaitUntilAsync(() => Volatile.Read(ref wildcardMessages) == 2, 20,
+            "The messages on room/status never reached the room/+ handler");
+        listener.Stop();
+
+        Assert.Equal(0, Volatile.Read(ref otherMessages));
+    }
+
+    [Fact]
+    public async Task BrokerThatNeverAnswersTheConnect_TimesOutAfterFiveSecondsClosesTheConnectionAndConnectsOnTheNextAttempt()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, _port);
+        listener.Start();
+        var client = CreateClient();
+        using var silent = await TestNetwork.AcceptAsync(listener, 20);
+        var stream = silent.GetStream();
+        var (packetType, _) = await ReadPacketAsync(stream);
+        var silence = Stopwatch.StartNew();
+
+        await TestNetwork.WaitUntilAsync(
+            () => client.GetIssues().Any(issue => issue.Key == CommunicationClient.ConnectionIssueKey), 15,
+            "The unanswered connect was never reported");
+        var reportedAfter = silence.Elapsed;
+        var issues = client.GetIssues();
+        await ReadUntilClosedAsync(stream).WaitAsync(ClosedWithin);
+        using var answered = await TestNetwork.AcceptAsync(listener, 20);
+        _ = ServeSessionAsync(answered);
+        await TestNetwork.WaitUntilAsync(() => client.ConnectionState == ConnectionState.Connected, 15,
+            "The attempt after the timeout never connected");
+        listener.Stop();
+
+        Assert.Equal(ConnectPacket, packetType);
+        Assert.InRange(reportedAfter, TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(7));
+        Assert.Contains(issues, issue => issue.Message == $"The connection attempt to 127.0.0.1:{_port} timed out");
+    }
+
+    private static async Task ReadUntilClosedAsync(NetworkStream stream)
+    {
+        var buffer = new byte[256];
+        while (await stream.ReadAsync(buffer) > 0)
+        {
+        }
     }
 }

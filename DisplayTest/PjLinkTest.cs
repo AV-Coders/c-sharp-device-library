@@ -1,9 +1,12 @@
+using System.Collections.Concurrent;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace AVCoders.Display.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class PjLinkTest
 {
     private readonly PjLink _display;
@@ -1247,6 +1250,71 @@ public class PjLinkTest
 
         Assert.Equal([Input.Hdmi1, Input.Hdmi2], _display.SupportedInputs);
         Assert.Equal(PowerState.On, _display.PowerState);
+    }
+
+    [Fact]
+    public void HandleResponse_InputCodesThatParseToTheSameNumberAreIgnoredAndLogged()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+
+        client.Object.ResponseHandlers?.Invoke("%1CLSS=1\r%1INST=31 031 32\r%1POWR=1\r");
+
+        Assert.Equal([Input.Hdmi1, Input.Hdmi2], display.SupportedInputs);
+        Assert.Equal(PowerState.On, display.PowerState);
+        Assert.Contains((LogLevel.Warning, "The input list 31 031 32 names an input more than once"), logs);
+    }
+
+    [Fact]
+    public void HandleResponse_UnknownPowerCode_ReportsUnknownAndLogsTheCode()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+        client.Object.ResponseHandlers?.Invoke("%1POWR=1\r");
+
+        client.Object.ResponseHandlers?.Invoke("%1POWR=7\r");
+
+        Assert.Equal(PowerState.Unknown, display.PowerState);
+        Assert.Contains((LogLevel.Warning, "Unknown POWR code 7"), logs);
+    }
+
+    [Fact]
+    public void HandleResponse_UnmappedInputCode_ReportsUnknownAndLogsTheCode()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+        client.Object.ResponseHandlers?.Invoke("%1INPT=31\r");
+
+        client.Object.ResponseHandlers?.Invoke("%1INPT=99\r");
+
+        Assert.Equal(Input.Unknown, display.Input);
+        Assert.Contains((LogLevel.Debug, "No input is mapped to INPT 99"), logs);
+    }
+
+    private static (Mock<TcpClient> Client, PjLink Display, ConcurrentQueue<(LogLevel Level, string Message)> Logs) CreateDisplayWithCapturedLogs()
+    {
+        var logs = new ConcurrentQueue<(LogLevel Level, string Message)>();
+        var client = TestFactory.CreateTcpClient();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = new CapturingLoggerFactory(logs);
+        try
+        {
+            return (client, new PjLink(client.Object, "Test display", null), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private sealed class CapturingLoggerFactory(ConcurrentQueue<(LogLevel Level, string Message)> logs)
+        : ILoggerFactory, ILogger
+    {
+        public ILogger CreateLogger(string categoryName) => this;
+        public void AddProvider(ILoggerProvider provider) { }
+        public void Dispose() { }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => logs.Enqueue((logLevel, formatter(state, exception)));
     }
 
     [Fact]

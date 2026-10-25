@@ -20,7 +20,12 @@ public partial class ExtronIn18Xx : VideoMatrix
     private const string HotplugAsserted = "1";
     private const int HdmiOutput = 1;
     private const int TwistedPairOutput = 2;
+    private const int MaximumSyncTimeout = 501;
     private static readonly char[] LineSeparators = ['\r', '\n'];
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan VideoMuteStepGap = TimeSpan.FromMilliseconds(300);
+    private readonly object _spacedSendsLock = new();
+    private Task _spacedSends = Task.CompletedTask;
 
     public ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name)
         : base(1, communicationClient, name)
@@ -70,6 +75,8 @@ public partial class ExtronIn18Xx : VideoMatrix
 
     private void SetInputCount(int count)
     {
+        if (count != _numberOfInputs)
+            LogWarning("The model reply reports {DiscoveredInputs} inputs but the driver was constructed with {ConfiguredInputs}; routing uses the discovered count", count, _numberOfInputs);
         if (Inputs.Count == count)
             return;
         while (Inputs.Count > count)
@@ -89,7 +96,10 @@ public partial class ExtronIn18Xx : VideoMatrix
     {
         var values = statuses.Split('*', StringSplitOptions.TrimEntries);
         if (values.Length != Inputs.Count)
+        {
+            LogWarning("Ignoring the signal presence {Statuses} as it doesn't list the {InputCount} inputs", statuses, Inputs.Count);
             return;
+        }
         for (var index = 0; index < values.Length; index++)
             Inputs[index].SetInputStatus(values[index] == SignalDetected ? ConnectionState.Connected : ConnectionState.Disconnected);
     }
@@ -97,7 +107,10 @@ public partial class ExtronIn18Xx : VideoMatrix
     private void HandleInputHdcp(string status)
     {
         if (!TryParsePortValue(status, out var number, out var value) || number < 1 || number > Inputs.Count)
+        {
+            LogWarning("Ignoring the input HDCP status {Status} as it doesn't name one of the {InputCount} inputs", status, Inputs.Count);
             return;
+        }
         Inputs[number - 1].SetInputHdcpStatus(ExtronSisHdcp.DecodeInput(value).Hdcp);
     }
 
@@ -133,7 +146,7 @@ public partial class ExtronIn18Xx : VideoMatrix
 
     private static bool TryParsePortValue(string text, out int port, out string value)
     {
-        var parts = text.Split('*', StringSplitOptions.TrimEntries);
+        var parts = text.Split('*', 2, StringSplitOptions.TrimEntries);
         port = 0;
         value = parts.Length == 2 ? parts[1] : string.Empty;
         return parts.Length == 2 && int.TryParse(parts[0], out port);
@@ -146,10 +159,21 @@ public partial class ExtronIn18Xx : VideoMatrix
             ClearStatus();
             return;
         }
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        WrapAndSendCommand("3CV");
-        Thread.Sleep(TimeSpan.FromMilliseconds(200));
-        SendCommand("1I");
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(async _ =>
+            {
+                try
+                {
+                    await Task.Delay(ConnectStepGap);
+                    WrapAndSendCommand("3CV");
+                    await Task.Delay(ConnectStepGap);
+                    SendCommand("1I");
+                }
+                catch (Exception e)
+                {
+                    LogException(e, "The connection sequence failed");
+                }
+            }, TaskScheduler.Default).Unwrap();
     }
 
     private void ClearStatus()
@@ -203,16 +227,16 @@ public partial class ExtronIn18Xx : VideoMatrix
 
     public override void RouteAV(int input, int output)
     {
-        if (input > 0 && input <= _numberOfInputs)
+        if (input > 0 && input <= NumberOfInputs)
         {
             SendCommand($"{input}*1!");
             AddEvent(EventType.Input, $"Switched output {output} to input {input}");
         }
         else
         {
-            AddEvent(EventType.Error, $"Not switching output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
+            AddEvent(EventType.Error, $"Not switching output {output} to input {input} as it is out of range, must be between 1 and {NumberOfInputs}");
             using (PushProperties("RouteAV"))
-                LogWarning("Not switching output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+                LogWarning("Not switching output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, NumberOfInputs);
         }
     }
 
@@ -225,22 +249,22 @@ public partial class ExtronIn18Xx : VideoMatrix
     public override void PowerOff() {    }
 
     public override int NumberOfOutputs => 1;
-    public override int NumberOfInputs => Inputs.Count;
+    public override int NumberOfInputs => Inputs.Count == 0 ? _numberOfInputs : Inputs.Count;
     public override bool RequiresOutputSpecification => false;
     public override bool SupportsVideoBreakaway => false;
 
     public override void RouteVideo(int input, int output)
     {
-        if (input > 0 && input <= _numberOfInputs)
+        if (input > 0 && input <= NumberOfInputs)
         {
             SendCommand($"{input}*1%");
             AddEvent(EventType.Input, $"Switched video output {output} to input {input}");
         }
         else
         {
-            AddEvent(EventType.Error, $"Not switching video output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
+            AddEvent(EventType.Error, $"Not switching video output {output} to input {input} as it is out of range, must be between 1 and {NumberOfInputs}");
             using (PushProperties("RouteVideo"))
-                LogWarning("Not switching video output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+                LogWarning("Not switching video output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, NumberOfInputs);
         }
     }
 
@@ -248,41 +272,52 @@ public partial class ExtronIn18Xx : VideoMatrix
 
     public override void RouteAudio(int input, int output)
     {
-        if (input > 0 && input <= _numberOfInputs)
+        if (input > 0 && input <= NumberOfInputs)
         {
             SendCommand($"{input}*1$");
             AddEvent(EventType.Input, $"Switched audio output {output} to input {input}");
         }
         else
         {
-            AddEvent(EventType.Error, $"Not switching audio output {output} to input {input} as it is out of range, must be between 1 and {_numberOfInputs}");
+            AddEvent(EventType.Error, $"Not switching audio output {output} to input {input} as it is out of range, must be between 1 and {NumberOfInputs}");
             using (PushProperties("RouteAudio"))
-                LogWarning("Not switching audio output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, _numberOfInputs);
+                LogWarning("Not switching audio output {Output} to input {Input} as it is out of range, must be between 1 and {NumberOfInputs}", output, input, NumberOfInputs);
         }
     }
 
     public void SetSyncTimeout(int seconds)
     {
-        if (seconds < 502)
+        if (seconds <= MaximumSyncTimeout)
         {
             WrapAndSendCommand($"T1*{seconds}SSAV");
             AddEvent(EventType.VideoMute, $"Set sync timeout to {seconds} seconds");
         }
         else
         {
-            AddEvent(EventType.Error, $"The sync timeout can't be longer than 502 seconds");
+            AddEvent(EventType.Error, $"The sync timeout can't be longer than {MaximumSyncTimeout} seconds");
             using (PushProperties("SetSyncTimeout"))
-                LogWarning("The sync timeout can't be longer than 502 seconds");
+                LogWarning("The sync timeout can't be longer than {MaximumSyncTimeout} seconds", MaximumSyncTimeout);
         }
     }
 
     public void SetVideoMute(MuteState state)
     {
-        SendCommand(state == MuteState.On ? "1*2B" : "1*0B");
-        Thread.Sleep(TimeSpan.FromMilliseconds(300));
-        SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
-        Thread.Sleep(TimeSpan.FromMilliseconds(300));
-        SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(async _ =>
+            {
+                try
+                {
+                    SendCommand(state == MuteState.On ? "1*2B" : "1*0B");
+                    await Task.Delay(VideoMuteStepGap);
+                    SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
+                    await Task.Delay(VideoMuteStepGap);
+                    SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
+                }
+                catch (Exception e)
+                {
+                    LogException(e, "The video mute sends failed");
+                }
+            }, TaskScheduler.Default).Unwrap();
         AddEvent(EventType.VideoMute, $"Switched video mute to {state}");
     }
 }

@@ -14,10 +14,15 @@ public enum ExtronSmp351UsbPort
 public class ExtronSmp351 : Recorder
 {
     public static readonly ushort DefaultPort = 22023;
+    private const int RecordingStateField = 1;
+    private const int RecordTimeField = 4;
+    private const int UsbTimeRemainingField = 4;
+    private const int TimeParts = 3;
+    private static readonly TimeSpan VerboseModeDelay = TimeSpan.FromMilliseconds(500);
     private readonly ThreadWorker _pollWorker;
-    private readonly Regex _responseParser;
-    private readonly ulong _memoryLowKBytes;
-    private readonly ulong _memoryFullKBytes;
+    private readonly object _verboseModeTimerLock = new();
+    private Timer? _verboseModeTimer;
+    private readonly Regex _responseParser = new("<([^>]*)>", RegexOptions.None, TimeSpan.FromMilliseconds(100));
     private ConnectionState _frontUsbConnectionState = ConnectionState.Unknown;
     private ConnectionState _rearUsbConnectionState = ConnectionState.Unknown;
     private ConnectionState _rcpUsbConnectionState = ConnectionState.Unknown;
@@ -108,23 +113,37 @@ public class ExtronSmp351 : Recorder
     public ExtronSmp351(CommunicationClient communicationClient, ulong memoryLowKBytes, ulong memoryFullKBytes, string name, int pollTime = 1000) 
         : base(name, communicationClient)
     {
-        _memoryLowKBytes = memoryLowKBytes;
-        _memoryFullKBytes = memoryFullKBytes;
         CommunicationClient.ResponseHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         _pollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollTime));
         _pollWorker.Restart();
-
-        string responsePattern = "<([^>]*)>";
-        _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(100));
     }
 
-    private void HandleConnectionState(ConnectionState connectionstate)
+    private void HandleConnectionState(ConnectionState connectionState)
     {
-        // This is required so all responses have a prefix.
-        // Changing this will result in the device not returning the expected strings below
-        Thread.Sleep(500);
-        CommunicationClient.Send($"{EscapeHeader}3CV\r");
+        if (connectionState != ConnectionState.Connected)
+            return;
+        lock (_verboseModeTimerLock)
+        {
+            _verboseModeTimer?.Dispose();
+            _verboseModeTimer = new Timer(_ => SetVerboseMode(), null, VerboseModeDelay, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void SetVerboseMode()
+    {
+        try
+        {
+            if (CommunicationClient.ConnectionState != ConnectionState.Connected)
+                return;
+            // This is required so all responses have a prefix.
+            // Changing this will result in the device not returning the expected strings below
+            CommunicationClient.Send($"{EscapeHeader}3CV\r");
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Setting verbose mode failed");
+        }
     }
 
     protected override void DoRecord() => CommunicationClient.Send($"{EscapeHeader}Y1RCDR\r");
@@ -139,12 +158,7 @@ public class ExtronSmp351 : Recorder
     {
         if (response.StartsWith("Inf*"))
         {
-            var matches = _responseParser.Matches(response.Remove(0, 4));
-            ProcessRecordingState(matches[1].Groups[1].Value);
-            if (TransportState is TransportState.Recording or TransportState.RecordingPaused)
-            {
-                TimestampHandlers?.Invoke(matches[4].Groups[1].Value);
-            }
+            ProcessInformation(response);
         }
         else if (response.StartsWith("Inf56"))
         {
@@ -198,20 +212,7 @@ public class ExtronSmp351 : Recorder
         }
         else if (response.StartsWith("RcdrY"))
         {
-            int state = int.Parse(response.Remove(0, 5).Trim());
-            switch (state)
-            {
-                case 0:
-                    TransportState = TransportState.Stopped;
-                    TimestampHandlers?.Invoke(string.Empty);
-                    break;
-                case 1:
-                    TransportState = TransportState.Recording;
-                    break;
-                case 2:
-                    TransportState = TransportState.RecordingPaused;
-                    break;
-            }
+            ProcessRecorderStatus(response);
         }
         else
         {
@@ -219,6 +220,45 @@ public class ExtronSmp351 : Recorder
         }
 
         CommunicationState = CommunicationState.Okay;
+    }
+
+    private void ProcessInformation(string response)
+    {
+        var matches = _responseParser.Matches(response.Remove(0, 4));
+        if (matches.Count <= RecordTimeField)
+        {
+            LogWarning("Unexpected information response {Response}", response);
+            return;
+        }
+
+        ProcessRecordingState(matches[RecordingStateField].Groups[1].Value);
+        if (TransportState is TransportState.Recording or TransportState.RecordingPaused)
+        {
+            TimestampHandlers?.Invoke(matches[RecordTimeField].Groups[1].Value);
+        }
+    }
+
+    private void ProcessRecorderStatus(string response)
+    {
+        if (!int.TryParse(response.Remove(0, 5).Trim(), out var state))
+        {
+            LogWarning("Unexpected recorder status {Response}", response);
+            return;
+        }
+
+        switch (state)
+        {
+            case 0:
+                TransportState = TransportState.Stopped;
+                TimestampHandlers?.Invoke(string.Empty);
+                break;
+            case 1:
+                TransportState = TransportState.Recording;
+                break;
+            case 2:
+                TransportState = TransportState.RecordingPaused;
+                break;
+        }
     }
 
     private void ProcessUsbStatus(ExtronSmp351UsbPort port, string status)
@@ -233,12 +273,16 @@ public class ExtronSmp351 : Recorder
         {
             connectionState = ConnectionState.Connected;
             var parts = status.Split('*');
-            var hms = parts[4].Split(':');
-            
-            int hours = int.Parse(hms[0]);
-            int minutes = int.Parse(hms[1]);
-            int seconds = int.Parse(hms[2]);
-        
+            var hms = parts.Length > UsbTimeRemainingField ? parts[UsbTimeRemainingField].Split(':') : [];
+            if (hms.Length != TimeParts
+                || !int.TryParse(hms[0], out var hours)
+                || !int.TryParse(hms[1], out var minutes)
+                || !int.TryParse(hms[2], out var seconds))
+            {
+                LogWarning("Unexpected {Port} USB status {Status}", port, status);
+                return;
+            }
+
             reaminingTime = new TimeSpan(hours, minutes, seconds);
         }
 

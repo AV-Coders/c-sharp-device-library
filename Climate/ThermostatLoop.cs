@@ -44,13 +44,31 @@ public class ThermostatLoop : LogBase, IDisposable
     public const int ModeAutoCode = 4;
 
     private const string StaleInputIssueKey = "stale-input";
+    private const string SetpointGapIssueKey = "min-setpoint-gap";
+    private const float MinimumSetpoint = 10f;
+    private const float MaximumSetpoint = 35f;
+    private const float MaximumSetpointGap = MaximumSetpoint - MinimumSetpoint;
 
     private static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(10);
 
     public ThermostatLoopStateHandler? StateHandlers;
 
     public float Deadband { get; set; } = 1.0f;
-    public float MinSetpointGap { get; set; } = 1.0f;
+    public float MinSetpointGap
+    {
+        get => _minSetpointGap;
+        set
+        {
+            if (value is >= 0f and <= MaximumSetpointGap)
+            {
+                _minSetpointGap = value;
+                return;
+            }
+            RaiseMomentaryIssue(
+                $"Minimum setpoint gap {value} refused, it must be between 0 and {MaximumSetpointGap}",
+                key: SetpointGapIssueKey);
+        }
+    }
     public TimeSpan ChangeoverLockout { get; set; } = TimeSpan.FromMinutes(10);
     public TimeSpan MinDecisionInterval { get; set; } = TimeSpan.FromMinutes(3);
     public bool ProportionalCapacity { get; set; } = true;
@@ -67,6 +85,7 @@ public class ThermostatLoop : LogBase, IDisposable
     private ThermostatLoopMode _mode = ThermostatLoopMode.Auto;
     private float _heatSetpoint = 20f;
     private float _coolSetpoint = 24f;
+    private float _minSetpointGap = 1.0f;
     private float? _roomTemperature;
     private DateTimeOffset? _roomTemperatureReceivedAt;
     private HvacMode _activeAction = HvacMode.Unknown;
@@ -79,6 +98,7 @@ public class ThermostatLoop : LogBase, IDisposable
     public ThermostatLoop(string name, TemperzoneUc8 unit) : base(name)
     {
         _unit = unit;
+        _unit.ControlReleasedHandlers += HandleControlReleased;
         _worker = new ThreadWorker(Run, TimeSpan.FromSeconds(30));
         _worker.Restart();
     }
@@ -141,8 +161,30 @@ public class ThermostatLoop : LogBase, IDisposable
             if (!Enabled)
                 return;
             Enabled = false;
-            _unit.SetCompressor(false);
-            _compressorCommanded = false;
+            _compressorCommanded = null;
+            _commandedUnitMode = null;
+            _commandedCapacity = null;
+            ResolveIssue(StaleInputIssueKey);
+            State = ThermostatLoopState.Disabled;
+        }
+        _unit.ReleaseControl();
+    }
+
+    private void HandleControlReleased()
+    {
+        lock (_loopLock)
+        {
+            if (!Enabled)
+                return;
+            Enabled = false;
+            _compressorCommanded = null;
+            _commandedUnitMode = null;
+            _commandedCapacity = null;
+            ResolveIssue(StaleInputIssueKey);
+            using (PushProperties(nameof(HandleControlReleased)))
+                LogWarning("Control of {Unit} was released outside the loop; the loop is disabled", _unit.Name);
+            AddEvent(EventType.DriverState,
+                $"Control of {_unit.Name} was released outside the loop; the loop is disabled");
             State = ThermostatLoopState.Disabled;
         }
     }
@@ -165,10 +207,10 @@ public class ThermostatLoop : LogBase, IDisposable
     {
         lock (_loopLock)
         {
-            _heatSetpoint = Math.Clamp(celsius, 10f, 35f);
+            _heatSetpoint = Math.Clamp(celsius, MinimumSetpoint, MaximumSetpoint);
             if (_coolSetpoint < _heatSetpoint + MinSetpointGap)
             {
-                _coolSetpoint = Math.Clamp(_heatSetpoint + MinSetpointGap, 10f, 35f);
+                _coolSetpoint = Math.Clamp(_heatSetpoint + MinSetpointGap, MinimumSetpoint, MaximumSetpoint);
                 if (_coolSetpoint < _heatSetpoint + MinSetpointGap)
                     _heatSetpoint = _coolSetpoint - MinSetpointGap;
                 using (PushProperties(nameof(SetHeatSetpoint)))
@@ -186,10 +228,10 @@ public class ThermostatLoop : LogBase, IDisposable
     {
         lock (_loopLock)
         {
-            _coolSetpoint = Math.Clamp(celsius, 10f, 35f);
+            _coolSetpoint = Math.Clamp(celsius, MinimumSetpoint, MaximumSetpoint);
             if (_heatSetpoint > _coolSetpoint - MinSetpointGap)
             {
-                _heatSetpoint = Math.Clamp(_coolSetpoint - MinSetpointGap, 10f, 35f);
+                _heatSetpoint = Math.Clamp(_coolSetpoint - MinSetpointGap, MinimumSetpoint, MaximumSetpoint);
                 if (_heatSetpoint > _coolSetpoint - MinSetpointGap)
                     _coolSetpoint = _heatSetpoint + MinSetpointGap;
                 using (PushProperties(nameof(SetCoolSetpoint)))
@@ -217,16 +259,8 @@ public class ThermostatLoop : LogBase, IDisposable
     public void Dispose()
     {
         var stop = _worker.Stop();
-        lock (_loopLock)
-        {
-            if (Enabled)
-            {
-                Enabled = false;
-                _unit.SetCompressor(false);
-                _compressorCommanded = false;
-                State = ThermostatLoopState.Disabled;
-            }
-        }
+        Disable();
+        _unit.ControlReleasedHandlers -= HandleControlReleased;
         if (!stop.Wait(DisposeTimeout))
             using (PushProperties(nameof(Dispose)))
                 LogWarning("The thermostat loop worker did not stop in time");

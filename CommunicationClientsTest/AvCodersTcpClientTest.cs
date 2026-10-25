@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -17,10 +18,19 @@ public class AvCodersTcpClientTest : IDisposable
         _port = (ushort)((IPEndPoint)_listener.LocalEndpoint).Port;
     }
 
-    private AvCodersTcpClient CreateClient(ushort? port = null)
+    private AvCodersTcpClient CreateClient(ushort? port = null, CommandStringFormat format = CommandStringFormat.Ascii)
     {
-        _client = new AvCodersTcpClient("127.0.0.1", port ?? _port, "TestTcpClient", CommandStringFormat.Ascii);
+        _client = new AvCodersTcpClient("127.0.0.1", port ?? _port, "TestTcpClient", format);
         return _client;
+    }
+
+    private async Task<System.Net.Sockets.TcpClient> AcceptConnectedAsync(AvCodersTcpClient client)
+    {
+        var serverSide = await TestNetwork.AcceptAsync(_listener, 15);
+        await TestNetwork.WaitUntilAsync(
+            () => client.ConnectionState == ConnectionState.Connected,
+            15, "client never connected");
+        return serverSide;
     }
 
     public void Dispose()
@@ -32,16 +42,26 @@ public class AvCodersTcpClientTest : IDisposable
     [Fact]
     public async Task Client_ConnectsToServer_AndReportsConnected()
     {
-        var states = new List<ConnectionState>();
-        var client = CreateClient();
-        client.ConnectionStateHandlers += state => states.Add(state);
+        var port = TestNetwork.GetFreePort();
+        var states = new ConcurrentQueue<ConnectionState>();
+        var client = CreateClient(port);
+        client.ConnectionStateHandlers += state => states.Enqueue(state);
 
-        using var serverSide = await TestNetwork.AcceptAsync(_listener, 15);
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        try
+        {
+            using var serverSide = await TestNetwork.AcceptAsync(listener, 15);
 
-        await TestNetwork.WaitUntilAsync(
-            () => client.ConnectionState == ConnectionState.Connected,
-            15, "client never reported Connected");
-        Assert.Contains(ConnectionState.Connected, states);
+            await TestNetwork.WaitUntilAsync(
+                () => states.Contains(ConnectionState.Connected),
+                15, "client never reported Connected");
+            Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+        }
+        finally
+        {
+            listener.Stop();
+        }
     }
 
     [Fact]
@@ -83,6 +103,52 @@ public class AvCodersTcpClientTest : IDisposable
         await TestNetwork.WaitUntilAsync(() => responseBytes != null, 15, "byte response handler never invoked");
         Assert.Equal("PONG\r", response);
         Assert.Equal(payload, responseBytes);
+    }
+
+    [Fact]
+    public async Task Receive_AsciiClient_PassesBytesAbove0x7FThroughAsTheSameCharacters()
+    {
+        string? response = null;
+        var client = CreateClient();
+        client.ResponseHandlers += message => response = message;
+        using var serverSide = await AcceptConnectedAsync(client);
+
+        await serverSide.GetStream().WriteAsync(new byte[] { 0xE9, 0x4F, 0x4B, 0x0D });
+
+        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
+        Assert.Equal("\u00E9OK\r", response);
+    }
+
+    [Fact]
+    public async Task Receive_HexClient_InvokesStringHandlersWithHexDump()
+    {
+        string? response = null;
+        byte[]? responseBytes = null;
+        var client = CreateClient(format: CommandStringFormat.Hex);
+        client.ResponseHandlers += message => response = message;
+        client.ResponseByteHandlers += bytes => responseBytes = bytes;
+        using var serverSide = await AcceptConnectedAsync(client);
+        var payload = new byte[] { 0x01, 0xAA, 0xFF };
+
+        await serverSide.GetStream().WriteAsync(payload);
+
+        await TestNetwork.WaitUntilAsync(() => responseBytes != null, 15, "byte response handler never invoked");
+        Assert.Equal(@"\x01 \xAA \xFF", response);
+        Assert.Equal(payload, responseBytes);
+    }
+
+    [Fact]
+    public async Task Send_PassesCharactersUpTo0xFFThroughAsTheSameByte()
+    {
+        var client = CreateClient();
+        using var serverSide = await AcceptConnectedAsync(client);
+
+        client.Send("\u00E9OK\r");
+
+        var buffer = new byte[16];
+        var read = serverSide.GetStream().ReadAsync(buffer, 0, buffer.Length);
+        Assert.Same(read, await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(15))));
+        Assert.Equal(new byte[] { 0xE9, 0x4F, 0x4B, 0x0D }, buffer[..await read]);
     }
 
     [Fact]

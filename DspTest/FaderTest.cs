@@ -98,6 +98,14 @@ public class FaderTest
     }
 
     [Fact]
+    public void SetVolumeFromPercentage_ReportsOnce()
+    {
+        _linearFader.SetVolumeFromPercentage(40);
+
+        _volumeLevelHandler.Verify(x => x.Invoke(It.IsAny<int>()), Times.Once);
+    }
+
+    [Fact]
     public void Constructor_DefaultsToLinear()
     {
         Assert.Equal(FaderCurve.Linear, _linearFader.Curve);
@@ -141,7 +149,31 @@ public class FaderTest
         _linearFader.SetMinGain(-100);
 
         Assert.Equal(82, _linearFader.Volume);
-        _volumeLevelHandler.Verify(x => x.Invoke(It.IsAny<int>()), Times.Exactly(2));
+        _volumeLevelHandler.Verify(x => x.Invoke(It.IsAny<int>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(-120, 0)]
+    [InlineData(5, 100)]
+    public void Linear_SetVolumeFromDb_ClampsToTheRange(double db, int expectedPercentage)
+    {
+        _linearFader.SetVolumeFromDb(db);
+
+        Assert.Equal(expectedPercentage, _linearFader.Volume);
+    }
+
+    [Theory]
+    [InlineData(-10, 0)]
+    [InlineData(0, 100)]
+    [InlineData(10, 100)]
+    public void Linear_SetVolumeFromDb_WithNoRange_ReportsAnEnd(double db, int expectedPercentage)
+    {
+        _linearFader.SetMinGain(0);
+
+        _linearFader.SetVolumeFromDb(db);
+
+        Assert.Equal(expectedPercentage, _linearFader.Volume);
+        _volumeLevelHandler.Verify(x => x.Invoke(expectedPercentage), Times.Once);
     }
 
     [Theory]

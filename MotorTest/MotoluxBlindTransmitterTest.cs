@@ -15,6 +15,20 @@ public class MotoluxBlindTransmitterTest
     }
 
     [Fact]
+    public void CommunicationClient_IsTheSerialClient()
+    {
+        Assert.Same(_mockClient.Object, _device.CommunicationClient);
+    }
+
+    [Fact]
+    public void Lower_SetsTheCommunicationStateToOkay()
+    {
+        _device.Lower();
+
+        Assert.Equal(CommunicationState.Okay, _device.CommunicationState);
+    }
+
+    [Fact]
     public void Lower_SendsTheCommand()
     {
         _device.Lower();

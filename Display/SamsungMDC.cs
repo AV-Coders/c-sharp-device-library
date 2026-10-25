@@ -18,6 +18,10 @@ public class SamsungMdc : Display
     private readonly Dictionary<MuteState, byte> _muteDictionary;
 
     private const byte Header = 0xAA;
+    private const byte ReplyHeader = 0xFF;
+    private const int MinimumReplyLength = 8;
+    private const int DisplayIdIndex = 2;
+    private const byte LastSingleDisplayId = 0xFD;
     private const byte PowerControlCommand = 0x11;
     private const byte VolumeControlCommand = 0x12;
     private const byte MuteControlCommand = 0x13;
@@ -68,20 +72,33 @@ public class SamsungMdc : Display
             return;
         }
 
-        CommunicationClient.Send(_pollPowerCommand);
+        SendPoll(_pollPowerCommand);
         if (PowerState != PowerState.On)
             return;
 
         await Task.Delay(1000, token);
-        CommunicationClient.Send(_pollInputCommand);
+        SendPoll(_pollInputCommand);
         await Task.Delay(1000, token);
         if (_volumePollPending)
             RaiseMomentaryIssue("The volume poll was not answered", key: UnansweredVolumeIssueKey,
                 escalateAfter: 3);
         _volumePollPending = true;
-        CommunicationClient.Send(_pollVolumeCommand);
+        SendPoll(_pollVolumeCommand);
         await Task.Delay(1000, token);
-        CommunicationClient.Send(_pollMuteCommand);
+        SendPoll(_pollMuteCommand);
+    }
+
+    private void SendPoll(byte[] bytes)
+    {
+        try
+        {
+            CommunicationClient.Send(bytes);
+        }
+        catch (Exception e)
+        {
+            LogException(e);
+            CommunicationState = CommunicationState.Error;
+        }
     }
 
     private void SendByteArray(byte[] bytes)
@@ -127,13 +144,6 @@ public class SamsungMdc : Display
         {
             _gather.AddRange(response);
 
-            if (_gather.Count > 1024)
-            {
-                LogWarning("Gather buffer exceeded 1024 bytes, clearing");
-                _gather.Clear();
-                return;
-            }
-
             while (_gather.Count > 0 && _gather[0] != 0xAA)
             {
                 _gather.RemoveAt(0);
@@ -153,10 +163,30 @@ public class SamsungMdc : Display
     {
         using (PushProperties("ProcessResponse"))
         {
-            if (response[0] != 0xAA && response[1] != 0xFF)
+            if (response.Length < MinimumReplyLength)
             {
-                LogWarning("The response does not have the correct header");
+                LogWarning("The response is too short: {Response}", Convert.ToHexString(response));
+                AddEvent(EventType.Error, "The response is too short");
+                return;
+            }
+
+            if (response[0] != Header || response[1] != ReplyHeader)
+            {
+                LogWarning("The response does not have the correct header: {Response}", Convert.ToHexString(response));
                 AddEvent(EventType.Error, "The response does not have the correct header");
+                return;
+            }
+
+            if (GenerateChecksum(response[..^1]) != response[^1])
+            {
+                LogWarning("The response checksum is wrong: {Response}", Convert.ToHexString(response));
+                AddEvent(EventType.Error, "The response checksum is wrong");
+                return;
+            }
+
+            if (!IsFromThisDisplay(response))
+            {
+                LogDebug("Ignored reply for display {DisplayId}: {Response}", response[DisplayIdIndex], Convert.ToHexString(response));
                 return;
             }
 
@@ -181,15 +211,24 @@ public class SamsungMdc : Display
                     ProcessPowerResponse();
                     break;
                 case InputControlCommand:
-                    Input = response[6] switch
+                    var input = response[6] switch
                     {
                         0x21 => Input.Hdmi1,
+                        0x22 => Input.Hdmi1,
                         0x23 => Input.Hdmi2,
+                        0x24 => Input.Hdmi2,
                         0x31 => Input.Hdmi3,
+                        0x32 => Input.Hdmi3,
                         0x33 => Input.Hdmi4,
-                        0x60 => Input.DvbtTuner,
-                        _ => Input
+                        0x34 => Input.Hdmi4,
+                        0x40 => Input.DvbtTuner,
+                        _ => Input.Unknown
                     };
+                    if (input == Input.Unknown && Input != Input.Unknown)
+                        LogWarning("Unknown input code 0x{Code:X2} in {Response}", response[6], Convert.ToHexString(response));
+                    else if (input == Input.Unknown)
+                        LogDebug("Unknown input code 0x{Code:X2} in {Response}", response[6], Convert.ToHexString(response));
+                    Input = input;
                     ProcessInputResponse();
                     break;
                 case VolumeControlCommand:
@@ -208,6 +247,9 @@ public class SamsungMdc : Display
             }
         }
     }
+
+    private bool IsFromThisDisplay(byte[] response) =>
+        _displayId > LastSingleDisplayId || response[DisplayIdIndex] == _displayId;
 
     private void sendCommandWithOneDataLength(byte command, byte data)
     {

@@ -18,7 +18,13 @@ public class SonyRest : Display
         { Input.Hdmi3, 3 },
         { Input.Hdmi4, 4 }
     };
-    
+
+    private static readonly Dictionary<MuteState, string> MuteValues = new()
+    {
+        { MuteState.On, "true" },
+        { MuteState.Off, "false" }
+    };
+
     public SonyRest(string name, Input? defaultInput, RestComms communicationClient, string preSharedKey, int pollTime = 23) :
         base(InputDictionary.Keys.ToList(), name, defaultInput, communicationClient, CommandStringFormat.Ascii, pollTime)
     {
@@ -30,10 +36,9 @@ public class SonyRest : Display
     {
     }
 
-    protected override Task DoPoll(CancellationToken token)
-    {
-        return Task.CompletedTask;
-    }
+    protected override void RestartPolling() { }
+
+    protected override Task DoPoll(CancellationToken token) => Task.CompletedTask;
 
     protected override void DoPowerOn()
     {
@@ -61,14 +66,8 @@ public class SonyRest : Display
 
     protected override void DoSetAudioMute(MuteState state)
     {
-        string muteValue = state switch
-        {
-            MuteState.On => "true",
-            MuteState.Off => "false",
-            _ => throw new ArgumentOutOfRangeException(nameof(state), state, null)
-        };
         _restComms.Post(_audioUri,
-            $"{{\"method\": \"setAudioMute\",\"id\": 601,\"params\": [{{\"status\": {muteValue}}}],\"version\": \"1.0\"\n}}",
+            $"{{\"method\": \"setAudioMute\",\"id\": 601,\"params\": [{{\"status\": {MuteValues[state]}}}],\"version\": \"1.0\"\n}}",
             "application/json");
     }
 }

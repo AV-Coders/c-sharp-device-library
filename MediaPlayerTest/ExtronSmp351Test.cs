@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.Diagnostics;
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 
 namespace AVCoders.MediaPlayer.Tests;
@@ -12,6 +13,10 @@ public class ExtronSmp351Test
     private readonly Mock<ConnectionStateHandler> _mockFrontUsbConnectionStateHandler = new();
     private readonly Mock<ConnectionStateHandler> _mockRearUsbConnectionStateHandler = new();
     public const string EscapeHeader = "\x1b";
+    private const string VerboseMode = $"{EscapeHeader}3CV\r";
+    private static readonly TimeSpan VerboseModeDelay = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan ClockTolerance = TimeSpan.FromMilliseconds(50);
+    private static readonly TimeSpan WaitTimeout = TimeSpan.FromSeconds(10);
 
     public ExtronSmp351Test()
     {
@@ -22,14 +27,70 @@ public class ExtronSmp351Test
         _recorder.RearUsbConnectionStateHandlers += _mockRearUsbConnectionStateHandler.Object;
     }
 
+    private void SetConnection(ConnectionState state) => typeof(CommunicationClient)
+        .GetProperty(nameof(CommunicationClient.ConnectionState))!.SetValue(_mockClient.Object, state);
+
+    private int VerboseModeSends() => _mockClient.Invocations.Count(invocation =>
+        invocation.Method.Name == nameof(CommunicationClient.Send) && VerboseMode.Equals(invocation.Arguments[0]));
+
     [Fact]
-    public void Module_SetsVerboseMode3OnConnection()
+    public async Task Module_SetsVerboseMode3OnConnection()
     {
-        // This is required so all responses have a prefix.
-        // Changing this will result in the device not returning the expected strings below 
-        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
-        
-        _mockClient.Verify(x  => x.Send($"{EscapeHeader}3CV\r"));
+        var sent = new TaskCompletionSource<TimeSpan>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopwatch = Stopwatch.StartNew();
+        _mockClient.Setup(x => x.Send(VerboseMode)).Callback(() => sent.TrySetResult(stopwatch.Elapsed));
+
+        SetConnection(ConnectionState.Connected);
+
+        var sentAfter = await sent.Task.WaitAsync(WaitTimeout);
+        Assert.True(sentAfter >= VerboseModeDelay - ClockTolerance, $"3CV went out {sentAfter} after connecting");
+        Assert.Equal(1, VerboseModeSends());
+    }
+
+    [Fact]
+    public async Task HandleConnectionState_ReturnsBeforeSettingVerboseMode()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        SetConnection(ConnectionState.Connected);
+        stopwatch.Stop();
+
+        Assert.True(stopwatch.Elapsed < VerboseModeDelay, "The connection handler blocked the client");
+        Assert.Equal(0, VerboseModeSends());
+        await Wait.UntilAsync(() => VerboseModeSends() == 1, "3CV was never sent");
+    }
+
+    [Fact]
+    public async Task HandleConnectionState_DisconnectInsideTheDelay_SendsNothing()
+    {
+        SetConnection(ConnectionState.Connected);
+        SetConnection(ConnectionState.Disconnected);
+
+        await Task.Delay(VerboseModeDelay * 2);
+
+        Assert.Equal(0, VerboseModeSends());
+    }
+
+    [Fact]
+    public async Task HandleConnectionState_ReconnectInsideTheDelay_SetsVerboseModeOnce()
+    {
+        SetConnection(ConnectionState.Connected);
+        SetConnection(ConnectionState.Disconnected);
+        SetConnection(ConnectionState.Connected);
+
+        await Wait.UntilAsync(() => VerboseModeSends() > 0, "3CV was never sent");
+        await Task.Delay(VerboseModeDelay);
+
+        Assert.Equal(1, VerboseModeSends());
+    }
+
+    [Theory]
+    [InlineData(ConnectionState.Disconnected)]
+    [InlineData(ConnectionState.Error)]
+    public void Module_DoesNotSetVerboseModeWhenNotConnected(ConnectionState state)
+    {
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(state);
+
+        _mockClient.Verify(x => x.Send($"{EscapeHeader}3CV\r"), Times.Never);
     }
 
     [Fact]
@@ -150,5 +211,27 @@ public class ExtronSmp351Test
         _mockClient.Object.ResponseHandlers!.Invoke("E22\r\n");
 
         Assert.NotEqual(CommunicationState.Okay, _recorder.CommunicationState);
+    }
+
+    [Theory]
+    [InlineData("Inf*<ChA1*ChB3>*<recording>*<internal*N/A>\r\n", "Inf*<ChA1*ChB3>*<recording>*<internal*N/A>")]
+    [InlineData("RcdrYx\r\n", "RcdrYx")]
+    [InlineData("Inf57*usbrear/232*93MB*238557MB\r\n", "usbrear/232*93MB*238557MB")]
+    [InlineData("Inf57*usbrear/232*93MB*238557MB*238464MB*86:49\r\n", "238464MB*86:49")]
+    [InlineData("Inf57*usbrear/232*93MB*238557MB*238464MB*86:4x:20*0\r\n", "86:4x:20*0")]
+    public void HandleResponse_LogsAMalformedResponseAndChangesNoState(string response, string logged)
+    {
+        var client = TestFactory.CreateSshClient();
+        var logs = LogCapture.Create(() => new ExtronSmp351(client.Object, 1024000, 512000, "malformed"),
+            out var recorder);
+        var rearUsbHandler = new Mock<ConnectionStateHandler>();
+        recorder.RearUsbConnectionStateHandlers += rearUsbHandler.Object;
+
+        client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Equal(TransportState.Unknown, recorder.TransportState);
+        Assert.Equal(ConnectionState.Unknown, recorder.RearUsbConnectionState);
+        rearUsbHandler.Verify(x => x.Invoke(It.IsAny<ConnectionState>()), Times.Never);
+        Assert.Contains(logs.Logs, log => log.Message.Contains(logged));
     }
 }

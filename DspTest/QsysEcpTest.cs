@@ -5,6 +5,7 @@ using AVCoders.Core.Tests;
 
 namespace AVCoders.Dsp.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class QsysEcpTest
 {
     private readonly QsysEcp _dsp;
@@ -33,6 +34,8 @@ public class QsysEcpTest
     private const int NeverPollMs = 3_600_000;
     private const int WaitTimeoutMs = 5000;
     private const int WaitStepMs = 50;
+    private const int ControlStateAttempts = 3;
+    private const string UnknownControl = "Nowhere";
     private static readonly int[] ChangeGroupIds = [1, 2, 3, 4];
 
     private static readonly string[] RegistrationSends =
@@ -81,9 +84,9 @@ public class QsysEcpTest
         Assert.Equal(MuteState.Off, _dsp.GetAudioMute(muteName));
         
         
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"This is a string\" 5 0.571429");
+        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{stringName}\" \"This is a string\" 5 0.571429");
 
-        Assert.Equal("This is a string", _dsp.GetValue(StringName));
+        Assert.Equal("This is a string", _dsp.GetValue(stringName));
     }
 
     [Fact]
@@ -272,10 +275,122 @@ public class QsysEcpTest
         _monitorHandler.Verify(x => x.Invoke(expectedLevel));
     }
 
+    [Theory]
+    [InlineData("cvv \"Rec Meter L\" 2 \"-45.3dB\" \"-11.8dB\" 2 -45.2769 -11.759 2 0.0736156 0.764821", "Rec Meter L", 7)]
+    [InlineData("cvv \"Mono\" 1 \"-2.17 dB\" 1 -2.17039 1 0.878296", "Mono", 87)]
+    public void HandleResponse_GivenAMeterResponse_FindsThePositionByItsCounts(string response, string meterName, int expectedLevel)
+    {
+        _dsp.AddMonitor(_monitorHandler.Object, meterName);
+        _mockClient.Object.ResponseHandlers.Invoke(response);
+
+        _monitorHandler.Verify(x => x.Invoke(expectedLevel));
+    }
+
     [Fact]
     public void HandleResponse_GivenAnInvalidResponse_DoesNothing()
     {
         _mockClient.Object.ResponseHandlers.Invoke("cv \"gai ");
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnUnparsedControlValue_LogsItAndHandlesTheNextLine()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = new TestTcpClient();
+        var dsp = CreateLogged(logs, () => new QsysEcp(client, "Test", NeverPollMs));
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+        client.ResponseHandlers.Invoke($"cv \"gai \ncv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\n");
+
+        Assert.Equal(98, dsp.GetLevel(GainName));
+        Assert.Contains(logs.Logs, x => x.Message == "Unparsed control value: cv \"gai ");
+        Assert.Empty(dsp.Errors);
+    }
+
+    [Fact]
+    public void AddControl_ToAnExistingControl_CallsTheNewHandlerWithTheCurrentValue()
+    {
+        _dsp.AddMonitor(_monitorHandler.Object, MeterName);
+        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\ncv \"{MuteName}\" \"muted\" 1 1\ncv \"{StringName}\" \"5\" 5 0.571429\n");
+        _mockClient.Object.ResponseHandlers.Invoke($"cvv \"{MeterName}\" 2 \"-45.3dB\" \"-11.8dB\" 2 -45.2769 -11.759 2 0.0736156 0.764821");
+        var volumeLevelHandler = new Mock<VolumeLevelHandler>();
+        var muteStateHandler = new Mock<MuteStateHandler>();
+        var stringValueHandler = new Mock<StringValueHandler>();
+        var monitorHandler = new Mock<VolumeLevelHandler>();
+
+        _dsp.AddControl(volumeLevelHandler.Object, GainName);
+        _dsp.AddControl(muteStateHandler.Object, MuteName);
+        _dsp.AddControl(stringValueHandler.Object, StringName);
+        _dsp.AddMonitor(monitorHandler.Object, MeterName);
+
+        volumeLevelHandler.Verify(x => x.Invoke(98), Times.Once);
+        muteStateHandler.Verify(x => x.Invoke(MuteState.On), Times.Once);
+        stringValueHandler.Verify(x => x.Invoke("5"), Times.Once);
+        monitorHandler.Verify(x => x.Invoke(7), Times.Once);
+    }
+
+    [Fact]
+    public void Commands_GivenAnUnknownControl_SendNothingAndLogTheValues()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = new TestTcpClient();
+        var dsp = CreateLogged(logs, () => new QsysEcp(client, "Test", NeverPollMs));
+
+        dsp.LevelUp(UnknownControl, 3);
+        dsp.LevelDown(UnknownControl, 2);
+        dsp.ToggleAudioMute(UnknownControl);
+
+        Assert.Empty(client.Sent);
+        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, not raising it by 3");
+        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, not lowering it by 2");
+        Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl}, not toggling it");
+    }
+
+    [Fact]
+    public void Gets_GivenAnUnknownControl_ReturnTheDefaultAndLog()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var dsp = CreateLogged(logs, () => new QsysEcp(new TestTcpClient(), "Test", NeverPollMs));
+
+        Assert.Equal(0, dsp.GetLevel(UnknownControl));
+        Assert.Equal(MuteState.Unknown, dsp.GetAudioMute(UnknownControl));
+        Assert.Equal("", dsp.GetValue(UnknownControl));
+        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, returning 0");
+        Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl}, returning Unknown");
+        Assert.Contains(logs.Logs, x => x.Message == $"Unknown string {UnknownControl}, returning an empty value");
+    }
+
+    [Fact]
+    public async Task GetAllControlStates_WhileAControlIsAdded_GetsTheControlsItStartedWith()
+    {
+        var client = new TestTcpClient();
+        var dsp = new QsysEcp(client, "Test", NeverPollMs);
+        dsp.AddControl(_volumeLevelHandler.Object, "Gain 1");
+        dsp.AddControl(_volumeLevelHandler.Object, "Gain 2");
+        dsp.AddControl(_volumeLevelHandler.Object, "Gain 3");
+
+        dsp.GetAllControlStates();
+        Assert.True(SpinWait.SpinUntil(() => client.Sent.Contains("cg \"Gain 1\"\n"), WaitTimeoutMs));
+        dsp.AddControl(_volumeLevelHandler.Object, "Gain 4");
+        await WaitUntil(() => client.Sent.Contains("cg \"Gain 3\"\n"));
+
+        Assert.Empty(dsp.Errors);
+    }
+
+    [Fact]
+    public async Task GetAllControlStates_GivenAFailingSend_GivesUpAfterThreeAttempts()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = new GetFailingTcpClient();
+        var dsp = CreateLogged(logs, () => new QsysEcp(client, "Test", NeverPollMs));
+        dsp.ControlStatesRetryDelay = TimeSpan.FromMilliseconds(10);
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+        dsp.GetAllControlStates();
+        await WaitUntil(() => logs.Logs.Any(x => x.Message == $"Gave up getting the control states after {ControlStateAttempts} attempts"));
+
+        Assert.Equal(ControlStateAttempts, Count(client, $"cg \"{GainName}\"\n"));
+        Assert.Equal(ControlStateAttempts, dsp.Errors.Count);
     }
 
     [Fact]
@@ -899,9 +1014,33 @@ public class QsysEcpTest
 
     private static bool IsChangeGroupAddOrGet(string message) => message.StartsWith("cga ") || message.StartsWith("cg ");
 
-    private static async Task WaitUntil(Func<bool> condition)
+    private static T CreateLogged<T>(ScopeCapturingLoggerFactory logs, Func<T> create)
     {
-        var deadline = DateTime.UtcNow.AddMilliseconds(WaitTimeoutMs);
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return create();
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private class GetFailingTcpClient : TestTcpClient
+    {
+        public override void Send(string message)
+        {
+            base.Send(message);
+            if (message.StartsWith("cg "))
+                throw new IOException("Oh No!");
+        }
+    }
+
+    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = WaitTimeoutMs)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (!condition() && DateTime.UtcNow < deadline)
             await Task.Delay(WaitStepMs);
         Assert.True(condition());

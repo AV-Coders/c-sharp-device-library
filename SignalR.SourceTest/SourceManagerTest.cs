@@ -7,6 +7,7 @@ public class SourceManagerTest
     private static readonly SourceDefinition None = new("None", "Not off, not on", "None", "off");
     private static readonly SourceDefinition Laptop = new("Laptop", "Lectern HDMI", "laptop", "laptop");
     private static readonly SourceDefinition Wireless = new("Wireless", "Wireless Presenter", "wireless", "wifi");
+    private static readonly SourceDefinition DisplayOff = new("Display Off", string.Empty, "off", "power");
 
     private readonly List<SourceDefinition> _sources = [None, Laptop, Wireless];
     private readonly SourceManager _manager;
@@ -86,6 +87,7 @@ public class SourceManagerTest
         _manager.SetCurrentSource("not-a-real-source");
 
         Assert.Equal(initial, _manager.CurrentSource);
+        Assert.Empty(_manager.Errors);
     }
 
     [Fact]
@@ -96,6 +98,40 @@ public class SourceManagerTest
         _manager.SetCurrentSource(99);
 
         Assert.Equal(initial, _manager.CurrentSource);
+        Assert.Empty(_manager.Errors);
+    }
+
+    [Fact]
+    public void SetCurrentSource_NegativeIndex_DoesNotChangeState()
+    {
+        _manager.SetCurrentSource(1);
+
+        _manager.SetCurrentSource(-1);
+
+        Assert.Equal("laptop", _manager.CurrentSource);
+        Assert.Equal(PowerState.On, _manager.PowerState);
+        Assert.Empty(_manager.Errors);
+    }
+
+    [Fact]
+    public void SetCurrentSource_TheConfiguredOffSource_SetsPowerOff()
+    {
+        var manager = new SourceManager("test-room", [DisplayOff, Laptop], defaultSource: "Laptop", offSource: "Display Off");
+        manager.SetCurrentSource("Laptop");
+
+        manager.SetCurrentSource("Display Off");
+
+        Assert.Equal(PowerState.Off, manager.PowerState);
+    }
+
+    [Fact]
+    public void SetCurrentSource_ASourceWithTheIdNoneThatIsNotTheOffSource_SetsPowerOn()
+    {
+        var manager = new SourceManager("test-room", [DisplayOff, None], defaultSource: "None", offSource: "Display Off");
+
+        manager.SetCurrentSource("None");
+
+        Assert.Equal(PowerState.On, manager.PowerState);
     }
 
     [Fact]
@@ -142,6 +178,19 @@ public class SourceManagerTest
         laptop.SetIsConnected(false);
 
         handler.Verify(h => h.Invoke(It.IsAny<List<SourceDefinition>>()), Times.Never);
+    }
+
+    [Fact]
+    public void SourcePreviewUrlTransition_RaisesSourceListChanged()
+    {
+        var laptop = new TestSourceDefinition("Laptop", "Lectern HDMI", "laptop", "laptop");
+        var manager = new SourceManager("test-room", [laptop]);
+        var handler = new Mock<Action<List<SourceDefinition>>>();
+        manager.OnSourceListChanged += handler.Object;
+
+        laptop.SetPreviewUrl("http://10.0.0.5/preview.jpg");
+
+        handler.Verify(h => h.Invoke(It.Is<List<SourceDefinition>>(l => l.Contains(laptop))), Times.Once);
     }
 
     [Fact]

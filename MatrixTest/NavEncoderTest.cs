@@ -100,7 +100,16 @@ public class NavEncoderTest
         
         Assert.Equal(expectedState, _inputSyncInfoHandlerMock.Invocations[0].Arguments[0]);
     }
-    
+
+    [Fact]
+    public void ResponseHandler_IgnoresAnInputStatusWithoutAValue()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("In00");
+
+        Assert.Empty(_inputSyncInfoHandlerMock.Invocations);
+    }
+
     [Theory]
     [InlineData("HdcpI1", HdcpStatus.Inactive)]
     [InlineData("HdcpI2", HdcpStatus.Active)]

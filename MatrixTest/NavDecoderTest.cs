@@ -5,6 +5,7 @@ using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
+[Collection("LoggerFactory")]
 public class NavDecoderTest
 {
     private readonly Mock<SshClient> _mockSshClient = TestFactory.CreateSshClient();
@@ -163,7 +164,97 @@ public class NavDecoderTest
         _navDecoder.SetInput(0);
         _navigatorMock.Verify(x => x.RouteAV(0, 101));
     }
-    
+
+    private Action<string> RegisteredResponseHandler(string deviceId) => (Action<string>)_navigatorMock.Invocations
+        .Last(invocation => invocation.Method.Name == nameof(Navigator.RegisterDevice) &&
+                            invocation.Arguments[0] as string == deviceId)
+        .Arguments[1];
+
+    [Fact]
+    public void SetInput_RoutesAnEncoder()
+    {
+        var encoder = new NavEncoder("Encoder", "2.2.2.2", _navigatorMock.Object);
+        RegisteredResponseHandler("1.1.1.1").Invoke("Dnum101");
+        RegisteredResponseHandler("2.2.2.2").Invoke("Dnum5");
+
+        _navDecoder.SetInput(encoder);
+
+        _navigatorMock.Verify(x => x.RouteAV(5, 101));
+        Assert.Equal(5, _navDecoder.DesiredVideoInput);
+    }
+
+    [Fact]
+    public void SetInput_WithAnEncoder_DoesNotRouteBeforeTheDeviceNumberIsKnown()
+    {
+        var encoder = new NavEncoder("Encoder", "2.2.2.2", _navigatorMock.Object);
+        RegisteredResponseHandler("2.2.2.2").Invoke("Dnum5");
+
+        _navDecoder.SetInput(encoder);
+
+        _navigatorMock.Verify(x => x.RouteAV(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+        Assert.Null(_navDecoder.DesiredVideoInput);
+    }
+
+    private (NavDecoder Decoder, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (new NavDecoder("Logged decoder", "3.3.3.3", _navigatorMock.Object), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    [Fact]
+    public void SetInput_WithAnEncoderWhoseNumberIsUnknown_SendsNothingAndLogs()
+    {
+        var (decoder, logs) = CreateWithCapturedLogs();
+        var encoder = new NavEncoder("Encoder", "2.2.2.2", _navigatorMock.Object);
+        RegisteredResponseHandler("3.3.3.3").Invoke("Dnum101");
+
+        decoder.SetInput(encoder);
+
+        _navigatorMock.Verify(x => x.RouteAV(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+        Assert.Null(decoder.DesiredVideoInput);
+        Assert.Contains(logs.Logs, log => log.Message == "Not requesting a route to Encoder as its device number is 0");
+    }
+
+    [Fact]
+    public void SetAudioMute_Unknown_SendsNothing()
+    {
+        _navDecoder.SetAudioMute(MuteState.Unknown);
+
+        _mockSshClient.Verify(x => x.Send(It.Is<string>(message => message.EndsWith("Z}\r"))), Times.Never);
+    }
+
+    [Fact]
+    public void ResponseHandler_AChangedDeviceNumberDeregistersTheOldOne()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+
+        theAction.Invoke("Dnum102");
+
+        _navigatorMock.Verify(x => x.DeregisterDevice("0101o"), Times.Once);
+        _navigatorMock.Verify(x => x.RegisterDevice("0102o", It.IsAny<Action<string>>()));
+    }
+
+    [Fact]
+    public void ResponseHandler_ARepeatedDeviceNumberDeregistersNothing()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Dnum101");
+
+        theAction.Invoke("Dnum101");
+
+        _navigatorMock.Verify(x => x.DeregisterDevice(It.IsAny<string>()), Times.Never);
+    }
+
     
     
     [Theory]
