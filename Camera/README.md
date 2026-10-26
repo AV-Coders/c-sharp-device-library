@@ -26,6 +26,10 @@ Drivers derive from `CameraBase` and talk to hardware through a transport from `
 
 `SonyVisca` and the drivers built on it (`AverVisca`, `CrestronIvCam`, `CrestronIvCamI12`) poll in the background from construction. `Dispose()` stops the poll and unsubscribes the driver from its client.
 
+### IV-CAM-I12 multi-camera switching
+
+`CrestronIvCamI12` switches its own USB output between itself (camera 1) and up to four companion cameras (2–5) on the same TCP connection (port 5500). The companions get no commands. `SetCompanionIp`, `ClearCompanionIps`, `SelectCamera` and `SetIntelligentSwitching` drive it; `ActiveCamera`, `IntelligentSwitching` and `CompanionIps` report it. Each poll refreshes them, and `QueryStatus()` (on every `SonyVisca`-based driver) runs the poll inquiries immediately. While intelligent switching is on, the active camera is also checked every second. Selecting a camera by hand turns intelligent switching off until it's turned back on. A companion slot reads `null` until the camera has reported it and `""` when the camera reports it empty. `SetCompanionIp` returns `false` when it rejects the slot or the address. Requires camera firmware 2.1.02 or later.
+
 ### Cameras that can't reply
 
 If the camera is wired one-way (transmit only), set `DeviceSendsResponses = false` on the driver. Drivers that normally wait for replies (`SonyVisca`, `AverVisca`) then stop polling and update power, preset, tracking and communication state as each command is handed to the transport. With replies on, the communication state becomes `Okay` only on a reply from the camera. `LumensCL510` and `LumensCL511` never read replies, so they report `false` from construction and logs a warning if asked to change.
@@ -42,6 +46,7 @@ Without IP headers (serial, or raw TCP such as the IV-CAM's port 5500) there is 
 - An inquiry reply goes to the oldest waiting inquiry whose reply has that length: 4 bytes for power, 5 for pan/tilt status and 10 for the version (VISCA.pdf p25–26). A lost power reply therefore can't hand the pan/tilt or version reply to the wrong inquiry. A reply of a length no waiting inquiry expects is logged as a warning with its raw bytes and answers nothing.
 - A completion or error in socket 1 or 2 goes to the command in that socket, however much traffic came in between. A completion with no ACK before it goes to the oldest command still waiting for its ACK.
 - A socket 0 error goes to the oldest inquiry or command still waiting for a reply. A command's syntax error is reported against that command, as before. Only a metadata inquiry's own syntax error (version, pan/tilt status) shows `Not supported`.
+- Inquiries go one at a time: the next is sent once the camera answers the one before, or after 1 s without an answer. Commands go straight out. Each poll drops inquiries still queued from the last one, and a connection change drops the whole queue. An IV-CAM-I12 silently drops inquiries when more than two await a reply *(unverified: bench observation, no log kept)*.
 - An inquiry or ACK that hasn't come back within 1 s is dropped, logged at Debug, and takes no later reply.
 - A connection change forgets every request still waiting, so nothing sent on the old connection takes a reply on the new one.
 - Inquiries with the same reply length are still matched by order alone: power and the IV-CAM-I12 tracking state are both 4 bytes. The tracking reply length comes from the driver's existing parsing *(unverified)*.

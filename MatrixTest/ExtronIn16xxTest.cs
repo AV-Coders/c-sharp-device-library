@@ -215,8 +215,196 @@ public class ExtronIn16xxTest
 
         await connect.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(_time, ConnectStepGap, () => sent.Count == 3, "The signal presence was never asked for");
-        Assert.Equal(["\u001b3CV\r", "I", "\u001b0LS\r"], sent);
+        await Wait.UntilAsync(_time, ConnectStepGap, () => sent.Count == 11, "The output connectors were never asked for");
+        Assert.Equal(
+            [
+                "\u001b3CV\r", "I", "\u001b0LS\r", "!",
+                "\u001bI3HDCP\r", "\u001bI4HDCP\r", "\u001bI5HDCP\r", "\u001bI6HDCP\r",
+                "\u001bO1HDCP\r", "\u001bO2HDCP\r", "\u001bO3HDCP\r"
+            ],
+            sent);
+    }
+
+    [Fact]
+    public async Task Heartbeat_QueriesTheTieAndTheHdmiInputsAndEveryOutputConnector()
+    {
+        SetConnection(ConnectionState.Connected);
+        await Wait.UntilAsync(_time, ConnectStepGap,
+            () => _mockClient.Invocations.Any(invocation => Equals(invocation.Arguments[0], "\u001bO3HDCP\r")),
+            "The output connectors were never asked for");
+        _mockClient.Invocations.Clear();
+
+        await Poll();
+
+        _mockClient.Verify(x => x.Send("!"), Times.Once);
+        _mockClient.Verify(x => x.Send("\u001bI1HDCP\r"), Times.Never);
+        _mockClient.Verify(x => x.Send("\u001bI2HDCP\r"), Times.Never);
+        foreach (var input in Enumerable.Range(3, 4))
+            _mockClient.Verify(x => x.Send($"\u001bI{input}HDCP\r"), Times.Once);
+        foreach (var connector in Enumerable.Range(1, 3))
+            _mockClient.Verify(x => x.Send($"\u001bO{connector}HDCP\r"), Times.Once);
+    }
+
+    [Fact]
+    public void Outputs_AreTheThreeConnectorsOfTheOneOutput()
+    {
+        Assert.Equal(1, _switcher.NumberOfOutputs);
+        Assert.Equal(["Output 1A", "Output 1B", "Output 1C"], _switcher.GetOutputs().Select(output => output.Name));
+    }
+
+    [Theory]
+    [InlineData("In03 All\r\n", "3")]
+    [InlineData("In3 All\r\n", "3")]
+    [InlineData("In05 RGB\r\n", "5")]
+    public void VideoTie_SetsTheSourceOnEveryOutputConnector(string response, string input)
+    {
+        Respond(response);
+
+        Assert.All(_switcher.GetOutputs(), output => Assert.Equal(input, output.StreamAddress));
+    }
+
+    [Fact]
+    public void VideoTie_NamesTheDiscoveredInput()
+    {
+        Respond("In00 0*0*1*1*0*0*0*0\r\n");
+
+        Respond("In03 All\r\n");
+
+        var routed = _switcher.GetOutputs()[0].StreamAddress;
+        Assert.Same(_switcher.Inputs[2], _switcher.GetInputs().Find(input => input.StreamAddress == routed));
+    }
+
+    [Fact]
+    public void AudioTie_LeavesTheVideoSourceAlone()
+    {
+        Respond("In03 All\r\n");
+
+        Respond("In04 Aud\r\n");
+
+        Assert.All(_switcher.GetOutputs(), output => Assert.Equal("3", output.StreamAddress));
+    }
+
+    [Fact]
+    public void OutputHdcp_SetsEachConnectorsSinkAndHdcp()
+    {
+        Respond("HdcpO1*2\r\nHdcpO2*0\r\nHdcpO3*1\r\n");
+
+        var outputs = _switcher.GetOutputs();
+        Assert.Equal(
+            [ConnectionState.Connected, ConnectionState.Disconnected, ConnectionState.Connected],
+            outputs.Select(output => output.OutputConnectionStatus));
+        Assert.Equal(
+            [HdcpStatus.NotSupported, HdcpStatus.Unknown, HdcpStatus.Available],
+            outputs.Select(output => output.OutputHdcpStatus));
+    }
+
+    [Fact]
+    public void OutputHdcp_ForAConnectorItDoesNotHave_IsIgnored()
+    {
+        Respond("HdcpO4*1\r\n");
+
+        Assert.All(_switcher.GetOutputs(), output => Assert.Equal(ConnectionState.Unknown, output.OutputConnectionStatus));
+    }
+
+    [Fact]
+    public void InputHdcp_SetsTheHdcpAndLeavesTheSignalToSignalPresence()
+    {
+        Respond("In00 0*0*1*1*0*0*0*0\r\n");
+
+        Respond("HdcpI03*2\r\nHdcpI04*1\r\nHdcpI05*2\r\n");
+
+        Assert.Equal(HdcpStatus.NotSupported, _switcher.Inputs[2].InputHdcpStatus);
+        Assert.Equal(HdcpStatus.Active, _switcher.Inputs[3].InputHdcpStatus);
+        Assert.Equal(ConnectionState.Disconnected, _switcher.Inputs[4].InputConnectionStatus);
+    }
+
+    [Fact]
+    public void InputHdcp_BeforeTheInputsAreDiscovered_IsIgnored()
+    {
+        Respond("HdcpI03*2\r\n");
+
+        Assert.Empty(_switcher.GetInputs());
+    }
+
+    [Fact]
+    public void SignalPresence_QueriesTheInputNamesOnlyWhenItDiscoversInputs()
+    {
+        Respond("In00 0*0*1*1*0*1*0*0\r\n");
+        Respond("In00 0*0*1*1*0*1*0*0\r\n");
+
+        foreach (var input in Enumerable.Range(1, 8))
+            _mockClient.Verify(x => x.Send($"\u001b{input}NI\r"), Times.Once);
+    }
+
+    [Fact]
+    public void InputNames_RenameTheInputs()
+    {
+        Respond("In00 0*0*1*1*0*1*0*0\r\n");
+
+        Respond("Nmi01,Input 1\r\nNmi02,Input 2\r\nNmi03,Codec\r\nNmi04,BLURAY\r\nNmi05,DOCCAM\r\nNmi06,SHARELINK\r\nNmi07,Input 7\r\nNmi08,BAR LAPTOP\r\n");
+
+        Assert.Equal(
+            ["Input 1", "Input 2", "Codec", "BLURAY", "DOCCAM", "SHARELINK", "Input 7", "BAR LAPTOP"],
+            _switcher.GetInputs().Select(input => input.Name));
+    }
+
+    [Fact]
+    public void InputName_BeforeTheInputsAreDiscovered_IsIgnored()
+    {
+        Respond("Nmi03,Codec\r\n");
+
+        Assert.Empty(_switcher.GetInputs());
+    }
+
+    [Fact]
+    public async Task Reconnect_QueriesTheNamesOfTheKnownInputs()
+    {
+        Respond("In00 0*0*1*1*0*1*0*0\r\n");
+        _mockClient.Invocations.Clear();
+
+        SetConnection(ConnectionState.Connected);
+        await Wait.UntilAsync(_time, ConnectStepGap,
+            () => _mockClient.Invocations.Any(invocation => Equals(invocation.Arguments[0], "\u001b8NI\r")),
+            "The input names were never asked for");
+
+        foreach (var input in Enumerable.Range(1, 8))
+            _mockClient.Verify(x => x.Send($"\u001b{input}NI\r"), Times.Once);
+    }
+
+    [Fact]
+    public void Hotplug_QueriesThatConnectorsHdcp()
+    {
+        Respond("HplgO2\r\n");
+
+        _mockClient.Verify(x => x.Send("\u001bO2HDCP\r"), Times.Once);
+    }
+
+    [Fact]
+    public void Reconfig_QueriesTheSignalPresence()
+    {
+        Respond("Reconfig\r\n");
+
+        _mockClient.Verify(x => x.Send("\u001b0LS\r"), Times.Once);
+    }
+
+    [Fact]
+    public void Disconnect_ClearsTheSignalHdcpAndSource()
+    {
+        Respond("In00 0*0*1*1*0*0*0*0\r\nHdcpI03*2\r\nHdcpO1*2\r\nIn03 All\r\n");
+
+        SetConnection(ConnectionState.Disconnected);
+
+        Assert.All(_switcher.Inputs, input =>
+        {
+            Assert.Equal(ConnectionState.Unknown, input.InputConnectionStatus);
+            Assert.Equal(HdcpStatus.Unknown, input.InputHdcpStatus);
+        });
+        Assert.All(_switcher.Outputs, output =>
+        {
+            Assert.Equal(ConnectionState.Unknown, output.OutputConnectionStatus);
+            Assert.Equal(HdcpStatus.Unknown, output.OutputHdcpStatus);
+            Assert.Equal(string.Empty, output.StreamAddress);
+        });
     }
 
     [Fact]

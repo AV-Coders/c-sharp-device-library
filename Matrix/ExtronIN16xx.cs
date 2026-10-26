@@ -7,15 +7,22 @@ public partial class ExtronIn16Xx : VideoMatrix
 {
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
-    public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
     public readonly List<ExtronMatrixInput> Inputs = [];
-    public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs
-        .SelectMany(output => new[] { output.Primary, output.Secondary })
-        .Where(endpoint => endpoint.InUse)
-        .ToList();
+    public readonly List<ExtronMatrixEndpoint> Outputs =
+    [
+        new("Output 1A", 1, AVEndpointType.Decoder),
+        new("Output 1B", 1, AVEndpointType.Decoder),
+        new("Output 1C", 1, AVEndpointType.Decoder)
+    ];
 
     private const string EscapeHeader = "\x1b";
     private const string SignalDetected = "1";
+    private const string NotDetected = "0";
+    private const string DetectedWithHdcp = "1";
+    private const string DetectedWithoutHdcp = "2";
+    private const string Reconfigured = "Reconfig";
+    private const string UntiedAddress = "";
+    private const int FirstHdmiInput = 3;
     private const int MaximumSyncTimeout = 501;
     private static readonly char[] LineSeparators = ['\r', '\n'];
     private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
@@ -47,16 +54,46 @@ public partial class ExtronIn16Xx : VideoMatrix
     [GeneratedRegex(@"^In00 ([01](?:\*[01])*)$", RegexOptions.IgnoreCase)]
     private static partial Regex SignalPresenceRegex();
 
+    [GeneratedRegex(@"^In(\d+) (?:All|RGB)$", RegexOptions.IgnoreCase)]
+    private static partial Regex VideoTieRegex();
+
+    [GeneratedRegex(@"^HdcpI(\d+)\*(\d)$", RegexOptions.IgnoreCase)]
+    private static partial Regex InputHdcpRegex();
+
+    [GeneratedRegex(@"^HdcpO(\d+)\*(\d)$", RegexOptions.IgnoreCase)]
+    private static partial Regex OutputHdcpRegex();
+
+    [GeneratedRegex(@"^HplgO(\d+)", RegexOptions.IgnoreCase)]
+    private static partial Regex HotplugRegex();
+
+    [GeneratedRegex(@"^Nmi(\d+),(.*)$", RegexOptions.IgnoreCase)]
+    private static partial Regex InputNameRegex();
+
     private void HandleResponse(string response)
     {
         using (PushProperties("HandleResponse"))
         {
             foreach (var line in response.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries))
-            {
-                if (SignalPresenceRegex().Match(line.Trim()) is { Success: true } presence)
-                    HandleSignalPresence(presence.Groups[1].Value);
-            }
+                ProcessResponse(line.Trim());
         }
+    }
+
+    private void ProcessResponse(string line)
+    {
+        if (SignalPresenceRegex().Match(line) is { Success: true } presence)
+            HandleSignalPresence(presence.Groups[1].Value);
+        else if (VideoTieRegex().Match(line) is { Success: true } tie)
+            HandleVideoTie(tie.Groups[1].Value);
+        else if (InputHdcpRegex().Match(line) is { Success: true } inputHdcp)
+            HandleInputHdcp(line, int.Parse(inputHdcp.Groups[1].Value), inputHdcp.Groups[2].Value);
+        else if (OutputHdcpRegex().Match(line) is { Success: true } outputHdcp)
+            HandleOutputHdcp(line, int.Parse(outputHdcp.Groups[1].Value), outputHdcp.Groups[2].Value);
+        else if (HotplugRegex().Match(line) is { Success: true } hotplug)
+            WrapAndSendCommand($"O{hotplug.Groups[1].Value}HDCP");
+        else if (InputNameRegex().Match(line) is { Success: true } inputName)
+            HandleInputName(line, int.Parse(inputName.Groups[1].Value), inputName.Groups[2].Value);
+        else if (line == Reconfigured)
+            WrapAndSendCommand("0LS");
     }
 
     private void HandleSignalPresence(string statuses)
@@ -79,15 +116,70 @@ public partial class ExtronIn16Xx : VideoMatrix
         while (Inputs.Count < count)
         {
             var number = Inputs.Count + 1;
-            Inputs.Add(new ExtronMatrixInput($"Input {number}", number));
+            var input = new ExtronMatrixInput($"Input {number}", number);
+            input.SetStreamAddress(number.ToString());
+            Inputs.Add(input);
         }
         EndpointsChangedHandlers?.Invoke();
+        QueryInputNames();
     }
-    
+
+    private void HandleVideoTie(string input)
+    {
+        var address = int.Parse(input).ToString();
+        Outputs.ForEach(output => output.SetStreamAddress(address));
+    }
+
+    private void HandleInputHdcp(string line, int number, string value)
+    {
+        if (number < 1 || number > Inputs.Count)
+        {
+            LogWarning("Ignoring the input HDCP status {Line} as it doesn't name one of the {InputCount} inputs", line, Inputs.Count);
+            return;
+        }
+        Inputs[number - 1].SetInputHdcpStatus(value switch
+        {
+            DetectedWithHdcp => HdcpStatus.Active,
+            DetectedWithoutHdcp => HdcpStatus.NotSupported,
+            _ => HdcpStatus.Unknown
+        });
+    }
+
+    private void HandleOutputHdcp(string line, int connector, string value)
+    {
+        if (connector < 1 || connector > Outputs.Count)
+        {
+            LogWarning("Ignoring the output HDCP status {Line} as it doesn't name one of the {ConnectorCount} output connectors", line, Outputs.Count);
+            return;
+        }
+        var (connection, hdcp) = value switch
+        {
+            NotDetected => (ConnectionState.Disconnected, HdcpStatus.Unknown),
+            DetectedWithHdcp => (ConnectionState.Connected, HdcpStatus.Available),
+            DetectedWithoutHdcp => (ConnectionState.Connected, HdcpStatus.NotSupported),
+            _ => (ConnectionState.Unknown, HdcpStatus.Unknown)
+        };
+        Outputs[connector - 1].SetOutputStatus(connection);
+        Outputs[connector - 1].SetOutputHdcpStatus(hdcp);
+    }
+
+    private void HandleInputName(string line, int number, string name)
+    {
+        if (number < 1 || number > Inputs.Count)
+        {
+            LogWarning("Ignoring the input name {Line} as it doesn't name one of the {InputCount} inputs", line, Inputs.Count);
+            return;
+        }
+        Inputs[number - 1].SetName(name);
+    }
+
     private void HandleConnectionState(ConnectionState connectionState)
     {
-        if(connectionState != ConnectionState.Connected)
+        if (connectionState != ConnectionState.Connected)
+        {
+            ClearStatus();
             return;
+        }
         lock (_spacedSendsLock)
             _spacedSends = _spacedSends.ContinueWith(async _ =>
             {
@@ -97,7 +189,8 @@ public partial class ExtronIn16Xx : VideoMatrix
                     WrapAndSendCommand("3CV");
                     await Task.Delay(ConnectStepGap, _timeProvider);
                     SendCommand("I");
-                    WrapAndSendCommand("0LS");
+                    QueryStatus();
+                    QueryInputNames();
                 }
                 catch (Exception e)
                 {
@@ -105,7 +198,22 @@ public partial class ExtronIn16Xx : VideoMatrix
                 }
             }, TaskScheduler.Default).Unwrap();
     }
-    
+
+    private void ClearStatus()
+    {
+        foreach (var input in Inputs)
+        {
+            input.SetInputStatus(ConnectionState.Unknown);
+            input.SetInputHdcpStatus(HdcpStatus.Unknown);
+        }
+        foreach (var output in Outputs)
+        {
+            output.SetOutputStatus(ConnectionState.Unknown);
+            output.SetOutputHdcpStatus(HdcpStatus.Unknown);
+            output.SetStreamAddress(UntiedAddress);
+        }
+    }
+
     private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
 
     private Task Poll(CancellationToken arg)
@@ -113,8 +221,24 @@ public partial class ExtronIn16Xx : VideoMatrix
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return Task.CompletedTask;
         WrapAndSendCommand("CV");
-        WrapAndSendCommand("0LS");
+        QueryStatus();
         return Task.CompletedTask;
+    }
+
+    private void QueryStatus()
+    {
+        WrapAndSendCommand("0LS");
+        SendCommand("!");
+        for (var number = FirstHdmiInput; number <= _numberOfInputs; number++)
+            WrapAndSendCommand($"I{number}HDCP");
+        for (var connector = 1; connector <= Outputs.Count; connector++)
+            WrapAndSendCommand($"O{connector}HDCP");
+    }
+
+    private void QueryInputNames()
+    {
+        for (var number = 1; number <= Inputs.Count; number++)
+            WrapAndSendCommand($"{number}NI");
     }
 
     private void SendCommand(string command)

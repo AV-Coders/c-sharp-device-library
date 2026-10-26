@@ -430,7 +430,7 @@ public class SonyViscaSerialTest
 
         await SonyViscaPolling.InvokePoll(camera);
 
-        Assert.Equal([[0x81, 0x09, 0x04, 0x00, 0xFF], SonyViscaPolling.VersionInquiry], client.Sent);
+        Assert.Equal([[0x81, 0x09, 0x04, 0x00, 0xFF]], client.Sent);
     }
 
     [Fact]
@@ -462,6 +462,50 @@ public class SonyViscaSerialTest
     }
 
     [Fact]
+    public async Task Poll_SendsTheSecondInquiryOnlyAfterTheFirstIsAnswered()
+    {
+        var client = new ConnectedClient();
+        var camera = new SecondInquiryCamera(client, false);
+
+        await SonyViscaPolling.InvokePoll(camera);
+        Assert.Equal([[0x81, 0x09, 0x04, 0x00, 0xFF]], client.Sent);
+
+        client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x02, 0xFF]);
+        Assert.Equal([[0x81, 0x09, 0x04, 0x00, 0xFF], [0x81, 0x09, 0x08, 0x01, 0xFF]], client.Sent);
+    }
+
+    [Fact]
+    public async Task Poll_InquiryThatGetsNoReply_ExpiresAndTheNextIsSent()
+    {
+        var time = new FakeTimeProvider();
+        var client = new ConnectedClient();
+        var camera = new SecondInquiryCamera(client, false, time);
+        await SonyViscaPolling.InvokePoll(camera);
+
+        SonyViscaPolling.ExpireInquiries(time, 1);
+        Assert.Equal([[0x81, 0x09, 0x04, 0x00, 0xFF], [0x81, 0x09, 0x08, 0x01, 0xFF]], client.Sent);
+        client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x02, 0xFF]);
+
+        Assert.Equal(PowerState.Unknown, camera.PowerState);
+        Assert.Equal([[0x90, 0x50, 0x02, 0xFF]], camera.SecondReplies);
+    }
+
+    [Fact]
+    public async Task Poll_WhileAnInquiryAwaitsItsReply_KeepsThatInquiry()
+    {
+        var client = new ConnectedClient();
+        var camera = new SecondInquiryCamera(client, false);
+        await SonyViscaPolling.InvokePoll(camera);
+        client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x02, 0xFF]);
+
+        await SonyViscaPolling.InvokePoll(camera);
+        client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x03, 0xFF, 0x90, 0x50, 0x03, 0xFF]);
+
+        Assert.Equal([[0x90, 0x50, 0x03, 0xFF]], camera.SecondReplies);
+        Assert.Equal(PowerState.Off, camera.PowerState);
+    }
+
+    [Fact]
     public async Task HandleResponse_InquiryUnansweredForASecond_TakesNoLaterReply()
     {
         var time = new FakeTimeProvider();
@@ -470,7 +514,7 @@ public class SonyViscaSerialTest
         await SonyViscaPolling.InvokePoll(camera);
         client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x02, 0xFF]);
 
-        time.Advance(TimeSpan.FromSeconds(1));
+        SonyViscaPolling.ExpireInquiries(time, 2);
         await SonyViscaPolling.InvokePoll(camera);
         client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x03, 0xFF]);
 
@@ -540,6 +584,7 @@ public class SonyViscaSerialTest
         client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x02, 0xFF]);
         time.Advance(TimeSpan.FromSeconds(1));
         await SonyViscaPolling.InvokePoll(camera);
+        time.Advance(TimeSpan.FromSeconds(1));
 
         client.ResponseByteHandlers!.Invoke([0x90, 0x50, 0x20, 0x20, 0xFF]);
         client.ResponseByteHandlers!.Invoke(SonyViscaPolling.CourtCameraVersionReply);
@@ -1387,11 +1432,12 @@ public class SonyViscaStatusTest
     private static readonly byte[] PowerOnReply = [0x90, 0x50, 0x02, 0xFF];
     private static readonly byte[] PowerOffReply = [0x90, 0x50, 0x03, 0xFF];
     private readonly ConnectedClient _client = new();
+    private readonly FakeTimeProvider _time = new();
     private readonly SonyVisca _camera;
 
     public SonyViscaStatusTest()
     {
-        _camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>());
+        _camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>(), 1, 30, _time);
     }
 
     private void Reply(byte[] reply) => _client.ResponseByteHandlers!.Invoke(reply);
@@ -1420,6 +1466,7 @@ public class SonyViscaStatusTest
     {
         await SonyViscaPolling.InvokePoll(_camera);
         Reply(PowerOnReply);
+        SonyViscaPolling.ExpireInquiries(_time, 1);
     }
 
     [Fact]
@@ -1485,6 +1532,7 @@ public class SonyViscaStatusTest
         await PollAndAnswerAsync(SonyViscaPolling.HealthyPanTiltStatusReply);
 
         await SonyViscaPolling.InvokePoll(_camera);
+        Reply(PowerOnReply);
 
         Assert.Equal(1, Sends(SonyViscaPolling.VersionInquiry));
         Assert.Equal(2, Sends(SonyViscaPolling.PanTiltStatusInquiry));
@@ -1497,6 +1545,7 @@ public class SonyViscaStatusTest
         {
             await SonyViscaPolling.InvokePoll(_camera);
             Reply(PowerOffReply);
+            SonyViscaPolling.ExpireInquiries(_time, 1);
         }
 
         Assert.Empty(_camera.GetIssues());
@@ -1504,12 +1553,12 @@ public class SonyViscaStatusTest
 
         await SonyViscaPolling.InvokePoll(_camera);
 
-        Assert.Equal(4, Sends(SonyViscaPolling.VersionInquiry));
         Assert.Equal(IssueSeverity.Minor, Ongoing("version-read")!.Severity);
         Assert.Equal("The camera did not answer the version inquiry 3 times in a row, the last was no reply",
             Ongoing("version-read")!.Message);
 
         Reply(PowerOffReply);
+        Assert.Equal(4, Sends(SonyViscaPolling.VersionInquiry));
         Reply(SonyViscaPolling.CourtCameraVersionReply);
 
         Assert.Empty(_camera.GetOngoingIssues());
@@ -1529,11 +1578,11 @@ public class SonyViscaStatusTest
 
         await SonyViscaPolling.InvokePoll(_camera);
 
-        Assert.Equal(4, Sends(SonyViscaPolling.PanTiltStatusInquiry));
         Assert.Equal("The camera did not answer the pan/tilt status inquiry 3 times in a row, the last was no reply",
             Ongoing("pan-tilt-status-read")!.Message);
 
         Reply(PowerOnReply);
+        Assert.Equal(4, Sends(SonyViscaPolling.PanTiltStatusInquiry));
         Reply(SonyViscaPolling.HealthyPanTiltStatusReply);
 
         Assert.Empty(_camera.GetOngoingIssues());
@@ -1689,6 +1738,8 @@ public class SonyViscaStatusTest
         _client.SetConnectionState(ConnectionState.Disconnected);
         _client.SetConnectionState(ConnectionState.Connected);
         await SonyViscaPolling.InvokePoll(_camera);
+        Reply(PowerOnReply);
+        Reply(SonyViscaPolling.SyntaxErrorReply);
 
         Assert.Equal(2, Sends(SonyViscaPolling.VersionInquiry));
         Assert.Equal(2, Sends(SonyViscaPolling.PanTiltStatusInquiry));
@@ -1733,12 +1784,17 @@ public class SonyViscaSilentCameraTest
     ];
     private const string PowerOnReplyToSequenceSixOverIp = @"\x01 \x11 \x00 \x04 \xFF \xFF \xFF \x06 \x90 \x50 \x02 \xFF";
     private static readonly byte[] PowerOnReply = [0x90, 0x50, 0x02, 0xFF];
+    private const int InquiriesPerPoll = 3;
     private readonly ConnectedClient _client = new();
+    private readonly FakeTimeProvider _time = new();
 
-    private static async Task PollAsync(SonyVisca camera, int polls)
+    private async Task PollAsync(SonyVisca camera, int polls)
     {
         for (var poll = 0; poll < polls; poll++)
+        {
             await SonyViscaPolling.InvokePoll(camera);
+            SonyViscaPolling.ExpireInquiries(_time, InquiriesPerPoll);
+        }
     }
 
     private static void AssertOnlyTheCommunicationIssue(SonyVisca camera)
@@ -1770,7 +1826,7 @@ public class SonyViscaSilentCameraTest
     [Fact]
     public async Task ThreeSilentPollsWithoutIpHeaders_SetCommunicationToErrorWithTheCriticalIssueAndNoVersionReadIssue()
     {
-        var camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>());
+        var camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>(), 1, 30, _time);
         await PollAsync(camera, 3);
 
         Assert.Equal(CommunicationState.NotAttempted, camera.CommunicationState);
@@ -1799,8 +1855,9 @@ public class SonyViscaSilentCameraTest
     [Fact]
     public async Task ReplyAfterTheSilentPollsWithoutIpHeaders_RestoresCommunicationAndResolvesTheIssue()
     {
-        var camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>());
-        await PollAsync(camera, 4);
+        var camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>(), 1, 30, _time);
+        await PollAsync(camera, 3);
+        await SonyViscaPolling.InvokePoll(camera);
 
         _client.ResponseByteHandlers!.Invoke(PowerOnReply);
 
@@ -1825,7 +1882,7 @@ public class SonyViscaSilentCameraTest
     [Fact]
     public async Task CameraThatGoesSilentWhileOn_RaisesNoPanTiltStatusReadIssue()
     {
-        var camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>());
+        var camera = new SonyVisca(_client, false, "Test Cam", new Dictionary<int, string>(), 1, 30, _time);
         await SonyViscaPolling.InvokePoll(camera);
         _client.ResponseByteHandlers!.Invoke(PowerOnReply);
         _client.ResponseByteHandlers!.Invoke(SonyViscaPolling.CourtCameraVersionReply);
@@ -1850,8 +1907,15 @@ internal static class SonyViscaPolling
         Logged(@"\x01 \x11 \x00 \x04 \xFF \xFF \xFF \x03 \x90 \x60 \x02 \xFF");
     public static readonly byte[] SyntaxErrorReply = CourtCameraPanTiltSyntaxErrorOverIp[IpHeaderLength..];
     public static readonly byte[] HealthyPanTiltStatusReply = [0x90, 0x50, 0x20, 0x00, 0xFF];
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(1);
 
     public static byte[] Logged(string received) => received.Split(' ').Select(b => Convert.ToByte(b[2..], 16)).ToArray();
+
+    public static void ExpireInquiries(FakeTimeProvider time, int inquiries)
+    {
+        for (var inquiry = 0; inquiry < inquiries; inquiry++)
+            time.Advance(ReplyTimeout);
+    }
 
     public static Task InvokePoll(SonyVisca camera) =>
         (Task)typeof(SonyVisca).GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!

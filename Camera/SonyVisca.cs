@@ -95,6 +95,10 @@ public class SonyVisca : CameraBase, IDisposable
     private readonly List<byte[]> _polledInquiries = [];
     private bool _replySincePoll;
     private int _silentPolls;
+    private readonly TimeProvider _timeProvider;
+    private readonly Queue<PendingInquiry> _queuedInquiries = new();
+    private PendingInquiry? _inquiryInFlight;
+    private ITimer? _inquiryExpiry;
 
     private static readonly Dictionary<byte, string> ErrorMessages = new Dictionary<byte, string>
     {
@@ -115,6 +119,7 @@ public class SonyVisca : CameraBase, IDisposable
         : base(name, client, presetNames)
     {
         _useIpHeaders = useIpHeaders;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _sent = new SentCommandTracker<PendingRequest>(ReplyTimeout, timeProvider);
         _executing = new SentCommandTracker<(byte Socket, PendingCommand Command)>(CompletionTimeout, timeProvider);
         SetCameraId(cameraId);
@@ -145,6 +150,7 @@ public class SonyVisca : CameraBase, IDisposable
             _panTiltStatusInquiry = InquiryState.Owed;
             _missedReplies.Clear();
             ForgetPolls();
+            ForgetQueuedInquiries();
         }
         if (DeviceSendsResponses)
             return;
@@ -163,6 +169,7 @@ public class SonyVisca : CameraBase, IDisposable
             _sent.Clear();
             _executing.Clear();
             ForgetPolls();
+            ForgetQueuedInquiries();
             if (connectionState != ConnectionState.Connected)
                 return;
             _versionInquiry = InquiryState.Owed;
@@ -178,22 +185,37 @@ public class SonyVisca : CameraBase, IDisposable
         _silentPolls = 0;
     }
 
+    private void ForgetQueuedInquiries()
+    {
+        _queuedInquiries.Clear();
+        _inquiryInFlight = null;
+        _inquiryExpiry?.Dispose();
+    }
+
     private Task Poll(CancellationToken token)
     {
-        if (!DeviceSendsResponses || CommunicationClient.ConnectionState != ConnectionState.Connected)
-            return Task.CompletedTask;
+        QueryStatus();
+        return Task.CompletedTask;
+    }
 
-        using (PushProperties("Poll"))
+    public void QueryStatus()
+    {
+        if (!DeviceSendsResponses || CommunicationClient.ConnectionState != ConnectionState.Connected)
+            return;
+
+        using (PushProperties("QueryStatus"))
         {
             lock (_pendingLock)
+            {
                 _pendingInquiriesBySequence.Clear();
+                _queuedInquiries.Clear();
+            }
             ForgetMissedReplies();
             CountSilentPoll();
             SendPollInquiries();
             AskForThePanTiltStatus();
             AskForTheVersion();
         }
-        return Task.CompletedTask;
     }
 
     private void ForgetMissedReplies()
@@ -408,25 +430,23 @@ public class SonyVisca : CameraBase, IDisposable
             return;
         }
         var pending = new PendingInquiry(bytes, description, replyLength, onReply, onError, Trigger.Id);
+        if (!_useIpHeaders)
+        {
+            lock (_pendingLock)
+                _queuedInquiries.Enqueue(pending);
+            SendNextInquiry();
+            return;
+        }
         try
         {
-            byte[] message;
-            if (_useIpHeaders)
+            byte sequenceNumber;
+            lock (_pendingLock)
             {
-                byte sequenceNumber;
-                lock (_pendingLock)
-                {
-                    sequenceNumber = _sequenceNumber++;
-                    _pendingCommands.Remove(sequenceNumber);
-                    _pendingInquiriesBySequence[sequenceNumber] = pending;
-                }
-                message = PayloadWithIpHeader(PayloadType.ViscaInquiry, sequenceNumber, bytes);
+                sequenceNumber = _sequenceNumber++;
+                _pendingCommands.Remove(sequenceNumber);
+                _pendingInquiriesBySequence[sequenceNumber] = pending;
             }
-            else
-            {
-                WarnIfDropped(_sent.Add(pending)?.Command);
-                message = bytes;
-            }
+            var message = PayloadWithIpHeader(PayloadType.ViscaInquiry, sequenceNumber, bytes);
             CommunicationClient.Send(message);
             lock (_pendingLock)
                 _polledInquiries.Add(message);
@@ -436,6 +456,50 @@ public class SonyVisca : CameraBase, IDisposable
             LogException(e);
             CommunicationState = CommunicationState.Error;
         }
+    }
+
+    // An IV-CAM-I12 silently drops inquiries when more than two await a reply, so without IP headers one is sent at a time.
+    private void SendNextInquiry()
+    {
+        PendingInquiry? next;
+        lock (_pendingLock)
+        {
+            if (InquiryAwaitingReply() || !_queuedInquiries.TryDequeue(out next))
+                return;
+            _inquiryInFlight = next;
+            _inquiryExpiry?.Dispose();
+            _inquiryExpiry = _timeProvider.CreateTimer(_ => ExpireInquiry(next), null, ReplyTimeout, Timeout.InfiniteTimeSpan);
+            using (Trigger.Resume(next.TriggerId))
+                WarnIfDropped(_sent.Add(next)?.Command);
+        }
+        using (Trigger.Resume(next.TriggerId))
+        {
+            try
+            {
+                CommunicationClient.Send(next.Bytes);
+                lock (_pendingLock)
+                    _polledInquiries.Add(next.Bytes);
+            }
+            catch (Exception e)
+            {
+                LogException(e);
+                CommunicationState = CommunicationState.Error;
+            }
+        }
+    }
+
+    private bool InquiryAwaitingReply() =>
+        _inquiryInFlight is { } inFlight && _sent.IsAwaitingReply(request => ReferenceEquals(request, inFlight));
+
+    private void ExpireInquiry(PendingInquiry inquiry)
+    {
+        lock (_pendingLock)
+        {
+            if (!ReferenceEquals(_inquiryInFlight, inquiry))
+                return;
+            _inquiryInFlight = null;
+        }
+        SendNextInquiry();
     }
 
     /// <returns>Whether the command was handed to the transport.</returns>
@@ -736,6 +800,7 @@ public class SonyVisca : CameraBase, IDisposable
         {
             var footerIndex = Array.IndexOf(complete, CommandFooter, index);
             ProcessViscaPayload(complete[index..(footerIndex + 1)]);
+            SendNextInquiry();
             index = footerIndex + 1;
         }
         if (partial.Length > MaxReplyLength)
@@ -927,6 +992,8 @@ public class SonyVisca : CameraBase, IDisposable
         CommunicationClient.ResponseByteHandlers -= HandleResponse;
         CommunicationClient.ConnectionStateHandlers -= HandleConnectionState;
         CommunicationClient.ConnectionStateHandlers -= HandleRequestedDisconnect;
+        lock (_pendingLock)
+            ForgetQueuedInquiries();
         Task.Run(_pollWorker.Stop).GetAwaiter().GetResult();
         LogBaseRegistry.Deregister(_pollWorker);
         LogBaseRegistry.Deregister(this);
