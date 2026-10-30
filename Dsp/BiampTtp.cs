@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using AVCoders.Core;
 
@@ -11,7 +12,12 @@ public enum BiampQuery
     Level,
     MinGain,
     MaxGain,
-    Mute
+    Mute,
+    Firmware,
+    Serial,
+    DeviceInfo,
+    NetworkStatus,
+    Aliases
 }
 
 public record Query(string ArrayIndex, BiampQuery BiampQuery, string DspCommand)
@@ -68,11 +74,54 @@ public class BiampTtp : Dsp
     public static readonly ushort DefaultPort = 22;
     public static readonly string DefaultUser = "default";
     public static readonly string DefaultPassword = string.Empty;
+    public const int KeepAliveReplyWindowMs = 1000;
+    public const int SlowKeepAliveReplyMs = 500;
+    public const int MaxMissedKeepAlives = 3;
+    public const int MaxSlowKeepAlives = 3;
+    private const int KeepAliveIntervalMs = 10000;
     private const string UnansweredQueryIssueKey = "unanswered-query";
+    private const string SlowRepliesIssueKey = "slow-replies";
+    private const string FirmwareHealthIssueKey = "firmware-health";
     private const string ErrorReplyIssueKey = "error-reply";
+    private const string FirmwareIssueKey = "firmware-read";
+    private const string SerialIssueKey = "serial-read";
+    private const string DeviceInfoIssueKey = "device-info-read";
+    private const string NetworkStatusIssueKey = "network-status-read";
+    private const string AliasesIssueKey = "aliases-read";
+    private const string FaultsIssueKey = "fault-list-read";
+    private const string FaultIssuePrefix = "fault:";
+    private const string BadControlIssuePrefix = "bad-control:";
+    private const string FirmwareLabel = "Firmware";
+    private const string SerialLabel = "Serial";
+    private const string ModelLabel = "Model";
+    private const string RevisionLabel = "Revision";
+    private const string HostnameLabel = "Hostname";
+    private const string DnsLabel = "DNS";
+    private const string MissingControlsLabel = "Missing Controls";
+    private const string ReplyTimeLabel = "Reply Time";
+    private const string FirmwareCommand = "DEVICE get version";
+    private const string SerialCommand = "DEVICE get serialNumber";
+    private const string DeviceInfoCommand = "DEVICE get deviceInfo";
+    private const string NetworkStatusCommand = "DEVICE get networkStatus";
+    private const string AliasesCommand = "SESSION get aliases";
+    private const string FaultsCommand = "DEVICE get activeFaultList";
+    private const string KeepAliveRequest = $"{FaultsCommand}\n";
+    private const string MajorInDeviceIndicator = "INDICATOR_MAJOR_IN_DEVICE";
+    private const string MajorInSystemIndicator = "INDICATOR_MAJOR_IN_SYSTEM";
     private const string ErrorReplyPrefix = "-";
     private const string PlainReplyPrefix = "+OK";
+    private const string ReplyValueGroup = "value";
+    private const char TtpStringQuote = '"';
+    private const string EmptyTtpString = "\"\"";
+    private static readonly Query FirmwareQuery = new("DEVICE", BiampQuery.Firmware, $"{FirmwareCommand}\n");
+    private static readonly Query SerialQuery = new("DEVICE", BiampQuery.Serial, $"{SerialCommand}\n");
+    private static readonly Query DeviceInfoQuery = new("DEVICE", BiampQuery.DeviceInfo, $"{DeviceInfoCommand}\n");
+    private static readonly Query NetworkStatusQuery = new("DEVICE", BiampQuery.NetworkStatus, $"{NetworkStatusCommand}\n");
+    private static readonly Query AliasesQuery = new("SESSION", BiampQuery.Aliases, $"{AliasesCommand}\n");
+    private static readonly Regex QueryReplyParser = new($"^\\+OK \"\\w+\":(?<{ReplyValueGroup}>.*)$", RegexOptions.None, TimeSpan.FromMilliseconds(200));
     private static readonly TimeSpan InterruptedReplyTimeout = TimeSpan.FromSeconds(1);
+    private static readonly Version MinimumV4Firmware = new(4, 11);
+    private static readonly Version MinimumV5Firmware = new(5, 7);
     private readonly Dictionary<string, BiampGain> _gains = new();
     private readonly Dictionary<string, BiampMute> _mutes = new();
     private readonly object _controlsLock = new();
@@ -90,7 +139,10 @@ public class BiampTtp : Dsp
     private readonly List<string> _deviceSubscriptions = [];
     private readonly object _deviceSubscriptionsLock = new ();
     private int _loopsSinceLastInitialise = 0;
-    private bool _lastRequestWasForTheVersion;
+    private readonly Queue<KeepAlive> _keepAlives = new();
+    private readonly List<long> _slowReplyTimes = [];
+    private readonly object _keepAlivesLock = new();
+    private int _missedKeepAlives;
     private bool _clientHasReconnectedSinceLastPollLoop;
     private int _initialising;
     private int _outstandingCommands;
@@ -125,6 +177,7 @@ public class BiampTtp : Dsp
             {
                 lock (_outstandingCommandsLock)
                     _outstandingCommands = 0;
+                ForgetTheKeepAlives();
                 _clientHasReconnectedSinceLastPollLoop = true;
                 PollWorker.Restart();
             }
@@ -237,7 +290,7 @@ public class BiampTtp : Dsp
             if (WaitingForTheInterruptedReply())
                 return;
 
-            if (_pendingQueries.TryDequeue(out var query))
+            if (!KeepAliveIsOwed() && _pendingQueries.TryDequeue(out var query))
             {
                 using (Trigger.Resume(query.TriggerId))
                 using (PushProperties("Poll"))
@@ -250,8 +303,8 @@ public class BiampTtp : Dsp
             }
             else
             {
-                LogVerbose("There are no pending queries, getting the version");
-                await GetTheVersion(token);
+                LogVerbose("Sending the keep-alive");
+                await SendTheKeepAlive(token);
                 _loopsSinceLastInitialise++;
                 if (_loopsSinceLastInitialise > 18)
                 {
@@ -295,6 +348,11 @@ public class BiampTtp : Dsp
                     {
                         _pendingQueries.Enqueue(query with { TriggerId = Trigger.Id });
                     }
+                    _pendingQueries.Enqueue(FirmwareQuery with { TriggerId = Trigger.Id });
+                    _pendingQueries.Enqueue(SerialQuery with { TriggerId = Trigger.Id });
+                    _pendingQueries.Enqueue(DeviceInfoQuery with { TriggerId = Trigger.Id });
+                    _pendingQueries.Enqueue(NetworkStatusQuery with { TriggerId = Trigger.Id });
+                    _pendingQueries.Enqueue(AliasesQuery with { TriggerId = Trigger.Id });
                 }
 
                 _loopsSinceLastInitialise = 0;
@@ -312,11 +370,164 @@ public class BiampTtp : Dsp
         }
     }
 
-    private async Task GetTheVersion(CancellationToken token)
+    private async Task SendTheKeepAlive(CancellationToken token)
     {
-        CommunicationClient.Send("DEVICE get version\n");
-        _lastRequestWasForTheVersion = true;
-        await Task.Delay(TimeSpan.FromSeconds(10), token);
+        var keepAlive = new KeepAlive(Stopwatch.GetTimestamp(), Trigger.Id);
+        lock (_keepAlivesLock)
+            _keepAlives.Enqueue(keepAlive);
+        CommunicationClient.Send(KeepAliveRequest);
+
+        await Task.Delay(KeepAliveReplyWindowMs, token);
+        if (TryMarkMissed(keepAlive))
+            HandleMissedKeepAlive(keepAlive);
+        else if (TakeTooManySlowReplyTimes() is { } slowReplyTimes)
+            ReconnectAfterSlowKeepAlives(slowReplyTimes);
+
+        await Task.Delay(KeepAliveIntervalMs - KeepAliveReplyWindowMs, token);
+    }
+
+    private bool KeepAliveIsOwed()
+    {
+        lock (_keepAlivesLock)
+            return _keepAlives.Count > 0;
+    }
+
+    private bool TryMarkMissed(KeepAlive keepAlive)
+    {
+        lock (_keepAlivesLock)
+        {
+            if (!_keepAlives.Contains(keepAlive))
+                return false;
+            keepAlive.Missed = true;
+            return true;
+        }
+    }
+
+    private KeepAlive? TakeKeepAlive()
+    {
+        lock (_keepAlivesLock)
+            return _keepAlives.TryDequeue(out var keepAlive) ? keepAlive : null;
+    }
+
+    private List<long>? TakeTooManySlowReplyTimes()
+    {
+        lock (_keepAlivesLock)
+        {
+            if (_slowReplyTimes.Count < MaxSlowKeepAlives)
+                return null;
+            var slowReplyTimes = _slowReplyTimes.ToList();
+            _slowReplyTimes.Clear();
+            return slowReplyTimes;
+        }
+    }
+
+    private void HandleMissedKeepAlive(KeepAlive keepAlive)
+    {
+        int missed;
+        lock (_keepAlivesLock)
+            missed = ++_missedKeepAlives;
+        using (Trigger.Resume(keepAlive.TriggerId))
+        using (PushProperties("HandleMissedKeepAlive"))
+        {
+            RaiseMomentaryIssue($"The query {FaultsCommand} was not answered within {KeepAliveReplyWindowMs} ms",
+                key: UnansweredQueryIssueKey, escalateAfter: MaxMissedKeepAlives);
+            if (missed < MaxMissedKeepAlives)
+                return;
+            LogWarning("The Tesira has not answered {Count} keep-alives in a row within {WindowMs} ms, reconnecting",
+                MaxMissedKeepAlives, KeepAliveReplyWindowMs);
+            AddEvent(EventType.Connection, $"Reconnecting: {MaxMissedKeepAlives} keep-alives in a row were not answered within {KeepAliveReplyWindowMs} ms");
+            ReconnectTheTesira();
+        }
+    }
+
+    private void ReconnectAfterSlowKeepAlives(List<long> slowReplyTimes)
+    {
+        string replyTimes = string.Join(", ", slowReplyTimes.Select(replyMs => $"{replyMs} ms"));
+        using (PushProperties("ReconnectAfterSlowKeepAlives"))
+        {
+            LogWarning("The Tesira answered {Count} keep-alives in a row slower than {SlowMs} ms ({ReplyTimes}), reconnecting",
+                MaxSlowKeepAlives, SlowKeepAliveReplyMs, replyTimes);
+            AddEvent(EventType.Connection, $"Reconnecting: {MaxSlowKeepAlives} keep-alive replies in a row were slower than {SlowKeepAliveReplyMs} ms ({replyTimes})");
+            ReconnectTheTesira();
+        }
+    }
+
+    private void ReconnectTheTesira()
+    {
+        ForgetTheKeepAlives();
+        if (CommunicationClient is not IpComms ipComms)
+        {
+            LogWarning("A {ClientType} cannot reconnect", CommunicationClient.GetType().Name);
+            return;
+        }
+        ipComms.Reconnect();
+    }
+
+    private void ForgetTheKeepAlives()
+    {
+        lock (_keepAlivesLock)
+        {
+            _keepAlives.Clear();
+            _slowReplyTimes.Clear();
+            _missedKeepAlives = 0;
+        }
+    }
+
+    private void HandleKeepAliveReply(KeepAlive keepAlive, string value, string line)
+    {
+        using (Trigger.Resume(keepAlive.TriggerId))
+        using (PushProperties("HandleKeepAliveReply"))
+        {
+            TimeTheKeepAlive(keepAlive);
+            ShowFaults(value, line);
+        }
+    }
+
+    private void HandleKeepAliveError(KeepAlive keepAlive, string line)
+    {
+        using (Trigger.Resume(keepAlive.TriggerId))
+        using (PushProperties("HandleKeepAliveError"))
+        {
+            TimeTheKeepAlive(keepAlive);
+            RaiseOngoingIssue(FaultsIssueKey, $"The Tesira returned an error to {FaultsCommand}: {line}", IssueSeverity.Minor);
+        }
+    }
+
+    private void TimeTheKeepAlive(KeepAlive keepAlive)
+    {
+        long replyMs = (long)Stopwatch.GetElapsedTime(keepAlive.SentAt).TotalMilliseconds;
+        CommunicationState = CommunicationState.Okay;
+        SetDetail(ReplyTimeLabel, $"{replyMs} ms", replyMs > SlowKeepAliveReplyMs ? DetailTone.Warning : DetailTone.Normal);
+        if (keepAlive.Missed)
+            LogWarning("The {Command} reply took {ReplyMs} ms, so it was already counted as missed", FaultsCommand, replyMs);
+        else if (replyMs > SlowKeepAliveReplyMs)
+            HandleSlowKeepAlive(replyMs);
+        else
+            HandleFastKeepAlive();
+    }
+
+    private void HandleFastKeepAlive()
+    {
+        lock (_keepAlivesLock)
+        {
+            _slowReplyTimes.Clear();
+            _missedKeepAlives = 0;
+        }
+        ResolveIssue(UnansweredQueryIssueKey);
+        ResolveIssue(SlowRepliesIssueKey);
+    }
+
+    private void HandleSlowKeepAlive(long replyMs)
+    {
+        lock (_keepAlivesLock)
+        {
+            _slowReplyTimes.Add(replyMs);
+            _missedKeepAlives = 0;
+        }
+        ResolveIssue(UnansweredQueryIssueKey);
+        string firmware = Details.SingleOrDefault(detail => detail.Label == FirmwareLabel)?.Value ?? "not read yet";
+        RaiseOngoingIssue(SlowRepliesIssueKey,
+            $"The Tesira took {replyMs} ms to answer {FaultsCommand}, over the {SlowKeepAliveReplyMs} ms limit. Firmware: {firmware}");
     }
 
     private void HandleResponse(string response)
@@ -326,15 +537,13 @@ public class BiampTtp : Dsp
             foreach (string received in response.Split('\n'))
             {
                 string line = received.TrimEnd('\r');
-                if (line.StartsWith("+OK \"value\":"))
+                var queryReply = QueryReplyParser.Match(line);
+                if (queryReply.Success)
                 {
-                    if (_lastRequestWasForTheVersion)
-                    {
-                        _lastRequestWasForTheVersion = false;
-                        continue;
-                    }
-
-                    AllocateValueToBlock(line.Split(':')[1]);
+                    if (TakeKeepAlive() is { } keepAlive)
+                        HandleKeepAliveReply(keepAlive, queryReply.Groups[ReplyValueGroup].Value, line);
+                    else
+                        AllocateValueToBlock(queryReply.Groups[ReplyValueGroup].Value, line);
                 }
                 else if (line.StartsWith("!"))
                 {
@@ -385,20 +594,45 @@ public class BiampTtp : Dsp
                 RaiseMomentaryIssue($"The Tesira returned an error to a command: {line}", ErrorReplyIssueKey);
             return;
         }
+        if (TakeKeepAlive() is { } keepAlive)
+        {
+            HandleKeepAliveError(keepAlive, line);
+            return;
+        }
         var current = _currentQuery ?? TakeInterruptedQuery();
         _currentQuery = null;
         using (Trigger.Resume(current?.TriggerId))
         using (PushProperties("HandleErrorReply"))
         {
             ResolveIssue(UnansweredQueryIssueKey);
-            RaiseMomentaryIssue(current == null
-                    ? $"The Tesira returned an error: {line}"
-                    : $"The Tesira returned an error to {current.DspCommand.Trim()}: {line}",
-                ErrorReplyIssueKey);
+            switch (current?.BiampQuery)
+            {
+                case BiampQuery.Firmware:
+                    RaiseOngoingIssue(FirmwareIssueKey, $"The Tesira returned an error to {FirmwareCommand}: {line}", IssueSeverity.Minor);
+                    break;
+                case BiampQuery.Serial:
+                    RaiseOngoingIssue(SerialIssueKey, $"The Tesira returned an error to {SerialCommand}: {line}", IssueSeverity.Minor);
+                    break;
+                case BiampQuery.DeviceInfo:
+                    RaiseOngoingIssue(DeviceInfoIssueKey, $"The Tesira returned an error to {DeviceInfoCommand}: {line}", IssueSeverity.Minor);
+                    break;
+                case BiampQuery.NetworkStatus:
+                    RaiseOngoingIssue(NetworkStatusIssueKey, $"The Tesira returned an error to {NetworkStatusCommand}: {line}", IssueSeverity.Minor);
+                    break;
+                case BiampQuery.Aliases:
+                    RaiseOngoingIssue(AliasesIssueKey, $"The Tesira returned an error to {AliasesCommand}: {line}", IssueSeverity.Minor);
+                    break;
+                default:
+                    RaiseMomentaryIssue(current == null
+                            ? $"The Tesira returned an error: {line}"
+                            : $"The Tesira returned an error to {current.DspCommand.Trim()}: {line}",
+                        ErrorReplyIssueKey);
+                    break;
+            }
         }
     }
 
-    private void AllocateValueToBlock(string value)
+    private void AllocateValueToBlock(string value, string line)
     {
         var current = _currentQuery;
         if (current == null)
@@ -445,11 +679,237 @@ public class BiampTtp : Dsp
                     else
                         LogError("Error getting the Min gain, The polled block should be a level, but it isn't. {blockKey}", current.DspCommand);
                     break;
+                case BiampQuery.Firmware:
+                    ShowFirmware(value, line);
+                    break;
+                case BiampQuery.Serial:
+                    ShowSerial(value, line);
+                    break;
+                case BiampQuery.DeviceInfo:
+                    ShowDeviceInfo(value, line);
+                    break;
+                case BiampQuery.NetworkStatus:
+                    ShowNetworkStatus(value, line);
+                    break;
+                case BiampQuery.Aliases:
+                    ShowMissingInstanceTags(value, line);
+                    break;
             }
 
             ResolveIssue(UnansweredQueryIssueKey);
             _currentQuery = null;
         }
+    }
+
+    private void ShowFirmware(string value, string line)
+    {
+        if (!IsNonEmptyTtpString(value))
+        {
+            RaiseOngoingIssue(FirmwareIssueKey, $"The Tesira's reply to {FirmwareCommand} is not a firmware version: {line}", IssueSeverity.Minor);
+            return;
+        }
+        SetDetail(FirmwareLabel, value[1..^1]);
+        ResolveIssue(FirmwareIssueKey);
+        CheckTheFirmwareIsHealthy(value[1..^1]);
+    }
+
+    private void CheckTheFirmwareIsHealthy(string firmware)
+    {
+        if (!Version.TryParse(firmware, out var version))
+            RaiseOngoingIssue(FirmwareHealthIssueKey, $"Firmware {firmware} is not a version number this driver can check");
+        else if (version < MinimumV4Firmware)
+            RaiseOngoingIssue(FirmwareHealthIssueKey, $"Firmware {firmware} is below {MinimumV4Firmware}, so it is not supported");
+        else if (version.Major == MinimumV5Firmware.Major && version < MinimumV5Firmware)
+            RaiseOngoingIssue(FirmwareHealthIssueKey,
+                $"Firmware {firmware} is below {MinimumV5Firmware}, the minimum for version {MinimumV5Firmware.Major}", IssueSeverity.Minor);
+        else
+            ResolveIssue(FirmwareHealthIssueKey);
+    }
+
+    private void ShowSerial(string value, string line)
+    {
+        if (!IsNonEmptyTtpString(value))
+        {
+            RaiseOngoingIssue(SerialIssueKey, $"The Tesira's reply to {SerialCommand} is not a serial number: {line}", IssueSeverity.Minor);
+            return;
+        }
+        SetDetail(SerialLabel, value[1..^1]);
+        ResolveIssue(SerialIssueKey);
+    }
+
+    private static bool IsNonEmptyTtpString(string value) =>
+        value.Length > EmptyTtpString.Length && value.StartsWith(TtpStringQuote) && value.EndsWith(TtpStringQuote);
+
+    private void ShowDeviceInfo(string value, string line)
+    {
+        var info = ParseTtp(value);
+        string? model = StringProperty(info, "deviceModel");
+        string? revision = StringProperty(info, "deviceRevision");
+        if (model == null || revision == null)
+        {
+            RaiseOngoingIssue(DeviceInfoIssueKey, $"The Tesira's reply to {DeviceInfoCommand} has no deviceModel or deviceRevision: {line}", IssueSeverity.Minor);
+            return;
+        }
+        SetDetail(ModelLabel, model);
+        SetDetail(RevisionLabel, revision);
+        ResolveIssue(DeviceInfoIssueKey);
+    }
+
+    private void ShowNetworkStatus(string value, string line)
+    {
+        var status = ParseTtp(value);
+        string? hostname = StringProperty(status, "hostname");
+        var interfaces = Property(status, "networkInterfaceStatusWithName", JsonValueKind.Array);
+        var dns = Property(status, "dnsStatus", JsonValueKind.Object);
+        if (hostname == null || interfaces == null || dns == null)
+        {
+            RaiseOngoingIssue(NetworkStatusIssueKey, $"The Tesira's reply to {NetworkStatusCommand} has no hostname, networkInterfaceStatusWithName or dnsStatus: {line}", IssueSeverity.Minor);
+            return;
+        }
+        SetDetail(HostnameLabel, hostname);
+        foreach (var networkInterface in interfaces.Value.EnumerateArray())
+            SetDetail(StringProperty(networkInterface, "interfaceId") ?? networkInterface.GetRawText(), InterfaceText(networkInterface));
+        SetDetail(DnsLabel, DnsText(dns.Value));
+        ResolveIssue(NetworkStatusIssueKey);
+    }
+
+    private static string InterfaceText(JsonElement networkInterface)
+    {
+        var status = Property(networkInterface, "networkInterfaceStatus", JsonValueKind.Object);
+        string? link = StringProperty(status, "linkStatus");
+        string? ip = StringProperty(status, "ip");
+        string? netmask = StringProperty(status, "netmask");
+        string? gateway = StringProperty(status, "gateway");
+        string? source = StringProperty(status, "addressSource");
+        string? mac = StringProperty(status, "macAddress");
+        return link == null || ip == null || netmask == null || gateway == null || source == null || mac == null
+            ? networkInterface.GetRawText()
+            : $"{link}, {ip}/{netmask}, gateway {gateway}, {source}, MAC {mac}";
+    }
+
+    private static string DnsText(JsonElement dns)
+    {
+        string? primary = StringProperty(dns, "primaryDNSServer");
+        string? secondary = StringProperty(dns, "secondaryDNSServer");
+        string? domain = StringProperty(dns, "domainName");
+        return primary == null || secondary == null || domain == null
+            ? dns.GetRawText()
+            : $"primary {primary}, secondary {secondary}, domain {domain}";
+    }
+
+    private void ShowMissingInstanceTags(string value, string line)
+    {
+        var aliases = ParseTtp(value);
+        if (aliases is not { ValueKind: JsonValueKind.Array } aliasList
+            || aliasList.EnumerateArray().Any(alias => alias.ValueKind != JsonValueKind.String))
+        {
+            RaiseOngoingIssue(AliasesIssueKey, $"The Tesira's reply to {AliasesCommand} is not a list of instance tags: {line}", IssueSeverity.Minor);
+            return;
+        }
+        ResolveIssue(AliasesIssueKey);
+
+        var configured = aliasList.EnumerateArray().Select(alias => alias.GetString()!).ToHashSet();
+        var registered = RegisteredInstanceTags();
+        var missing = registered.Where(tag => !configured.Contains(tag)).ToList();
+        foreach (var tag in registered.Except(missing))
+            ResolveIssue($"{BadControlIssuePrefix}{tag}");
+        foreach (var tag in missing)
+            RaiseOngoingIssue($"{BadControlIssuePrefix}{tag}", $"The Tesira's configuration has no instance tag {tag}");
+
+        if (missing.Count == 0)
+            RemoveDetail(MissingControlsLabel);
+        else
+            SetDetail(MissingControlsLabel, string.Join(", ", missing), DetailTone.Warning);
+    }
+
+    private List<string> RegisteredInstanceTags()
+    {
+        lock (_controlsLock)
+            return _gains.Values.Select(gain => gain.ControlName)
+                .Concat(_mutes.Values.Select(mute => mute.ControlName))
+                .Distinct()
+                .Order()
+                .ToList();
+    }
+
+    private void ShowFaults(string value, string line)
+    {
+        var entries = ParseTtp(value);
+        if (entries is not { ValueKind: JsonValueKind.Array } faultList)
+        {
+            RaiseOngoingIssue(FaultsIssueKey, $"The Tesira's reply to {FaultsCommand} is not a fault list: {line}", IssueSeverity.Minor);
+            return;
+        }
+        ResolveIssue(FaultsIssueKey);
+
+        var faults = faultList.EnumerateArray()
+            .SelectMany(ReadFaults)
+            .GroupBy(fault => fault.IssueKey)
+            .Select(same => new TesiraFault(same.Key, string.Join("; ", same.Select(fault => fault.Message)), same.Max(fault => fault.Severity)))
+            .ToList();
+        var activeKeys = faults.Select(fault => fault.IssueKey).ToHashSet();
+        foreach (var cleared in GetOngoingIssues().Where(issue => issue.Key.StartsWith(FaultIssuePrefix) && !activeKeys.Contains(issue.Key)))
+            ResolveIssue(cleared.Key);
+        foreach (var fault in faults)
+            RaiseOngoingIssue(fault.IssueKey, fault.Message, fault.Severity);
+    }
+
+    private static IEnumerable<TesiraFault> ReadFaults(JsonElement entry)
+    {
+        string? serial = StringProperty(entry, "serialNumber");
+        string? indicator = StringProperty(entry, "id");
+        string? indicatorName = StringProperty(entry, "name");
+        var faults = Property(entry, "faults", JsonValueKind.Array);
+        if (serial == null || indicator == null || indicatorName == null || faults == null)
+            return [new TesiraFault($"{FaultIssuePrefix}{entry.GetRawText()}",
+                $"The Tesira reported a fault entry this driver does not recognise: {entry.GetRawText()}", IssueSeverity.Minor)];
+
+        var severity = IndicatorSeverity(indicator);
+        return faults.Value.EnumerateArray().Select(fault => ReadFault(fault, serial, $"{indicatorName} ({indicator})", severity)).ToList();
+    }
+
+    private static TesiraFault ReadFault(JsonElement fault, string serial, string indicator, IssueSeverity severity)
+    {
+        string? id = StringProperty(fault, "id");
+        string? name = StringProperty(fault, "name");
+        return id == null || name == null
+            ? new TesiraFault($"{FaultIssuePrefix}{serial}:{fault.GetRawText()}",
+                $"{serial}, {indicator}, reported a fault this driver does not recognise: {fault.GetRawText()}", severity)
+            : new TesiraFault($"{FaultIssuePrefix}{serial}:{id}", $"{name} ({id}) on {serial}, {indicator}", severity);
+    }
+
+    private static IssueSeverity IndicatorSeverity(string indicator) => indicator switch
+    {
+        MajorInDeviceIndicator or MajorInSystemIndicator => IssueSeverity.Major,
+        _ => IssueSeverity.Minor
+    };
+
+    private static JsonElement? ParseTtp(string value)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(TtpJson.ToJson(value));
+            return document.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static JsonElement? Property(JsonElement? element, string name, JsonValueKind kind) =>
+        element is { ValueKind: JsonValueKind.Object } value && value.TryGetProperty(name, out var property) && property.ValueKind == kind
+            ? property
+            : null;
+
+    private static string? StringProperty(JsonElement? element, string name) =>
+        Property(element, name, JsonValueKind.String)?.GetString();
+
+    private record TesiraFault(string IssueKey, string Message, IssueSeverity Severity);
+
+    private record KeepAlive(long SentAt, string? TriggerId)
+    {
+        public bool Missed { get; set; }
     }
 
     private void DropValueWithNoCurrentQuery(string value)

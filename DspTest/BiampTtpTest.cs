@@ -1,6 +1,8 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Collections;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Xunit.Abstractions;
@@ -32,6 +34,37 @@ public class BiampTtpTest
     private const int WaitTimeoutMs = 15000;
     private const int WaitStepMs = 50;
     private const int LongAgoSeconds = 60;
+    private const string FirmwareQueryCommand = "DEVICE get version\n";
+    private const string SerialQueryCommand = "DEVICE get serialNumber\n";
+    private const string DeviceInfoQueryCommand = "DEVICE get deviceInfo\n";
+    private const string NetworkStatusQueryCommand = "DEVICE get networkStatus\n";
+    private const string AliasesQueryCommand = "SESSION get aliases\n";
+    private const string FaultsQueryCommand = "DEVICE get activeFaultList\n";
+    private const string VersionReply = TesiraReplies.Version;
+    private const string OlderVersionReply = "+OK \"value\":\"4.2.1.23\"";
+    private const string SerialReply = TesiraReplies.SerialNumber;
+    private const string UnsupportedAttributeError = TesiraReplies.UnsupportedDeviceAttribute;
+    private const string FirmwareIssueKey = "firmware-read";
+    private const string SerialIssueKey = "serial-read";
+    private const string DeviceInfoIssueKey = "device-info-read";
+    private const string NetworkStatusIssueKey = "network-status-read";
+    private const string AliasesIssueKey = "aliases-read";
+    private const string FaultsIssueKey = "fault-list-read";
+    private const string SlowRepliesIssueKey = "slow-replies";
+    private const string FirmwareHealthIssueKey = "firmware-health";
+    private const int SlowReplyMs = 700;
+    private const int FlaggedWithinMs = 2000;
+    private const int WindowCheckMarginMs = 300;
+    private const string FanFaultIssueKey = "fault:04351854:FAULT_FAN_MALFUNCTION";
+    private const string FanFault = """{"id":FAULT_FAN_MALFUNCTION "name":"Cooling fan malfunction.  Check filter and fan."}""";
+    private const string FanFaultReply = $$"""+OK "value":[{"id":INDICATOR_MINOR_IN_DEVICE "name":"Minor Fault in Device" "faults":[{{FanFault}}] "serialNumber":"04351854"}]""";
+    private const string ExpanderFaultReply = $$"""+OK "value":[{"id":INDICATOR_MINOR_IN_DEVICE "name":"Minor Fault in Device" "faults":[{{FanFault}}] "serialNumber":"04351854"} {"id":INDICATOR_MAJOR_IN_DEVICE "name":"Major Fault in Device" "faults":[{"id":FAULT_DSP_CARD "name":"One or more DSP cards failed to boot"}] "serialNumber":"01882935"}]""";
+    private const string NotAStringReply = "+OK \"value\":-12.000000";
+    private static readonly Query FirmwareQuery = new("DEVICE", BiampQuery.Firmware, FirmwareQueryCommand);
+    private static readonly Query SerialQuery = new("DEVICE", BiampQuery.Serial, SerialQueryCommand);
+    private static readonly Query DeviceInfoQuery = new("DEVICE", BiampQuery.DeviceInfo, DeviceInfoQueryCommand);
+    private static readonly Query NetworkStatusQuery = new("DEVICE", BiampQuery.NetworkStatus, NetworkStatusQueryCommand);
+    private static readonly Query AliasesQuery = new("SESSION", BiampQuery.Aliases, AliasesQueryCommand);
 
     private static readonly string[] Subscriptions =
     [
@@ -363,13 +396,16 @@ public class BiampTtpTest
     }
 
     [Fact]
-    public void HandleResponse_AfterTheVersionReply_HandlesTheRestOfTheLines()
+    public void HandleResponse_AfterTheFaultListReply_HandlesTheRestOfTheLines()
     {
-        SetPrivateField(_dsp, "_lastRequestWasForTheVersion", true);
+        var (client, dsp) = CreateConnectedDsp();
+        _ = dsp.PollNow();
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
 
-        _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":\"4.2.1.23\"\n! \"publishToken\":\"AvCodersLevel-Gain-1\" \"value\":-2.000000\n");
+        client.ResponseHandlers?.Invoke($"{TesiraReplies.NoFaults}\n! \"publishToken\":\"AvCodersLevel-Gain-1\" \"value\":-2.000000\n");
 
-        Assert.Equal(98, _dsp.GetLevel(GainName));
+        Assert.Equal(98, dsp.GetLevel(GainName));
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == FaultsIssueKey);
     }
 
     [Fact]
@@ -549,6 +585,576 @@ public class BiampTtpTest
     }
 
     [Fact]
+    public void HandleResponse_GivenTheVersionReply_ShowsTheFirmware()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, FirmwareQuery, VersionReply);
+
+        Assert.Equal("5.2.0.8", Detail(dsp, "Firmware")?.Value);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == FirmwareIssueKey);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenTheSerialNumberReply_ShowsTheSerial()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, SerialQuery, SerialReply);
+
+        Assert.Equal("04351854", Detail(dsp, "Serial")?.Value);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == SerialIssueKey);
+    }
+
+    [Theory]
+    [InlineData(BiampQuery.Firmware, FirmwareQueryCommand, FirmwareIssueKey, TesiraReplies.UnsupportedDeviceAttribute)]
+    [InlineData(BiampQuery.Serial, SerialQueryCommand, SerialIssueKey, TesiraReplies.UnsupportedDeviceAttribute)]
+    [InlineData(BiampQuery.DeviceInfo, DeviceInfoQueryCommand, DeviceInfoIssueKey, TesiraReplies.AttributeNotSupported)]
+    [InlineData(BiampQuery.NetworkStatus, NetworkStatusQueryCommand, NetworkStatusIssueKey, TesiraReplies.AttributeNotSupported)]
+    [InlineData(BiampQuery.Aliases, AliasesQueryCommand, AliasesIssueKey, TesiraReplies.UnsupportedSessionAttribute)]
+    public void HandleResponse_GivenAnErrorToADeviceQuery_RaisesAnOngoingIssueWithTheRawLine(BiampQuery query, string command, string issueKey, string error)
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, new Query("DEVICE", query, command), error);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == issueKey);
+        Assert.Equal($"The Tesira returned an error to {command.Trim()}: {error}", issue.Message);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAVersionReplyThatIsNotAString_RaisesAnOngoingIssueWithTheRawLine()
+    {
+        const string levelReply = "+OK \"value\":-12.000000";
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, FirmwareQuery, levelReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FirmwareIssueKey);
+        Assert.Equal($"The Tesira's reply to DEVICE get version is not a firmware version: {levelReply}", issue.Message);
+        Assert.Null(Detail(dsp, "Firmware"));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnEmptySerialNumber_RaisesAnOngoingIssueWithTheRawLine()
+    {
+        const string emptyReply = "+OK \"value\":\"\"";
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, SerialQuery, emptyReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == SerialIssueKey);
+        Assert.Equal($"The Tesira's reply to DEVICE get serialNumber is not a serial number: {emptyReply}", issue.Message);
+        Assert.Null(Detail(dsp, "Serial"));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnErrorAfterTheSerial_KeepsTheLastSerial()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, SerialQuery, SerialReply);
+        AnswerTheQuery(client, dsp, SerialQuery, UnsupportedAttributeError);
+
+        Assert.Equal("04351854", Detail(dsp, "Serial")?.Value);
+        Assert.Contains(dsp.GetOngoingIssues(), i => i.Key == SerialIssueKey);
+    }
+
+    [Theory]
+    [InlineData(BiampQuery.Firmware, FirmwareQueryCommand, FirmwareIssueKey, VersionReply)]
+    [InlineData(BiampQuery.Serial, SerialQueryCommand, SerialIssueKey, SerialReply)]
+    [InlineData(BiampQuery.DeviceInfo, DeviceInfoQueryCommand, DeviceInfoIssueKey, TesiraReplies.DeviceInfo)]
+    [InlineData(BiampQuery.NetworkStatus, NetworkStatusQueryCommand, NetworkStatusIssueKey, TesiraReplies.NetworkStatus)]
+    [InlineData(BiampQuery.Aliases, AliasesQueryCommand, AliasesIssueKey, TesiraReplies.Aliases)]
+    public void HandleResponse_GivenAGoodReplyAfterAnError_ResolvesTheIssue(BiampQuery query, string command, string issueKey, string reply)
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, new Query("DEVICE", query, command), TesiraReplies.AttributeNotSupported);
+        AnswerTheQuery(client, dsp, new Query("DEVICE", query, command), reply);
+
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == issueKey);
+        Assert.Contains(dsp.GetIssues(), i => i.Key == issueKey && i.Status == IssueStatus.Resolved);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenTheSerialAfterAFirmwareError_KeepsTheFirmwareIssue()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, FirmwareQuery, UnsupportedAttributeError);
+        AnswerTheQuery(client, dsp, SerialQuery, SerialReply);
+
+        Assert.Contains(dsp.GetOngoingIssues(), i => i.Key == FirmwareIssueKey);
+    }
+
+    [Fact]
+    public async Task ConnectingAndReinitialising_ReadTheDeviceEachTime()
+    {
+        string[] deviceQueries = [FirmwareQueryCommand, SerialQueryCommand, DeviceInfoQueryCommand, NetworkStatusQueryCommand, AliasesQueryCommand];
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = new TestableBiampTtp(client);
+        client.SetConnectionState(ConnectionState.Connected);
+
+        await dsp.PollNow();
+        await ReadTheDevice(client, dsp, VersionReply);
+        Assert.Equal(deviceQueries, client.Sent);
+        await dsp.Reinitialise();
+        await ReadTheDevice(client, dsp, OlderVersionReply);
+
+        Assert.Equal(deviceQueries.Concat(deviceQueries), client.Sent);
+        Assert.Equal("4.2.1.23", Detail(dsp, "Firmware")?.Value);
+        Assert.Equal("04351854", Detail(dsp, "Serial")?.Value);
+        Assert.Equal("TesiraFORTÉ AVB VT", Detail(dsp, "Model")?.Value);
+        Assert.Equal("TesiraForte04351854", Detail(dsp, "Hostname")?.Value);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenTheDeviceInfoReply_ShowsTheModelAndRevision()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, DeviceInfoQuery, TesiraReplies.DeviceInfo);
+
+        Assert.Equal("TesiraFORTÉ AVB VT", Detail(dsp, "Model")?.Value);
+        Assert.Equal("Rev. A", Detail(dsp, "Revision")?.Value);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == DeviceInfoIssueKey);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenADeviceInfoReplyWithNoModel_RaisesAnOngoingIssueWithTheRawLine()
+    {
+        const string noModelReply = """+OK "info":{"deviceRevision":"Rev. A" "serialNumber":"04351854"}""";
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, DeviceInfoQuery, noModelReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == DeviceInfoIssueKey);
+        Assert.Equal($"The Tesira's reply to DEVICE get deviceInfo has no deviceModel or deviceRevision: {noModelReply}", issue.Message);
+        Assert.Null(Detail(dsp, "Model"));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenTheNetworkStatusReply_ShowsTheHostnameInterfacesAndDns()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, NetworkStatusQuery, TesiraReplies.NetworkStatus);
+
+        Assert.Equal("TesiraForte04351854", Detail(dsp, "Hostname")?.Value);
+        Assert.Equal("LINK_1_GB, 10.1.3.105/255.255.252.0, gateway 10.1.0.1, DHCP, MAC 78:45:01:0a:ee:9f", Detail(dsp, "control")?.Value);
+        Assert.Equal("LINK_DOWN, 169.254.7.24/255.255.0.0, gateway 0.0.0.0, DHCP, MAC 78:45:01:0a:ee:a0", Detail(dsp, "media_avb_0")?.Value);
+        Assert.Equal("primary 10.1.0.1, secondary , domain millpark.acarbone.com", Detail(dsp, "DNS")?.Value);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == NetworkStatusIssueKey);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenANetworkStatusReplyWithNoInterfaces_RaisesAnOngoingIssueWithTheRawLine()
+    {
+        const string noInterfacesReply = """+OK "value":{"schemaVersion":2 "hostname":"TesiraForte04351854" "dnsStatus":{"primaryDNSServer":"10.1.0.1" "secondaryDNSServer":"" "domainName":"millpark.acarbone.com"}}""";
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, NetworkStatusQuery, noInterfacesReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == NetworkStatusIssueKey);
+        Assert.Equal($"The Tesira's reply to DEVICE get networkStatus has no hostname, networkInterfaceStatusWithName or dnsStatus: {noInterfacesReply}", issue.Message);
+        Assert.Null(Detail(dsp, "Hostname"));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnInterfaceThisDriverDoesNotRecognise_ShowsItsRawText()
+    {
+        const string oddInterfaceReply = """+OK "value":{"hostname":"TesiraForte04351854" "networkInterfaceStatusWithName":[{"interfaceId":"control" "networkInterfaceStatus":{"ip":"10.1.3.105" "linkStatus":LINK_1_GB}}] "dnsStatus":{"primaryDNSServer":"10.1.0.1" "secondaryDNSServer":"" "domainName":"millpark.acarbone.com"}}""";
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, NetworkStatusQuery, oddInterfaceReply);
+
+        Assert.Equal("""{"interfaceId":"control","networkInterfaceStatus":{"ip":"10.1.3.105","linkStatus":"LINK_1_GB"}}""", Detail(dsp, "control")?.Value);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenTheAliasesWithEveryInstanceTag_ShowsNoMissingControls()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+        _ = new BiampVolumeControl(new BiampAudioBlockInfo("Level 1", "InputLevels", 1), VolumeType.Speaker, dsp);
+
+        AnswerTheQuery(client, dsp, AliasesQuery, TesiraReplies.Aliases);
+
+        Assert.Null(Detail(dsp, "Missing Controls"));
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key.StartsWith("bad-control:"));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenTheAliasesWithoutAnInstanceTag_ShowsItAsMissing()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+        _ = new BiampVolumeControl(new BiampAudioBlockInfo("Level 1", "InputLevels", 1), VolumeType.Speaker, dsp);
+
+        AnswerTheQuery(client, dsp, AliasesQuery, TesiraReplies.Aliases);
+
+        Assert.Equal(new DeviceDetail("Missing Controls", $"{GainName}, {MuteName}", DetailTone.Warning), Detail(dsp, "Missing Controls"));
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == $"bad-control:{GainName}");
+        Assert.Equal($"The Tesira's configuration has no instance tag {GainName}", issue.Message);
+        Assert.Contains(dsp.GetOngoingIssues(), i => i.Key == $"bad-control:{MuteName}");
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "bad-control:InputLevels");
+    }
+
+    [Fact]
+    public void HandleResponse_GivenTheAliasesAfterAConfigLoadRestoresAnInstanceTag_ResolvesIt()
+    {
+        const string restoredAliases = $$"""+OK "list":["Aec1" "DEVICE" "{{GainName}}" "InputLevels" "{{MuteName}}"]""";
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+        AnswerTheQuery(client, dsp, AliasesQuery, TesiraReplies.Aliases);
+
+        AnswerTheQuery(client, dsp, AliasesQuery, restoredAliases);
+
+        Assert.Null(Detail(dsp, "Missing Controls"));
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key.StartsWith("bad-control:"));
+        Assert.Contains(dsp.GetIssues(), i => i.Key == $"bad-control:{GainName}" && i.Status == IssueStatus.Resolved);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnAliasesReplyThatIsNotAList_RaisesAnOngoingIssueWithTheRawLine()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, AliasesQuery, NotAStringReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == AliasesIssueKey);
+        Assert.Equal($"The Tesira's reply to SESSION get aliases is not a list of instance tags: {NotAStringReply}", issue.Message);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenNoFaults_RaisesNoFaultIssues()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key.StartsWith("fault"));
+        Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAFault_RaisesAnOngoingIssueForIt()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, FanFaultReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FanFaultIssueKey);
+        Assert.Equal("Cooling fan malfunction.  Check filter and fan. (FAULT_FAN_MALFUNCTION) on 04351854, Minor Fault in Device (INDICATOR_MINOR_IN_DEVICE)", issue.Message);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenFaultsOnAnExpander_RaisesAnIssuePerDevice()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, ExpanderFaultReply);
+
+        Assert.Contains(dsp.GetOngoingIssues(), i => i.Key == FanFaultIssueKey && i.Severity == IssueSeverity.Minor);
+        var expanderIssue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == "fault:01882935:FAULT_DSP_CARD");
+        Assert.Equal("One or more DSP cards failed to boot (FAULT_DSP_CARD) on 01882935, Major Fault in Device (INDICATOR_MAJOR_IN_DEVICE)", expanderIssue.Message);
+        Assert.Equal(IssueSeverity.Major, expanderIssue.Severity);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAFaultHasCleared_ResolvesItsIssue()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        AnswerTheKeepAlive(client, dsp, ExpanderFaultReply);
+
+        AnswerTheKeepAlive(client, dsp, FanFaultReply);
+
+        Assert.Contains(dsp.GetOngoingIssues(), i => i.Key == FanFaultIssueKey);
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == "fault:01882935:FAULT_DSP_CARD");
+        Assert.Contains(dsp.GetIssues(), i => i.Key == "fault:01882935:FAULT_DSP_CARD" && i.Status == IssueStatus.Resolved);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAFaultEntryThisDriverDoesNotRecognise_RaisesItsRawText()
+    {
+        const string noSerialReply = """+OK "value":[{"id":INDICATOR_MINOR_IN_DEVICE "faults":[]}]""";
+        const string rawEntry = """{"id":"INDICATOR_MINOR_IN_DEVICE","faults":[]}""";
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, noSerialReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == $"fault:{rawEntry}");
+        Assert.Equal($"The Tesira reported a fault entry this driver does not recognise: {rawEntry}", issue.Message);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAFaultListThatIsNotAList_RaisesAnOngoingIssueWithTheRawLine()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, VersionReply);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FaultsIssueKey);
+        Assert.Equal($"The Tesira's reply to DEVICE get activeFaultList is not a fault list: {VersionReply}", issue.Message);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAnError_RaisesAnOngoingIssueWithTheRawLine()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.AttributeNotSupported);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FaultsIssueKey);
+        Assert.Equal($"The Tesira returned an error to DEVICE get activeFaultList: {TesiraReplies.AttributeNotSupported}", issue.Message);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAFaultListAfterAnError_ResolvesTheIssue()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.AttributeNotSupported);
+
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == FaultsIssueKey);
+        Assert.Contains(dsp.GetIssues(), i => i.Key == FaultsIssueKey && i.Status == IssueStatus.Resolved);
+    }
+
+    [Fact]
+    public void KeepAlive_WithNoPendingQueries_AsksForTheFaultList()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+
+        Assert.Equal(FaultsQueryCommand, Assert.Single(client.Sent));
+        Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "unanswered-query");
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAFastReply_ShowsTheReplyTimeAndRaisesNoIssue()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+
+        var replyTime = Detail(dsp, "Reply Time");
+        Assert.NotNull(replyTime);
+        Assert.Matches("^[0-9]+ ms$", replyTime.Value);
+        Assert.InRange(int.Parse(replyTime.Value.Split(' ')[0]), 0, BiampTtp.SlowKeepAliveReplyMs);
+        Assert.Equal(DetailTone.Normal, replyTime.Tone);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == SlowRepliesIssueKey);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenASlowReply_RaisesAnIssueWithTheTimeAndFirmware()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        AnswerTheQuery(client, dsp, FirmwareQuery, VersionReply);
+
+        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == SlowRepliesIssueKey);
+        Assert.Matches(@"^The Tesira took 7\d\d ms to answer DEVICE get activeFaultList, over the 500 ms limit\. Firmware: 5\.2\.0\.8$", issue.Message);
+        Assert.Matches(@"^7\d\d ms$", Detail(dsp, "Reply Time")?.Value);
+        Assert.Equal(DetailTone.Warning, Detail(dsp, "Reply Time")?.Tone);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAFastReplyAfterASlowOne_ResolvesTheSlowIssue()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == SlowRepliesIssueKey);
+        Assert.Contains(dsp.GetIssues(), i => i.Key == SlowRepliesIssueKey && i.Status == IssueStatus.Resolved);
+        Assert.Equal(DetailTone.Normal, Detail(dsp, "Reply Time")?.Tone);
+    }
+
+    [Fact]
+    public async Task KeepAlive_GivenSlowRepliesInARow_ReconnectsAndLogsTheTimes()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var (client, dsp) = CreateConnectedDsp(logs);
+
+        for (int i = 0; i < BiampTtp.MaxSlowKeepAlives; i++)
+            AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        Assert.Equal(0, client.Reconnects);
+
+        await WaitUntil(() => client.Reconnects == 1);
+        Assert.Contains(logs.Logs, x => Regex.IsMatch(x.Message,
+            @"^The Tesira answered 3 keep-alives in a row slower than 500 ms \(7\d\d ms, 7\d\d ms, 7\d\d ms\), reconnecting$"));
+        Assert.Contains(dsp.Events, e => e.Info.StartsWith("Reconnecting: 3 keep-alive replies in a row were slower than 500 ms (7"));
+    }
+
+    [Fact]
+    public async Task KeepAlive_GivenNoReply_IsFlaggedWithinTheWindow()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        var sinceSent = Stopwatch.StartNew();
+
+        _ = dsp.PollNow();
+        await WaitUntil(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"));
+
+        Assert.InRange(sinceSent.ElapsedMilliseconds, BiampTtp.KeepAliveReplyWindowMs, FlaggedWithinMs);
+        var issue = Assert.Single(dsp.GetIssues(), i => i.Key == "unanswered-query");
+        Assert.Equal("The query DEVICE get activeFaultList was not answered within 1000 ms", issue.Message);
+        Assert.Equal(FaultsQueryCommand, Assert.Single(client.Sent));
+        Assert.Equal(0, client.Reconnects);
+    }
+
+    [Fact]
+    public async Task KeepAlive_GivenMissesInARow_Reconnects()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        SetPrivateField<BiampTtp>(dsp, "_missedKeepAlives", BiampTtp.MaxMissedKeepAlives - 1);
+
+        _ = dsp.PollNow();
+        await WaitUntil(() => client.Reconnects == 1);
+
+        Assert.Contains(dsp.Events, e => e.Info == "Reconnecting: 3 keep-alives in a row were not answered within 1000 ms");
+    }
+
+    [Fact]
+    public async Task KeepAlive_GivenALateReply_DoesNotGiveItToTheNextQuery()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var (client, dsp) = CreateConnectedDsp(logs);
+        _ = dsp.PollNow();
+        await WaitUntil(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"));
+
+        dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        _ = dsp.PollNow();
+        Assert.Equal(FaultsQueryCommand, client.Sent[^1]);
+        Assert.DoesNotContain(MaxLevelQuery, client.Sent);
+
+        client.ResponseHandlers?.Invoke($"{TesiraReplies.NoFaults}\r\n+OK\r\n{TesiraReplies.NoFaults}\r\n");
+        await dsp.PollNow();
+
+        Assert.Equal(MaxLevelQuery, client.Sent[^1]);
+        Assert.Contains(logs.Logs, x => Regex.IsMatch(x.Message, @"^The DEVICE get activeFaultList reply took \d{4,} ms, so it was already counted as missed$"));
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
+    }
+
+    [Fact]
+    public async Task KeepAlive_GivenAFastReply_StartsTheMissedCountAgain()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        SetPrivateField<BiampTtp>(dsp, "_missedKeepAlives", BiampTtp.MaxMissedKeepAlives - 1);
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+
+        _ = dsp.PollNow();
+        await WaitUntil(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"));
+
+        Assert.Equal(0, client.Reconnects);
+    }
+
+    [Fact]
+    public async Task KeepAlive_GivenAFastReply_StartsTheSlowCountAgain()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+
+        await Task.Delay(BiampTtp.KeepAliveReplyWindowMs + WindowCheckMarginMs);
+
+        Assert.Equal(0, client.Reconnects);
+    }
+
+    [Fact]
+    public async Task KeepAlive_AfterAReconnect_StartsTheSlowCountAgain()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        for (int i = 0; i < BiampTtp.MaxSlowKeepAlives; i++)
+            AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        await WaitUntil(() => client.Reconnects == 1);
+
+        for (int i = 1; i < BiampTtp.MaxSlowKeepAlives; i++)
+            AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        await Task.Delay(BiampTtp.KeepAliveReplyWindowMs + WindowCheckMarginMs);
+
+        Assert.Equal(1, client.Reconnects);
+    }
+
+    [Theory]
+    [InlineData("3.18.0.12", "Firmware 3.18.0.12 is below 4.11, so it is not supported", IssueSeverity.Major)]
+    [InlineData("4.2", "Firmware 4.2 is below 4.11, so it is not supported", IssueSeverity.Major)]
+    [InlineData("4.10.9", "Firmware 4.10.9 is below 4.11, so it is not supported", IssueSeverity.Major)]
+    [InlineData("5.2.0.8", "Firmware 5.2.0.8 is below 5.7, the minimum for version 5", IssueSeverity.Minor)]
+    [InlineData("5.6.99", "Firmware 5.6.99 is below 5.7, the minimum for version 5", IssueSeverity.Minor)]
+    [InlineData("5.2.x", "Firmware 5.2.x is not a version number this driver can check", IssueSeverity.Major)]
+    public void HandleResponse_GivenUnhealthyFirmware_RaisesAnIssue(string firmware, string message, IssueSeverity severity)
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, FirmwareQuery, $"+OK \"value\":\"{firmware}\"");
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FirmwareHealthIssueKey);
+        Assert.Equal(message, issue.Message);
+        Assert.Equal(severity, issue.Severity);
+        Assert.Equal(firmware, Detail(dsp, "Firmware")?.Value);
+    }
+
+    [Theory]
+    [InlineData("4.11.0")]
+    [InlineData("4.15")]
+    [InlineData("5.7.0")]
+    [InlineData("6.0")]
+    public void HandleResponse_GivenHealthyFirmware_RaisesNoIssue(string firmware)
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+
+        AnswerTheQuery(client, dsp, FirmwareQuery, $"+OK \"value\":\"{firmware}\"");
+
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == FirmwareHealthIssueKey);
+    }
+
+    [Fact]
+    public void HandleResponse_GivenHealthyFirmwareAfterUnhealthy_ResolvesTheIssue()
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client);
+        AnswerTheQuery(client, dsp, FirmwareQuery, VersionReply);
+
+        AnswerTheQuery(client, dsp, FirmwareQuery, "+OK \"value\":\"5.7.0\"");
+
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == FirmwareHealthIssueKey);
+        Assert.Contains(dsp.GetIssues(), i => i.Key == FirmwareHealthIssueKey && i.Status == IssueStatus.Resolved);
+    }
+
+    [Fact]
     public void StringValues_AreNotSupported_AndSayWhy()
     {
         var logs = new ScopeCapturingLoggerFactory();
@@ -617,6 +1223,56 @@ public class BiampTtpTest
         await dsp.PollNow();
     }
 
+    private static void AnswerTheQuery(TestTcpClient client, TestableBiampTtp dsp, Query query, string reply)
+    {
+        SetPrivateField<BiampTtp>(dsp, "_currentQuery", query);
+        client.ResponseHandlers?.Invoke($"{reply}\r\n");
+    }
+
+    private static async Task ReadTheDevice(TestTcpClient client, TestableBiampTtp dsp, string versionReply)
+    {
+        string[] replies = [versionReply, SerialReply, TesiraReplies.DeviceInfo, TesiraReplies.NetworkStatus, TesiraReplies.Aliases];
+        foreach (var reply in replies)
+        {
+            await dsp.PollNow();
+            client.ResponseHandlers?.Invoke($"{reply}\r\n");
+        }
+    }
+
+    private static (TestTcpClient Client, TestableBiampTtp Dsp) CreateConnectedDsp(ScopeCapturingLoggerFactory? logs = null)
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = CreateLogged(logs ?? new ScopeCapturingLoggerFactory(), client);
+        SetPrivateField<CommunicationClient>(client, "_connectionState", ConnectionState.Connected);
+        return (client, dsp);
+    }
+
+    private static void AnswerTheKeepAlive(TestTcpClient client, TestableBiampTtp dsp, string reply)
+    {
+        _ = dsp.PollNow();
+        client.ResponseHandlers?.Invoke($"{reply}\r\n");
+    }
+
+    private static void AnswerTheKeepAliveAfter(TestTcpClient client, TestableBiampTtp dsp, int replyMs)
+    {
+        _ = dsp.PollNow();
+        BackdateTheKeepAlives(dsp, replyMs);
+        client.ResponseHandlers?.Invoke($"{TesiraReplies.NoFaults}\r\n");
+    }
+
+    private static void BackdateTheKeepAlives(BiampTtp dsp, int milliseconds)
+    {
+        var keepAlives = (IEnumerable)typeof(BiampTtp).GetField("_keepAlives", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(dsp)!;
+        foreach (var keepAlive in keepAlives)
+        {
+            var sentAt = keepAlive.GetType().GetProperty("SentAt")!;
+            sentAt.SetValue(keepAlive, (long)sentAt.GetValue(keepAlive)! - milliseconds * Stopwatch.Frequency / 1000);
+        }
+    }
+
+    private static DeviceDetail? Detail(BiampTtp dsp, string label) => dsp.Details.SingleOrDefault(d => d.Label == label);
+
     private static TestableBiampTtp CreateLogged(ScopeCapturingLoggerFactory logs, TcpClient client)
     {
         var originalLoggerFactory = LogBase.LoggerFactory;
@@ -647,7 +1303,13 @@ public class BiampTtpTest
         {
             [$"{GainName} get maxLevel 1\n"] = "+OK \"value\":12.000000\n",
             [$"{GainName} get minLevel 1\n"] = "+OK \"value\":0.000000\n",
-            [$"{GainName} get level 1\n"] = "+OK \"value\":3.000000\n"
+            [$"{GainName} get level 1\n"] = "+OK \"value\":3.000000\n",
+            [FirmwareQueryCommand] = $"{TesiraReplies.Version}\n",
+            [SerialQueryCommand] = $"{TesiraReplies.SerialNumber}\n",
+            [DeviceInfoQueryCommand] = $"{TesiraReplies.DeviceInfo}\n",
+            [NetworkStatusQueryCommand] = $"{TesiraReplies.NetworkStatus}\n",
+            [AliasesQueryCommand] = $"{TesiraReplies.Aliases}\n",
+            [FaultsQueryCommand] = $"{TesiraReplies.NoFaults}\n"
         };
 
         public string? SentUnder(string message) => _sentUnder[message];

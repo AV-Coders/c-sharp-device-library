@@ -1,4 +1,6 @@
-﻿using System.Text.RegularExpressions;
+﻿using System.Net;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using AVCoders.Core;
 
 namespace AVCoders.Dsp;
@@ -101,6 +103,8 @@ public class QsysMuteOnlyControl : VolumeControl
 public class QsysEcp : Dsp
 {
     public static readonly ushort DefaultPort = 1702;
+    public const ushort CoreManagerPort = 443;
+    public const string CoreManagerProtocol = "https";
     public const int DefaultPollIntervalInMilliseconds = 20000;
     public const int MaxUnansweredStatusRequests = 3;
     public const string BadControlIssuePrefix = "bad-control:";
@@ -113,6 +117,7 @@ public class QsysEcp : Dsp
     public const string BadCommandIssueKey = "bad-command";
     public const string ReadOnlyIssueKey = "read-only-control";
     public const string ConnectionClosedIssueKey = "connection-closed";
+    public const string CoreManagerIssueKey = "core-manager";
 
     private const int EscalateAfterRepeats = 3;
     private const int ChangeGroupSetupStepMs = 500;
@@ -144,8 +149,22 @@ public class QsysEcp : Dsp
     private const string DesignIdLabel = "Design ID";
     private const string CoreLabel = "Core";
     private const string MissingControlsLabel = "Missing Controls";
+    private const string FirmwareLabel = "Firmware";
+    private const string SerialLabel = "Serial";
+    private const string HardwareIdLabel = "Hardware ID";
+
+    private const string CoreInfoPath = "/api/v0/cores/self";
+    private const string LogonPath = "/api/v0/logon";
+    private const string AuthorizationHeader = "Authorization";
+    private const string AcceptHeader = "Accept";
+    private const string JsonContentType = "application/json";
+    private static readonly Uri CoreInfoUri = new(CoreInfoPath, UriKind.Relative);
+    private static readonly Uri LogonUri = new(LogonPath, UriKind.Relative);
 
     private readonly TcpClient _tcpClient;
+    private readonly RestComms? _coreManager;
+    private readonly string? _coreManagerUsername;
+    private readonly string _coreManagerPassword;
     private readonly Dictionary<string, QscGain> _gains = new();
     private readonly Dictionary<string, QscMute> _mutes = new();
     private readonly Dictionary<string, QscInt> _strings = new();
@@ -174,11 +193,18 @@ public class QsysEcp : Dsp
 
     public TimeSpan ControlStatesRetryDelay { get; set; } = TimeSpan.FromSeconds(5);
 
-    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = DefaultPollIntervalInMilliseconds) : base(name, tcpClient, pollIntervalInMilliseconds)
+    public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = DefaultPollIntervalInMilliseconds,
+        RestComms? coreManager = null, string? coreManagerUsername = null, string coreManagerPassword = "")
+        : base(name, tcpClient, pollIntervalInMilliseconds)
     {
         _tcpClient = tcpClient;
+        _coreManager = coreManager;
+        _coreManagerUsername = coreManagerUsername;
+        _coreManagerPassword = coreManagerPassword;
         tcpClient.ResponseHandlers += HandleResponse;
         tcpClient.ConnectionStateHandlers += HandleConnectionState;
+        if (coreManager != null)
+            coreManager.HttpResponseHandlers += HandleCoreManagerResponse;
 
         string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]*)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
@@ -299,6 +325,7 @@ public class QsysEcp : Dsp
 
         AddEvent(EventType.Other, $"Design redeployed: {designName} ({designId})");
         RebuildChangeGroups($"design redeployed as {designId}");
+        FetchCoreManagerInfo();
     }
 
     private void HandleBadId(string line)
@@ -436,6 +463,7 @@ public class QsysEcp : Dsp
             {
                 BuildChangeGroups();
                 GetAllControlStates();
+                FetchCoreManagerInfo();
             }
             else
             {
@@ -445,6 +473,167 @@ public class QsysEcp : Dsp
             }
         }
     }
+
+    private void FetchCoreManagerInfo()
+    {
+        if (_coreManager == null)
+            return;
+
+        _coreManager.RemoveDefaultHeader(AuthorizationHeader);
+        _coreManager.AddDefaultHeader(AcceptHeader, JsonContentType);
+        _ = _coreManager.Get(CoreInfoUri);
+    }
+
+    private void HandleCoreManagerResponse(HttpResponseMessage response)
+    {
+        using (PushProperties())
+        {
+            switch (response.RequestMessage?.RequestUri?.AbsolutePath)
+            {
+                case CoreInfoPath:
+                    HandleCoreInfo(response);
+                    break;
+                case LogonPath:
+                    HandleLogon(response);
+                    break;
+            }
+        }
+    }
+
+    private void HandleCoreInfo(HttpResponseMessage response)
+    {
+        string body = response.Content.ReadAsStringAsync().Result;
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            HandleCoreInfoUnauthorised(response, body);
+            return;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            RaiseOngoingIssue(CoreManagerIssueKey,
+                $"Core Manager did not give the firmware and serial number: {DescribeReply(response, body)}", IssueSeverity.Minor);
+            return;
+        }
+
+        if (ParseJsonObject(body) is not { } reply)
+        {
+            RaiseOngoingIssue(CoreManagerIssueKey,
+                $"Core Manager's reply is not a JSON object: {DescribeReply(response, body)}", IssueSeverity.Minor);
+            return;
+        }
+
+        ResolveIssue(CoreManagerIssueKey);
+        ShowFirmware(reply, body);
+        ShowSerial(reply, body);
+        ShowHardwareId(reply, body);
+    }
+
+    private void HandleCoreInfoUnauthorised(HttpResponseMessage response, string body)
+    {
+        if (response.RequestMessage!.Headers.Contains(AuthorizationHeader))
+        {
+            RaiseOngoingIssue(CoreManagerIssueKey,
+                $"Core Manager refused the token from the logon as {_coreManagerUsername}: {DescribeReply(response, body)}",
+                IssueSeverity.Minor);
+            return;
+        }
+
+        if (_coreManagerUsername == null)
+        {
+            RaiseOngoingIssue(CoreManagerIssueKey,
+                $"Core Manager needs a login to give the firmware and serial number, and no username is set: {DescribeReply(response, body)}",
+                IssueSeverity.Minor);
+            return;
+        }
+
+        LogOnToCoreManager();
+    }
+
+    private void LogOnToCoreManager()
+    {
+        LogInformation("Logging on to Core Manager as {Username}", _coreManagerUsername);
+        var credentials = JsonSerializer.Serialize(new { username = _coreManagerUsername, password = _coreManagerPassword });
+        _ = _coreManager!.Post(LogonUri, credentials, JsonContentType);
+    }
+
+    private void HandleLogon(HttpResponseMessage response)
+    {
+        string body = response.Content.ReadAsStringAsync().Result;
+        if (!response.IsSuccessStatusCode)
+        {
+            RaiseOngoingIssue(CoreManagerIssueKey,
+                $"Core Manager rejected the logon as {_coreManagerUsername}: {DescribeReply(response, body)}", IssueSeverity.Minor);
+            return;
+        }
+
+        if (ParseJsonObject(body) is not { } reply || !reply.TryGetProperty("token", out var token)
+            || token.ValueKind != JsonValueKind.String)
+        {
+            RaiseOngoingIssue(CoreManagerIssueKey,
+                $"Core Manager's logon reply as {_coreManagerUsername} has no token: {DescribeReply(response, body)}",
+                IssueSeverity.Minor);
+            return;
+        }
+
+        _coreManager!.AddDefaultHeader(AuthorizationHeader, $"Bearer {token.GetString()}");
+        _ = _coreManager.Get(CoreInfoUri);
+    }
+
+    private void ShowFirmware(JsonElement reply, string body)
+    {
+        if (!reply.TryGetProperty("firmware", out var firmware))
+        {
+            LogWarning("Core Manager's reply has no firmware: {Body}", body);
+            return;
+        }
+        SetDetail(FirmwareLabel, FirmwareText(firmware));
+    }
+
+    private void ShowSerial(JsonElement reply, string body)
+    {
+        if (!reply.TryGetProperty("serialNo", out var serial))
+        {
+            LogWarning("Core Manager's reply has no serialNo: {Body}", body);
+            return;
+        }
+        SetDetail(SerialLabel, RawText(serial));
+    }
+
+    private void ShowHardwareId(JsonElement reply, string body)
+    {
+        if (!reply.TryGetProperty("hardwareId", out var hardwareId) && !reply.TryGetProperty("serial", out hardwareId))
+        {
+            LogWarning("Core Manager's reply has no hardwareId or serial: {Body}", body);
+            return;
+        }
+        SetDetail(HardwareIdLabel, RawText(hardwareId));
+    }
+
+    private static string FirmwareText(JsonElement firmware) =>
+        firmware.ValueKind == JsonValueKind.Object
+        && firmware.TryGetProperty("name", out var name) && firmware.TryGetProperty("build", out var build)
+            ? $"{RawText(name)}-{RawText(build)}"
+            : RawText(firmware);
+
+    private static string RawText(JsonElement value) =>
+        value.ValueKind == JsonValueKind.String ? value.GetString()! : value.GetRawText();
+
+    private static JsonElement? ParseJsonObject(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return document.RootElement.ValueKind == JsonValueKind.Object ? document.RootElement.Clone() : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string DescribeReply(HttpResponseMessage response, string body) =>
+        $"{response.RequestMessage!.Method} {response.RequestMessage.RequestUri} answered HTTP {(int)response.StatusCode} {response.ReasonPhrase}, body: {body}";
 
     private void RebuildChangeGroups(string reason)
     {

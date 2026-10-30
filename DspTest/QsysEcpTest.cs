@@ -1,5 +1,7 @@
+using System.Net;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging;
 
 #pragma warning disable CS8602 // Dereference of a possibly null reference.
 
@@ -37,6 +39,24 @@ public class QsysEcpTest
     private const int ControlStateAttempts = 3;
     private const string UnknownControl = "Nowhere";
     private static readonly int[] ChangeGroupIds = [1, 2, 3, 4];
+
+    private const string CoreManagerHost = "core";
+    private const string CoreInfoPath = "/api/v0/cores/self";
+    private const string LogonPath = "/api/v0/logon";
+    private const string FirmwareLabel = "Firmware";
+    private const string SerialLabel = "Serial";
+    private const string HardwareIdLabel = "Hardware ID";
+    private const string Username = "tech";
+    private const string Password = "s3cret-pw";
+    private const string Token = "token-abc123";
+    private const string HardwareId = "3-0123456789ABCDEF0123456789ABCDEF";
+    private const string SerialNo = "14TW2305B12345";
+    private const string UnauthorisedBody = "{\"error\":\"unauthorized\"}";
+    private const string Core9Reply =
+        $$$"""{"name":"Mecca-Core","model":"Core 110f","hardwareId":"{{{HardwareId}}}","firmware":"9.0.1-2104.002","status":{"name":"OK"}}""";
+    private const string Core10Reply =
+        $$$"""{"serial":"{{{HardwareId}}}","serialNo":"{{{SerialNo}}}","hardwareId":"{{{HardwareId}}}","naturalId":"Mecca-Core","firmware":{"name":"10.4.0","build":"2501.005","buildName":"10.4.0.2501.005","isRelease":true,"isSigned":true},"model":"Core 8 Flex","hostname":"Mecca-Core","status":{"code":0,"name":"OK"}}""";
+    private const string TokenReply = $$"""{"token":"{{Token}}"}""";
 
     private static readonly string[] RegistrationSends =
     [
@@ -979,6 +999,320 @@ public class QsysEcpTest
 
         Assert.True(control.SupportsMute);
         Assert.False(control.SupportsLevel);
+    }
+
+    [Fact]
+    public void CoreManager_Given9xStringFirmware_ShowsItAsReceived()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core9Reply);
+
+        var dsp = CreateLogged(logs, () => ConnectWithCoreManager(coreManager));
+
+        Assert.Equal(new DeviceDetail(FirmwareLabel, "9.0.1-2104.002"), Detail(dsp, FirmwareLabel));
+        Assert.Equal(new DeviceDetail(HardwareIdLabel, HardwareId), Detail(dsp, HardwareIdLabel));
+        Assert.Null(Detail(dsp, SerialLabel));
+        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no serialNo: {Core9Reply}");
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+    }
+
+    [Fact]
+    public void CoreManager_Given10xObjectFirmware_ShowsTheNameAndBuild()
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+
+        var dsp = ConnectWithCoreManager(coreManager);
+
+        Assert.Equal(new DeviceDetail(FirmwareLabel, "10.4.0-2501.005"), Detail(dsp, FirmwareLabel));
+        Assert.Equal(new DeviceDetail(SerialLabel, SerialNo), Detail(dsp, SerialLabel));
+        Assert.Equal(new DeviceDetail(HardwareIdLabel, HardwareId), Detail(dsp, HardwareIdLabel));
+    }
+
+    [Fact]
+    public void CoreManager_InOpenMode_ReadsTheCoreWithoutALogon()
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+
+        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+
+        var request = Assert.Single(coreManager.Requests);
+        Assert.Equal(("GET", CoreInfoPath), (request.Method, request.Path));
+        Assert.False(request.Headers.ContainsKey("Authorization"));
+        Assert.Equal(new DeviceDetail(SerialLabel, SerialNo), Detail(dsp, SerialLabel));
+    }
+
+    [Fact]
+    public void CoreManager_GivenA401WithCredentials_LogsOnAndRetriesWithTheToken()
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+
+        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+
+        Assert.Equal([("GET", CoreInfoPath), ("POST", LogonPath), ("GET", CoreInfoPath)],
+            coreManager.Requests.Select(r => (r.Method, r.Path)));
+        Assert.Equal($$"""{"username":"{{Username}}","password":"{{Password}}"}""", coreManager.Requests[1].Body);
+        Assert.Equal("application/json", coreManager.Requests[1].Headers["Accept"]);
+        Assert.Equal($"Bearer {Token}", coreManager.Requests[2].Headers["Authorization"]);
+        Assert.Equal(new DeviceDetail(SerialLabel, SerialNo), Detail(dsp, SerialLabel));
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+    }
+
+    [Fact]
+    public void CoreManager_OnTheNextConnect_StartsWithoutTheOldToken()
+    {
+        var client = new TestTcpClient();
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+        _ = new QsysEcp(client, "Test", NeverPollMs, coreManager, Username, Password);
+        client.SetConnectionState(ConnectionState.Connected);
+
+        client.SetConnectionState(ConnectionState.Disconnected);
+        client.SetConnectionState(ConnectionState.Connected);
+
+        Assert.Equal(4, coreManager.Requests.Count);
+        Assert.False(coreManager.Requests[3].Headers.ContainsKey("Authorization"));
+    }
+
+    [Fact]
+    public void CoreManager_GivenA401WithoutCredentials_RaisesAnIssueWithTheRawReply()
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+
+        var dsp = ConnectWithCoreManager(coreManager);
+
+        Assert.Single(coreManager.Requests);
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Equal(
+            $"Core Manager needs a login to give the firmware and serial number, and no username is set: GET https://{CoreManagerHost}{CoreInfoPath} answered HTTP 401 Unauthorized, body: {UnauthorisedBody}",
+            issue.Message);
+        Assert.Null(Detail(dsp, FirmwareLabel));
+    }
+
+    [Fact]
+    public void CoreManager_GivenARejectedLogon_RaisesAnIssueWithTheUsernameButNotThePassword()
+    {
+        const string rejection = "{\"error\":\"invalid credentials\"}";
+        var logs = new ScopeCapturingLoggerFactory();
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+        coreManager.Reply(LogonPath, HttpStatusCode.Unauthorized, rejection);
+
+        var dsp = CreateLogged(logs, () => ConnectWithCoreManager(coreManager, Username, Password));
+
+        Assert.Equal([("GET", CoreInfoPath), ("POST", LogonPath)], coreManager.Requests.Select(r => (r.Method, r.Path)));
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Equal(
+            $"Core Manager rejected the logon as {Username}: POST https://{CoreManagerHost}{LogonPath} answered HTTP 401 Unauthorized, body: {rejection}",
+            issue.Message);
+        Assert.Contains(logs.Logs, x => x.Message == issue.Message);
+        Assert.DoesNotContain(logs.Logs, x => x.Message.Contains(Password));
+        Assert.DoesNotContain(Password, issue.Message);
+    }
+
+    [Fact]
+    public void CoreManager_GivenA401AfterTheLogon_RaisesAnIssueAndStops()
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+
+        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+
+        Assert.Equal([("GET", CoreInfoPath), ("POST", LogonPath), ("GET", CoreInfoPath)],
+            coreManager.Requests.Select(r => (r.Method, r.Path)));
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Equal(
+            $"Core Manager refused the token from the logon as {Username}: GET https://{CoreManagerHost}{CoreInfoPath} answered HTTP 401 Unauthorized, body: {UnauthorisedBody}",
+            issue.Message);
+    }
+
+    [Fact]
+    public void CoreManager_GivenALogonReplyWithoutAToken_RaisesAnIssueWithTheRawReply()
+    {
+        const string reply = "{\"result\":\"ok\"}";
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, reply);
+
+        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+
+        Assert.Equal(2, coreManager.Requests.Count);
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Contains($"as {Username} has no token", issue.Message);
+        Assert.Contains($"HTTP 200 OK, body: {reply}", issue.Message);
+    }
+
+    [Fact]
+    public void CoreManager_GivenAServerError_RaisesAnIssueWithTheStatusAndBody()
+    {
+        const string body = "<html>Internal Server Error</html>";
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.InternalServerError, body);
+
+        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+
+        Assert.Single(coreManager.Requests);
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Equal(
+            $"Core Manager did not give the firmware and serial number: GET https://{CoreManagerHost}{CoreInfoPath} answered HTTP 500 Internal Server Error, body: {body}",
+            issue.Message);
+    }
+
+    [Theory]
+    [InlineData("<html>Core Manager</html>")]
+    [InlineData("[\"9.0.1-2104.002\"]")]
+    [InlineData("")]
+    public void CoreManager_GivenAReplyThatIsNotAJsonObject_RaisesAnIssueWithTheRawBody(string body)
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, body);
+
+        var dsp = ConnectWithCoreManager(coreManager);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Equal(
+            $"Core Manager's reply is not a JSON object: GET https://{CoreManagerHost}{CoreInfoPath} answered HTTP 200 OK, body: {body}",
+            issue.Message);
+        Assert.Null(Detail(dsp, FirmwareLabel));
+    }
+
+    [Theory]
+    [InlineData("10", "10")]
+    [InlineData("[\"9.0.1\",\"2104\"]", "[\"9.0.1\",\"2104\"]")]
+    [InlineData("{\"name\":\"10.4.0\"}", "{\"name\":\"10.4.0\"}")]
+    [InlineData("{\"name\":\"10.4.0\",\"build\":2501}", "10.4.0-2501")]
+    [InlineData("\"\"", "")]
+    public void CoreManager_GivenAnUnknownFirmwareShape_ShowsTheRawValue(string firmware, string expected)
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, $$"""{"firmware":{{firmware}},"serialNo":12345,"serial":"{{HardwareId}}"}""");
+
+        var dsp = ConnectWithCoreManager(coreManager);
+
+        Assert.Equal(new DeviceDetail(FirmwareLabel, expected), Detail(dsp, FirmwareLabel));
+        Assert.Equal(new DeviceDetail(SerialLabel, "12345"), Detail(dsp, SerialLabel));
+        Assert.Equal(new DeviceDetail(HardwareIdLabel, HardwareId), Detail(dsp, HardwareIdLabel));
+    }
+
+    [Fact]
+    public void CoreManager_GivenAReplyWithNoKnownFields_WarnsWithTheRawBodyAndShowsNothing()
+    {
+        const string body = "{\"status\":{\"name\":\"OK\"}}";
+        var logs = new ScopeCapturingLoggerFactory();
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, body);
+
+        var dsp = CreateLogged(logs, () => ConnectWithCoreManager(coreManager));
+
+        Assert.Null(Detail(dsp, FirmwareLabel));
+        Assert.Null(Detail(dsp, SerialLabel));
+        Assert.Null(Detail(dsp, HardwareIdLabel));
+        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no firmware: {body}");
+        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no serialNo: {body}");
+        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no hardwareId or serial: {body}");
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+    }
+
+    [Fact]
+    public void CoreManager_OnADesignRedeploy_ReadsTheCoreAgainAndClearsTheIssue()
+    {
+        var coreManager = new TestRestClient();
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.ServiceUnavailable, "starting");
+        var client = new TestTcpClient();
+        var dsp = new QsysEcp(client, "Test", NeverPollMs, coreManager);
+        client.SetConnectionState(ConnectionState.Connected);
+        client.ResponseHandlers.Invoke(Status(DesignId));
+        Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+        client.ResponseHandlers.Invoke(Status(DesignId));
+        Assert.Single(coreManager.Requests);
+        client.ResponseHandlers.Invoke(Status(RedeployedDesignId));
+
+        Assert.Equal(2, coreManager.Requests.Count);
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Contains(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey && i.Status == IssueStatus.Resolved);
+        Assert.Equal(new DeviceDetail(SerialLabel, SerialNo), Detail(dsp, SerialLabel));
+    }
+
+    [Fact]
+    public void CoreManager_WithoutARestClient_RaisesNothingAndShowsNothing()
+    {
+        var client = new TestTcpClient();
+        var dsp = new QsysEcp(client, "Test", NeverPollMs);
+
+        client.SetConnectionState(ConnectionState.Connected);
+        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers.Invoke(Status(RedeployedDesignId));
+
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        Assert.Null(Detail(dsp, FirmwareLabel));
+        Assert.Null(Detail(dsp, SerialLabel));
+        Assert.Null(Detail(dsp, HardwareIdLabel));
+        Assert.Empty(dsp.Errors);
+    }
+
+    private static QsysEcp ConnectWithCoreManager(TestRestClient coreManager, string? username = null, string password = "")
+    {
+        var client = new TestTcpClient();
+        var dsp = new QsysEcp(client, "Test", NeverPollMs, coreManager, username, password);
+        client.SetConnectionState(ConnectionState.Connected);
+        return dsp;
+    }
+
+    private sealed record RestRequest(string Method, string Path, string Body, Dictionary<string, string> Headers);
+
+    private class TestRestClient() : RestComms(CoreManagerHost, QsysEcp.CoreManagerPort, "Test")
+    {
+        private readonly Uri _baseUri = new($"{QsysEcp.CoreManagerProtocol}://{CoreManagerHost}:{QsysEcp.CoreManagerPort}");
+        private readonly Dictionary<string, string> _headers = new();
+        private readonly Dictionary<string, Queue<(HttpStatusCode Status, string Body)>> _replies = new();
+        public readonly List<RestRequest> Requests = [];
+
+        public void Reply(string path, HttpStatusCode status, string body)
+        {
+            if (!_replies.TryGetValue(path, out var replies))
+                _replies[path] = replies = new Queue<(HttpStatusCode Status, string Body)>();
+            replies.Enqueue((status, body));
+        }
+
+        public override void AddDefaultHeader(string key, string value) => _headers[key] = value;
+        public override void RemoveDefaultHeader(string key) => _headers.Remove(key);
+        public override Task Get(Uri? endpoint) => Respond(HttpMethod.Get, endpoint!, string.Empty);
+        public override Task Get() => Task.CompletedTask;
+        public override Task Post(Uri? endpoint, string payload, string contentType) => Respond(HttpMethod.Post, endpoint!, payload);
+        public override Task Post(string payload, string contentType) => Task.CompletedTask;
+        public override Task Put(Uri? endpoint, string content, string contentType) => Task.CompletedTask;
+        public override Task Put(string content, string contentType) => Task.CompletedTask;
+        public override void Send(string message) { }
+        public override void Send(byte[] bytes) { }
+
+        private Task Respond(HttpMethod method, Uri endpoint, string payload)
+        {
+            var request = new HttpRequestMessage(method, new Uri(_baseUri, endpoint));
+            foreach (var (key, value) in _headers)
+                request.Headers.TryAddWithoutValidation(key, value);
+            Requests.Add(new RestRequest(method.Method, endpoint.OriginalString, payload, new Dictionary<string, string>(_headers)));
+            if (!_replies.TryGetValue(endpoint.OriginalString, out var replies) || replies.Count == 0)
+                return Task.CompletedTask;
+
+            var (status, body) = replies.Dequeue();
+            HttpResponseHandlers?.Invoke(new HttpResponseMessage(status) { RequestMessage = request, Content = new StringContent(body) });
+            return Task.CompletedTask;
+        }
     }
 
     private void RegisterOneOfEachControl(QsysEcp dsp)
