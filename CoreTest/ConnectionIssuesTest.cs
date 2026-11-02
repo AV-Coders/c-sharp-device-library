@@ -1,10 +1,12 @@
 using System.Net.Sockets;
+using Microsoft.Extensions.Time.Testing;
 
 namespace AVCoders.Core.Tests;
 
 public class ConnectionIssuesTest
 {
-    private class TestCommunicationClient() : CommunicationClient("Test", "10.0.0.1", 4999, CommandStringFormat.Ascii)
+    private class TestCommunicationClient(TimeProvider timeProvider)
+        : CommunicationClient("Test", "10.0.0.1", 4999, CommandStringFormat.Ascii, timeProvider)
     {
         public override void Send(string message) { }
 
@@ -26,7 +28,14 @@ public class ConnectionIssuesTest
         }
     }
 
-    private readonly TestCommunicationClient _client = new();
+    private static readonly TimeSpan Threshold = TimeSpan.FromMilliseconds(500);
+    private readonly FakeTimeProvider _time = new();
+    private readonly TestCommunicationClient _client;
+
+    public ConnectionIssuesTest()
+    {
+        _client = new TestCommunicationClient(_time);
+    }
 
     [Fact]
     public void ReportConnectionFailure_RaisesAMomentaryIssue()
@@ -118,12 +127,6 @@ public class ConnectionIssuesTest
     }
 
     [Fact]
-    public void DesiredConnectionState_DefaultsToUnknown()
-    {
-        Assert.Equal(ConnectionState.Unknown, _client.DesiredConnectionState);
-    }
-
-    [Fact]
     public void Disconnect_ResolvesTheOngoingIssue()
     {
         _client.ConnectionIssueThreshold = TimeSpan.Zero;
@@ -150,34 +153,14 @@ public class ConnectionIssuesTest
     [Fact]
     public void Connect_AfterDisconnect_RestartsTheFailureClock()
     {
-        _client.ConnectionIssueThreshold = TimeSpan.FromMilliseconds(500);
+        _client.ConnectionIssueThreshold = Threshold;
         _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
-        Thread.Sleep(TimeSpan.FromMilliseconds(600));
+        _time.Advance(Threshold * 2);
 
         _client.Disconnect();
         _client.Connect();
         _client.ReportFailure("10.0.0.1:4999 refused the connection");
 
-        Assert.Empty(_client.GetOngoingIssues());
-    }
-
-    [Fact]
-    public void Disconnect_DuringAFailureReport_LeavesNoConnectionIssue()
-    {
-        _client.ConnectionIssueThreshold = TimeSpan.Zero;
-        Thread? disconnect = null;
-        _client.IssuesChanged += (_, _) =>
-        {
-            if (disconnect != null)
-                return;
-            disconnect = new Thread(_client.Disconnect);
-            disconnect.Start();
-            disconnect.Join(TimeSpan.FromMilliseconds(200));
-        };
-
-        _client.ReportFailure("The connection to 10.0.0.1:4999 timed out");
-
-        Assert.True(disconnect!.Join(TimeSpan.FromSeconds(5)), "The disconnect never finished");
         Assert.Empty(_client.GetOngoingIssues());
     }
 

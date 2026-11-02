@@ -1,5 +1,6 @@
 ﻿using System.Net.Sockets;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Core_TcpClient = AVCoders.Core.TcpClient;
 using TcpClient = System.Net.Sockets.TcpClient;
 
@@ -18,12 +19,22 @@ public class AvCodersTcpClient : Core_TcpClient
     private static readonly TimeSpan ConnectedCheckInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan NotConnectedReceiveWait = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan NotConnectedSendWait = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SendQueueInterval = TimeSpan.FromSeconds(2);
     private ushort _receiveBufferSize = 2048;
 
     public AvCodersTcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat) :
-        base(host, port, name, commandStringFormat)
+        this(host, port, name, commandStringFormat, null)
+    {
+    }
+
+    internal AvCodersTcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat, TimeProvider? timeProvider) :
+        base(host, port, name, commandStringFormat, timeProvider ?? TimeProvider.System)
     {
         ConnectionState = ConnectionState.Unknown;
+        DesiredConnectionState = ConnectionState.Connected;
         ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
         SendQueueWorker.Restart();
@@ -43,7 +54,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
             if (streamLocal == null || !IsConnected())
             {
-                await Task.Delay(TimeSpan.FromSeconds(10), token);
+                await Task.Delay(NotConnectedReceiveWait, TimeProvider, token);
                 return;
             }
 
@@ -99,18 +110,18 @@ public class AvCodersTcpClient : Core_TcpClient
                     Reconnect(current);
                 }
 
-                await Task.Delay(ConnectedCheckInterval, token);
+                await Task.Delay(ConnectedCheckInterval, TimeProvider, token);
                 return;
             }
 
             ConnectionState = ConnectionState.Connecting;
 
+            using var timeout = new CancellationTokenSource(ConnectTimeout, TimeProvider);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token);
+            TcpClient? attempt = null;
             try
             {
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
-                cts.CancelAfter(TimeSpan.FromSeconds(5));
-
-                var attempt = new TcpClient();
+                attempt = new TcpClient();
                 await attempt.ConnectAsync(Host, Port, cts.Token);
                 if (token.IsCancellationRequested)
                 {
@@ -135,6 +146,7 @@ public class AvCodersTcpClient : Core_TcpClient
                     _client = attempt;
                     _stream = newStream;
                 }
+                attempt = null;
 
                 CloseQuietly(oldStream, oldClient);
 
@@ -144,20 +156,31 @@ public class AvCodersTcpClient : Core_TcpClient
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
+                attempt?.Dispose();
                 LogDebug("The connection attempt was cancelled, the connection worker was stopped");
                 ConnectionState = ConnectionState.Disconnected;
                 return;
             }
+            catch (OperationCanceledException e) when (timeout.IsCancellationRequested)
+            {
+                attempt?.Dispose();
+                LogException(e, LogLevel.Debug);
+                ReportConnectionFailure(e);
+                ConnectionState = ConnectionState.Disconnected;
+                await WaitWithBackoff(token);
+                return;
+            }
             catch (Exception e)
             {
+                attempt?.Dispose();
                 LogException(e);
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(e);
                 ConnectionState = ConnectionState.Disconnected;
                 await WaitWithBackoff(token);
                 return;
             }
 
-            await Task.Delay(ConnectedCheckInterval, token);
+            await Task.Delay(ConnectedCheckInterval, TimeProvider, token);
         }
     }
 
@@ -166,14 +189,14 @@ public class AvCodersTcpClient : Core_TcpClient
         var jitter = Random.Shared.Next(-200, 200);
         var delay = Math.Min(_reconnectBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
         _reconnectBackoffMs = Math.Min(_reconnectBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
-        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
+        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), TimeProvider, token);
     }
 
     protected override async Task ProcessSendQueue(CancellationToken token)
     {
         if (!IsConnected())
         {
-            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            await Task.Delay(NotConnectedSendWait, TimeProvider, token);
             return;
         }
 
@@ -182,7 +205,7 @@ public class AvCodersTcpClient : Core_TcpClient
             using (Trigger.Resume(item.TriggerId))
             {
                 // Drop stale items
-                var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+                var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
                 if (Math.Abs(age) >= QueueTimeout)
                 {
                     using (PushProperties("ProcessSendQueue"))
@@ -207,7 +230,7 @@ public class AvCodersTcpClient : Core_TcpClient
                 {
                     LogException(e);
                     lock (_sendQueue)
-                        _sendQueue.AddFirst(item with { Timestamp = DateTimeOffset.UtcNow });
+                        _sendQueue.AddFirst(item with { Timestamp = TimeProvider.GetUtcNow() });
                     Reconnect(connection);
                     break;
                 }
@@ -217,7 +240,7 @@ public class AvCodersTcpClient : Core_TcpClient
             }
         }
 
-        await Task.Delay(TimeSpan.FromSeconds(2), token);
+        await Task.Delay(SendQueueInterval, TimeProvider, token);
     }
 
     private QueuedPayload<(byte[] Bytes, string? Message)>? Dequeue()
@@ -286,7 +309,7 @@ public class AvCodersTcpClient : Core_TcpClient
                 dropped = oldest.Value;
                 _sendQueue.RemoveFirst();
             }
-            _sendQueue.AddLast(new QueuedPayload<(byte[] Bytes, string? Message)>(DateTimeOffset.UtcNow, (bytes, message), Trigger.Id));
+            _sendQueue.AddLast(new QueuedPayload<(byte[] Bytes, string? Message)>(TimeProvider.GetUtcNow(), (bytes, message), Trigger.Id));
         }
 
         if (dropped == null)
@@ -496,8 +519,8 @@ public class AvCodersTcpClient : Core_TcpClient
             throw new SocketException((int)SocketError.NotConnected);
         var streamLocal = connection.GetStream();
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-        timeoutCts.CancelAfter(WriteTimeout);
+        using var timeout = new CancellationTokenSource(WriteTimeout, TimeProvider);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeout.Token);
         try
         {
             await _writeLock.WaitAsync(timeoutCts.Token);

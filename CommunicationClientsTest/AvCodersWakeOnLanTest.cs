@@ -1,13 +1,7 @@
 using System.Reflection;
-using AVCoders.Core.Tests;
 
 namespace AVCoders.CommunicationClients.Tests;
 
-/// <summary>
-/// Wake() sends to the network broadcast address, which cannot be observed on
-/// loopback, so these tests verify the packet construction logic via reflection.
-/// </summary>
-[Collection(LoggerFactoryCollection.Name)]
 public class AvCodersWakeOnLanTest
 {
     private static byte[] ParseMacAddress(string mac)
@@ -61,6 +55,11 @@ public class AvCodersWakeOnLanTest
         Assert.Throws<ArgumentException>(() => BuildMagicPacket(new byte[length]));
     }
 
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class AvCodersWakeOnLanLogTest
+{
     [Theory]
     [InlineData("AA:BB:CC")]
     [InlineData("GG:BB:CC:DD:EE:FF")]

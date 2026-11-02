@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text;
 
 namespace AVCoders.Core;
@@ -7,7 +6,9 @@ namespace AVCoders.Core;
 public abstract class CommunicationClient(string name, string host, ushort port, CommandStringFormat commandStringFormat) : LogBase(name)
 {
     public const string ConnectionIssueKey = "connection";
+    private const string RequestedDisconnect = "Disconnected on request";
 
+    private protected readonly TimeProvider TimeProvider = TimeProvider.System;
     private string _host = host;
     private ushort _port = port;
     private readonly object _connectionIssueLock = new();
@@ -17,7 +18,14 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     public StringHandler? ResponseHandlers;
     public ByteHandler? ResponseByteHandlers;
     public ConnectionStateHandler? ConnectionStateHandlers;
+    public ConnectionReasonHandler? ConnectionReasonHandlers;
     public readonly CommandStringFormat CommandStringFormat = commandStringFormat;
+
+    internal CommunicationClient(string name, string host, ushort port, CommandStringFormat commandStringFormat, TimeProvider timeProvider)
+        : this(name, host, port, commandStringFormat)
+    {
+        TimeProvider = timeProvider;
+    }
 
     public string Host
     {
@@ -32,8 +40,20 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     }
 
     private ConnectionState _connectionState = ConnectionState.Unknown;
+    private ConnectionState _desiredConnectionState = ConnectionState.Unknown;
 
-    public ConnectionState DesiredConnectionState { get; protected set; } = ConnectionState.Unknown;
+    public ConnectionState DesiredConnectionState
+    {
+        get => _desiredConnectionState;
+        protected set
+        {
+            _desiredConnectionState = value;
+            if (value == ConnectionState.Disconnected || ConnectionReason?.Category == ConnectionReasonCategory.Requested)
+                ResetConnectionReason();
+        }
+    }
+
+    public ConnectionReason? ConnectionReason { get; private set; }
 
     public ConnectionState ConnectionState
     {
@@ -62,14 +82,15 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     /// </summary>
     public TimeSpan ConnectionIssueThreshold { get; set; } = TimeSpan.FromMinutes(2);
 
-    /// <summary>
-    /// Records a failed connection attempt as a momentary issue with a human-readable
-    /// <paramref name="reason"/> (see <see cref="DescribeConnectionError"/>). Once failures have
-    /// persisted for <see cref="ConnectionIssueThreshold"/>, an ongoing issue is raised under the
-    /// same key; it resolves automatically when <see cref="ConnectionState"/> becomes Connected.
-    /// Ignored while <see cref="DesiredConnectionState"/> is Disconnected.
-    /// </summary>
-    protected void ReportConnectionFailure(string reason)
+    protected void ReportConnectionFailure(Exception e)
+    {
+        var (category, description) = ExplainConnectionError(e);
+        ReportConnectionFailure(category, description, e);
+    }
+
+    protected void ReportConnectionFailure(string reason) => ReportConnectionFailure(ConnectionReasonCategory.Other, reason);
+
+    protected void ReportConnectionFailure(ConnectionReasonCategory category, string reason, Exception? exception = null)
     {
         (long Timestamp, DateTimeOffset At) failingSince;
         bool escalate;
@@ -77,10 +98,11 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         {
             if (DesiredConnectionState == ConnectionState.Disconnected)
                 return;
-            _connectionFailingSince ??= (Stopwatch.GetTimestamp(), DateTimeOffset.UtcNow);
+            _connectionFailingSince ??= (TimeProvider.GetTimestamp(), TimeProvider.GetUtcNow());
             failingSince = _connectionFailingSince.Value;
-            escalate = Stopwatch.GetElapsedTime(failingSince.Timestamp) >= ConnectionIssueThreshold;
+            escalate = TimeProvider.GetElapsedTime(failingSince.Timestamp) >= ConnectionIssueThreshold;
         }
+        SetConnectionReason(category, reason, exception);
         RaiseMomentaryIssue(reason, key: ConnectionIssueKey);
         if (escalate)
             RaiseOngoingIssue(ConnectionIssueKey,
@@ -95,6 +117,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
 
     protected void ClearConnectionFailures()
     {
+        ResetConnectionReason();
         lock (_connectionIssueLock)
         {
             if (_connectionFailingSince == null)
@@ -104,25 +127,66 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         ResolveIssue(ConnectionIssueKey);
     }
 
-    /// <summary>Turns a connection exception into a human-readable failure reason.</summary>
-    protected string DescribeConnectionError(Exception e) => e switch
+    protected void SetConnectionReason(ConnectionReasonCategory category, string description, Exception? exception = null)
+    {
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+            return;
+        ReplaceConnectionReason(NewConnectionReason(category, description, exception));
+    }
+
+    protected void MirrorConnectionReason(ConnectionReason? reason) => ReplaceConnectionReason(reason);
+
+    private void ResetConnectionReason() =>
+        ReplaceConnectionReason(DesiredConnectionState == ConnectionState.Disconnected
+            ? NewConnectionReason(ConnectionReasonCategory.Requested, RequestedDisconnect, null)
+            : null);
+
+    private ConnectionReason NewConnectionReason(ConnectionReasonCategory category, string description, Exception? exception) =>
+        new(category, description, exception == null ? null : RawText(exception),
+            ConnectionReason is { } current && current.Category == category ? current.Since : TimeProvider.GetUtcNow());
+
+    private static string RawText(Exception e) => e.InnerException == null
+        ? $"{e.GetType().FullName}: {e.Message}"
+        : $"{e.GetType().FullName}: {e.Message} ---> {RawText(e.InnerException)}";
+
+    private void ReplaceConnectionReason(ConnectionReason? reason)
+    {
+        lock (_connectionIssueLock)
+        {
+            if (Equals(ConnectionReason, reason))
+                return;
+            ConnectionReason = reason;
+        }
+        try
+        {
+            ConnectionReasonHandlers?.Invoke(reason);
+        }
+        catch (Exception e)
+        {
+            LogException(e, "A ConnectionReason handler threw an exception");
+        }
+    }
+
+    protected string DescribeConnectionError(Exception e) => ExplainConnectionError(e).Description;
+
+    protected virtual (ConnectionReasonCategory Category, string Description) ExplainConnectionError(Exception e) => e switch
     {
         SocketException s => s.SocketErrorCode switch
         {
-            SocketError.TimedOut => $"The connection to {Host}:{Port} timed out",
-            SocketError.HostNotFound => $"The host {Host} was not found",
-            SocketError.ConnectionRefused => $"{Host}:{Port} refused the connection",
-            SocketError.HostUnreachable => $"The host {Host} is unreachable",
-            SocketError.NetworkUnreachable => $"The network is unreachable trying to reach {Host}",
-            SocketError.ConnectionReset => $"The connection to {Host}:{Port} was reset",
-            _ => $"The connection to {Host}:{Port} failed: {s.Message}"
+            SocketError.TimedOut => (ConnectionReasonCategory.TimedOut, $"The connection to {Host}:{Port} timed out"),
+            SocketError.HostNotFound => (ConnectionReasonCategory.HostNotFound, $"The host {Host} was not found"),
+            SocketError.ConnectionRefused => (ConnectionReasonCategory.Refused, $"{Host}:{Port} refused the connection"),
+            SocketError.HostUnreachable => (ConnectionReasonCategory.Unreachable, $"The host {Host} is unreachable"),
+            SocketError.NetworkUnreachable => (ConnectionReasonCategory.Unreachable, $"The network is unreachable trying to reach {Host}"),
+            SocketError.ConnectionReset => (ConnectionReasonCategory.ClosedByDevice, $"The connection to {Host}:{Port} was reset"),
+            _ => (ConnectionReasonCategory.Other, $"The connection to {Host}:{Port} failed: {s.Message}")
         },
-        HttpRequestException { InnerException: SocketException inner } => DescribeConnectionError(inner),
-        HttpRequestException h => $"The request to {Host}:{Port} failed: {h.Message}",
-        TimeoutException => $"The connection to {Host}:{Port} timed out",
-        OperationCanceledException => $"The connection attempt to {Host}:{Port} timed out",
-        _ when e.InnerException is SocketException inner => DescribeConnectionError(inner),
-        _ => $"The connection to {Host}:{Port} failed: {e.Message}"
+        HttpRequestException { InnerException: SocketException inner } => ExplainConnectionError(inner),
+        HttpRequestException h => (ConnectionReasonCategory.Other, $"The request to {Host}:{Port} failed: {h.Message}"),
+        TimeoutException => (ConnectionReasonCategory.TimedOut, $"The connection to {Host}:{Port} timed out"),
+        OperationCanceledException => (ConnectionReasonCategory.TimedOut, $"The connection attempt to {Host}:{Port} timed out"),
+        _ when e.InnerException is SocketException inner => ExplainConnectionError(inner),
+        _ => (ConnectionReasonCategory.Other, $"The connection to {Host}:{Port} failed: {e.Message}")
     };
 
     /// <summary>
@@ -220,9 +284,18 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     }
 }
 
-public abstract class ModbusClient(String name, string host, ushort port, CommandStringFormat commandStringFormat)
-    : CommunicationClient(name, host, port, commandStringFormat)
+public abstract class ModbusClient : CommunicationClient
 {
+    protected ModbusClient(String name, string host, ushort port, CommandStringFormat commandStringFormat)
+        : base(name, host, port, commandStringFormat)
+    {
+    }
+
+    internal ModbusClient(String name, string host, ushort port, CommandStringFormat commandStringFormat, TimeProvider timeProvider)
+        : base(name, host, port, commandStringFormat, timeProvider)
+    {
+    }
+
     public abstract Task<bool[]> ReadCoils(byte deviceId, ushort startCoil, ushort count, CancellationToken token = default);
     public abstract Task<ushort[]> ReadHoldingRegisters(byte deviceId, ushort startRegister, ushort count, CancellationToken token = default);
     public abstract Task WriteCoil(byte deviceId, ushort coil, bool value, CancellationToken token = default);
@@ -237,10 +310,17 @@ public class ModbusException(byte functionCode, byte exceptionCode, string messa
     public byte ExceptionCode { get; } = exceptionCode;
 }
 
-public abstract class ModbusRtuClient(String name, string host, ushort port)
-    : ModbusClient(name, host, port, CommandStringFormat.Hex)
+public abstract class ModbusRtuClient : ModbusClient
 {
+    protected ModbusRtuClient(String name, string host, ushort port)
+        : base(name, host, port, CommandStringFormat.Hex)
+    {
+    }
 
+    internal ModbusRtuClient(String name, string host, ushort port, TimeProvider timeProvider)
+        : base(name, host, port, CommandStringFormat.Hex, timeProvider)
+    {
+    }
 }
 
 public abstract class ModbusAsciiClient(String name, string host, ushort port)
@@ -286,11 +366,16 @@ public abstract class IpComms : CommunicationClient
     protected readonly ThreadWorker SendQueueWorker;
 
     protected IpComms(string host, ushort port, string name, CommandStringFormat commandStringFormat)
-        : base(name, host, port, commandStringFormat)
+        : this(host, port, name, commandStringFormat, TimeProvider.System)
     {
-        ReceiveThreadWorker = new ThreadWorker(Receive, TimeSpan.Zero);
-        SendQueueWorker = new ThreadWorker(ProcessSendQueue, TimeSpan.Zero);
-        ConnectionStateWorker = new ThreadWorker(CheckConnectionState, TimeSpan.Zero);
+    }
+
+    internal IpComms(string host, ushort port, string name, CommandStringFormat commandStringFormat, TimeProvider timeProvider)
+        : base(name, host, port, commandStringFormat, timeProvider)
+    {
+        ReceiveThreadWorker = new ThreadWorker(Receive, TimeSpan.Zero, false, timeProvider);
+        SendQueueWorker = new ThreadWorker(ProcessSendQueue, TimeSpan.Zero, false, timeProvider);
+        ConnectionStateWorker = new ThreadWorker(CheckConnectionState, TimeSpan.Zero, false, timeProvider);
     }
 
     ~IpComms()
@@ -334,26 +419,70 @@ public abstract class IpComms : CommunicationClient
 public abstract class IMulticastClient : IpComms
 {
     protected IMulticastClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
-        : base(host, port, name, commandStringFormat)
+        : this(host, port, name, commandStringFormat, TimeProvider.System)
+    {
+    }
+
+    internal IMulticastClient(string host, ushort port, string name, CommandStringFormat commandStringFormat, TimeProvider timeProvider)
+        : base(host, port, name, commandStringFormat, timeProvider)
     {
     }
 }
 
-public abstract class MqttClient(string host, ushort port, string name)
-    : CommunicationClient(name, host, port, CommandStringFormat.Ascii)
+public abstract class MqttClient : CommunicationClient
 {
+    protected MqttClient(string host, ushort port, string name)
+        : base(name, host, port, CommandStringFormat.Ascii)
+    {
+    }
+
+    internal MqttClient(string host, ushort port, string name, TimeProvider timeProvider)
+        : base(name, host, port, CommandStringFormat.Ascii, timeProvider)
+    {
+    }
+
     public abstract void Send(string topic, string payload);
     public abstract void SubscribeToTopic(string topic, Action<string> handler);
 }
 
-public abstract class SshClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
-    : IpComms(host, port, name, commandStringFormat);
+public abstract class SshClient : IpComms
+{
+    protected SshClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+        : base(host, port, name, commandStringFormat)
+    {
+    }
 
-public abstract class TcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
-    : IpComms(host, port, name, commandStringFormat);
+    internal SshClient(string host, ushort port, string name, CommandStringFormat commandStringFormat, TimeProvider timeProvider)
+        : base(host, port, name, commandStringFormat, timeProvider)
+    {
+    }
+}
 
-public abstract class UdpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
-    : IpComms(host, port, name, commandStringFormat);
+public abstract class TcpClient : IpComms
+{
+    protected TcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+        : base(host, port, name, commandStringFormat)
+    {
+    }
+
+    internal TcpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat, TimeProvider timeProvider)
+        : base(host, port, name, commandStringFormat, timeProvider)
+    {
+    }
+}
+
+public abstract class UdpClient : IpComms
+{
+    protected UdpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
+        : base(host, port, name, commandStringFormat)
+    {
+    }
+
+    internal UdpClient(string host, ushort port, string name, CommandStringFormat commandStringFormat, TimeProvider timeProvider)
+        : base(host, port, name, commandStringFormat, timeProvider)
+    {
+    }
+}
 
 public abstract class WebSocketClient(string host, ushort port, string name, CommandStringFormat commandStringFormat)
     : IpComms(host, port, name, commandStringFormat);

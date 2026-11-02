@@ -67,10 +67,16 @@ public class ThorRf11IqPdu : Pdu
     private const string PollIssueKey = "unanswered-poll";
     private const string CommandIssueKey = "unacknowledged-command";
     private const string BuzzerIssueKey = "buzzer";
+    private const string FirmwareIssueKey = "firmware-read";
+    private const string FirmwareLabel = "Firmware";
+    private const string VersionElement = "ver";
+    private const int MaxMissedReplies = 3;
 
     private readonly RestComms _restClient;
     private readonly Uri _statusUri = new(StatusPath, UriKind.Relative);
     private readonly ThreadWorker _pollWorker;
+    private readonly TimeProvider _timeProvider;
+    private int _missedFirmwareReplies;
     private readonly object _lock = new();
     private readonly AsyncLocal<TaskCompletionSource<string?>?> _sendingCommand = new();
     private readonly Dictionary<int, ChannelState> _channels = new();
@@ -93,8 +99,15 @@ public class ThorRf11IqPdu : Pdu
     /// stores no names, so any channel not supplied is named "Output n" or "IEC Outputs".</param>
     public ThorRf11IqPdu(RestComms restClient, string name, string password,
         IReadOnlyDictionary<int, string>? outletNames = null, TimeSpan? pollInterval = null)
+        : this(restClient, name, password, outletNames, pollInterval, null)
+    {
+    }
+
+    internal ThorRf11IqPdu(RestComms restClient, string name, string password,
+        IReadOnlyDictionary<int, string>? outletNames, TimeSpan? pollInterval, TimeProvider? timeProvider)
         : base(name, restClient)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _restClient = restClient;
         var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{DefaultUser}:{password}"));
         _restClient.AddDefaultHeader("Authorization", $"Basic {credentials}");
@@ -110,7 +123,7 @@ public class ThorRf11IqPdu : Pdu
             _channels[channel] = new ChannelState();
         }
 
-        _pollWorker = new ThreadWorker(Poll, pollInterval ?? DefaultPollInterval);
+        _pollWorker = new ThreadWorker(Poll, pollInterval ?? DefaultPollInterval, false, _timeProvider);
         _pollWorker.Restart();
     }
 
@@ -277,15 +290,48 @@ public class ThorRf11IqPdu : Pdu
             var buzzer = Value("bz");
             if (buzzer != null)
                 BuzzerActive = buzzer == "1";
-            var version = Value("ver");
-            if (!string.IsNullOrWhiteSpace(version))
-                FirmwareVersion = version;
+
+            ShowFirmware(root.SelectSingleNode(VersionElement), body);
         }
         catch (Exception e)
         {
             LogException(e, "A status update handler threw");
             AddEvent(EventType.Error, $"A status update handler threw: {e.Message}");
         }
+    }
+
+    private void ShowFirmware(XmlNode? version, string body)
+    {
+        if (version == null)
+        {
+            CountMissedFirmwareReply(body);
+            return;
+        }
+        _missedFirmwareReplies = 0;
+        if (string.IsNullOrWhiteSpace(version.InnerText))
+        {
+            SetDetail(FirmwareLabel, version.OuterXml);
+        }
+        else
+        {
+            SetDetail(FirmwareLabel, version.InnerText);
+            FirmwareVersion = version.InnerText;
+        }
+        ResolveIssue(FirmwareIssueKey);
+    }
+
+    private void CountMissedFirmwareReply(string body)
+    {
+        var missed = ++_missedFirmwareReplies;
+        if (missed < MaxMissedReplies)
+        {
+            LogInformation("The status reply has no {Element} element, reading it again at the next poll ({Missed} of {MaxMissedReplies}): {Reply}",
+                VersionElement, missed, MaxMissedReplies, body);
+            return;
+        }
+        RaiseOngoingIssue(FirmwareIssueKey,
+            $"The status reply had no {VersionElement} element {MaxMissedReplies} times in a row, the last was {body}",
+            IssueSeverity.Minor);
     }
 
     // A poll dispatched before a command carries the pre-command state, and a rebooting
@@ -392,7 +438,7 @@ public class ThorRf11IqPdu : Pdu
                 return;
             try
             {
-                await Task.Delay(RebootDelay, cancellation.Token);
+                await Task.Delay(RebootDelay, _timeProvider, cancellation.Token);
             }
             catch (OperationCanceledException)
             {

@@ -209,14 +209,18 @@ public abstract class LogBase
         return context;
     }
 
-    protected void LogException(Exception e, string? message = null)
+    protected void LogException(Exception e, string? message = null) => LogException(e, LogLevel.Error, message);
+
+    protected void LogException(Exception e, LogLevel level, string? message = null)
     {
         // null: don't override the caller's ambient Method scope with "LogException".
         using (PushProperties(null))
         {
-            _logger.LogError(e, "{Context}", message ?? e.Message);
-            if (e.InnerException != null)
-                _logger.LogError(e.InnerException, "{Context}", e.InnerException.Message);
+            if (e.InnerException is { } inner)
+                Write(level, e, "{Context} ({InnerExceptionType}: {InnerExceptionMessage})",
+                    [message ?? e.Message, inner.GetType().FullName, inner.Message]);
+            else
+                Write(level, e, "{Context}", [message ?? e.Message]);
         }
 
         lock (_errorsLock)

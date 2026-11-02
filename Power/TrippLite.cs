@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AVCoders.CommunicationClients;
 using AVCoders.Core;
 using Lextm.SharpSnmpLib;
@@ -62,6 +63,9 @@ public class TrippLitePdu : Pdu
     private const string DeviceNameOidPrefix = "1.3.6.1.4.1.850.1.1.1.2.1.6.";
     private const string AgentFirmwareVersionOid = "1.3.6.1.4.1.850.1.2.1.1.2.0";
     private const string AgentSerialNumberOid = "1.3.6.1.4.1.850.1.2.1.1.5.0";
+    private const string AgentMacOid = "1.3.6.1.4.1.850.1.2.1.1.4.0";
+    private const string AlarmsPresentOid = "1.3.6.1.4.1.850.1.3.1.0";
+    private const string AlarmDetailColumn = "1.3.6.1.4.1.850.1.3.2.1.6";
     private const string PduBranch = "1.3.6.1.4.1.850.1.1.3.2";
     private const string EnvirosenseBranch = "1.3.6.1.4.1.850.1.1.3.3";
     private const string AtsBranch = "1.3.6.1.4.1.850.1.1.3.4";
@@ -82,14 +86,47 @@ public class TrippLitePdu : Pdu
     private const string SensorPollIssueKey = "unanswered-sensor-poll";
     private const string RedundancyIssueKey = "input-redundancy";
     private const string CommandIssueKey = "unacknowledged-command";
+    private const string FirmwareIssueKey = "firmware-read";
+    private const string SerialIssueKey = "serial-read";
+    private const string MacIssueKey = "mac-read";
+    private const string AlarmCountIssueKey = "alarm-count-read";
+    private const string AlarmsIssueKey = "alarms-present";
+
+    private const string ModelLabel = "Model";
+    private const string SerialLabel = "Serial";
+    private const string FirmwareLabel = "Firmware";
+    private const string MacLabel = "MAC";
+    private const string AlarmsLabel = "Alarms";
+    private const string OutputVoltageLabel = "Output Voltage";
+    private const string OutputPowerLabel = "Output Power";
+    private const string NoAnswer = "no answer";
+    private const string NoReply = "no reply";
+    private const string NotAnswered = "was not answered";
+    private const string NotAcknowledged = "was not acknowledged";
+
+    private const int MaxMissedReplies = 3;
+
+    private static readonly SnmpRead FirmwareRead = new("firmware", AgentFirmwareVersionOid, FirmwareLabel, FirmwareIssueKey);
+    private static readonly SnmpRead SerialRead = new("serial number", AgentSerialNumberOid, SerialLabel, SerialIssueKey);
+    private static readonly SnmpRead MacRead = new("MAC", AgentMacOid, MacLabel, MacIssueKey);
+    private static readonly SnmpRead[] IdentityReads = [FirmwareRead, SerialRead, MacRead];
+    private static readonly SnmpRead AlarmCountRead = new("alarm count", AlarmsPresentOid, AlarmsLabel, AlarmCountIssueKey);
+
+    private static readonly Regex LoadOffAlarm = new(@"\bLoad(?: \d+)? Off\b", RegexOptions.IgnoreCase);
+    private static readonly Regex InputAAlarm = new(@"\b(?:Input|Source) (?:A|1)\b", RegexOptions.IgnoreCase);
+    private static readonly Regex InputBAlarm = new(@"\b(?:Input|Source) (?:B|2)\b", RegexOptions.IgnoreCase);
 
     private readonly AvCodersSnmpV3Client _client;
+    private readonly HashSet<SnmpRead> _unreadIdentity = [];
+    private readonly Dictionary<SnmpRead, int> _missedReplies = new();
     private readonly ThreadWorker _pollWorker;
     private volatile IReadOnlyList<DiscoveredDevice> _devices = [];
     private volatile IReadOnlyList<DiscoveredSensor> _sensors = [];
     private volatile bool _initialised;
     private volatile bool _inputAWarningDisabled;
     private volatile bool _inputBWarningDisabled;
+    private volatile bool _alarmCountUnsupported;
+    private string _lastQueryFailure = NotAnswered;
     private TrippLiteInputSource _activeSource = TrippLiteInputSource.Unknown;
     private volatile IReadOnlyList<TrippLiteInputFeedStatus> _inputFeeds = [];
     private volatile IReadOnlyList<TrippLiteSensorReading> _sensorReadings = [];
@@ -101,12 +138,26 @@ public class TrippLitePdu : Pdu
 
     private record DiscoveredSensor(int Index, string Name, string Model, bool HasTemperature, bool HasHumidity);
 
+    private record SnmpRead(string Name, string Oid, string Label, string IssueKey);
+
+    private enum ReplyKind
+    {
+        Missed,
+        NotSupported,
+        Answered
+    }
+
     public TrippLitePdu(string name, AvCodersSnmpV3Client client, TimeSpan? pollInterval = null)
+        : this(name, client, pollInterval, null)
+    {
+    }
+
+    internal TrippLitePdu(string name, AvCodersSnmpV3Client client, TimeSpan? pollInterval, TimeProvider? timeProvider)
         : base(name, client)
     {
         _client = client;
         CommunicationState = CommunicationState.Unknown;
-        _pollWorker = new ThreadWorker(Poll, pollInterval ?? DefaultPollInterval);
+        _pollWorker = new ThreadWorker(Poll, pollInterval ?? DefaultPollInterval, false, timeProvider);
         _pollWorker.Restart();
     }
 
@@ -258,9 +309,9 @@ public class TrippLitePdu : Pdu
         }
         var response = _client.Set(
             $"{device.Root}.3.3.1.1.6.{outlet.DeviceIndex}.{outlet.OutletNumber}", command);
-        if (response.Count == 0)
+        if (response.Variables.Count == 0)
         {
-            RaiseMomentaryIssue($"The {description} command for outlet {outlet.Name} was not acknowledged",
+            RaiseMomentaryIssue($"The {description} command for outlet {outlet.Name} {Failure(response, NotAcknowledged)}",
                 key: CommandIssueKey);
             return false;
         }
@@ -270,24 +321,33 @@ public class TrippLitePdu : Pdu
 
     private Task Poll(CancellationToken token)
     {
-        if (!_initialised)
-            Initialise();
-        if (!_initialised)
-            return Task.CompletedTask;
-
-        var healthy = true;
-        foreach (var device in _devices)
+        using (PushProperties("Poll"))
         {
-            token.ThrowIfCancellationRequested();
-            if (!PollOutletStates(device))
+            var wasInitialised = _initialised;
+            if (!_initialised)
+                Initialise();
+            if (!_initialised)
+                return Task.CompletedTask;
+
+            var healthy = true;
+            foreach (var device in _devices)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!PollOutletStates(device))
+                    healthy = false;
+                if (device.IsAts && !PollAtsStatus(device))
+                    healthy = false;
+            }
+            if (!PollSensors(token))
                 healthy = false;
-            if (device.IsAts && !PollAtsStatus(device))
-                healthy = false;
+            CommunicationState = healthy ? CommunicationState.Okay : CommunicationState.Error;
+            if (!healthy)
+                return Task.CompletedTask;
+            PollAlarms();
+            if (wasInitialised)
+                ReadIdentity();
+            return Task.CompletedTask;
         }
-        if (!PollSensors(token))
-            healthy = false;
-        CommunicationState = healthy ? CommunicationState.Okay : CommunicationState.Error;
-        return Task.CompletedTask;
     }
 
     private void Initialise()
@@ -295,11 +355,11 @@ public class TrippLitePdu : Pdu
         var deviceCount = GetNumber(DeviceCountOid);
         if (deviceCount == null)
         {
-            ReportDiscoveryFailure("The device count query was not answered");
+            ReportDiscoveryFailure($"The device count query {_lastQueryFailure}");
             return;
         }
-        FirmwareVersion = GetText(AgentFirmwareVersionOid) ?? string.Empty;
-        SerialNumber = GetText(AgentSerialNumberOid) ?? string.Empty;
+        _unreadIdentity.UnionWith(IdentityReads);
+        ReadIdentity();
 
         List<DiscoveredDevice> devices = [];
         List<DiscoveredSensor> sensors = [];
@@ -314,7 +374,7 @@ public class TrippLitePdu : Pdu
                 var hasHumidity = GetNumber($"{EnvirosenseBranch}.1.2.1.2.{deviceIndex}");
                 if (hasTemperature == null || hasHumidity == null)
                 {
-                    ReportDiscoveryFailure($"The sensor capability query for device {deviceIndex} was not answered");
+                    ReportDiscoveryFailure($"The sensor capability query for device {deviceIndex} {_lastQueryFailure}");
                     return;
                 }
                 sensors.Add(new DiscoveredSensor(deviceIndex,
@@ -331,14 +391,14 @@ public class TrippLitePdu : Pdu
             var outletCount = GetNumber($"{deviceType}.1.2.1.4.{deviceIndex}");
             if (outletCount == null)
             {
-                ReportDiscoveryFailure($"The outlet count query for device {deviceIndex} was not answered");
+                ReportDiscoveryFailure($"The outlet count query for device {deviceIndex} {_lastQueryFailure}");
                 return;
             }
             var names = WalkColumn($"{deviceType}.3.3.1.1.2.{deviceIndex}");
             var controllables = WalkColumn($"{deviceType}.3.3.1.1.5.{deviceIndex}");
             if (names.Count == 0)
             {
-                ReportDiscoveryFailure($"The outlet name walk for device {deviceIndex} was not answered");
+                ReportDiscoveryFailure($"The outlet name walk for device {deviceIndex} {_lastQueryFailure}");
                 return;
             }
             Dictionary<int, TrippLiteOutlet> outlets = [];
@@ -357,6 +417,8 @@ public class TrippLitePdu : Pdu
         {
             if (sensors.All(sensor => sensor.Index != previous.Index))
                 ResolveIssue(SensorAlarmKey(previous.Index));
+            if (sensors.All(sensor => sensor.Name != previous.Name))
+                RemoveDetail(previous.Name);
         }
         _devices = devices;
         _sensors = sensors;
@@ -365,12 +427,14 @@ public class TrippLitePdu : Pdu
         SetOutlets(devices.SelectMany(device => device.OutletsByNumber.OrderBy(pair => pair.Key))
             .Select(pair => (Outlet)pair.Value).ToList());
         var combinedModel = string.Join(", ", devices.Select(device => device.Model));
+        SetDetail(ModelLabel, combinedModel);
         if (Model != combinedModel)
         {
             Model = combinedModel;
             ModelHandlers?.Invoke(combinedModel);
         }
         ResolveIssue(DiscoveryIssueKey);
+        _alarmCountUnsupported = false;
         _initialised = true;
         AddEvent(EventType.Connection,
             $"Connected to {Model} (serial {SerialNumber}, firmware {FirmwareVersion}), {Outlets.Count} outlets and {sensors.Count} sensors discovered");
@@ -389,7 +453,7 @@ public class TrippLitePdu : Pdu
         var states = WalkColumn($"{device.Root}.3.3.1.1.4.{device.Index}");
         if (states.Count == 0)
         {
-            RaiseMomentaryIssue($"The outlet state poll for device {device.Index} was not answered",
+            RaiseMomentaryIssue($"The outlet state poll for device {device.Index} {_lastQueryFailure}",
                 key: OutletPollIssueKey, escalateAfter: 3);
             return false;
         }
@@ -411,7 +475,7 @@ public class TrippLitePdu : Pdu
         var availability = GetNumber($"{device.Root}.3.1.1.1.12.{device.Index}");
         if (availability == null)
         {
-            RaiseMomentaryIssue($"The input source poll for device {device.Index} was not answered",
+            RaiseMomentaryIssue($"The input source poll for device {device.Index} {_lastQueryFailure}",
                 key: AtsPollIssueKey, escalateAfter: 3);
             return false;
         }
@@ -435,8 +499,8 @@ public class TrippLitePdu : Pdu
         var voltages = WalkColumn($"{device.Root}.3.1.2.1.5.{device.Index}");
         InputFeeds = new List<TrippLiteInputFeedStatus>
         {
-            BuildFeedStatus(TrippLiteInputSource.A, availability.Value is SourceAOnly or BothSources, voltages, 1),
-            BuildFeedStatus(TrippLiteInputSource.B, availability.Value is SourceBOnly or BothSources, voltages, 2)
+            ShowInputFeed(TrippLiteInputSource.A, availability.Value is SourceAOnly or BothSources, voltages, 1),
+            ShowInputFeed(TrippLiteInputSource.B, availability.Value is SourceBOnly or BothSources, voltages, 2)
         };
 
         var inUse = GetNumber($"{device.Root}.3.1.1.1.13.{device.Index}");
@@ -454,10 +518,16 @@ public class TrippLitePdu : Pdu
 
         var outputVoltage = GetNumber($"{device.Root}.3.2.1.1.4.{device.Index}.1");
         if (outputVoltage != null)
+        {
+            SetDetail(OutputVoltageLabel, FormattableString.Invariant($"{outputVoltage.Value / 10f:0.0} V"));
             OutputVoltage = outputVoltage.Value / 10f;
+        }
         var outputPower = GetNumber($"{device.Root}.2.1.1.9.{device.Index}");
         if (outputPower != null)
+        {
+            SetDetail(OutputPowerLabel, $"{outputPower.Value} W");
             OutputPowerWatts = outputPower.Value;
+        }
         return true;
     }
 
@@ -470,7 +540,7 @@ public class TrippLitePdu : Pdu
             var reading = PollSensor(sensor);
             if (reading == null)
             {
-                RaiseMomentaryIssue($"The sensor poll for {sensor.Name} was not answered",
+                RaiseMomentaryIssue($"The sensor poll for {sensor.Name} {_lastQueryFailure}",
                     key: SensorPollIssueKey, escalateAfter: 3);
                 return false;
             }
@@ -478,6 +548,7 @@ public class TrippLitePdu : Pdu
         }
         foreach (var (sensor, reading) in polled)
         {
+            SetDetail(sensor.Name, SensorText(reading), reading.InAlarm ? DetailTone.Warning : DetailTone.Normal);
             if (reading.InAlarm)
                 RaiseOngoingIssue(SensorAlarmKey(sensor.Index),
                     $"Environment sensor {sensor.Name} is reporting readings beyond its configured limits");
@@ -517,41 +588,201 @@ public class TrippLitePdu : Pdu
         return new TrippLiteSensorReading(sensor.Name, sensor.Model, temperature, humidity, inAlarm);
     }
 
-    private static TrippLiteInputFeedStatus BuildFeedStatus(TrippLiteInputSource source, bool available,
+    private static string SensorText(TrippLiteSensorReading reading)
+    {
+        List<string> parts = [];
+        if (reading.TemperatureCelsius is { } temperature)
+            parts.Add(FormattableString.Invariant($"{temperature:0.0} °C"));
+        if (reading.HumidityPercent is { } humidity)
+            parts.Add($"{humidity} %");
+        if (reading.InAlarm)
+            parts.Add("in alarm");
+        return parts.Count == 0 ? "no temperature or humidity probe" : string.Join(", ", parts);
+    }
+
+    private void PollAlarms()
+    {
+        if (_alarmCountUnsupported)
+            return;
+        var response = _client.Get(AlarmsPresentOid);
+        var kind = Kind(response);
+        if (kind == ReplyKind.Missed)
+        {
+            ShowMissed(AlarmCountRead, response);
+            return;
+        }
+        if (kind == ReplyKind.NotSupported)
+        {
+            _alarmCountUnsupported = true;
+            ReadAnswered(AlarmCountRead);
+            ShowNotSupported(AlarmCountRead, response);
+            return;
+        }
+        var reply = response.Variables[0].Data.ToString();
+        if (!int.TryParse(reply, out var count))
+        {
+            SetDetail(AlarmsLabel, reply, DetailTone.Warning);
+            CountMissedReply(AlarmCountRead, reply);
+            return;
+        }
+        ReadAnswered(AlarmCountRead);
+
+        if (count == 0)
+        {
+            SetDetail(AlarmsLabel, reply);
+            ResolveIssue(AlarmsIssueKey);
+            return;
+        }
+        var alarms = WalkColumn(AlarmDetailColumn).Values.ToList();
+        if (alarms.Count == 0)
+        {
+            SetDetail(AlarmsLabel, $"{reply}, the alarm table returned no rows", DetailTone.Warning);
+            RaiseOngoingIssue(AlarmsIssueKey, $"The PDU's alarm count is {count}, but its alarm table returned no rows",
+                IssueSeverity.Minor);
+            return;
+        }
+        var unexpected = alarms.Where(alarm => !IsDeliberateState(alarm)).ToList();
+        SetDetail(AlarmsLabel, $"{reply}: {string.Join("; ", alarms)}",
+            unexpected.Count > 0 ? DetailTone.Warning : DetailTone.Normal);
+        if (unexpected.Count == 0)
+            ResolveIssue(AlarmsIssueKey);
+        else
+            RaiseOngoingIssue(AlarmsIssueKey, $"The PDU reports alarms: {string.Join("; ", unexpected)}", IssueSeverity.Minor);
+    }
+
+    private bool IsDeliberateState(string alarm) =>
+        LoadOffAlarm.IsMatch(alarm)
+        || (_inputAWarningDisabled && InputAAlarm.IsMatch(alarm))
+        || (_inputBWarningDisabled && InputBAlarm.IsMatch(alarm));
+
+    private TrippLiteInputFeedStatus ShowInputFeed(TrippLiteInputSource source, bool available,
         Dictionary<string, string> voltages, int inputNumber)
     {
         var raw = voltages.FirstOrDefault(pair => pair.Key.StartsWith($"{inputNumber}.")).Value;
-        var voltage = int.TryParse(raw, out var tenths) ? tenths / 10f : 0f;
-        return new TrippLiteInputFeedStatus(source, available, voltage);
+        var parsed = int.TryParse(raw, out var tenths);
+        var voltageText = raw == null ? "no voltage reading"
+            : parsed ? FormattableString.Invariant($"{tenths / 10f:0.0} V")
+            : raw;
+        var warningDisabled = source == TrippLiteInputSource.A ? _inputAWarningDisabled : _inputBWarningDisabled;
+        SetDetail($"Input {source}", $"{(available ? "Available" : "Unavailable")}, {voltageText}",
+            available || warningDisabled ? DetailTone.Normal : DetailTone.Warning);
+        return new TrippLiteInputFeedStatus(source, available, parsed ? tenths / 10f : 0f);
     }
+
+    private void ReadIdentity()
+    {
+        if (_unreadIdentity.Contains(FirmwareRead) && Read(FirmwareRead) is { } firmware)
+            FirmwareVersion = firmware;
+        if (_unreadIdentity.Contains(SerialRead) && Read(SerialRead) is { } serial)
+            SerialNumber = serial;
+        if (_unreadIdentity.Contains(MacRead))
+            Read(MacRead);
+    }
+
+    private string? Read(SnmpRead read)
+    {
+        var response = _client.Get(read.Oid);
+        var kind = Kind(response);
+        if (kind == ReplyKind.Missed)
+        {
+            ShowMissed(read, response);
+            return null;
+        }
+        _unreadIdentity.Remove(read);
+        ReadAnswered(read);
+        if (kind == ReplyKind.NotSupported)
+        {
+            ShowNotSupported(read, response);
+            return string.Empty;
+        }
+        var value = response.Variables[0].Data.ToString();
+        SetDetail(read.Label, value);
+        return value;
+    }
+
+    private static ReplyKind Kind(SnmpReply response) => response.ErrorStatus switch
+    {
+        ErrorCode.NoError when response.Variables.Count == 0 => ReplyKind.Missed,
+        ErrorCode.NoError when IsUnsupported(response.Variables[0].Data) => ReplyKind.NotSupported,
+        ErrorCode.NoError => ReplyKind.Answered,
+        ErrorCode.NoSuchName or ErrorCode.NoAccess or ErrorCode.AuthorizationError => ReplyKind.NotSupported,
+        _ => ReplyKind.Missed
+    };
+
+    private void ShowMissed(SnmpRead read, SnmpReply response)
+    {
+        if (response.ErrorStatus == ErrorCode.NoError)
+        {
+            SetDetail(read.Label, NoAnswer, DetailTone.Warning);
+            CountMissedReply(read, NoReply);
+            return;
+        }
+        SetDetail(read.Label, response.ErrorText, DetailTone.Warning);
+        CountMissedReply(read, response.ErrorText);
+    }
+
+    private void CountMissedReply(SnmpRead read, string result)
+    {
+        var missed = _missedReplies.GetValueOrDefault(read) + 1;
+        _missedReplies[read] = missed;
+        if (missed < MaxMissedReplies)
+            LogInformation("The {Read} query {Oid} got {Result}, asking again on the next poll ({Missed} of {MaxMissedReplies})",
+                read.Name, read.Oid, result, missed, MaxMissedReplies);
+        else
+            RaiseOngoingIssue(read.IssueKey,
+                $"The PDU did not give a real reply to the {read.Name} query {read.Oid} {MaxMissedReplies} times in a row, the last was {result}",
+                IssueSeverity.Minor);
+    }
+
+    private void ReadAnswered(SnmpRead read)
+    {
+        _missedReplies.Remove(read);
+        ResolveIssue(read.IssueKey);
+    }
+
+    private void ShowNotSupported(SnmpRead read, SnmpReply response)
+    {
+        var reply = response.ErrorStatus == ErrorCode.NoError ? response.Variables[0].Data.ToString() : response.ErrorText;
+        LogInformation("The PDU does not support the {Label} query {Oid}: it answered {Reply}", read.Label, read.Oid, reply);
+        SetDetail(read.Label, $"Not supported: {reply}", DetailTone.Normal);
+    }
+
+    private static string Failure(SnmpReply response, string unanswered) =>
+        response.ErrorStatus == ErrorCode.NoError ? unanswered : $"was answered with {response.ErrorText}";
+
+    private static bool IsUnsupported(ISnmpData reply) =>
+        reply.TypeCode is SnmpType.NoSuchObject or SnmpType.NoSuchInstance or SnmpType.EndOfMibView;
 
     private int? GetNumber(string oid)
     {
         var response = _client.Get(oid);
-        if (response.Count == 0 || !int.TryParse(response[0].Data.ToString(), out var value))
-            return null;
-        return value;
+        if (response.Variables.Count > 0 && int.TryParse(response.Variables[0].Data.ToString(), out var value))
+            return value;
+        _lastQueryFailure = Failure(response, NotAnswered);
+        return null;
     }
 
     private string? GetText(string oid)
     {
         var response = _client.Get(oid);
-        if (response.Count == 0 ||
-            response[0].Data.TypeCode is SnmpType.NoSuchObject or SnmpType.NoSuchInstance or SnmpType.EndOfMibView)
-            return null;
-        return response[0].Data.ToString();
+        return response.Variables.Count == 0 || IsUnsupported(response.Variables[0].Data)
+            ? null
+            : response.Variables[0].Data.ToString();
     }
 
     private Dictionary<string, string> WalkColumn(string columnOid)
     {
         Dictionary<string, string> results = [];
         var prefix = columnOid.TrimStart('.') + ".";
-        foreach (var variable in _client.Walk(columnOid))
+        var response = _client.Walk(columnOid);
+        foreach (var variable in response.Variables)
         {
             var id = variable.Id.ToString();
             if (id.StartsWith(prefix))
                 results[id[prefix.Length..]] = variable.Data.ToString();
         }
+        if (results.Count == 0)
+            _lastQueryFailure = Failure(response, NotAnswered);
         return results;
     }
 }

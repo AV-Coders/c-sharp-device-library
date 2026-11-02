@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -72,6 +73,15 @@ public class AvCodersRestClient : RestComms
         }
     }
 
+    private void ReportCredentials(Uri uri, HttpResponseMessage response)
+    {
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            ReportConnectionFailure(ConnectionReasonCategory.CredentialsRejected,
+                $"{Host}:{Port} rejected the credentials for {uri.AbsolutePath}: {(int)response.StatusCode} {response.ReasonPhrase}");
+        else if (response.IsSuccessStatusCode)
+            ClearConnectionFailures();
+    }
+
     private HttpRequestMessage CreateRequest(HttpMethod method, Uri uri)
     {
         var request = new HttpRequestMessage(method, uri);
@@ -106,18 +116,19 @@ public class AvCodersRestClient : RestComms
                 RequestHandlers?.Invoke(payload);
                 await HandleResponse(response);
                 ConnectionState = ConnectionState.Connected;
+                ReportCredentials(uri, response);
             }
             catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e, "POST request timed out");
-                ReportConnectionFailure($"The POST request to {Host}:{Port} timed out");
+                ReportConnectionFailure(ConnectionReasonCategory.TimedOut, $"The POST request to {Host}:{Port} timed out", e);
             }
             catch (Exception e)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e);
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(e);
             }
         }
     }
@@ -141,18 +152,19 @@ public class AvCodersRestClient : RestComms
                 RequestHandlers?.Invoke(content);
                 await HandleResponse(response);
                 ConnectionState = ConnectionState.Connected;
+                ReportCredentials(uri, response);
             }
             catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e, "PUT request timed out");
-                ReportConnectionFailure($"The PUT request to {Host}:{Port} timed out");
+                ReportConnectionFailure(ConnectionReasonCategory.TimedOut, $"The PUT request to {Host}:{Port} timed out", e);
             }
             catch (Exception e)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e);
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(e);
             }
         }
     }
@@ -172,18 +184,19 @@ public class AvCodersRestClient : RestComms
                 RequestHandlers?.Invoke($"HTTP Get to {uri.AbsolutePath}");
                 await HandleResponse(response);
                 ConnectionState = ConnectionState.Connected;
+                ReportCredentials(uri, response);
             }
             catch (TaskCanceledException e) when (e.InnerException is TimeoutException)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e, "GET request timed out");
-                ReportConnectionFailure($"The GET request to {Host}:{Port} timed out");
+                ReportConnectionFailure(ConnectionReasonCategory.TimedOut, $"The GET request to {Host}:{Port} timed out", e);
             }
             catch (Exception e)
             {
                 ConnectionState = ConnectionState.Error;
                 LogException(e);
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(e);
             }
         }
     }

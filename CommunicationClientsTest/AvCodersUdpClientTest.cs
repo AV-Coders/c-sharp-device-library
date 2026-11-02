@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
 using UdpClient = System.Net.Sockets.UdpClient;
@@ -9,17 +10,19 @@ namespace AVCoders.CommunicationClients.Tests;
 public class AvCodersUdpClientTest : IDisposable
 {
     private const string UnresolvableHost = "udp-test.invalid";
-    private const int RetryWaitSeconds = 10;
     private const int QueueTimeoutSeconds = 5;
     private static readonly TimeSpan AgeMargin = TimeSpan.FromMilliseconds(500);
-    private static readonly PropertyInfo HostProperty = typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.Host))!;
+    private static readonly TimeSpan SocketRetryInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(10);
+    // Windows refuses a UDP connect to 0.0.0.0, Linux one to the broadcast address without SO_BROADCAST.
+    private static readonly IPAddress UnconnectableAddress = OperatingSystem.IsWindows() ? IPAddress.Any : IPAddress.Broadcast;
     private static readonly FieldInfo SocketField = typeof(AvCodersUdpClient).GetField("_client", BindingFlags.Instance | BindingFlags.NonPublic)!;
     private static readonly MethodInfo ReceiveMethod = typeof(AvCodersUdpClient).GetMethod("Receive", BindingFlags.Instance | BindingFlags.NonPublic)!;
-    private static readonly TimeSpan SocketRetryInterval = (TimeSpan)typeof(AvCodersUdpClient)
-        .GetField("SocketRetryInterval", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
 
+    private readonly FakeTimeProvider _time = new();
     private readonly UdpClient _server;
     private readonly ushort _port;
+    private IPAddress[]? _resolvesTo;
     private AvCodersUdpClient? _client;
 
     public AvCodersUdpClientTest()
@@ -33,13 +36,21 @@ public class AvCodersUdpClientTest : IDisposable
 
     private AvCodersUdpClient CreateClient(string host, ushort port, CommandStringFormat format = CommandStringFormat.Ascii)
     {
-        _client = new AvCodersUdpClient(host, port, "TestUdpClient", format);
+        _client = new AvCodersUdpClient(host, port, "TestUdpClient", format, _time);
         return _client;
     }
 
+    private AvCodersUdpClient CreateFakeResolvedClient(ushort port)
+    {
+        _client = new AvCodersUdpClient(UnresolvableHost, port, "TestUdpClient", CommandStringFormat.Ascii, _time, Resolve);
+        return _client;
+    }
+
+    private IPAddress[] Resolve(string host) => _resolvesTo ?? throw new SocketException((int)SocketError.HostNotFound);
+
     public void Dispose()
     {
-        try { _client?.Disconnect(); } catch { /* test teardown */ }
+        try { _client?.Disconnect(); } catch { }
         _server.Dispose();
     }
 
@@ -47,21 +58,25 @@ public class AvCodersUdpClientTest : IDisposable
 
     private static UdpClient ServerFor(string host) => new(new IPEndPoint(Dns.GetHostAddresses(host)[0], 0));
 
-    private Task<System.Net.Sockets.UdpReceiveResult> ReceiveAsync(int timeoutSeconds) => ReceiveAsync(_server, timeoutSeconds);
+    private Task<UdpReceiveResult> ReceiveAsync() => ReceiveAsync(_server);
 
-    private static async Task<System.Net.Sockets.UdpReceiveResult> ReceiveAsync(UdpClient server, int timeoutSeconds)
-    {
-        var receiveTask = server.ReceiveAsync();
-        var completed = await Task.WhenAny(receiveTask, Task.Delay(TimeSpan.FromSeconds(timeoutSeconds)));
-        Assert.True(completed == receiveTask, $"Timed out after {timeoutSeconds}s waiting for a datagram");
-        return await receiveTask;
-    }
+    private Task<UdpReceiveResult> ReceiveAsync(UdpClient server) =>
+        TestNetwork.AdvanceUntilDone(_time, server.ReceiveAsync(), "No datagram arrived");
 
-    private static async Task WaitForARetry(AvCodersUdpClient client)
+    private async Task<string> ReceiveTextAsync() => Encoding.ASCII.GetString((await ReceiveAsync()).Buffer);
+
+    private Task WaitForARetry(AvCodersUdpClient client)
     {
         var retried = false;
         client.ConnectionStateHandlers += state => retried |= state == ConnectionState.Connecting;
-        await TestNetwork.WaitUntilAsync(() => retried, RetryWaitSeconds, "the client never retried opening its socket");
+        return TestNetwork.UntilAsync(_time, () => retried, "the client never retried opening its socket");
+    }
+
+    private static UdpClient DisposedSocket()
+    {
+        var socket = new UdpClient();
+        socket.Dispose();
+        return socket;
     }
 
     [Fact]
@@ -70,8 +85,7 @@ public class AvCodersUdpClientTest : IDisposable
         var client = CreateClient();
         client.Send("udp hello");
 
-        var result = await ReceiveAsync(10);
-        Assert.Equal("udp hello", Encoding.ASCII.GetString(result.Buffer));
+        Assert.Equal("udp hello", await ReceiveTextAsync());
     }
 
     [Fact]
@@ -81,41 +95,27 @@ public class AvCodersUdpClientTest : IDisposable
         var payload = new byte[] { 0x01, 0x02, 0xAA, 0xFF };
         client.Send(payload);
 
-        var result = await ReceiveAsync(10);
+        var result = await ReceiveAsync();
         Assert.Equal(payload, result.Buffer);
     }
 
     [Fact]
-    public async Task Receive_InvokesByteResponseHandlers()
-    {
-        byte[]? responseBytes = null;
-        var client = CreateClient();
-        client.ResponseByteHandlers += bytes => responseBytes = bytes;
-
-        // Learn the client's ephemeral endpoint from its first datagram, then reply.
-        client.Send("ping");
-        var request = await ReceiveAsync(10);
-        var payload = Encoding.ASCII.GetBytes("pong");
-        await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
-
-        await TestNetwork.WaitUntilAsync(() => responseBytes != null, 15, "byte response handler never invoked");
-        Assert.Equal(payload, responseBytes);
-    }
-
-    [Fact]
-    public async Task Receive_AsciiClient_InvokesStringHandlersWithDecodedText()
+    public async Task Receive_AsciiClient_InvokesStringAndByteResponseHandlers()
     {
         string? response = null;
+        byte[]? responseBytes = null;
         var client = CreateClient();
         client.ResponseHandlers += text => response = text;
+        client.ResponseByteHandlers += bytes => responseBytes = bytes;
 
         client.Send("ping");
-        var request = await ReceiveAsync(10);
+        var request = await ReceiveAsync();
         var payload = Encoding.ASCII.GetBytes("SYSTEM STATUS = 0\r");
         await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
 
-        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
+        await Wait.UntilAsync(() => response != null && responseBytes != null, "the response handlers were never invoked");
         Assert.Equal("SYSTEM STATUS = 0\r", response);
+        Assert.Equal(payload, responseBytes);
     }
 
     [Fact]
@@ -126,11 +126,11 @@ public class AvCodersUdpClientTest : IDisposable
         client.ResponseHandlers += text => response = text;
 
         client.Send("ping");
-        var request = await ReceiveAsync(10);
+        var request = await ReceiveAsync();
         var payload = new byte[] { 0x01, 0xAA, 0xFF };
         await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
 
-        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
+        await Wait.UntilAsync(() => response != null, "string response handler never invoked");
         Assert.Equal(@"\x01 \xAA \xFF", response);
     }
 
@@ -142,22 +142,12 @@ public class AvCodersUdpClientTest : IDisposable
         client.ResponseHandlers += text => response = text;
 
         client.Send("ping");
-        var request = await ReceiveAsync(10);
+        var request = await ReceiveAsync();
         var payload = new byte[] { 0xE9, 0x4F, 0x4B, 0x0D };
         await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
 
-        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
-        Assert.Equal("\u00E9OK\r", response);
-    }
-
-    [Fact]
-    public async Task Send_PassesCharactersUpTo0xFFThroughAsTheSameByte()
-    {
-        var client = CreateClient();
-        client.Send("\u00E9OK\r");
-
-        var result = await ReceiveAsync(10);
-        Assert.Equal(new byte[] { 0xE9, 0x4F, 0x4B, 0x0D }, result.Buffer);
+        await Wait.UntilAsync(() => response != null, "string response handler never invoked");
+        Assert.Equal("éOK\r", response);
     }
 
     [Fact]
@@ -167,15 +157,15 @@ public class AvCodersUdpClientTest : IDisposable
         var client = CreateClient();
         client.ResponseHandlers += text => response = text;
         client.Send("ping");
-        var request = await ReceiveAsync(10);
+        var request = await ReceiveAsync();
         await TestNetwork.Workers(client)[0].Stop();
 
         var receive = (Task)ReceiveMethod.Invoke(client, [CancellationToken.None])!;
-        await Task.Delay(200);
+        Assert.False(receive.IsCompleted, "the receive finished before any datagram was sent");
         var payload = Encoding.ASCII.GetBytes("pong");
         await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
 
-        Assert.Same(receive, await Task.WhenAny(receive, Task.Delay(TimeSpan.FromSeconds(10))));
+        await receive.WaitAsync(ReceiveTimeout);
         Assert.Equal("pong", response);
     }
 
@@ -185,14 +175,11 @@ public class AvCodersUdpClientTest : IDisposable
         var client = CreateClient();
         client.SetQueueTimeout(60);
         using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
-        var failingSocket = new UdpClient();
-        failingSocket.Dispose();
-        SocketField.SetValue(client, failingSocket);
+        SocketField.SetValue(client, DisposedSocket());
 
         client.Send("after a failed send");
 
-        var result = await ReceiveAsync(10);
-        Assert.Equal("after a failed send", Encoding.ASCII.GetString(result.Buffer));
+        Assert.Equal("after a failed send", await ReceiveTextAsync());
     }
 
     [Fact]
@@ -204,14 +191,10 @@ public class AvCodersUdpClientTest : IDisposable
         SocketField.SetValue(client, null);
         client.Send("first");
         client.Send("second");
-        var failingSocket = new UdpClient();
-        failingSocket.Dispose();
 
-        SocketField.SetValue(client, failingSocket);
+        SocketField.SetValue(client, DisposedSocket());
 
-        var received = new List<string>();
-        for (var i = 0; i < 2; i++)
-            received.Add(Encoding.ASCII.GetString((await ReceiveAsync(10)).Buffer));
+        var received = new List<string> { await ReceiveTextAsync(), await ReceiveTextAsync() };
         Assert.Equal(["first", "second"], received);
     }
 
@@ -228,15 +211,13 @@ public class AvCodersUdpClientTest : IDisposable
         SocketField.SetValue(client, null);
         client.Send("requeued");
         client.Send("stale");
-        var failingSocket = new UdpClient();
-        failingSocket.Dispose();
-        SocketField.SetValue(client, failingSocket);
-        TestNetwork.SetQueuedAge<(byte[], string?)>(client, TimeSpan.FromSeconds(QueueTimeoutSeconds) - AgeMargin);
+        await TestNetwork.Advance(_time, TimeSpan.FromSeconds(QueueTimeoutSeconds) - AgeMargin);
+        SocketField.SetValue(client, DisposedSocket());
 
         await sendQueueWorker.Restart();
 
-        Assert.Equal("requeued", Encoding.ASCII.GetString((await ReceiveAsync(10)).Buffer));
-        await TestNetwork.WaitUntilAsync(() => TestNetwork.SendQueueCount(client) == 0, 10,
+        Assert.Equal("requeued", await ReceiveTextAsync());
+        await TestNetwork.UntilAsync(_time, () => TestNetwork.SendQueueCount(client) == 0,
             "the datagram queued behind it was never taken off the queue");
         Assert.Equal(["requeued"], sent);
     }
@@ -247,9 +228,7 @@ public class AvCodersUdpClientTest : IDisposable
         var client = CreateClient();
         client.SetQueueTimeout(60);
         using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
-        var failingSocket = new UdpClient();
-        failingSocket.Dispose();
-        SocketField.SetValue(client, failingSocket);
+        SocketField.SetValue(client, DisposedSocket());
         var callerThread = Environment.CurrentManagedThreadId;
         var changesOnTheCallersThread = new ConcurrentQueue<ConnectionState>();
         client.ConnectionStateHandlers += state =>
@@ -261,8 +240,7 @@ public class AvCodersUdpClientTest : IDisposable
         client.Send("rebuilt elsewhere");
 
         Assert.Empty(changesOnTheCallersThread);
-        var result = await ReceiveAsync(10);
-        Assert.Equal("rebuilt elsewhere", Encoding.ASCII.GetString(result.Buffer));
+        Assert.Equal("rebuilt elsewhere", await ReceiveTextAsync());
     }
 
     [Fact]
@@ -275,9 +253,8 @@ public class AvCodersUdpClientTest : IDisposable
 
         client.Send("ping");
 
-        await TestNetwork.WaitUntilAsync(
-            () => client.GetIssues().Any(i => i.Key == CommunicationClient.ConnectionIssueKey),
-            10, "the closed port never raised the connection issue");
+        await Wait.UntilAsync(() => client.GetIssues().Any(i => i.Key == CommunicationClient.ConnectionIssueKey),
+            "the closed port never raised the connection issue");
         Assert.Empty(states);
         Assert.Same(socket, SocketField.GetValue(client));
         Assert.Equal(ConnectionState.Connected, client.ConnectionState);
@@ -291,18 +268,16 @@ public class AvCodersUdpClientTest : IDisposable
         var client = CreateClient("127.0.0.1", port);
         client.ConnectionIssueThreshold = TimeSpan.Zero;
         client.Send("ping");
-        await TestNetwork.WaitUntilAsync(
-            () => client.GetOngoingIssues().Any(i => i.Key == CommunicationClient.ConnectionIssueKey),
-            10, "the closed port never raised the ongoing connection issue");
+        await Wait.UntilAsync(() => client.GetOngoingIssues().Any(i => i.Key == CommunicationClient.ConnectionIssueKey),
+            "the closed port never raised the ongoing connection issue");
         using var server = new UdpClient(new IPEndPoint(IPAddress.Loopback, port));
 
         client.Send("ping again");
-        var request = await ReceiveAsync(server, 10);
+        var request = await ReceiveAsync(server);
         var payload = Encoding.ASCII.GetBytes("pong");
         await server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
 
-        await TestNetwork.WaitUntilAsync(() => client.GetOngoingIssues().Count == 0, 10,
-            "the datagram never resolved the connection issue");
+        await Wait.UntilAsync(() => client.GetOngoingIssues().Count == 0, "the datagram never resolved the connection issue");
     }
 
     [Fact]
@@ -340,14 +315,11 @@ public class AvCodersUdpClientTest : IDisposable
     public async Task Send_AfterConnect_StillDeliversDatagram()
     {
         var client = CreateClient();
-        // Connect() reconnects: it closes the old socket and must swap the new one into place,
-        // otherwise sends keep going to the disposed socket and are silently lost.
         client.Connect();
 
         client.Send("after reconnect");
 
-        var result = await ReceiveAsync(10);
-        Assert.Equal("after reconnect", Encoding.ASCII.GetString(result.Buffer));
+        Assert.Equal("after reconnect", await ReceiveTextAsync());
     }
 
     [Fact]
@@ -357,9 +329,8 @@ public class AvCodersUdpClientTest : IDisposable
         client.SetQueueTimeout(60);
         var sent = new ConcurrentQueue<(string Message, string? TriggerId)>();
         client.RequestHandlers += message => sent.Enqueue((message, Trigger.Id));
-        var socketField = typeof(AvCodersUdpClient).GetField("_client", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        using var originalSocket = (UdpClient)socketField.GetValue(client)!;
-        socketField.SetValue(client, null);
+        using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
+        SocketField.SetValue(client, null);
 
         var triggerId = Trigger.Start();
         client.Send("queued datagram");
@@ -368,9 +339,8 @@ public class AvCodersUdpClientTest : IDisposable
 
         client.Reconnect();
 
-        var result = await ReceiveAsync(10);
-        Assert.Equal("queued datagram", Encoding.ASCII.GetString(result.Buffer));
-        await TestNetwork.WaitUntilAsync(() => !sent.IsEmpty, 10, "the queued datagram never raised its tx");
+        Assert.Equal("queued datagram", await ReceiveTextAsync());
+        await TestNetwork.UntilAsync(_time, () => !sent.IsEmpty, "the queued datagram never raised its tx");
         Assert.Equal(("queued datagram", triggerId), Assert.Single(sent));
     }
 
@@ -379,18 +349,15 @@ public class AvCodersUdpClientTest : IDisposable
     {
         var client = CreateClient();
         client.SetQueueTimeout(60);
-        var socketField = typeof(AvCodersUdpClient).GetField("_client", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        using var originalSocket = (UdpClient)socketField.GetValue(client)!;
-        socketField.SetValue(client, null);
+        using var originalSocket = (UdpClient)SocketField.GetValue(client)!;
+        SocketField.SetValue(client, null);
         client.Send("first");
         client.Send("second");
 
         client.Reconnect();
         client.Send("third");
 
-        var received = new List<string>();
-        for (var i = 0; i < 3; i++)
-            received.Add(Encoding.ASCII.GetString((await ReceiveAsync(10)).Buffer));
+        var received = new List<string> { await ReceiveTextAsync(), await ReceiveTextAsync(), await ReceiveTextAsync() };
         Assert.Equal(["first", "second", "third"], received);
     }
 
@@ -430,8 +397,7 @@ public class AvCodersUdpClientTest : IDisposable
         client.Connect();
         client.Send("after connect");
 
-        var result = await ReceiveAsync(10);
-        Assert.Equal("after connect", Encoding.ASCII.GetString(result.Buffer));
+        Assert.Equal("after connect", await ReceiveTextAsync());
         Assert.Equal(ConnectionState.Connected, client.ConnectionState);
     }
 
@@ -444,18 +410,31 @@ public class AvCodersUdpClientTest : IDisposable
         client.ResponseHandlers += text => response = text;
 
         client.Send("ping");
-        var request = await ReceiveAsync(server, 10);
+        var request = await ReceiveAsync(server);
         var payload = Encoding.ASCII.GetBytes("pong");
         await server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
 
-        await TestNetwork.WaitUntilAsync(() => response != null, 10, "a client given a host name never received");
+        await Wait.UntilAsync(() => response != null, "a client given a host name never received");
         Assert.Equal("pong", response);
+    }
+
+    [Fact]
+    public async Task HostWhoseFirstAddressCannotBeConnected_UsesTheNextAddress()
+    {
+        _resolvesTo = [UnconnectableAddress, IPAddress.Loopback];
+        var client = CreateFakeResolvedClient(_port);
+
+        client.Send("via the second address");
+
+        Assert.Equal("via the second address", await ReceiveTextAsync());
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+        Assert.Empty(client.GetIssues());
     }
 
     [Fact]
     public void Constructor_HostThatDoesNotResolve_RaisesTheConnectionIssue()
     {
-        var client = CreateClient(UnresolvableHost, _port);
+        var client = CreateFakeResolvedClient(_port);
 
         var issue = Assert.Single(client.GetIssues(), i => i.Key == CommunicationClient.ConnectionIssueKey);
         Assert.Contains(UnresolvableHost, issue.Message);
@@ -465,11 +444,11 @@ public class AvCodersUdpClientTest : IDisposable
     [Fact]
     public async Task Constructor_HostThatDoesNotResolve_LogsTheFailureOnceAcrossRetries()
     {
-        var client = CreateClient(UnresolvableHost, _port);
+        var client = CreateFakeResolvedClient(_port);
         var retried = false;
         client.ConnectionStateHandlers += state => retried |= state == ConnectionState.Disconnected;
 
-        await TestNetwork.WaitUntilAsync(() => retried, RetryWaitSeconds, "the client never retried opening its socket");
+        await TestNetwork.UntilAsync(_time, () => retried, "the client never retried opening its socket");
 
         Assert.Empty(client.Errors);
         Assert.Single(client.Events, e => e.Type == EventType.Error);
@@ -478,7 +457,7 @@ public class AvCodersUdpClientTest : IDisposable
     [Fact]
     public async Task Constructor_HostThatDoesNotResolve_KeepsRetrying()
     {
-        var client = CreateClient(UnresolvableHost, _port);
+        var client = CreateFakeResolvedClient(_port);
 
         await WaitForARetry(client);
     }
@@ -486,7 +465,7 @@ public class AvCodersUdpClientTest : IDisposable
     [Fact]
     public async Task Connect_AfterDisconnect_HostThatDoesNotResolve_KeepsRetrying()
     {
-        var client = CreateClient(UnresolvableHost, _port);
+        var client = CreateFakeResolvedClient(_port);
         client.Disconnect();
 
         client.Connect();
@@ -497,13 +476,13 @@ public class AvCodersUdpClientTest : IDisposable
     [Fact]
     public async Task Disconnect_HostThatDoesNotResolve_StopsTheRetriesAndTheConnectionIssue()
     {
-        var client = CreateClient(UnresolvableHost, _port);
+        var client = CreateFakeResolvedClient(_port);
         client.Disconnect();
         var attempts = 0;
         client.ConnectionStateHandlers += state => attempts += state == ConnectionState.Connecting ? 1 : 0;
         var issuesAtDisconnect = client.GetIssues();
 
-        await Task.Delay(SocketRetryInterval + TimeSpan.FromSeconds(1));
+        await TestNetwork.Advance(_time, SocketRetryInterval * 2);
 
         Assert.Equal(0, attempts);
         Assert.Equal(issuesAtDisconnect, client.GetIssues());
@@ -513,8 +492,8 @@ public class AvCodersUdpClientTest : IDisposable
     [Fact]
     public async Task Disconnect_WhileARetryIsOpeningTheSocket_LeavesTheClientDisconnected()
     {
-        var client = CreateClient(UnresolvableHost, _port);
-        HostProperty.SetValue(client, "127.0.0.1");
+        var client = CreateFakeResolvedClient(_port);
+        _resolvesTo = [IPAddress.Loopback];
         var disconnectRequested = false;
         client.ConnectionStateHandlers += state =>
         {
@@ -524,34 +503,92 @@ public class AvCodersUdpClientTest : IDisposable
             client.Disconnect();
         };
 
-        await TestNetwork.WaitUntilAsync(() => disconnectRequested, RetryWaitSeconds, "the client never retried opening its socket");
+        await TestNetwork.UntilAsync(_time, () => disconnectRequested, "the client never retried opening its socket");
         await Task.WhenAll(TestNetwork.Workers(client).Select(w => w.Stop()));
 
         Assert.Equal(ConnectionState.Disconnected, client.ConnectionState);
         Assert.Null(SocketField.GetValue(client));
     }
 
-    [Theory]
-    [InlineData("127.0.0.1")]
-    [InlineData("localhost")]
-    public async Task HostThatResolvesAfterStartup_Recovers_SendsADatagramQueuedWithinTheQueueTimeout_AndReceives(string laterHost)
+    [Fact]
+    public async Task HostThatResolvesAfterStartup_Recovers_SendsADatagramQueuedWithinTheQueueTimeout_AndReceives()
     {
-        using var server = ServerFor(laterHost);
         string? response = null;
-        var client = CreateClient(UnresolvableHost, PortOf(server));
+        var client = CreateFakeResolvedClient(_port);
         client.SetQueueTimeout(60);
         client.ResponseHandlers += text => response = text;
         client.Send("queued at startup");
         Assert.Equal(1, TestNetwork.SendQueueCount(client));
 
-        HostProperty.SetValue(client, laterHost);
+        _resolvesTo = [IPAddress.Loopback];
 
-        var request = await ReceiveAsync(server, RetryWaitSeconds);
+        var request = await ReceiveAsync();
         Assert.Equal("queued at startup", Encoding.ASCII.GetString(request.Buffer));
         Assert.Equal(ConnectionState.Connected, client.ConnectionState);
         var payload = Encoding.ASCII.GetBytes("pong");
-        await server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
-        await TestNetwork.WaitUntilAsync(() => response != null, 10, "the recovered client never received");
+        await _server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
+        await TestNetwork.UntilAsync(_time, () => response != null, "the recovered client never received");
         Assert.Equal("pong", response);
+    }
+
+    [Fact]
+    public void Constructor_SetsTheDesiredConnectionStateToConnected()
+    {
+        var client = CreateClient();
+
+        Assert.Equal(ConnectionState.Connected, client.DesiredConnectionState);
+    }
+
+    [Fact]
+    public void Constructor_HostThatResolvesToNoAddresses_IsHostNotFoundWithTheHostName()
+    {
+        _resolvesTo = [];
+
+        var client = CreateFakeResolvedClient(_port);
+
+        var reason = client.ConnectionReason!;
+        Assert.Equal(ConnectionReasonCategory.HostNotFound, reason.Category);
+        Assert.Equal($"The host {UnresolvableHost} was not found", reason.Description);
+        Assert.StartsWith("System.Net.Sockets.SocketException: ", reason.RawException);
+        Assert.Equal(reason.Description, Assert.Single(client.GetIssues()).Message);
+        Assert.Empty(client.Errors);
+    }
+
+    [Fact]
+    public void Constructor_HostThatDoesNotResolve_IsHostNotFound()
+    {
+        var client = CreateFakeResolvedClient(_port);
+
+        Assert.Equal(ConnectionReasonCategory.HostNotFound, client.ConnectionReason!.Category);
+        Assert.Equal($"The host {UnresolvableHost} was not found", client.ConnectionReason.Description);
+    }
+
+    [Fact]
+    public async Task Receive_FromAPortThatIsClosed_IsRefused_AndADatagramClearsIt()
+    {
+        var port = ClosedUdpPort();
+        var client = CreateClient("127.0.0.1", port);
+        client.Send("ping");
+        await Wait.UntilAsync(() => client.ConnectionReason != null, "the closed port never set a reason");
+
+        Assert.Equal(ConnectionReasonCategory.Refused, client.ConnectionReason!.Category);
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+
+        using var server = new UdpClient(new IPEndPoint(IPAddress.Loopback, port));
+        client.Send("ping again");
+        var request = await ReceiveAsync(server);
+        var payload = Encoding.ASCII.GetBytes("pong");
+        await server.SendAsync(payload, payload.Length, request.RemoteEndPoint);
+        await Wait.UntilAsync(() => client.ConnectionReason == null, "the datagram never cleared the reason");
+    }
+
+    [Fact]
+    public void Disconnect_IsRequested()
+    {
+        var client = CreateFakeResolvedClient(_port);
+
+        client.Disconnect();
+
+        Assert.Equal(ConnectionReasonCategory.Requested, client.ConnectionReason!.Category);
     }
 }

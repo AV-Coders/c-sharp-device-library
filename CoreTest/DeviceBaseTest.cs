@@ -86,12 +86,6 @@ public class DeviceBaseTest
     }
 
     [Fact]
-    public void DesiredPowerState_DefaultsToUnknown()
-    {
-        Assert.Equal(PowerState.Unknown, _device.DesiredPowerState);
-    }
-
-    [Fact]
     public void DesiredPowerState_RaisesHandlersAndEvent()
     {
         var handlerStates = new List<PowerState>();

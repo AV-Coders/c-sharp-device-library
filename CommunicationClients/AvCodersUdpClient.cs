@@ -1,4 +1,5 @@
-﻿using System.Net.Sockets;
+﻿using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using Core_UdpClient = AVCoders.Core.UdpClient;
 using UdpClient = System.Net.Sockets.UdpClient;
@@ -9,13 +10,24 @@ public class AvCodersUdpClient : Core_UdpClient
 {
     private static readonly TimeSpan SocketRetryInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan NoSocketReceiveWait = TimeSpan.FromMilliseconds(1100);
+    private static readonly TimeSpan NoSocketSendWait = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan SendQueueInterval = TimeSpan.FromMilliseconds(1100);
+    private readonly Func<string, IPAddress[]> _resolveHost;
     private readonly object _clientLock = new();
     private UdpClient? _client;
     private readonly LinkedList<QueuedPayload<(byte[] Bytes, string? Message)>> _sendQueue = new();
 
     public AvCodersUdpClient(string ipAddress, ushort port, string name, CommandStringFormat commandStringFormat) :
-        base(ipAddress, port, name, commandStringFormat)
+        this(ipAddress, port, name, commandStringFormat, null, null)
     {
+    }
+
+    internal AvCodersUdpClient(string ipAddress, ushort port, string name, CommandStringFormat commandStringFormat,
+        TimeProvider? timeProvider, Func<string, IPAddress[]>? resolveHost = null) :
+        base(ipAddress, port, name, commandStringFormat, timeProvider ?? TimeProvider.System)
+    {
+        _resolveHost = resolveHost ?? Dns.GetHostAddresses;
+        DesiredConnectionState = ConnectionState.Connected;
         ReplaceClient(CreateClient());
         ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
@@ -29,7 +41,7 @@ public class AvCodersUdpClient : Core_UdpClient
             try
             {
                 ConnectionState = ConnectionState.Connecting;
-                var client = new UdpClient(Host, Port);
+                var client = OpenSocket(_resolveHost(Host));
                 if (DesiredConnectionState == ConnectionState.Disconnected)
                 {
                     LogDebug("Discarding the new socket, the client was disconnected on request");
@@ -42,11 +54,34 @@ public class AvCodersUdpClient : Core_UdpClient
             }
             catch (Exception e)
             {
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(e);
                 ConnectionState = ConnectionState.Disconnected;
             }
         }
         return null;
+    }
+
+    private UdpClient OpenSocket(IPAddress[] addresses)
+    {
+        if (addresses.Length == 0)
+            throw new SocketException((int)SocketError.HostNotFound);
+        Exception? lastFailure = null;
+        foreach (var address in addresses)
+        {
+            UdpClient? client = null;
+            try
+            {
+                client = new UdpClient(address.AddressFamily);
+                client.Connect(address, Port);
+                return client;
+            }
+            catch (Exception e)
+            {
+                client?.Dispose();
+                lastFailure = e;
+            }
+        }
+        throw lastFailure!;
     }
 
     protected override async Task Receive(CancellationToken token)
@@ -56,7 +91,7 @@ public class AvCodersUdpClient : Core_UdpClient
             var client = _client;
             if (client == null)
             {
-                await Task.Delay(NoSocketReceiveWait, token);
+                await Task.Delay(NoSocketReceiveWait, TimeProvider, token);
                 return;
             }
 
@@ -80,7 +115,7 @@ public class AvCodersUdpClient : Core_UdpClient
             }
             catch (SocketException e) when (e.SocketErrorCode is SocketError.ConnectionReset or SocketError.ConnectionRefused)
             {
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(ConnectionReasonCategory.Refused, DescribeConnectionError(e), e);
             }
             catch (Exception e)
             {
@@ -95,7 +130,7 @@ public class AvCodersUdpClient : Core_UdpClient
         var client = _client;
         if (client == null)
         {
-            await Task.Delay(500, token);
+            await Task.Delay(NoSocketSendWait, TimeProvider, token);
         }
         else
         {
@@ -103,7 +138,7 @@ public class AvCodersUdpClient : Core_UdpClient
             {
                 using (Trigger.Resume(item.TriggerId))
                 {
-                    var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+                    var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
                     if (Math.Abs(age) >= QueueTimeout)
                     {
                         using (PushProperties("ProcessSendQueue"))
@@ -124,7 +159,7 @@ public class AvCodersUdpClient : Core_UdpClient
                     {
                         LogException(e);
                         lock (_sendQueue)
-                            _sendQueue.AddFirst(item with { Timestamp = DateTimeOffset.UtcNow });
+                            _sendQueue.AddFirst(item with { Timestamp = TimeProvider.GetUtcNow() });
                         ReconnectIfCurrent(client);
                         break;
                     }
@@ -133,7 +168,7 @@ public class AvCodersUdpClient : Core_UdpClient
                         InvokeRequestHandlers(item.Payload.Message);
                 }
             }
-            await Task.Delay(1100, token);
+            await Task.Delay(SendQueueInterval, TimeProvider, token);
         }
     }
 
@@ -159,7 +194,7 @@ public class AvCodersUdpClient : Core_UdpClient
     {
         using (PushProperties("CheckConnectionState"))
         {
-            await Task.Delay(SocketRetryInterval, token);
+            await Task.Delay(SocketRetryInterval, TimeProvider, token);
             if (ConnectionState is not (ConnectionState.Connected or ConnectionState.Connecting))
                 ReplaceClient(CreateClient());
         }
@@ -275,7 +310,7 @@ public class AvCodersUdpClient : Core_UdpClient
                 dropped = oldest.Value;
                 _sendQueue.RemoveFirst();
             }
-            _sendQueue.AddLast(new QueuedPayload<(byte[] Bytes, string? Message)>(DateTimeOffset.UtcNow, (bytes, message), Trigger.Id));
+            _sendQueue.AddLast(new QueuedPayload<(byte[] Bytes, string? Message)>(TimeProvider.GetUtcNow(), (bytes, message), Trigger.Id));
         }
 
         if (dropped == null)

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Power.Tests;
@@ -17,8 +19,8 @@ public class ThorRf11IqPduTest
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
 
+    private readonly FakeTimeProvider _time = new();
     private readonly Mock<RestComms> _restComms = new("host", (ushort)80, "test");
-    // The poll worker and the test thread touch these concurrently.
     private readonly ConcurrentDictionary<string, Func<HttpResponseMessage>> _responses = new();
     private readonly ConcurrentQueue<string> _requests = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource> _holds = new();
@@ -76,23 +78,16 @@ public class ThorRf11IqPduTest
 
     private bool HoldTaken(string path) => !_holds.ContainsKey(path);
 
-    private static async Task WaitUntilAsync(Func<bool> condition, string failureMessage)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, failureMessage);
-            await Task.Delay(25);
-        }
-    }
+    private Task PollUntil(Func<bool> condition, string failureMessage) =>
+        Wait.UntilAsync(_time, PollInterval, condition, failureMessage);
 
     private ThorRf11IqPdu CreatePdu(IReadOnlyDictionary<int, string>? outletNames = null) =>
-        new(_restComms.Object, "Test PDU", "vgr5", outletNames, PollInterval);
+        new(_restComms.Object, "Test PDU", "vgr5", outletNames, PollInterval, _time);
 
     private async Task<ThorRf11IqPdu> CreatePolledPdu()
     {
         var pdu = CreatePdu();
-        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Okay, "The PDU never polled");
+        await PollUntil(() => pdu.CommunicationState == CommunicationState.Okay, "The PDU never polled");
         return pdu;
     }
 
@@ -115,7 +110,7 @@ public class ThorRf11IqPduTest
     [Fact]
     public void Constructor_EncodesANonAsciiPasswordAsUtf8()
     {
-        _ = new ThorRf11IqPdu(_restComms.Object, "Test PDU", "pässw0rd", null, PollInterval);
+        _ = new ThorRf11IqPdu(_restComms.Object, "Test PDU", "pässw0rd", null, PollInterval, _time);
 
         var expectedHeader = $"Basic {Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("admin:pässw0rd"))}";
         _restComms.Verify(client => client.AddDefaultHeader("Authorization", expectedHeader), Times.Once);
@@ -156,6 +151,57 @@ public class ThorRf11IqPduTest
     }
 
     [Fact]
+    public async Task Poll_ShowsTheFirmwareAsADetail()
+    {
+        var pdu = await CreatePolledPdu();
+
+        Assert.Equal(new DeviceDetail("Firmware", "iq1.0"), pdu.Details.Single(detail => detail.Label == "Firmware"));
+    }
+
+    [Fact]
+    public async Task Poll_WithNoFirmwareVersion_RaisesAMinorIssueOnlyOnTheThirdReplyInARowUntilTheVersionReturns()
+    {
+        Respond("/status.xml", StatusBody.Replace("<ver>iq1.0</ver>\n", ""));
+        var held = HoldNextRequest("/status.xml");
+        var pdu = CreatePdu();
+        for (var reply = 0; reply < 2; reply++)
+            held = await ReleaseAndHoldTheNextStatusPoll(held);
+        await PollUntil(() => HoldTaken("/status.xml"), "The third status poll never came");
+
+        Assert.DoesNotContain(pdu.GetIssues(), issue => issue.Key == "firmware-read");
+
+        held.SetResult();
+        await PollUntil(() => pdu.GetOngoingIssues().Any(issue => issue.Key == "firmware-read"),
+            "The third reply with no version never raised the read issue");
+        var readIssue = pdu.GetOngoingIssues().Single(issue => issue.Key == "firmware-read");
+        Assert.Equal(IssueSeverity.Minor, readIssue.Severity);
+        Assert.Contains("no ver element", readIssue.Message);
+
+        Respond("/status.xml", StatusBody);
+        await PollUntil(() => pdu.GetOngoingIssues().Count == 0, "The firmware issue was never resolved");
+        Assert.Equal("iq1.0", pdu.FirmwareVersion);
+    }
+
+    [Fact]
+    public async Task Poll_WithABlankFirmwareVersion_ShowsTheRawElementWithNoIssue()
+    {
+        Respond("/status.xml", StatusBody.Replace("<ver>iq1.0</ver>", "<ver></ver>"));
+
+        var pdu = await CreatePolledPdu();
+
+        Assert.Equal(new DeviceDetail("Firmware", "<ver></ver>"), pdu.Details.Single(detail => detail.Label == "Firmware"));
+        Assert.Empty(pdu.GetIssues());
+    }
+
+    private async Task<TaskCompletionSource> ReleaseAndHoldTheNextStatusPoll(TaskCompletionSource held)
+    {
+        await PollUntil(() => HoldTaken("/status.xml"), "The status poll never came");
+        var next = HoldNextRequest("/status.xml");
+        held.SetResult();
+        return next;
+    }
+
+    [Fact]
     public async Task Poll_RaisesCurrentHandlersOnChange()
     {
         var pdu = await CreatePolledPdu();
@@ -163,7 +209,7 @@ public class ThorRf11IqPduTest
         Outlet(pdu, 6).CurrentHandlers += handler.Object;
         Respond("/status.xml", StatusBody.Replace("<c6>2.6</c6>", "<c6>1.1</c6>"));
 
-        await WaitUntilAsync(() => handler.Invocations.Count > 0, "The current handler never fired");
+        await PollUntil(() => handler.Invocations.Count > 0, "The current handler never fired");
 
         handler.Verify(x => x.Invoke(1.1f), Times.Once);
         Assert.Equal(1.1f, Outlet(pdu, 6).CurrentAmps);
@@ -177,7 +223,7 @@ public class ThorRf11IqPduTest
         pdu.CircuitHandlers += handler.Object;
 
         Respond("/status.xml", StatusBody.Replace("<s2>1</s2>", "<s2>0</s2>"));
-        await WaitUntilAsync(() => handler.Invocations.Count > 0, "The circuit handler never fired");
+        await PollUntil(() => handler.Invocations.Count > 0, "The circuit handler never fired");
         var issue = Assert.Single(pdu.GetOngoingIssues());
         Assert.Equal("circuit-2-damaged", issue.Key);
         Assert.Equal(IssueSeverity.Critical, issue.Severity);
@@ -185,7 +231,7 @@ public class ThorRf11IqPduTest
         handler.Verify(x => x.Invoke(It.Is<IReadOnlyList<ThorRf11IqCircuitStatus>>(c => !c[1].Protected)), Times.Once);
 
         Respond("/status.xml", StatusBody);
-        await WaitUntilAsync(() => pdu.GetOngoingIssues().Count == 0, "The circuit issue was never resolved");
+        await PollUntil(() => pdu.GetOngoingIssues().Count == 0, "The circuit issue was never resolved");
     }
 
     [Fact]
@@ -196,7 +242,7 @@ public class ThorRf11IqPduTest
         pdu.BuzzerActiveHandlers += handler.Object;
 
         Respond("/status.xml", StatusBody.Replace("<bz>0</bz>", "<bz>1</bz>"));
-        await WaitUntilAsync(() => handler.Invocations.Count > 0, "The buzzer handler never fired");
+        await PollUntil(() => handler.Invocations.Count > 0, "The buzzer handler never fired");
 
         Assert.True(pdu.BuzzerActive);
         var issue = Assert.Single(pdu.GetOngoingIssues());
@@ -211,13 +257,13 @@ public class ThorRf11IqPduTest
         _responses.TryRemove("/status.xml", out _);
         var pdu = CreatePdu();
 
-        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error, "The PDU never reported an error");
-        await WaitUntilAsync(() => pdu.GetOngoingIssues().Any(issue => issue.Key == "unanswered-poll"),
+        await PollUntil(() => pdu.CommunicationState == CommunicationState.Error, "The PDU never reported an error");
+        await PollUntil(() => pdu.GetOngoingIssues().Any(issue => issue.Key == "unanswered-poll"),
             "The unanswered poll never escalated");
         Assert.Contains(pdu.GetIssues(), issue => issue.Key == "unanswered-poll" && issue.Message.Contains("no response"));
 
         Respond("/status.xml", StatusBody);
-        await WaitUntilAsync(() => pdu.GetOngoingIssues().Count == 0, "The issues were never resolved");
+        await PollUntil(() => pdu.GetOngoingIssues().Count == 0, "The issues were never resolved");
         Assert.Equal(CommunicationState.Okay, pdu.CommunicationState);
     }
 
@@ -227,9 +273,8 @@ public class ThorRf11IqPduTest
         Respond("/status.xml", "401 Unauthorized: Password required", HttpStatusCode.Unauthorized);
         var pdu = CreatePdu();
 
-        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error, "The failed poll was never recorded");
+        await PollUntil(() => pdu.CommunicationState == CommunicationState.Error, "The failed poll was never recorded");
 
-        // One driver issue for the failed poll; the Critical "communication" entry comes from DeviceBase.
         var issue = Assert.Single(pdu.GetIssues().Where(i => i.Key != "communication"));
         Assert.Equal("unanswered-poll", issue.Key);
         Assert.Contains("HTTP 401", issue.Message);
@@ -241,7 +286,7 @@ public class ThorRf11IqPduTest
         Respond("/status.xml", "<html>nope");
         var pdu = CreatePdu();
 
-        await WaitUntilAsync(() => pdu.CommunicationState == CommunicationState.Error, "The failed poll was never recorded");
+        await PollUntil(() => pdu.CommunicationState == CommunicationState.Error, "The failed poll was never recorded");
 
         Assert.Contains(pdu.GetIssues(), issue => issue.Message.Contains("not valid XML"));
         Assert.Contains(pdu.Events, e => e.Type == EventType.Error);
@@ -254,11 +299,27 @@ public class ThorRf11IqPduTest
         Outlet(pdu, 1).CurrentHandlers += _ => throw new InvalidOperationException("disposed control");
         Respond("/status.xml", StatusBody.Replace("<c1>0.0</c1>", "<c1>5.0</c1>"));
 
-        await WaitUntilAsync(() => pdu.Events.Any(e => e.Type == EventType.Error), "The handler failure was never recorded");
-        await Task.Delay(PollInterval * 3);
+        await PollUntil(() => pdu.Events.Any(e => e.Type == EventType.Error), "The handler failure was never recorded");
+        var polls = CountRequests("/status.xml");
+        await PollUntil(() => CountRequests("/status.xml") > polls, "No poll followed the one whose handler threw");
 
         Assert.Equal(CommunicationState.Okay, pdu.CommunicationState);
         Assert.Empty(pdu.GetOngoingIssues());
+    }
+
+    [Fact]
+    public async Task Poll_WithAThrowingFirmwareHandler_StillReadsTheOutletStates()
+    {
+        var pdu = await CreatePolledPdu();
+        pdu.FirmwareVersionHandlers += _ => throw new InvalidOperationException("disposed control");
+        Respond("/status.xml", StatusBody.Replace("<p6>0</p6>", "<p6>1</p6>").Replace("<ver>iq1.0</ver>", "<ver>iq1.1</ver>"));
+        var held = await ReleaseAndHoldTheNextStatusPoll(HoldNextRequest("/status.xml"));
+
+        await PollUntil(() => pdu.Events.Any(e => e.Type == EventType.Error), "The firmware handler never threw");
+
+        Assert.Equal(PowerState.On, pdu.Outlets[5].PowerState);
+        Assert.Equal("iq1.1", pdu.FirmwareVersion);
+        held.SetResult();
     }
 
     [Fact]
@@ -271,7 +332,7 @@ public class ThorRf11IqPduTest
 
         outlet.PowerOn();
 
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.On, "The outlet never turned on");
+        await PollUntil(() => outlet.PowerState == PowerState.On, "The outlet never turned on");
         Assert.Equal(1, CountRequests(CommandPath(6, true)));
         Assert.Contains(pdu.Events, e => e.Type == EventType.Power && e.Info.Contains("power on"));
     }
@@ -285,7 +346,7 @@ public class ThorRf11IqPduTest
 
         outlet.PowerOff();
 
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.Off, "The outlet never turned off");
+        await PollUntil(() => outlet.PowerState == PowerState.Off, "The outlet never turned off");
         Assert.Equal(1, CountRequests(CommandPath(1, false)));
     }
 
@@ -298,7 +359,7 @@ public class ThorRf11IqPduTest
 
         outlet.PowerOn();
 
-        await WaitUntilAsync(() => pdu.GetIssues().Any(issue => issue.Key == "unacknowledged-command"),
+        await PollUntil(() => pdu.GetIssues().Any(issue => issue.Key == "unacknowledged-command"),
             "The unacknowledged command was never recorded");
         Assert.Equal(1, CountRequests(CommandPath(6, true)));
         Assert.Equal(PowerState.Off, outlet.PowerState);
@@ -314,7 +375,7 @@ public class ThorRf11IqPduTest
 
         outlet.PowerOn();
 
-        await WaitUntilAsync(() => pdu.GetIssues().Any(issue => issue.Key == "unacknowledged-command"),
+        await PollUntil(() => pdu.GetIssues().Any(issue => issue.Key == "unacknowledged-command"),
             "The rejected command was never recorded");
         Assert.Equal(PowerState.Off, outlet.PowerState);
         Assert.Contains(pdu.GetIssues(), issue => issue.Message.Contains("'Error'"));
@@ -329,7 +390,7 @@ public class ThorRf11IqPduTest
 
         outlet.PowerOn();
 
-        await WaitUntilAsync(() => pdu.GetIssues().Any(issue => issue.Key == "unacknowledged-command"),
+        await PollUntil(() => pdu.GetIssues().Any(issue => issue.Key == "unacknowledged-command"),
             "The failed command was never recorded");
         Assert.Equal(PowerState.Off, outlet.PowerState);
         Assert.Contains(pdu.GetIssues(), issue => issue.Message.Contains("HTTP 403"));
@@ -347,8 +408,8 @@ public class ThorRf11IqPduTest
         outlet.PowerOn();
         outlet.PowerOn();
 
-        await WaitUntilAsync(() => CountRequests(CommandPath(6, true)) == 2, "Both commands were never sent");
-        await WaitUntilAsync(() => pdu.Events.Count(e => e.Info.Contains("power on command for outlet Output 6")) == 2,
+        await PollUntil(() => CountRequests(CommandPath(6, true)) == 2, "Both commands were never sent");
+        await PollUntil(() => pdu.Events.Count(e => e.Info.Contains("power on command for outlet Output 6")) == 2,
             "Both commands were never acknowledged");
         Assert.DoesNotContain(pdu.GetIssues(), issue => issue.Key == "unacknowledged-command");
     }
@@ -361,14 +422,14 @@ public class ThorRf11IqPduTest
         var firstReply = HoldNextRequest(CommandPath(6, true));
 
         outlet.PowerOn();
-        await WaitUntilAsync(() => HoldTaken(CommandPath(6, true)), "The first command was never in flight");
+        await PollUntil(() => HoldTaken(CommandPath(6, true)), "The first command was never in flight");
         RespondToCommands("Error");
         outlet.PowerOn();
-        await WaitUntilAsync(() => pdu.GetIssues().Any(issue => issue.Message.Contains("'Error'")),
+        await PollUntil(() => pdu.GetIssues().Any(issue => issue.Message.Contains("'Error'")),
             "The second command was never rejected");
         firstReply.SetResult();
 
-        await WaitUntilAsync(() => pdu.Events.Any(e => e.Info == "Sent the power on command for outlet Output 6"),
+        await PollUntil(() => pdu.Events.Any(e => e.Info == "Sent the power on command for outlet Output 6"),
             "The first command was never acknowledged");
         Assert.Single(pdu.Events, e => e.Info == "Sent the power on command for outlet Output 6");
         Assert.DoesNotContain(pdu.GetIssues(), issue => issue.Message.Contains("no response"));
@@ -380,14 +441,14 @@ public class ThorRf11IqPduTest
         var pdu = await CreatePolledPdu();
         var outlet = Outlet(pdu, 6);
         var stalePoll = HoldNextRequest("/status.xml");
-        await WaitUntilAsync(() => HoldTaken("/status.xml"), "The slow poll (carrying p6=0) never got in flight");
+        await PollUntil(() => HoldTaken("/status.xml"), "The slow poll (carrying p6=0) never got in flight");
 
         outlet.PowerOn();
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.On, "The outlet never turned on");
+        await PollUntil(() => outlet.PowerState == PowerState.On, "The outlet never turned on");
         Respond("/status.xml", StatusBody.Replace("<p6>0</p6>", "<p6>1</p6>"));
         var polls = CountRequests("/status.xml");
         stalePoll.SetResult();
-        await WaitUntilAsync(() => CountRequests("/status.xml") > polls, "The slow poll never completed");
+        await PollUntil(() => CountRequests("/status.xml") > polls, "The slow poll never completed");
 
         Assert.Equal(PowerState.On, outlet.PowerState);
     }
@@ -396,17 +457,17 @@ public class ThorRf11IqPduTest
     public async Task Reboot_TurnsTheOutletOffThenOnWithoutPublishingOff()
     {
         var pdu = await CreatePolledPdu();
-        pdu.RebootDelay = TimeSpan.FromMilliseconds(200);
         var outlet = Outlet(pdu, 1);
         var states = new ConcurrentQueue<PowerState>();
         outlet.PowerStateHandlers += state => states.Enqueue(state);
 
         outlet.Reboot();
 
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.Rebooting, "The outlet never entered rebooting");
+        Assert.Equal(PowerState.Rebooting, outlet.PowerState);
         Assert.Equal(1, CountRequests(CommandPath(1, false)));
         Assert.Equal(0, CountRequests(CommandPath(1, true)));
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.On, "The outlet never came back on");
+        _time.Advance(ThorRf11IqPdu.DefaultRebootDelay);
+        await PollUntil(() => outlet.PowerState == PowerState.On, "The outlet never came back on");
         Assert.Equal(1, CountRequests(CommandPath(1, true)));
         Assert.Equal([PowerState.Rebooting, PowerState.On], states);
     }
@@ -415,13 +476,12 @@ public class ThorRf11IqPduTest
     public async Task Reboot_KeepsTheRebootingStateWhilePollsReportOff()
     {
         var pdu = await CreatePolledPdu();
-        pdu.RebootDelay = TimeSpan.FromMilliseconds(400);
         var outlet = Outlet(pdu, 1);
         Respond("/status.xml", StatusBody.Replace("<p1>1</p1>", "<p1>0</p1>"));
 
         outlet.Reboot();
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.Rebooting, "The outlet never entered rebooting");
-        await Task.Delay(150);
+        var polls = CountRequests("/status.xml");
+        await PollUntil(() => CountRequests("/status.xml") >= polls + 2, "No poll reporting the outlet off completed during the reboot");
 
         Assert.Equal(PowerState.Rebooting, outlet.PowerState);
     }
@@ -430,33 +490,30 @@ public class ThorRf11IqPduTest
     public async Task Reboot_IsCancelledByAPowerOffDuringTheDelay()
     {
         var pdu = await CreatePolledPdu();
-        pdu.RebootDelay = TimeSpan.FromMilliseconds(300);
         var outlet = Outlet(pdu, 1);
         Respond("/status.xml", StatusBody.Replace("<p1>1</p1>", "<p1>0</p1>"));
 
         outlet.Reboot();
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.Rebooting, "The outlet never entered rebooting");
+        Assert.Equal(PowerState.Rebooting, outlet.PowerState);
         outlet.PowerOff();
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.Off, "The outlet never turned off");
-        await Task.Delay(500);
+        await PollUntil(() => pdu.Events.Any(e => e.Info.Contains("cancelled")), "The reboot was never cancelled");
+        _time.Advance(ThorRf11IqPdu.DefaultRebootDelay);
 
         Assert.Equal(PowerState.Off, outlet.PowerState);
         Assert.Equal(0, CountRequests(CommandPath(1, true)));
-        Assert.Contains(pdu.Events, e => e.Info.Contains("cancelled"));
     }
 
     [Fact]
     public async Task Reboot_WhileAlreadyRebooting_IsIgnored()
     {
         var pdu = await CreatePolledPdu();
-        pdu.RebootDelay = TimeSpan.FromMilliseconds(300);
         var outlet = Outlet(pdu, 1);
 
         outlet.Reboot();
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.Rebooting, "The outlet never entered rebooting");
+        Assert.Equal(PowerState.Rebooting, outlet.PowerState);
         outlet.Reboot();
-        await WaitUntilAsync(() => outlet.PowerState == PowerState.On, "The outlet never came back on");
-        await Task.Delay(100);
+        _time.Advance(ThorRf11IqPdu.DefaultRebootDelay);
+        await PollUntil(() => outlet.PowerState == PowerState.On, "The outlet never came back on");
 
         Assert.Equal(1, CountRequests(CommandPath(1, false)));
         Assert.Equal(1, CountRequests(CommandPath(1, true)));
@@ -473,7 +530,7 @@ public class ThorRf11IqPduTest
 
         pdu.PowerOff();
 
-        await WaitUntilAsync(() => pdu.Outlets.All(outlet => outlet.PowerState == PowerState.Off), "Not every outlet turned off");
+        await PollUntil(() => pdu.Outlets.All(outlet => outlet.PowerState == PowerState.Off), "Not every outlet turned off");
         for (var channel = 1; channel <= 8; channel++)
             Assert.Equal(1, CountRequests(CommandPath(channel, false)));
     }
@@ -486,7 +543,7 @@ public class ThorRf11IqPduTest
 
         pdu.PowerOn();
 
-        await WaitUntilAsync(() => pdu.Outlets.All(outlet => outlet.PowerState == PowerState.On), "Not every outlet turned on");
+        await PollUntil(() => pdu.Outlets.All(outlet => outlet.PowerState == PowerState.On), "Not every outlet turned on");
         for (var channel = 1; channel <= 8; channel++)
             Assert.Equal(1, CountRequests(CommandPath(channel, true)));
     }
@@ -500,7 +557,7 @@ public class ThorRf11IqPduTest
 
         pdu.SetBuzzerEnabled(circuit, enabled);
 
-        await WaitUntilAsync(() => _requests.Contains(expectedPath), "The buzzer command was never sent");
+        await PollUntil(() => _requests.Contains(expectedPath), "The buzzer command was never sent");
     }
 
     [Fact]
@@ -509,7 +566,6 @@ public class ThorRf11IqPduTest
         var pdu = await CreatePolledPdu();
 
         pdu.SetBuzzerEnabled(3, true);
-        await Task.Delay(100);
 
         Assert.DoesNotContain(_requests, path => path.Contains("param=b3"));
     }
@@ -521,6 +577,6 @@ public class ThorRf11IqPduTest
 
         pdu.SilenceBuzzer();
 
-        await WaitUntilAsync(() => _requests.Contains("/cpan.cgi?param=bz&value=0"), "The silence command was never sent");
+        await PollUntil(() => _requests.Contains("/cpan.cgi?param=bz&value=0"), "The silence command was never sent");
     }
 }

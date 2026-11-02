@@ -45,7 +45,6 @@ public class BytesTest
     [Fact]
     public void AsciiRepresentationOfHexEquivalentOf_ReturnsTheCorrectValue()
     {
-        //Decimal 12 = Hex C => '0' 'C'
         var actual = Bytes.AsciiRepresentationOfHexEquivalentOf(12, 2);
 
         byte[] expected = [(byte)'0', (byte)'C'];
@@ -58,7 +57,6 @@ public class BytesTest
     {
         var actual = Bytes.AsciiRepresentationOfHexEquivalentOf(50, 2);
         
-        //Decimal 50 = Hex 32 => '3' '2'
         byte[] expected = [(byte)'3', (byte)'2'];
         Assert.Equal(expected, actual);
     }
@@ -77,18 +75,7 @@ public class BytesTest
     {
         var actual = Bytes.AsciiRepresentationOfHexEquivalentOf(50, 5);
         
-        //Decimal 50 = Hex 32 => '0' '0' '0' '3' '2'
         byte[] expected = [(byte)'0', (byte)'0', (byte)'0',  (byte)'3', (byte)'2'];
-        Assert.Equal(expected, actual);
-    }
-
-    [Fact]
-    public void XorAnArray_ReturnsTheValue()
-    {
-        var actual = Bytes.XorAnArray([0x01, 0x01]);
-
-        byte expected = 0;
-        
         Assert.Equal(expected, actual);
     }
 

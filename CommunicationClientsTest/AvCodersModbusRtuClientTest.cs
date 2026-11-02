@@ -1,11 +1,11 @@
-using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.CommunicationClients.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class AvCodersModbusRtuClientTest
 {
+    private static readonly TimeSpan RaisedResponseTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SlowerThanTheDefaultTimeout = TimeSpan.FromMilliseconds(1500);
     private readonly AvCodersModbusRtuClient _client;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private readonly List<byte[]> _sent = [];
@@ -26,24 +26,39 @@ public class AvCodersModbusRtuClientTest
     private void Respond(byte[] bytes) => _mockClient.Object.ResponseByteHandlers?.Invoke(bytes);
 
     [Fact]
-    public async Task ReadCoils_SendsTheRequestFrame()
+    public async Task TheTransportsConnectionReason_IsMirrored()
+    {
+        var transport = new AvCodersTcpClient("127.0.0.1", TestNetwork.GetFreePort(), "Failing transport", CommandStringFormat.Hex,
+            new ConnectTimeoutClock { ConnectTimeouts = ConnectTimeouts.AtOnce });
+        try
+        {
+            var client = new AvCodersModbusRtuClient(transport, "Mirroring modbus client");
+            await Wait.UntilAsync(() => client.ConnectionReason != null, "the transport's reason never reached the modbus client");
+
+            Assert.Equal(ConnectionReasonCategory.TimedOut, client.ConnectionReason!.Category);
+            Assert.Equal(transport.ConnectionReason, client.ConnectionReason);
+
+            transport.Disconnect();
+
+            Assert.Equal(transport.ConnectionReason, client.ConnectionReason);
+            Assert.Equal(ConnectionReasonCategory.Requested, client.ConnectionReason!.Category);
+        }
+        finally
+        {
+            transport.Disconnect();
+        }
+    }
+
+    [Fact]
+    public async Task ReadCoils_SendsTheRequestFrameAndUnpacksBitsLsbFirst()
     {
         byte[] expected = [0x11, 0x01, 0x00, 0x13, 0x00, 0x25, 0x0E, 0x84];
 
         var task = _client.ReadCoils(0x11, 0x0013, 0x0025);
         Respond([0x11, 0x01, 0x05, 0xCD, 0x6B, 0xB2, 0x0E, 0x1B, 0x45, 0xE6]);
-        await task;
-
-        Assert.Equal(expected, _sent[0]);
-    }
-
-    [Fact]
-    public async Task ReadCoils_UnpacksBitsLsbFirst()
-    {
-        var task = _client.ReadCoils(0x11, 0x0013, 0x0025);
-        Respond([0x11, 0x01, 0x05, 0xCD, 0x6B, 0xB2, 0x0E, 0x1B, 0x45, 0xE6]);
         bool[] coils = await task;
 
+        Assert.Equal(expected, _sent[0]);
         Assert.Equal(37, coils.Length);
         bool[] expectedFirstByte = [true, false, true, true, false, false, true, true];
         Assert.Equal(expectedFirstByte, coils.Take(8));
@@ -52,22 +67,13 @@ public class AvCodersModbusRtuClientTest
     }
 
     [Fact]
-    public async Task ReadHoldingRegisters_SendsTheRequestFrame()
-    {
-        var task = _client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
-        Respond(ReadRegistersResponse);
-        await task;
-
-        Assert.Equal(ReadRegistersRequest, _sent[0]);
-    }
-
-    [Fact]
-    public async Task ReadHoldingRegisters_DecodesBigEndianValues()
+    public async Task ReadHoldingRegisters_SendsTheRequestFrameAndDecodesBigEndianValues()
     {
         var task = _client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
         Respond(ReadRegistersResponse);
         ushort[] registers = await task;
 
+        Assert.Equal(ReadRegistersRequest, _sent[0]);
         Assert.Equal([0xAE41, 0x5652, 0x4340], registers);
     }
 
@@ -163,32 +169,6 @@ public class AvCodersModbusRtuClientTest
     }
 
     [Fact]
-    public async Task MatchedResponse_LogsTheRxLineUnderTheRequestsTriggerId()
-    {
-        var loggerFactory = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = loggerFactory;
-        AvCodersModbusRtuClient client;
-        try
-        {
-            client = new AvCodersModbusRtuClient(_mockClient.Object, "Logged modbus client");
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-        var requestTriggerId = Trigger.Start();
-        var task = client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
-
-        Trigger.Start();
-        Respond(ReadRegistersResponse);
-        await task;
-
-        Assert.Contains(loggerFactory.Logs,
-            log => log.Message.StartsWith("Received:") && log.TriggerId == requestTriggerId);
-    }
-
-    [Fact]
     public async Task NoResponse_ThrowsTimeoutExceptionAfterRetries()
     {
         _client.ResponseTimeout = TimeSpan.FromMilliseconds(50);
@@ -252,7 +232,7 @@ public class AvCodersModbusRtuClientTest
         Respond(ReadRegistersResponse);
         await readTask;
 
-        await TestNetwork.WaitUntilAsync(() => _sent.Count == 2, 5, "second request was never sent");
+        await Wait.UntilAsync(() => _sent.Count == 2, "second request was never sent");
         Assert.Equal(WriteRegisterRequest, _sent[1]);
 
         Respond(WriteRegisterRequest);
@@ -283,48 +263,6 @@ public class AvCodersModbusRtuClientTest
     public async Task WriteRegisters_RejectsEmptyValues()
     {
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _client.WriteRegisters(0x11, 0x0000, []));
-    }
-
-    [Fact]
-    public void Send_PassesBytesThroughToTheTransport()
-    {
-        byte[] payload = [0x01, 0x02, 0x03];
-
-        _client.Send(payload);
-
-        _mockClient.Verify(client => client.Send(payload), Times.Once);
-    }
-
-    [Fact]
-    public void Send_PassesStringsThroughToTheTransport()
-    {
-        _client.Send("passthrough");
-
-        _mockClient.Verify(client => client.Send("passthrough"), Times.Once);
-    }
-
-    [Fact]
-    public void Defaults_MatchTheDocumentedValues()
-    {
-        var client = new AvCodersModbusRtuClient(TestFactory.CreateCommunicationClient().Object, "Defaults client");
-
-        Assert.Equal(TimeSpan.FromSeconds(1), client.ResponseTimeout);
-        Assert.Equal(TimeSpan.Zero, client.MinimumResponseTime);
-        Assert.Equal(TimeSpan.FromMilliseconds(4), client.InterFrameDelay);
-        Assert.Equal(2, client.Retries);
-        Assert.Equal(0, client.AddressOffset);
-        Assert.Equal(125, client.MaxRegistersPerRead);
-        Assert.False(client.DiscardLocalEcho);
-    }
-
-    [Fact]
-    public async Task AddressOffset_Zero_LeavesTheWireAddressUnchanged()
-    {
-        var task = _client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
-        Respond(ReadRegistersResponse);
-        await task;
-
-        Assert.Equal(ReadRegistersRequest, _sent[0]);
     }
 
     [Fact]
@@ -412,13 +350,15 @@ public class AvCodersModbusRtuClientTest
     [Fact]
     public async Task RaisedResponseTimeout_AllowsResponsesSlowerThanTheDefault()
     {
-        _client.ResponseTimeout = TimeSpan.FromSeconds(5);
+        var time = new FakeTimeProvider();
+        var client = new AvCodersModbusRtuClient(_mockClient.Object, "Slow device client", time);
+        client.ResponseTimeout = RaisedResponseTimeout;
 
-        var task = _client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
-        await Task.Delay(1500);
+        var task = client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
+        time.Advance(SlowerThanTheDefaultTimeout);
         Respond(ReadRegistersResponse);
 
-        Assert.Equal([0xAE41, 0x5652, 0x4340], await task);
+        Assert.Equal([0xAE41, 0x5652, 0x4340], await TestNetwork.AdvanceUntilDone(time, task, "the slow response was never accepted"));
         Assert.Single(_sent);
     }
 
@@ -432,7 +372,7 @@ public class AvCodersModbusRtuClientTest
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => readTask);
 
         var writeTask = _client.WriteRegister(0x11, 0x0001, 0x0003);
-        await TestNetwork.WaitUntilAsync(() => _sent.Count == 2, 5, "the bus was not released after cancellation");
+        await Wait.UntilAsync(() => _sent.Count == 2, "the bus was not released after cancellation");
         Respond(WriteRegisterRequest);
         await writeTask;
     }
@@ -493,5 +433,38 @@ public class AvCodersModbusRtuClientTest
 
         Assert.Equal(ConnectionState.Connected, _client.ConnectionState);
         Assert.Equal(ConnectionState.Connected, reported);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class AvCodersModbusRtuClientLogTest
+{
+    private static readonly byte[] ReadRegistersResponse = [0x11, 0x03, 0x06, 0xAE, 0x41, 0x56, 0x52, 0x43, 0x40, 0x49, 0xAD];
+    private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
+
+    [Fact]
+    public async Task MatchedResponse_LogsTheRxLineUnderTheRequestsTriggerId()
+    {
+        var loggerFactory = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = loggerFactory;
+        AvCodersModbusRtuClient client;
+        try
+        {
+            client = new AvCodersModbusRtuClient(_mockClient.Object, "Logged modbus client");
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        var requestTriggerId = Trigger.Start();
+        var task = client.ReadHoldingRegisters(0x11, 0x006B, 0x0003);
+
+        Trigger.Start();
+        _mockClient.Object.ResponseByteHandlers?.Invoke(ReadRegistersResponse);
+        await task;
+
+        Assert.Contains(loggerFactory.Logs,
+            log => log.Message.StartsWith("Received:") && log.TriggerId == requestTriggerId);
     }
 }

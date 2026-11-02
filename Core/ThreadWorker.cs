@@ -5,6 +5,7 @@ namespace AVCoders.Core;
 public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst = false)
     : LogBase(GenerateLogClassName(action))
 {
+    private readonly TimeProvider _timeProvider = TimeProvider.System;
     private CancellationTokenSource? _cancellationTokenSource = null;
     private Task? _task;
     private bool _waitFirst = waitFirst;
@@ -14,6 +15,12 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
     // Receive workers run with little or no sleep; without a floor on the failure path, an
     // action that throws instantly (e.g. on a disposed socket) would spin and flood the log.
     private static readonly TimeSpan MinimumFailureBackoff = TimeSpan.FromSeconds(1);
+
+    internal ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTime, bool waitFirst, TimeProvider? timeProvider)
+        : this(action, sleepTime, waitFirst)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     public bool IsRunning
     {
@@ -127,10 +134,10 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
             while (!token.IsCancellationRequested)
             {
                 if (_waitFirst)
-                    await Task.Delay(sleepTime, token);
+                    await Task.Delay(sleepTime, _timeProvider, token);
                 await RunActionOnce(token);
                 if (!_waitFirst)
-                    await Task.Delay(sleepTime, token);
+                    await Task.Delay(sleepTime, _timeProvider, token);
             }
         }
         catch (OperationCanceledException)
@@ -167,7 +174,7 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
             LogException(e,
                 $"ThreadWorker has encountered an exception while running {action.Method.Name} in {action.Target?.GetType().Name ?? "*Class could not be determined*"}");
             if (sleepTime < MinimumFailureBackoff)
-                await Task.Delay(MinimumFailureBackoff, token);
+                await Task.Delay(MinimumFailureBackoff, _timeProvider, token);
         }
     }
 

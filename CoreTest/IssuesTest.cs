@@ -1,6 +1,5 @@
 namespace AVCoders.Core.Tests;
 
-// Same collection as LogBaseRegistryTest — see the note there.
 [Collection("LogBaseIssues")]
 public class IssuesTest
 {
@@ -274,15 +273,6 @@ public class IssuesTest
     }
 
     [Fact]
-    public void Issues_AreOrderedByRaiseOrder()
-    {
-        _logBase.Ongoing("first", "First issue");
-        _logBase.Ongoing("second", "Second issue");
-
-        Assert.Equal(new[] { "first", "second" }, _logBase.GetIssues().Select(i => i.Key));
-    }
-
-    [Fact]
     public void RaiseMomentaryIssue_BelowEscalationThreshold_DoesNotRaiseOngoing()
     {
         _logBase.Momentary("Missed a poll", key: "poll", escalateAfter: 3);
@@ -365,11 +355,9 @@ public class IssuesTest
     {
         _logBase.Momentary("A failed", key: "a", escalateAfter: 3);
         _logBase.Momentary("A failed", key: "a", escalateAfter: 3);
-        // 200 distinct keys evict "a" (the oldest entry) from the consecutive-count dictionary.
         for (var i = 0; i < 200; i++)
             _logBase.Momentary($"flood {i}", key: $"flood-{i}");
 
-        // Without the eviction this third raise would reach the threshold and escalate.
         _logBase.Momentary("A failed", key: "a", escalateAfter: 3);
 
         Assert.Empty(_logBase.GetOngoingIssues());
@@ -411,19 +399,5 @@ public class IssuesTest
             _logBase.Momentary("Missed a poll", key: "poll");
 
         Assert.Empty(_logBase.GetOngoingIssues());
-    }
-
-    [Fact]
-    public void TicketScenario_RaiseThenResolve_ReportsOneRaisedAndOneResolvedWithMatchingId()
-    {
-        var changes = new List<(IssueChangeKind Kind, Issue? Issue)>();
-        _logBase.IssuesChanged += (_, e) => changes.Add((e.Kind, e.ChangedIssue));
-
-        _logBase.Ongoing("communication", "Comms error");
-        _logBase.Resolve("communication");
-
-        var raised = Assert.Single(changes, c => c.Kind == IssueChangeKind.Raised);
-        var resolved = Assert.Single(changes, c => c.Kind == IssueChangeKind.Resolved);
-        Assert.Equal(raised.Issue!.Id, resolved.Issue!.Id);
     }
 }

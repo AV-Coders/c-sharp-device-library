@@ -134,7 +134,13 @@ avr.local was not found", "10.0.0.1:23 refused the connection", …) under the k
 `connection`, as does the Navigator tunnel when a NAV endpoint stops answering polls; once
 failures have persisted for two minutes
 (`CommunicationClient.ConnectionIssueThreshold`), a Critical ongoing issue is raised and
-automatically resolved when the client connects. Repeated
+automatically resolved when the client connects. Beside `ConnectionState`, which is
+unchanged, every client also has `ConnectionReason`: why it isn't connected, as a
+`Category` (`TimedOut`, `Refused`, `HostNotFound`, `Unreachable`, `CredentialsRejected`,
+`ClosedByDevice`, `Requested` or `Other`), the issue's `Description`, the `RawException`
+(type and message) and `Since`. It is set on each failure, cleared when the client
+connects, and raises `ConnectionReasonHandlers` on each change. A REST 401 or 403 sets
+`CredentialsRejected` and raises the `connection` issue too. Repeated
 momentary failures can auto-escalate: pass `escalateAfter: n` and, after `n` consecutive
 momentary raises of the key without an intervening `ResolveIssue`, an ongoing issue is
 raised under the same key one severity level higher. Call `ResolveIssue` on every
@@ -210,6 +216,14 @@ dotnet test
 Most domains have a matching `*Test` xUnit project (tests use Moq); `Interface` and
 `Climate` are the current exceptions. `CommunicationClientsTest` exercises the real
 transports against loopback sockets and an in-process HTTP listener (no Moq).
+
+Tests tagged `[Trait("Category", "Network")]` (the multicast tests, which join groups on the
+real network interface) are left out of `dotnet test` and CI by the repo-root `.runsettings`.
+Run them on purpose with:
+
+```bash
+dotnet test CommunicationClientsTest -p:RunSettingsFilePath= --filter Category=Network
+```
 
 ## Versioning & releases
 

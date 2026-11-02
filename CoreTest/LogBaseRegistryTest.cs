@@ -2,12 +2,6 @@ using System.Collections.Concurrent;
 
 namespace AVCoders.Core.Tests;
 
-// The registry is shared static state and every LogBase in every concurrently-running test
-// auto-registers, so these tests assert containment / filter by source — never global counts —
-// and record firings in thread-safe collections, because the event arrives on whatever thread
-// raised the issue, including other test classes running in parallel.
-// Same collection as IssuesTest: SetIssueLimits mutates every registered instance's cap, which
-// would race with that class's cap assertions if they ran in parallel.
 [Collection("LogBaseIssues")]
 public class LogBaseRegistryTest : IDisposable
 {

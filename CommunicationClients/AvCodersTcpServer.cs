@@ -15,12 +15,20 @@ public class AvCodersTcpServer : Core_TcpClient
     private int _bindBackoffMs = InitialBindBackoffMs;
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan NotListeningWait = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan AcceptInterval = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ClientCheckInterval = TimeSpan.FromSeconds(45);
     private readonly ConcurrentDictionary<Guid, TcpClient> _clients = new();
     private readonly object _stateLock = new();
     private CancellationTokenSource _clientsCancellation = new();
 
     public AvCodersTcpServer(ushort port, string name, CommandStringFormat commandStringFormat)
-        : base("Any", port, name, commandStringFormat)
+        : this(port, name, commandStringFormat, null)
+    {
+    }
+
+    internal AvCodersTcpServer(ushort port, string name, CommandStringFormat commandStringFormat, TimeProvider? timeProvider)
+        : base("Any", port, name, commandStringFormat, timeProvider ?? TimeProvider.System)
     {
         ConnectionState = ConnectionState.Connecting;
 
@@ -57,7 +65,7 @@ public class AvCodersTcpServer : Core_TcpClient
             catch (Exception e)
             {
                 LogException(e, $"Failed to bind TCP server to port {Port}");
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(e);
                 try
                 {
                     listener.Server.Dispose();
@@ -77,7 +85,7 @@ public class AvCodersTcpServer : Core_TcpClient
         var jitter = Random.Shared.Next(-200, 200);
         var delay = Math.Min(_bindBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
         _bindBackoffMs = Math.Min(_bindBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
-        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
+        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), TimeProvider, token);
     }
 
     public override void Send(string message) => Send(Bytes.FromString(message), message);
@@ -166,7 +174,7 @@ public class AvCodersTcpServer : Core_TcpClient
             if (!_listening || server == null)
             {
                 // The ConnectionStateWorker is responsible for (re)binding the listener
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                await Task.Delay(NotListeningWait, TimeProvider, token);
                 return;
             }
 
@@ -191,7 +199,7 @@ public class AvCodersTcpServer : Core_TcpClient
                 IPEndPoint? remoteIpEndPoint = client.Client.RemoteEndPoint as IPEndPoint ?? null;
                 LogDebug("Added client {ClientId} - {IpAddress}", clientId, remoteIpEndPoint?.Address);
                 _ = HandleClientAsync(client, clientId, clientToken);
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                await Task.Delay(AcceptInterval, TimeProvider, token);
             }
             catch (SocketException e)
             {
@@ -217,7 +225,7 @@ public class AvCodersTcpServer : Core_TcpClient
         }
         LogException(e, "Listener failed, it will be rebound");
         CloseListener();
-        ReportConnectionFailure(DescribeConnectionError(e));
+        ReportConnectionFailure(e);
         SetConnectionStateByClients();
         ConnectionStateWorker.Restart();
     }
@@ -305,7 +313,7 @@ public class AvCodersTcpServer : Core_TcpClient
             }
 
             SetConnectionStateByClients();
-            await Task.Delay(TimeSpan.FromSeconds(45), token);
+            await Task.Delay(ClientCheckInterval, TimeProvider, token);
         }
     }
 

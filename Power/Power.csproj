@@ -20,4 +20,8 @@
       <PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.7" />
     </ItemGroup>
 
+    <ItemGroup>
+      <InternalsVisibleTo Include="AVCoders.Power.Tests" />
+    </ItemGroup>
+
 </Project>

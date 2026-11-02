@@ -4,20 +4,16 @@ namespace AVCoders.Core.Tests;
 
 public class LogBaseSpanTest : IDisposable
 {
-    // Minimal concrete LogBase that exposes a method using PushProperties().
     private sealed class Device(string name) : LogBase(name)
     {
         public void DoWork()
         {
             using (PushProperties())
             {
-                // work happens here; the span is ambient
             }
         }
     }
 
-    // The listener is global to the shared ActivitySource, so parallel test classes can
-    // start spans while an assertion enumerates - guard the list and assert on snapshots.
     private readonly List<Activity> _started = [];
     private readonly object _startedLock = new();
     private readonly ActivityListener _listener;
@@ -61,9 +57,8 @@ public class LogBaseSpanTest : IDisposable
     }
 
     [Fact]
-    public void PushProperties_StartsNoSpan_WhenNoExternalParent()
+    public void PushProperties_StartsARootSpan_WhenNoExternalParent()
     {
-        // No parent Activity.Current — the method span becomes a root span, still recorded.
         new Device("Projector").DoWork();
 
         Assert.Contains(Started(), a => a.OperationName == "Device.DoWork" && a.Parent == null);

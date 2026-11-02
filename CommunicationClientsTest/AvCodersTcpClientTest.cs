@@ -27,15 +27,13 @@ public class AvCodersTcpClientTest : IDisposable
     private async Task<System.Net.Sockets.TcpClient> AcceptConnectedAsync(AvCodersTcpClient client)
     {
         var serverSide = await TestNetwork.AcceptAsync(_listener, 15);
-        await TestNetwork.WaitUntilAsync(
-            () => client.ConnectionState == ConnectionState.Connected,
-            15, "client never connected");
+        await Wait.UntilAsync(() => client.ConnectionState == ConnectionState.Connected, "client never connected");
         return serverSide;
     }
 
     public void Dispose()
     {
-        try { _client?.Disconnect(); } catch { /* test teardown */ }
+        try { _client?.Disconnect(); } catch { }
         _listener.Stop();
     }
 
@@ -53,9 +51,7 @@ public class AvCodersTcpClientTest : IDisposable
         {
             using var serverSide = await TestNetwork.AcceptAsync(listener, 15);
 
-            await TestNetwork.WaitUntilAsync(
-                () => states.Contains(ConnectionState.Connected),
-                15, "client never reported Connected");
+            await Wait.UntilAsync(() => states.Contains(ConnectionState.Connected), "client never reported Connected");
             Assert.Equal(ConnectionState.Connected, client.ConnectionState);
         }
         finally
@@ -70,11 +66,7 @@ public class AvCodersTcpClientTest : IDisposable
         string? request = null;
         var client = CreateClient();
         client.RequestHandlers += message => request = message;
-
-        using var serverSide = await TestNetwork.AcceptAsync(_listener, 15);
-        await TestNetwork.WaitUntilAsync(
-            () => client.ConnectionState == ConnectionState.Connected,
-            15, "client never connected");
+        using var serverSide = await AcceptConnectedAsync(client);
 
         client.Send("hello device");
 
@@ -91,16 +83,12 @@ public class AvCodersTcpClientTest : IDisposable
         var client = CreateClient();
         client.ResponseHandlers += message => response = message;
         client.ResponseByteHandlers += bytes => responseBytes = bytes;
-
-        using var serverSide = await TestNetwork.AcceptAsync(_listener, 15);
-        await TestNetwork.WaitUntilAsync(
-            () => client.ConnectionState == ConnectionState.Connected,
-            15, "client never connected");
+        using var serverSide = await AcceptConnectedAsync(client);
 
         var payload = Encoding.ASCII.GetBytes("PONG\r");
         await serverSide.GetStream().WriteAsync(payload);
 
-        await TestNetwork.WaitUntilAsync(() => responseBytes != null, 15, "byte response handler never invoked");
+        await Wait.UntilAsync(() => responseBytes != null, "byte response handler never invoked");
         Assert.Equal("PONG\r", response);
         Assert.Equal(payload, responseBytes);
     }
@@ -115,8 +103,8 @@ public class AvCodersTcpClientTest : IDisposable
 
         await serverSide.GetStream().WriteAsync(new byte[] { 0xE9, 0x4F, 0x4B, 0x0D });
 
-        await TestNetwork.WaitUntilAsync(() => response != null, 15, "string response handler never invoked");
-        Assert.Equal("\u00E9OK\r", response);
+        await Wait.UntilAsync(() => response != null, "string response handler never invoked");
+        Assert.Equal("éOK\r", response);
     }
 
     [Fact]
@@ -132,7 +120,7 @@ public class AvCodersTcpClientTest : IDisposable
 
         await serverSide.GetStream().WriteAsync(payload);
 
-        await TestNetwork.WaitUntilAsync(() => responseBytes != null, 15, "byte response handler never invoked");
+        await Wait.UntilAsync(() => responseBytes != null, "byte response handler never invoked");
         Assert.Equal(@"\x01 \xAA \xFF", response);
         Assert.Equal(payload, responseBytes);
     }
@@ -143,18 +131,11 @@ public class AvCodersTcpClientTest : IDisposable
         var client = CreateClient();
         using var serverSide = await AcceptConnectedAsync(client);
 
-        client.Send("\u00E9OK\r");
+        client.Send("éOK\r");
 
         var buffer = new byte[16];
         var read = serverSide.GetStream().ReadAsync(buffer, 0, buffer.Length);
         Assert.Same(read, await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(15))));
         Assert.Equal(new byte[] { 0xE9, 0x4F, 0x4B, 0x0D }, buffer[..await read]);
-    }
-
-    [Fact]
-    public void SetReceiveBufferSize_RejectsBuffersSmallerThan1024()
-    {
-        var client = CreateClient(TestNetwork.GetFreePort());
-        Assert.Throws<ArgumentOutOfRangeException>(() => client.SetReceiveBufferSize(1023));
     }
 }

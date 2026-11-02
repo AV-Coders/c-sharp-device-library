@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using AVCoders.Core;
 
 namespace AVCoders.CommunicationClients;
@@ -38,11 +37,17 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
     }
 
     public AvCodersModbusRtuClient(CommunicationClient transport, string name)
-        : base(name, transport.Host, transport.Port)
+        : this(transport, name, null)
+    {
+    }
+
+    internal AvCodersModbusRtuClient(CommunicationClient transport, string name, TimeProvider? timeProvider)
+        : base(name, transport.Host, transport.Port, timeProvider ?? TimeProvider.System)
     {
         _transport = transport;
         _transport.ResponseByteHandlers += HandleResponse;
         _transport.ConnectionStateHandlers += HandleTransportConnectionState;
+        _transport.ConnectionReasonHandlers += MirrorConnectionReason;
         HandleTransportConnectionState(transport.ConnectionState);
     }
 
@@ -50,6 +55,7 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
     {
         DesiredConnectionState = _transport.DesiredConnectionState;
         ConnectionState = state;
+        MirrorConnectionReason(_transport.ConnectionReason);
     }
 
     public override void Send(string message) => _transport.Send(message);
@@ -178,14 +184,14 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
                     lock (_receiveLock)
                     {
                         _gather.Clear();
-                        pending.SentTimestamp = Stopwatch.GetTimestamp();
+                        pending.SentTimestamp = TimeProvider.GetTimestamp();
                         _pending = pending;
                     }
                     _transport.Send(frame);
                     InvokeRequestHandlers(frame);
                     try
                     {
-                        return await pending.Tcs.Task.WaitAsync(ResponseTimeout, cancellationToken);
+                        return await pending.Tcs.Task.WaitAsync(ResponseTimeout, TimeProvider, cancellationToken);
                     }
                     catch (TimeoutException)
                     {
@@ -212,7 +218,7 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
             finally
             {
                 if (InterFrameDelay > TimeSpan.Zero)
-                    await Task.Delay(InterFrameDelay, CancellationToken.None);
+                    await Task.Delay(InterFrameDelay, TimeProvider, CancellationToken.None);
                 _busLock.Release();
             }
         }
@@ -247,7 +253,7 @@ public class AvCodersModbusRtuClient : ModbusRtuClient
                     if (frame == null)
                         break;
                     if (MinimumResponseTime > TimeSpan.Zero &&
-                        Stopwatch.GetElapsedTime(pending.SentTimestamp) < MinimumResponseTime)
+                        TimeProvider.GetElapsedTime(pending.SentTimestamp) < MinimumResponseTime)
                     {
                         LogWarning("Discarding frame that arrived faster than {MinimumResponseTime} for {Context}",
                             MinimumResponseTime, pending.Context);

@@ -10,6 +10,8 @@ public class AvCodersMqttClient : MqttClient
 {
     private static readonly TimeSpan ReconnectInterval = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
+    private static readonly MqttClientConnectResultCode[] CredentialsRejections =
+        [MqttClientConnectResultCode.BadUserNameOrPassword, MqttClientConnectResultCode.NotAuthorized];
     private readonly MqttClientOptions _mqttClientOptions;
     private readonly IMqttClient _mqttClient;
     private readonly ThreadWorker _connectionWorker;
@@ -23,7 +25,12 @@ public class AvCodersMqttClient : MqttClient
     /// is invalid in MQTT and is ignored.
     /// </summary>
     public AvCodersMqttClient(string host, ushort port, string? username, string? password, string name):
-        base(host, port, name)
+        this(host, port, username, password, name, null)
+    {
+    }
+
+    internal AvCodersMqttClient(string host, ushort port, string? username, string? password, string name, TimeProvider? timeProvider):
+        base(host, port, name, timeProvider ?? TimeProvider.System)
     {
         var optionsBuilder = new MqttClientOptionsBuilder()
             .WithTcpServer(Host, Port);
@@ -34,7 +41,7 @@ public class AvCodersMqttClient : MqttClient
         _mqttClient.ConnectedAsync += RegisterDevicesToMqttServer;
         _mqttClient.DisconnectedAsync += HandleMqttDisconnection;
         _mqttClient.ApplicationMessageReceivedAsync += HandleMqttMessage;
-        _connectionWorker = new ThreadWorker(ConnectToBroker, ReconnectInterval);
+        _connectionWorker = new ThreadWorker(ConnectToBroker, ReconnectInterval, false, TimeProvider);
         _connectionWorker.Restart();
     }
 
@@ -46,30 +53,33 @@ public class AvCodersMqttClient : MqttClient
             return;
         }
         ConnectionState = ConnectionState.Connecting;
-        using var timeout = new CancellationTokenSource(ConnectTimeout);
+        using var timeout = new CancellationTokenSource(ConnectTimeout, TimeProvider);
         try
         {
             var result = await _mqttClient.ConnectAsync(_mqttClientOptions, timeout.Token);
             if (result.ResultCode == MqttClientConnectResultCode.Success)
                 return;
-            ReportConnectionFailure($"{Host}:{Port} rejected the connection: {result.ResultCode}");
+            ReportConnectionFailure(CategoryOf(result.ResultCode), $"{Host}:{Port} rejected the connection: {result.ResultCode}");
             ConnectionState = ConnectionState.Disconnected;
         }
         catch (Exception e) when (timeout.IsCancellationRequested)
         {
             using (PushProperties())
                 LogException(e, $"MQTT connection attempt did not complete within {ConnectTimeout.TotalSeconds} s");
-            ReportConnectionFailure($"The connection attempt to {Host}:{Port} timed out");
+            ReportConnectionFailure(ConnectionReasonCategory.TimedOut, $"The connection attempt to {Host}:{Port} timed out", e);
             ConnectionState = ConnectionState.Disconnected;
         }
         catch (Exception e)
         {
             using (PushProperties())
                 LogException(e, "MQTT connection attempt failed");
-            ReportConnectionFailure(DescribeConnectionError(e));
+            ReportConnectionFailure(e);
             ConnectionState = ConnectionState.Disconnected;
         }
     }
+
+    private static ConnectionReasonCategory CategoryOf(MqttClientConnectResultCode resultCode) =>
+        CredentialsRejections.Contains(resultCode) ? ConnectionReasonCategory.CredentialsRejected : ConnectionReasonCategory.Other;
 
     private Task HandleMqttMessage(MqttApplicationMessageReceivedEventArgs arg)
     {
@@ -134,7 +144,6 @@ public class AvCodersMqttClient : MqttClient
 
     private Task RegisterDevicesToMqttServer(MqttClientConnectedEventArgs arg)
     {
-        ConnectionState = ConnectionState.Connected;
         List<string> topics;
         lock (_handlersLock)
         {
@@ -142,6 +151,7 @@ public class AvCodersMqttClient : MqttClient
         }
         foreach (var topic in topics)
             _ = Subscribe(topic);
+        ConnectionState = ConnectionState.Connected;
         return Task.CompletedTask;
     }
 

@@ -6,19 +6,21 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using AVCoders.Core.Tests;
 
 namespace AVCoders.CommunicationClients.Tests;
 
 public class AvCodersRestClientTest : IDisposable
 {
+    private const int PortAttempts = 10;
+    private static readonly TimeSpan ClientTimeout = TimeSpan.FromMilliseconds(200);
+    private static readonly X509Certificate2 ServerCertificate = CreateServerCertificate();
+    private static readonly X509Certificate2 OtherCertificate = CreateSelfSignedCertificate("Other");
     private readonly HttpListener _listener;
     private readonly ushort _port;
 
     public AvCodersRestClientTest()
     {
-        // HttpListener cannot bind port 0, so probe for a free one.
-        for (var attempt = 0; attempt < 10; attempt++)
+        for (var attempt = 0; attempt < PortAttempts; attempt++)
         {
             var port = TestNetwork.GetFreePort();
             var listener = new HttpListener();
@@ -32,7 +34,6 @@ public class AvCodersRestClientTest : IDisposable
             }
             catch (HttpListenerException)
             {
-                // port was taken between probe and bind - try another
             }
         }
 
@@ -44,7 +45,7 @@ public class AvCodersRestClientTest : IDisposable
 
     public void Dispose()
     {
-        try { _listener.Close(); } catch { /* test teardown */ }
+        try { _listener.Close(); } catch { }
     }
 
     private sealed record CapturedRequest(string Method, string Body, NameValueCollectionSnapshot Headers);
@@ -54,13 +55,10 @@ public class AvCodersRestClientTest : IDisposable
         public string? Get(string key) => values.GetValueOrDefault(key);
     }
 
-    /// <summary>Serves exactly one request, capturing it and replying with the given status/body.</summary>
     private async Task<CapturedRequest> ServeOneAsync(int statusCode = 200, string responseBody = "",
-        TimeSpan? delayBeforeResponding = null)
+        Task? respondAfter = null)
     {
         var context = await _listener.GetContextAsync();
-        // Capture everything before Response.Close() - on Windows (http.sys) closing the
-        // response disposes the request, and reading it afterwards throws.
         string method = context.Request.HttpMethod;
         string body;
         using (var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding))
@@ -73,8 +71,8 @@ public class AvCodersRestClientTest : IDisposable
                 headers[key] = context.Request.Headers[key]!;
         }
 
-        if (delayBeforeResponding != null)
-            await Task.Delay(delayBeforeResponding.Value);
+        if (respondAfter != null)
+            await respondAfter;
 
         context.Response.StatusCode = statusCode;
         var responseBytes = Encoding.UTF8.GetBytes(responseBody);
@@ -88,7 +86,6 @@ public class AvCodersRestClientTest : IDisposable
     [Fact]
     public async Task SendBytes_PostsTheUtf8DecodedPayload()
     {
-        // Regression test: Send(byte[]) used to post the literal string "System.Byte[]".
         var serve = ServeOneAsync();
         var client = CreateClient();
 
@@ -126,7 +123,7 @@ public class AvCodersRestClientTest : IDisposable
         await client.Get();
         await serve;
 
-        await TestNetwork.WaitUntilAsync(() => response != null, 10, "response handler never invoked");
+        await Wait.UntilAsync(() => response != null, "response handler never invoked");
         Assert.Equal("device status ok", response);
         Assert.NotNull(httpResponse);
         Assert.Equal(ConnectionState.Connected, client.ConnectionState);
@@ -145,7 +142,7 @@ public class AvCodersRestClientTest : IDisposable
         await client.Get();
         await serve;
 
-        await TestNetwork.WaitUntilAsync(() => httpResponse != null, 10, "HTTP response handler never invoked");
+        await Wait.UntilAsync(() => httpResponse != null, "HTTP response handler never invoked");
         Assert.Equal(HttpStatusCode.InternalServerError, httpResponse!.StatusCode);
         Assert.Null(response);
     }
@@ -186,13 +183,111 @@ public class AvCodersRestClientTest : IDisposable
     [Fact]
     public async Task RequestTimeout_SetsErrorState()
     {
-        var serve = ServeOneAsync(delayBeforeResponding: TimeSpan.FromSeconds(5));
-        var client = CreateClient(timeout: TimeSpan.FromMilliseconds(500));
+        var gaveUp = new TaskCompletionSource();
+        var serve = ServeOneAsync(respondAfter: gaveUp.Task);
+        var client = CreateClient(timeout: ClientTimeout);
 
         await client.Get();
+        gaveUp.SetResult();
 
         Assert.Equal(ConnectionState.Error, client.ConnectionState);
-        await serve; // let the listener finish so teardown is clean
+        await serve;
+    }
+
+    [Theory]
+    [InlineData(401, "Unauthorized")]
+    [InlineData(403, "Forbidden")]
+    public async Task RejectedCredentials_AreCredentialsRejected_AndRaiseTheConnectionIssue(int status, string reasonPhrase)
+    {
+        var client = CreateClient();
+
+        var serve = ServeOneAsync(statusCode: status);
+        await client.Get(new Uri("/api/login", UriKind.Relative));
+        await serve;
+
+        var reason = client.ConnectionReason!;
+        Assert.Equal(ConnectionReasonCategory.CredentialsRejected, reason.Category);
+        Assert.Equal($"127.0.0.1:{_port} rejected the credentials for /api/login: {status} {reasonPhrase}", reason.Description);
+        Assert.Null(reason.RawException);
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+        var issue = Assert.Single(client.GetIssues());
+        Assert.Equal(CommunicationClient.ConnectionIssueKey, issue.Key);
+        Assert.Equal(reason.Description, issue.Message);
+    }
+
+    [Fact]
+    public async Task RejectedCredentials_EscalateLikeAnyOtherConnectionFailure()
+    {
+        var client = CreateClient();
+        client.ConnectionIssueThreshold = TimeSpan.Zero;
+
+        var serve = ServeOneAsync(statusCode: 401);
+        await client.Get();
+        await serve;
+
+        var ongoing = Assert.Single(client.GetOngoingIssues());
+        Assert.Equal(IssueSeverity.Critical, ongoing.Severity);
+        Assert.EndsWith($"127.0.0.1:{_port} rejected the credentials for /: 401 Unauthorized", ongoing.Message);
+    }
+
+    [Fact]
+    public async Task ASuccessfulRequestAfterRejectedCredentials_ClearsTheReasonAndResolvesTheIssue()
+    {
+        var client = CreateClient();
+        client.ConnectionIssueThreshold = TimeSpan.Zero;
+        var serve = ServeOneAsync(statusCode: 401);
+        await client.Get();
+        await serve;
+
+        serve = ServeOneAsync();
+        await client.Get();
+        await serve;
+
+        Assert.Null(client.ConnectionReason);
+        Assert.Empty(client.GetOngoingIssues());
+        Assert.Contains(client.GetIssues(), issue => issue.Key == CommunicationClient.ConnectionIssueKey && issue.Status == IssueStatus.Resolved);
+    }
+
+    [Fact]
+    public async Task AServerErrorAfterRejectedCredentials_KeepsTheReason()
+    {
+        var client = CreateClient();
+        var serve = ServeOneAsync(statusCode: 401);
+        await client.Get();
+        await serve;
+
+        serve = ServeOneAsync(statusCode: 500);
+        await client.Get();
+        await serve;
+
+        Assert.Equal(ConnectionReasonCategory.CredentialsRejected, client.ConnectionReason!.Category);
+    }
+
+    [Fact]
+    public async Task AFailedRequest_SetsTheReasonFromItsException()
+    {
+        var client = await GetOverTls(ServerCertificate, false, null);
+
+        var reason = client.ConnectionReason!;
+        Assert.Equal(ConnectionReasonCategory.Other, reason.Category);
+        Assert.StartsWith($"The request to 127.0.0.1:{client.Port} failed: ", reason.Description);
+        Assert.StartsWith("System.Net.Http.HttpRequestException: ", reason.RawException);
+        Assert.Contains("System.Security.Authentication.AuthenticationException: ", reason.RawException);
+    }
+
+    [Fact]
+    public async Task ARequestTimeout_IsTimedOut()
+    {
+        var gaveUp = new TaskCompletionSource();
+        var serve = ServeOneAsync(respondAfter: gaveUp.Task);
+        var client = CreateClient(timeout: ClientTimeout);
+
+        await client.Get();
+        gaveUp.SetResult();
+
+        Assert.Equal(ConnectionReasonCategory.TimedOut, client.ConnectionReason!.Category);
+        Assert.Equal($"The GET request to 127.0.0.1:{_port} timed out", client.ConnectionReason.Description);
+        await serve;
     }
 
     private static X509Certificate2 CreateSelfSignedCertificate(string commonName = "RestClientTest")
@@ -254,9 +349,7 @@ public class AvCodersRestClientTest : IDisposable
     [Fact]
     public async Task Get_OverHttpsToASelfSignedDevice_SucceedsByDefault()
     {
-        using var certificate = CreateServerCertificate();
-
-        var client = await GetOverTls(certificate, true, null);
+        var client = await GetOverTls(ServerCertificate, true, null);
 
         Assert.Equal(ConnectionState.Connected, client.ConnectionState);
     }
@@ -264,9 +357,7 @@ public class AvCodersRestClientTest : IDisposable
     [Fact]
     public async Task Get_OverHttpsToASelfSignedDevice_FailsInStrictMode()
     {
-        using var certificate = CreateServerCertificate();
-
-        var client = await GetOverTls(certificate, false, null);
+        var client = await GetOverTls(ServerCertificate, false, null);
 
         Assert.Equal(ConnectionState.Error, client.ConnectionState);
     }
@@ -274,9 +365,7 @@ public class AvCodersRestClientTest : IDisposable
     [Fact]
     public async Task Get_OverHttpsToThePinnedCertificate_Succeeds()
     {
-        using var certificate = CreateServerCertificate();
-
-        var client = await GetOverTls(certificate, true, certificate.Thumbprint);
+        var client = await GetOverTls(ServerCertificate, true, ServerCertificate.Thumbprint);
 
         Assert.Equal(ConnectionState.Connected, client.ConnectionState);
     }
@@ -284,10 +373,7 @@ public class AvCodersRestClientTest : IDisposable
     [Fact]
     public async Task Get_OverHttpsToADifferentCertificateThanThePinnedOne_Fails()
     {
-        using var certificate = CreateServerCertificate();
-        using var pinned = CreateSelfSignedCertificate("Pinned");
-
-        var client = await GetOverTls(certificate, true, pinned.Thumbprint);
+        var client = await GetOverTls(ServerCertificate, true, OtherCertificate.Thumbprint);
 
         Assert.Equal(ConnectionState.Error, client.ConnectionState);
     }
@@ -301,31 +387,19 @@ public class AvCodersRestClientTest : IDisposable
     }
 
     [Fact]
-    public void CertificateValidation_AcceptsUntrustedCertificates_ByDefault()
+    public void CertificateValidation_InStrictMode_AcceptsAValidChain()
     {
-        using var certificate = CreateSelfSignedCertificate();
-        var client = CreateClient();
-
-        Assert.True(Validate(client, certificate, SslPolicyErrors.RemoteCertificateChainErrors));
-    }
-
-    [Fact]
-    public void CertificateValidation_RejectsUntrustedCertificates_InStrictMode()
-    {
-        using var certificate = CreateSelfSignedCertificate();
         var client = new AvCodersRestClient("127.0.0.1", _port, "https", "StrictClient",
             allowUntrustedCertificates: false);
 
-        Assert.False(Validate(client, certificate, SslPolicyErrors.RemoteCertificateChainErrors));
-        Assert.True(Validate(client, certificate, SslPolicyErrors.None));
+        Assert.True(Validate(client, ServerCertificate, SslPolicyErrors.None));
     }
 
     [Fact]
     public void CertificateValidation_WithAPinnedThumbprint_AcceptsOnlyTheMatchingCertificate()
     {
-        using var pinned = CreateSelfSignedCertificate("PinnedDevice");
-        using var imposter = CreateSelfSignedCertificate("Imposter");
-        // Deliberately messy formatting - the thumbprint should be normalised.
+        var pinned = ServerCertificate;
+        var imposter = OtherCertificate;
         var thumbprint = string.Join(":", pinned.Thumbprint.ToLowerInvariant().Chunk(2).Select(c => new string(c)));
         var client = new AvCodersRestClient("127.0.0.1", _port, "https", "PinnedClient",
             pinnedCertificateThumbprint: thumbprint);

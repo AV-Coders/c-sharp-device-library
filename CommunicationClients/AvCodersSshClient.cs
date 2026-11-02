@@ -1,8 +1,9 @@
-﻿using System.Diagnostics;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text;
+using System.Threading.Channels;
 using Renci.SshNet;
 using Renci.SshNet.Common;
+using Renci.SshNet.Messages.Transport;
 using SshClient = Renci.SshNet.SshClient;
 using SshClientBase = AVCoders.Core.SshClient;
 
@@ -11,14 +12,22 @@ namespace AVCoders.CommunicationClients;
 public class AvCodersSshClient : SshClientBase
 {
     private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan ReceivePollInterval = TimeSpan.FromMilliseconds(10);
     private static readonly TimeSpan ShortSession = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan FailureWait = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan RejectedCredentialsWait = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan NoSessionReceiveWait = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ConnectionCheckInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SessionSettleTime = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan StreamSettleTime = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan NoSessionSendWait = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SendQueueInterval = TimeSpan.FromMilliseconds(500);
     private readonly string _username;
     private readonly string _password;
     private readonly LinkedList<QueuedPayload<(string Text, byte[]? Bytes)>> _sendQueue = new();
     private readonly object _sessionLock = new();
+    private readonly object _writeLock = new();
+    private readonly Channel<bool> _streamChanged = Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
     private SshClient _client;
     
@@ -28,7 +37,12 @@ public class AvCodersSshClient : SshClientBase
     private int _consecutiveShortSessions;
 
     public AvCodersSshClient(string host, ushort port, string username, string password, string name = "", CommandStringFormat commandStringFormat = CommandStringFormat.Ascii)
-        : base(host, port, name, commandStringFormat)
+        : this(host, port, username, password, name, commandStringFormat, null)
+    {
+    }
+
+    internal AvCodersSshClient(string host, ushort port, string username, string password, string name, CommandStringFormat commandStringFormat, TimeProvider? timeProvider)
+        : base(host, port, name, commandStringFormat, timeProvider ?? TimeProvider.System)
     {
         ConnectionState = ConnectionState.Unknown;
         _username = username;
@@ -37,7 +51,8 @@ public class AvCodersSshClient : SshClientBase
         _client = new SshClient(CreateConnectionInfo());
         
         _modes = new Dictionary<TerminalModes, uint> { {TerminalModes.ECHO, 0} };
-        
+
+        DesiredConnectionState = ConnectionState.Connected;
         ConnectionStateWorker.Restart();
         ReceiveThreadWorker.Restart();
         SendQueueWorker.Restart();
@@ -81,18 +96,18 @@ public class AvCodersSshClient : SshClientBase
                         }
                         else
                         {
-                            await Task.Delay(ReceivePollInterval, token);
+                            await _streamChanged.Reader.ReadAsync(token);
                         }
                     }
                     else
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(5), token);
+                        await Task.Delay(NoSessionReceiveWait, TimeProvider, token);
                     }
                 }
                 catch (Exception e) when (e is ObjectDisposedException)
                 {
                     LogWarning("Stream or client was disposed, waiting for reconnection");
-                    await Task.Delay(TimeSpan.FromSeconds(5), token);
+                    await Task.Delay(NoSessionReceiveWait, TimeProvider, token);
                 }
             }
         }
@@ -109,7 +124,7 @@ public class AvCodersSshClient : SshClientBase
                 _stream = null;
                 if (stream != null)
                 {
-                    stream.ErrorOccurred -= ClientOnErrorOccurred;
+                    Unsubscribe(stream);
                     await stream.DisposeAsync();
                 }
                 await BackOffAfterShortSessions(token);
@@ -120,7 +135,7 @@ public class AvCodersSshClient : SshClientBase
                     _client = new SshClient(CreateConnectionInfo());
                 
                     await _client.ConnectAsync(token);
-                    await Task.Delay(TimeSpan.FromSeconds(1), token);
+                    await Task.Delay(SessionSettleTime, TimeProvider, token);
                     await CreateStream(token);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -133,9 +148,9 @@ public class AvCodersSshClient : SshClientBase
                 catch (Exception e)
                 {
                     LogException(e);
-                    ReportConnectionFailure(DescribeSshConnectionError(e));
+                    ReportConnectionFailure(e);
                     ConnectionState = ConnectionState.Disconnected;
-                    await Task.Delay(RetryWaitAfter(e), token);
+                    await Task.Delay(RetryWaitAfter(e), TimeProvider, token);
                 }
             }
             else if (IsClientConnected() && _stream == null)
@@ -160,7 +175,7 @@ public class AvCodersSshClient : SshClientBase
                 }
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(5), token);
+            await Task.Delay(ConnectionCheckInterval, TimeProvider, token);
         }
     }
 
@@ -169,7 +184,7 @@ public class AvCodersSshClient : SshClientBase
         var stream = _stream;
         if (!IsClientConnected() || stream is not { CanWrite: true } || ConnectionState == ConnectionState.Error)
         {
-            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            await Task.Delay(NoSessionSendWait, TimeProvider, token);
             return;
         }
 
@@ -178,7 +193,7 @@ public class AvCodersSshClient : SshClientBase
             using (Trigger.Resume(item.TriggerId))
             using (PushProperties("ProcessSendQueue"))
             {
-                var age = (DateTimeOffset.UtcNow - item.Timestamp).TotalSeconds;
+                var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
                 if (age >= QueueTimeout)
                 {
                     LogWarning(
@@ -195,7 +210,7 @@ public class AvCodersSshClient : SshClientBase
                 {
                     LogWarning("Writing the queued message failed, it stays first in the queue: {ExceptionMessage}", e.Message);
                     lock (_sendQueue)
-                        _sendQueue.AddFirst(item with { Timestamp = DateTimeOffset.UtcNow });
+                        _sendQueue.AddFirst(item with { Timestamp = TimeProvider.GetUtcNow() });
                     ConnectionState = ConnectionState.Error;
                     break;
                 }
@@ -205,7 +220,7 @@ public class AvCodersSshClient : SshClientBase
             }
         }
 
-        await Task.Delay(TimeSpan.FromMilliseconds(500), token);
+        await Task.Delay(SendQueueInterval, TimeProvider, token);
     }
 
     private async Task<ShellStream> CreateStream(CancellationToken token)
@@ -215,24 +230,42 @@ public class AvCodersSshClient : SshClientBase
         _stream = null;
         if (oldStream != null)
         {
-            oldStream.ErrorOccurred -= ClientOnErrorOccurred;
+            Unsubscribe(oldStream);
             await oldStream.DisposeAsync();
         }
         LogDebug("Creating new shell stream");
         var stream = _client.CreateShellStream("dumb", 1000, 1000, 1500, 1000, 8191, _modes);
-        stream.ErrorOccurred += ClientOnErrorOccurred;
+        Subscribe(stream);
         _stream = stream;
-        await Task.Delay(200, token);
+        await Task.Delay(StreamSettleTime, TimeProvider, token);
         lock (_sessionLock)
         {
             token.ThrowIfCancellationRequested();
             ReceiveThreadWorker.Restart();
             ConnectionState = ConnectionState.Connected;
-            _sessionStartedAt = Stopwatch.GetTimestamp();
+            _sessionStartedAt = TimeProvider.GetTimestamp();
         }
         LogInformation("Shell stream created successfully");
         return stream;
     }
+
+    private void Subscribe(ShellStream stream)
+    {
+        stream.ErrorOccurred += ClientOnErrorOccurred;
+        stream.DataReceived += StreamOnDataReceived;
+        stream.Closed += StreamOnClosed;
+    }
+
+    private void Unsubscribe(ShellStream stream)
+    {
+        stream.ErrorOccurred -= ClientOnErrorOccurred;
+        stream.DataReceived -= StreamOnDataReceived;
+        stream.Closed -= StreamOnClosed;
+    }
+
+    private void StreamOnDataReceived(object? sender, ShellDataEventArgs e) => _streamChanged.Writer.TryWrite(true);
+
+    private void StreamOnClosed(object? sender, EventArgs e) => _streamChanged.Writer.TryWrite(true);
 
     private async Task BackOffAfterShortSessions(CancellationToken token)
     {
@@ -240,7 +273,7 @@ public class AvCodersSshClient : SshClientBase
             return;
         _sessionStartedAt = null;
 
-        if (Stopwatch.GetElapsedTime(startedAt) >= ShortSession)
+        if (TimeProvider.GetElapsedTime(startedAt) >= ShortSession)
         {
             _consecutiveShortSessions = 0;
             return;
@@ -253,16 +286,19 @@ public class AvCodersSshClient : SshClientBase
         var delay = TimeSpan.FromSeconds(Math.Min(60, 5 << Math.Min(_consecutiveShortSessions - 2, 4)));
         LogWarning("The SSH session has dropped within {ShortSession} of connecting {Count} times in a row, waiting {Delay} before reconnecting",
             ShortSession, _consecutiveShortSessions, delay);
-        await Task.Delay(delay, token);
+        await Task.Delay(delay, TimeProvider, token);
     }
 
-    private string DescribeSshConnectionError(Exception e) => e switch
+    protected override (ConnectionReasonCategory Category, string Description) ExplainConnectionError(Exception e) => e switch
     {
-        SshAuthenticationException => $"SSH authentication to {Host} was rejected for user {_username}; the next attempt is in {RejectedCredentialsWait.TotalMinutes} minutes",
-        SshOperationTimeoutException => $"The SSH connection to {Host}:{Port} timed out",
-        SshConnectionException { InnerException: SocketException inner } => DescribeConnectionError(inner),
-        SshConnectionException s => $"The SSH connection to {Host}:{Port} failed: {s.Message}",
-        _ => DescribeConnectionError(e)
+        SshAuthenticationException => (ConnectionReasonCategory.CredentialsRejected,
+            $"SSH authentication to {Host} was rejected for user {_username}; the next attempt is in {RejectedCredentialsWait.TotalMinutes} minutes"),
+        SshOperationTimeoutException => (ConnectionReasonCategory.TimedOut, $"The SSH connection to {Host}:{Port} timed out"),
+        SshConnectionException { InnerException: SocketException inner } => base.ExplainConnectionError(inner),
+        SshConnectionException { DisconnectReason: DisconnectReason.ConnectionLost } s =>
+            (ConnectionReasonCategory.ClosedByDevice, $"The SSH connection to {Host}:{Port} failed: {s.Message}"),
+        SshConnectionException s => (ConnectionReasonCategory.Other, $"The SSH connection to {Host}:{Port} failed: {s.Message}"),
+        _ => base.ExplainConnectionError(e)
     };
 
     private static TimeSpan RetryWaitAfter(Exception e) =>
@@ -282,6 +318,8 @@ public class AvCodersSshClient : SshClientBase
         using (PushProperties("ClientOnErrorOccurred"))
         {
             LogException(e.Exception, "SSH.Net has logged an error");
+            var (category, description) = ExplainConnectionError(e.Exception);
+            SetConnectionReason(category, description, e.Exception);
             ConnectionState = ConnectionState.Error;
         }
     }
@@ -334,15 +372,18 @@ public class AvCodersSshClient : SshClientBase
         }
     }
 
-    private static void Write(ShellStream stream, string message, byte[]? bytes)
+    private void Write(ShellStream stream, string message, byte[]? bytes)
     {
-        if (bytes == null)
+        lock (_writeLock)
         {
-            stream.Write(message);
-            return;
+            if (bytes == null)
+            {
+                stream.Write(message);
+                return;
+            }
+            stream.Write(bytes);
+            stream.Flush();
         }
-        stream.Write(bytes);
-        stream.Flush();
     }
 
     private bool IsClientConnected()
@@ -379,7 +420,7 @@ public class AvCodersSshClient : SshClientBase
                 using (PushProperties("EnqueueWithCap"))
                     LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
             }
-            _sendQueue.AddLast(new QueuedPayload<(string Text, byte[]? Bytes)>(DateTimeOffset.UtcNow, (message, bytes), Trigger.Id));
+            _sendQueue.AddLast(new QueuedPayload<(string Text, byte[]? Bytes)>(TimeProvider.GetUtcNow(), (message, bytes), Trigger.Id));
         }
     }
 
@@ -416,7 +457,7 @@ public class AvCodersSshClient : SshClientBase
             _stream = null;
             if (oldStream != null)
             {
-                oldStream.ErrorOccurred -= ClientOnErrorOccurred;
+                Unsubscribe(oldStream);
                 oldStream.Dispose();
             }
 
@@ -458,7 +499,7 @@ public class AvCodersSshClient : SshClientBase
         _stream = null;
         if (stream != null)
         {
-            stream.ErrorOccurred -= ClientOnErrorOccurred;
+            Unsubscribe(stream);
             stream.Dispose();
         }
 

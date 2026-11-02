@@ -12,24 +12,26 @@ public static class HostNames
 
     private record Lookup(string? HostName, DateTimeOffset CompletedAt);
 
-    public static string? Get(IPAddress address)
+    public static string? Get(IPAddress address) => Get(address, Dns.GetHostEntryAsync);
+
+    public static string? Get(IPAddress address, Func<IPAddress, Task<IPHostEntry>> lookUp)
     {
         Lookups.TryGetValue(address, out var lookup);
         if (lookup != null && DateTimeOffset.UtcNow - lookup.CompletedAt < CacheLifetime)
             return lookup.HostName;
 
         if (LookupsInFlight.TryAdd(address, true))
-            _ = Task.Run(() => Resolve(address));
+            _ = Task.Run(() => Resolve(address, lookUp));
         return lookup?.HostName;
     }
 
-    private static async Task Resolve(IPAddress address)
+    private static async Task Resolve(IPAddress address, Func<IPAddress, Task<IPHostEntry>> lookUp)
     {
         string? hostName;
         await ResolverLock.WaitAsync();
         try
         {
-            var entry = await Dns.GetHostEntryAsync(address);
+            var entry = await lookUp(address);
             hostName = entry.HostName;
         }
         catch (Exception)

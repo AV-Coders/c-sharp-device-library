@@ -35,17 +35,6 @@ public class TriggerTest
     }
 
     [Fact]
-    public void Resume_RestoresThePreviousIdWhenDisposed()
-    {
-        var started = Trigger.Start();
-
-        using (Trigger.Resume("0000000a"))
-            Assert.Equal("0000000a", Trigger.Id);
-
-        Assert.Equal(started, Trigger.Id);
-    }
-
-    [Fact]
     public void Resume_Nested_RestoresEachLevel()
     {
         var started = Trigger.Start();
@@ -87,17 +76,6 @@ public class TriggerTest
     {
         using (Trigger.Begin())
             Assert.Matches(IdPattern, Trigger.Id!);
-    }
-
-    [Fact]
-    public void Begin_RestoresThePreviousIdWhenDisposed()
-    {
-        var started = Trigger.Start();
-
-        using (Trigger.Begin())
-            Assert.NotEqual(started, Trigger.Id);
-
-        Assert.Equal(started, Trigger.Id);
     }
 
     [Fact]

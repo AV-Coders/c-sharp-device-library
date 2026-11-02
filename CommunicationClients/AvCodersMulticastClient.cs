@@ -14,9 +14,17 @@ public class AvCodersMulticastClient : IMulticastClient
     private readonly int _ttl;
     private int _bindBackoffMs = InitialBindBackoffMs;
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan UnboundReceiveWait = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan ReceiveFailureWait = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan BoundCheckInterval = TimeSpan.FromSeconds(30);
 
     public AvCodersMulticastClient(string ipAddress, ushort port, string name, int ttl = 1, CommandStringFormat commandStringFormat = CommandStringFormat.Ascii)
-        : base(ipAddress, port, name, commandStringFormat)
+        : this(ipAddress, port, name, ttl, commandStringFormat, null)
+    {
+    }
+
+    internal AvCodersMulticastClient(string ipAddress, ushort port, string name, int ttl, CommandStringFormat commandStringFormat, TimeProvider? timeProvider)
+        : base(ipAddress, port, name, commandStringFormat, timeProvider ?? TimeProvider.System)
     {
         using (PushProperties("Constructor"))
         {
@@ -72,7 +80,7 @@ public class AvCodersMulticastClient : IMulticastClient
             catch (Exception e)
             {
                 LogException(e, $"Failed to bind multicast client on port {Port}");
-                ReportConnectionFailure(DescribeConnectionError(e));
+                ReportConnectionFailure(e);
                 try
                 {
                     client.Dispose();
@@ -100,7 +108,7 @@ public class AvCodersMulticastClient : IMulticastClient
             if (client == null)
             {
                 // The ConnectionStateWorker is responsible for (re)binding the socket
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                await Task.Delay(UnboundReceiveWait, TimeProvider, token);
                 return;
             }
 
@@ -127,7 +135,7 @@ public class AvCodersMulticastClient : IMulticastClient
             catch (Exception e)
             {
                 LogException(e);
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                await Task.Delay(ReceiveFailureWait, TimeProvider, token);
             }
         }
     }
@@ -135,7 +143,7 @@ public class AvCodersMulticastClient : IMulticastClient
     private async Task HandleDeadSocket(Exception e, CancellationToken token)
     {
         LogException(e, "Multicast socket failed, it will be rebound");
-        ReportConnectionFailure(DescribeConnectionError(e));
+        ReportConnectionFailure(e);
         ConnectionState = ConnectionState.Error;
         lock (_clientLock)
         {
@@ -162,7 +170,7 @@ public class AvCodersMulticastClient : IMulticastClient
         var jitter = Random.Shared.Next(-200, 200);
         var delay = Math.Min(_bindBackoffMs + jitter, (int)MaxBackoff.TotalMilliseconds);
         _bindBackoffMs = Math.Min(_bindBackoffMs * 2, (int)MaxBackoff.TotalMilliseconds);
-        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), token);
+        await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(500, delay)), TimeProvider, token);
     }
 
     public override void Send(string message) => Send(Bytes.FromString(message), message);
@@ -216,7 +224,7 @@ public class AvCodersMulticastClient : IMulticastClient
 
             if (bound)
             {
-                await Task.Delay(TimeSpan.FromSeconds(30), token);
+                await Task.Delay(BoundCheckInterval, TimeProvider, token);
                 _bindBackoffMs = InitialBindBackoffMs;
                 return;
             }

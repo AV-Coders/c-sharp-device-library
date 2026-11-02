@@ -16,6 +16,11 @@
     </ItemGroup>
 
     <ItemGroup>
+      <InternalsVisibleTo Include="AVCoders.CommunicationClients.Tests" />
+      <InternalsVisibleTo Include="DynamicProxyGenAssembly2" />
+    </ItemGroup>
+
+    <ItemGroup>
       <PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.7" />
       <PackageReference Include="SSH.NET" Version="2026.0.0" />
     </ItemGroup>
