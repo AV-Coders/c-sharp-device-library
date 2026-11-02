@@ -110,7 +110,8 @@ list-rebuild).
 
 ## Connection-failure reporting (`Core\CommunicationClient.cs`)
 
-- `protected ReportConnectionFailure(reason)` — momentary issue under key `"connection"`
+- `protected ReportConnectionFailure(exception)`, `ReportConnectionFailure(category, reason, exception)`
+  and `ReportConnectionFailure(reason)` (category `Other`) — momentary issue under key `"connection"`
   (const `ConnectionIssueKey`); once failures have persisted for
   `ConnectionIssueThreshold` (public, default 2 min), raises a **Critical Ongoing** issue
   ("Unable to connect since HH:mm:ss. {reason}"). The `ConnectionState` setter auto-resolves
@@ -119,9 +120,21 @@ list-rebuild).
 - `protected ClearConnectionFailures()` — resets the failure clock and resolves the
   `"connection"` issue. Called by the Connected transition and by `Disconnect()`, so a later
   `Connect()` starts a fresh clock instead of escalating to Critical on its first failure.
-- `public DesiredConnectionState` — in memory only, `Unknown` until something calls
-  `Connect()` (Connected) or `Disconnect()` (Disconnected) on AvCodersTcpClient,
-  AvCodersSshClient or AvCodersUdpClient. Drivers, Blazor and MCP all use the same methods.
+  It also clears `ConnectionReason` (to `Requested` while disconnected on request).
+- `public ConnectionReason? ConnectionReason` (`Core\ConnectionReason.cs`) — why the client
+  isn't connected, beside the unchanged `ConnectionState`: `Category`
+  (`ConnectionReasonCategory`: TimedOut, Refused, HostNotFound, Unreachable,
+  CredentialsRejected, ClosedByDevice, Requested, Other), `Description` (the issue text),
+  `RawException` (type and message, inner exceptions after ` ---> `) and `Since` (first seen
+  for that category). Set by every `ReportConnectionFailure`, null after a connect,
+  `Requested` while `DesiredConnectionState` is Disconnected. `ConnectionReasonHandlers`
+  fires on each change (null when cleared). `protected SetConnectionReason(...)` sets it
+  without an issue (SSH session errors after connecting); `MirrorConnectionReason` copies a
+  transport's reason (AvCodersModbusRtuClient).
+- `public DesiredConnectionState` — in memory only. AvCodersTcpClient, AvCodersSshClient and
+  AvCodersUdpClient set it to Connected in their constructors (where they start connecting);
+  `Connect()` (Connected) and `Disconnect()` (Disconnected) change it. Drivers, Blazor and
+  MCP all use the same methods. Every library read compares it only against Disconnected.
   AvCodersModbusRtuClient mirrors its transport's value. AvCodersTcpServer and
   AvCodersMulticastClient never set it.
 - **Disconnected on request** (`DesiredConnectionState == Disconnected`) is not a failure:
@@ -139,17 +152,22 @@ list-rebuild).
   (Error on a dropped link) and BiampTtp (Unknown) set `NotAttempted` instead while
   disconnected on request. NavDeviceBase skips its poll while the Navigator's SSH client is
   disconnected on request, so the tunnels report no failures.
-- `protected DescribeConnectionError(Exception)` — human-readable reasons: SocketException
-  codes (timed out / host not found / refused / unreachable / reset), HttpRequestException
-  (unwraps inner SocketException), OperationCanceledException → "connection attempt timed
-  out", fallback to `e.Message`.
+- `protected virtual ExplainConnectionError(Exception)` → `(Category, Description)` and
+  `protected DescribeConnectionError(Exception)` (the description only) — SocketException
+  codes (timed out / host not found / refused / unreachable / reset → ClosedByDevice),
+  HttpRequestException (unwraps inner SocketException), OperationCanceledException →
+  "connection attempt timed out" (TimedOut), fallback to `e.Message` (Other). SSH and SNMPv3
+  override it for their own exceptions (rejected auth and usmStats reports →
+  CredentialsRejected).
 - **Wired**: AvCodersTcpClient (connect-loop catches; shutdown cancellations excluded via
   `when (token.IsCancellationRequested)`), AvCodersSshClient (SSH-specific reasons incl.
   rejected auth), AvCodersMqttClient (initial + reconnect loop), AvCodersRestClient (per
-  request), AvCodersSnmpV3Client (Get/Set/Walk catches; SNMP ErrorStatus paths deliberately
+  request; a 401 or 403 also reports, as CredentialsRejected), AvCodersSnmpV3Client (Get/Set/Walk catches; SNMP ErrorStatus paths deliberately
   do NOT report — the device responded), NavigatorTunnel (reports in `SetConnectionState`
   when set to Disconnected/Error — NavDeviceBase calls it every failing 90 s poll cycle).
-- **Not wired (deliberate)**: UDP, multicast, Wake-on-LAN (fire-and-forget), AvCodersTcpServer (inbound).
+- Also wired: AvCodersUdpClient (socket open and ICMP port unreachable), AvCodersMulticastClient
+  (bind and dead socket), AvCodersTcpServer (bind and dead listener).
+- **Not wired (deliberate)**: Wake-on-LAN (fire-and-forget).
 - **crestron-components repo** (`C:\code\AV-Coders\crestron-components\CommunicationClients`):
   CrestronGenericDeviceCommunicationClient repurposes its ConnectionStateWorker as a 30 s
   loop reporting "{Name} is offline" while not Connected (online/offline events fire only
