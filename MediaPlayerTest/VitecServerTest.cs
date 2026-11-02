@@ -10,6 +10,7 @@ namespace AVCoders.MediaPlayer.Tests;
 public class VitecServerTest : IDisposable
 {
     private const string DeviceMac = "00:11:22:33:44:55";
+    private static readonly TimeSpan LoadTimeout = TimeSpan.FromSeconds(10);
     private const string ChannelsJson =
         """
         [
@@ -29,7 +30,6 @@ public class VitecServerTest : IDisposable
 
     public VitecServerTest()
     {
-        // HttpListener cannot bind port 0, so probe for a free one.
         for (var attempt = 0; attempt < 10; attempt++)
         {
             var port = GetFreePort();
@@ -45,7 +45,6 @@ public class VitecServerTest : IDisposable
             }
             catch (HttpListenerException)
             {
-                // port was taken between probe and bind - try another
             }
         }
 
@@ -61,7 +60,7 @@ public class VitecServerTest : IDisposable
 
     public void Dispose()
     {
-        try { _listener.Close(); } catch { /* test teardown */ }
+        try { _listener.Close(); } catch { }
     }
 
     private async Task ServeRequests()
@@ -101,47 +100,21 @@ public class VitecServerTest : IDisposable
 
     private NameValueCollection LastPostHeaders { get { lock (_postsLock) return _postHeaders[^1]; } }
 
-    private static async Task WaitUntilAsync(Func<bool> condition, string failureMessage)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, failureMessage);
-            await Task.Delay(25);
-        }
-    }
-
     private VitecServer CreateServer() => new($"127.0.0.1:{_port}", "Test server");
 
-    /// <summary>Waits for the startup channel poll to land, then tunes to the given channel.</summary>
     private async Task<VitecServer> CreateServerTunedTo(int channelNumber)
     {
         var server = CreateServer();
-        await WaitUntilAsync(() =>
-        {
-            server.SetChannel(channelNumber, DeviceMac);
-            return PostCount > 0;
-        }, "The channel list was never fetched");
-
-        // The retry loop above may have fired several posts; wait until they have all
-        // landed so the next post a test observes is its own.
-        var stableCount = PostCount;
-        var stableSince = DateTime.UtcNow;
-        while (DateTime.UtcNow - stableSince < TimeSpan.FromMilliseconds(300))
-        {
-            await Task.Delay(25);
-            if (PostCount == stableCount)
-                continue;
-            stableCount = PostCount;
-            stableSince = DateTime.UtcNow;
-        }
+        await server.ChannelListLoaded.WaitAsync(LoadTimeout);
+        server.SetChannel(channelNumber, DeviceMac);
+        await Wait.UntilAsync(() => PostCount == 1, "SetChannel never posted");
         return server;
     }
 
     [Fact]
     public async Task Server_FetchesTheChannelListOnStartup_AndSetChannelUsesIt()
     {
-        var server = await CreateServerTunedTo(2);
+        await CreateServerTunedTo(2);
 
         Assert.Contains("\"uri-2\"", LastPost);
         Assert.Contains(DeviceMac, LastPost);
@@ -151,11 +124,10 @@ public class VitecServerTest : IDisposable
     public async Task ChannelUp_MovesToTheNextChannel()
     {
         var server = await CreateServerTunedTo(1);
-        var before = PostCount;
 
         server.ChannelUp(DeviceMac);
 
-        await WaitUntilAsync(() => PostCount > before, "ChannelUp never posted");
+        await Wait.UntilAsync(() => PostCount == 2, "ChannelUp never posted");
         Assert.Contains("\"uri-2\"", LastPost);
     }
 
@@ -163,11 +135,10 @@ public class VitecServerTest : IDisposable
     public async Task ChannelUp_WrapsFromTheLastChannelToTheFirst()
     {
         var server = await CreateServerTunedTo(3);
-        var before = PostCount;
 
         server.ChannelUp(DeviceMac);
 
-        await WaitUntilAsync(() => PostCount > before, "ChannelUp never posted");
+        await Wait.UntilAsync(() => PostCount == 2, "ChannelUp never posted");
         Assert.Contains("\"uri-1\"", LastPost);
     }
 
@@ -175,11 +146,10 @@ public class VitecServerTest : IDisposable
     public async Task ChannelDown_WrapsFromTheFirstChannelToTheLast()
     {
         var server = await CreateServerTunedTo(1);
-        var before = PostCount;
 
         server.ChannelDown(DeviceMac);
 
-        await WaitUntilAsync(() => PostCount > before, "ChannelDown never posted");
+        await Wait.UntilAsync(() => PostCount == 2, "ChannelDown never posted");
         Assert.Contains("\"uri-3\"", LastPost);
     }
 
@@ -193,7 +163,7 @@ public class VitecServerTest : IDisposable
 
         server.SetChannel("uri-1", DeviceMac);
 
-        await WaitUntilAsync(() => PostCount > 0, "SetChannel never posted");
+        await Wait.UntilAsync(() => PostCount > 0, "SetChannel never posted");
         var headers = LastPostHeaders;
         Assert.All(TraceContext.Headers, header => Assert.Null(headers[header]));
     }
@@ -201,7 +171,6 @@ public class VitecServerTest : IDisposable
     [Fact]
     public void ChannelChanges_WithAnEmptyChannelList_DoNotThrow()
     {
-        // Port 1 on loopback has no listener, so the channel poll fails and the list stays empty.
         var server = new VitecServer("127.0.0.1:1", "Unreachable server");
 
         Assert.Null(Record.Exception(() => server.ChannelUp(DeviceMac)));
@@ -224,7 +193,7 @@ public class VitecServerTest : IDisposable
 
         server.SetChannel("q\"\\\n\t\u0001\u00e9\u2028/", "a\"b\\c");
 
-        await WaitUntilAsync(() => PostCount > 0, "SetChannel never posted");
+        await Wait.UntilAsync(() => PostCount > 0, "SetChannel never posted");
         Assert.Equal(
             "{\"devices\":[\"a\\\"b\\\\c\"],\"uri\":\"q\\\"\\\\\\n\\t\\u0001\u00e9\\u2028/\",\"isFullScreen\":0,\"params\":{}}",
             LastPost);
@@ -241,11 +210,7 @@ public class VitecServerTest : IDisposable
             ]
             """;
         var logs = LogCapture.Create(CreateServer, out var server);
-        await WaitUntilAsync(() =>
-        {
-            server.SetChannel(1, DeviceMac);
-            return PostCount > 0;
-        }, "The channel list was never fetched");
+        await server.ChannelListLoaded.WaitAsync(LoadTimeout);
 
         server.SetChannel(2, DeviceMac);
         server.SetChannel(3, DeviceMac);
@@ -263,7 +228,7 @@ public class VitecServerTest : IDisposable
 
         var logs = LogCapture.Create(CreateServer, out _);
 
-        await WaitUntilAsync(
+        await Wait.UntilAsync(
             () => logs.Logs.Any(log => log.Message == "The channel list request failed: 500 Internal Server Error"),
             "The failed channel list request was never logged");
     }
@@ -275,7 +240,7 @@ public class VitecServerTest : IDisposable
 
         var logs = LogCapture.Create(CreateServer, out _);
 
-        await WaitUntilAsync(
+        await Wait.UntilAsync(
             () => logs.Logs.Any(log => log.Message == "Ignoring a channel list that is not a JSON array: null"),
             "The null channel list was never logged");
     }

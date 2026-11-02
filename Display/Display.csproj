@@ -20,4 +20,8 @@
       <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     </ItemGroup>
 
+    <ItemGroup>
+      <InternalsVisibleTo Include="AVCoders.Display.Tests" />
+    </ItemGroup>
+
 </Project>

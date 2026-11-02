@@ -35,29 +35,35 @@ public abstract class Display : VolumeControl, IDevice
     protected const string InputIssueKey = "input";
     protected const string CommunicationIssueKey = "communication";
     protected const int MaxTransitionPolls = 5;
+    protected const int DefaultPollSeconds = 23;
     private const int MinVolume = 0;
     private const int MaxVolume = 100;
+    private static readonly TimeSpan PollStartDelay = TimeSpan.FromSeconds(1);
     private int _transitionPolls;
 
     protected readonly ThreadWorker PollWorker;
+    private protected readonly TimeProvider TimeProvider;
+    private readonly ITimer _pollStartTimer;
 
-    protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, CommandStringFormat commandStringFormat, int pollTime = 23)
+    protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, CommandStringFormat commandStringFormat, int pollTime = DefaultPollSeconds)
+        : this(supportedInputs, name, defaultInput, communicationClient, commandStringFormat, pollTime, null)
+    {
+    }
+
+    private protected Display(List<Input> supportedInputs, string name, Input? defaultInput, CommunicationClient communicationClient, CommandStringFormat commandStringFormat, int pollTime, TimeProvider? timeProvider)
         : base(name, VolumeType.Speaker)
     {
         SupportedInputs = supportedInputs;
         DefaultInput = defaultInput;
         CommunicationClient = communicationClient;
         CommandStringFormat = commandStringFormat;
+        TimeProvider = timeProvider ?? TimeProvider.System;
         CommunicationClient.ConnectionStateHandlers += x => AddEvent(EventType.Connection, x.ToString());
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationClient.ConnectionStateHandlers += HandleRequestedDisconnect;
         CommunicationState = CommunicationState.NotAttempted;
-        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
-        new Thread(_ =>
-        {
-            Thread.Sleep(1000);
-            RestartPolling();
-        }).Start();
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), false, TimeProvider);
+        _pollStartTimer = TimeProvider.CreateTimer(_ => RestartPolling(), null, PollStartDelay, Timeout.InfiniteTimeSpan);
     }
 
     protected abstract void HandleConnectionState(ConnectionState connectionState);

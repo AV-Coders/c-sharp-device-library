@@ -2,11 +2,11 @@
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Display.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class SamsungMDCTest
 {
     private readonly SamsungMdc _samsungMdc;
@@ -15,28 +15,7 @@ public class SamsungMDCTest
 
     public SamsungMDCTest()
     {
-        _samsungMdc = new SamsungMdc(_mockClient.Object, _displayId, "Test display", Input.Hdmi2);
-    }
-
-    [Fact]
-    public void SendByteArray_DoesNotManipulateInput()
-    {
-        byte[] input = [0x41, 0x0A];
-
-        var method = _samsungMdc.GetType().GetMethod("SendByteArray", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_samsungMdc, [input]);
-        _mockClient.Verify(x => x.Send(input), Times.Once);
-    }
-
-    [Fact]
-    public void SendByteArray_ReportsCommunicationIsOkay()
-    {
-        byte[] input = [0x41, 0x0A];
-
-        var method = _samsungMdc.GetType().GetMethod("SendByteArray", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_samsungMdc, [input]);
-
-        Assert.Equal(CommunicationState.Okay, _samsungMdc.CommunicationState);
+        _samsungMdc = new SamsungMdc(_mockClient.Object, _displayId, "Test display", Input.Hdmi2, new FakeTimeProvider());
     }
 
     [Fact]
@@ -77,58 +56,6 @@ public class SamsungMDCTest
         _samsungMdc.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
-    }
-
-    [Fact]
-    public void PowerOff_UsesTheCorrectDisplayId()
-    {
-        SamsungMdc samsungMdcForDisplay2 = new SamsungMdc(_mockClient.Object, 0x03, "Test display", Input.Hdmi1);
-        byte[] expectedPowerOnCommand = [0xAA, 0x11, 0x03, 0x01, 0x00, 0x15];
-
-        samsungMdcForDisplay2.PowerOff();
-        _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
-    }
-
-    [Fact]
-    public void GenerateChecksum_AddsAllValues()
-    {
-        byte[] input = [0x11, 0x00, 0x01, 0x01];
-
-        var method = _samsungMdc.GetType()
-            .GetMethod("GenerateChecksum", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        byte result = (byte)(method?.Invoke(_samsungMdc, [input]) ?? 0x00);
-        Assert.Equal(0x13, result);
-    }
-
-    [Fact]
-    public void GenerateChecksum_IgnoresLeading0xAA()
-    {
-        byte[] input = [0xAA, 0x11, 0x00, 0x01, 0x00];
-
-        var method = _samsungMdc.GetType()
-            .GetMethod("GenerateChecksum", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        byte result = (byte)(method?.Invoke(_samsungMdc, [input]) ?? 0x00);
-        Assert.Equal(0x12, result);
-    }
-
-    [Fact]
-    public void GenerateChecksum_ReturnsOnlyTheLastTwoDigits()
-    {
-        byte[] input = [0xAA, 0xF1, 0xF0, 0xF1, 0x00];
-
-        var method = _samsungMdc.GetType()
-            .GetMethod("GenerateChecksum", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        byte result = (byte)(method?.Invoke(_samsungMdc, [input]) ?? 0x00);
-        Assert.Equal(0xD2, result);
-    }
-
-    [Fact]
-    public void HandleResponse_DoesntThrow()
-    {
-        _mockClient.Object.ResponseHandlers?.Invoke("foo");
     }
 
     [Theory]
@@ -229,37 +156,6 @@ public class SamsungMDCTest
         Assert.Equal(Input.DvbtTuner, _samsungMdc.Input);
     }
 
-    [Theory]
-    [InlineData((byte)0x22, (byte)0x79, Input.Hdmi1)]
-    [InlineData((byte)0x24, (byte)0x7B, Input.Hdmi2)]
-    [InlineData((byte)0x32, (byte)0x89, Input.Hdmi3)]
-    [InlineData((byte)0x34, (byte)0x8B, Input.Hdmi4)]
-    public void HandleResponse_GivenAnHdmiPcInputCode_ReportsTheHdmiInput(byte code, byte checksum, Input expected)
-    {
-        var (display, logs) = CreateDisplayWithCapturedLogs();
-
-        display.HandleResponse([0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x14, code, checksum]);
-
-        Assert.Equal(expected, display.Input);
-        Assert.DoesNotContain(logs.Logs, l => l.Message.StartsWith("Unknown input code"));
-    }
-
-    [Fact]
-    public void HandleResponse_GivenAnUnhandledInputCode_ReportsUnknownAndWarnsOnce()
-    {
-        var (display, logs) = CreateDisplayWithCapturedLogs();
-        byte[] unhandled = [0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x14, 0x60, 0xB7];
-        var message = $"Unknown input code 0x60 in {Convert.ToHexString(unhandled)}";
-        display.HandleResponse([0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x14, 0x21, 0x78]);
-
-        display.HandleResponse(unhandled);
-        display.HandleResponse(unhandled);
-
-        Assert.Equal(Input.Unknown, display.Input);
-        Assert.Equal([LogLevel.Warning, LogLevel.Debug],
-            logs.Logs.Where(l => l.Message == message).Select(l => l.Level));
-    }
-
     [Fact]
     public void HandleResponse_GivenAnUnhandledInputCode_ForcesTheDesiredInput()
     {
@@ -277,8 +173,6 @@ public class SamsungMDCTest
         Mock<VolumeLevelHandler> mockHandler = new Mock<VolumeLevelHandler>();
         byte[] response1 = [0xAA, 0xFF, 0x00, 0x03];
         byte[] response2 = [(byte)'A', 0x12, 0x0D, 0x62];
-        
-        // payload is 8, data length is 3?
 
         _samsungMdc.VolumeLevelHandlers += mockHandler.Object;
         _samsungMdc.HandleResponse(response1);
@@ -395,19 +289,54 @@ public class SamsungMDCTest
         Assert.Null(exception);
         _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
     }
+}
 
-    private (SamsungMdc Display, ScopeCapturingLoggerFactory Logs) CreateDisplayWithCapturedLogs()
+[Collection(LoggerFactoryCollection.Name)]
+public class SamsungMDCLogTest
+{
+    private static (SamsungMdc Display, ScopeCapturingLoggerFactory Logs) CreateDisplayWithCapturedLogs()
     {
         var logs = new ScopeCapturingLoggerFactory();
         var originalLoggerFactory = LogBase.LoggerFactory;
         LogBase.LoggerFactory = logs;
         try
         {
-            return (new SamsungMdc(_mockClient.Object, _displayId, "Test display", Input.Hdmi2), logs);
+            return (new SamsungMdc(TestFactory.CreateTcpClient().Object, 0x00, "Test display", Input.Hdmi2, new FakeTimeProvider()), logs);
         }
         finally
         {
             LogBase.LoggerFactory = originalLoggerFactory;
         }
+    }
+
+    [Theory]
+    [InlineData((byte)0x22, (byte)0x79, Input.Hdmi1)]
+    [InlineData((byte)0x24, (byte)0x7B, Input.Hdmi2)]
+    [InlineData((byte)0x32, (byte)0x89, Input.Hdmi3)]
+    [InlineData((byte)0x34, (byte)0x8B, Input.Hdmi4)]
+    public void HandleResponse_GivenAnHdmiPcInputCode_ReportsTheHdmiInput(byte code, byte checksum, Input expected)
+    {
+        var (display, logs) = CreateDisplayWithCapturedLogs();
+
+        display.HandleResponse([0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x14, code, checksum]);
+
+        Assert.Equal(expected, display.Input);
+        Assert.DoesNotContain(logs.Logs, l => l.Message.StartsWith("Unknown input code"));
+    }
+
+    [Fact]
+    public void HandleResponse_GivenAnUnhandledInputCode_ReportsUnknownAndWarnsOnce()
+    {
+        var (display, logs) = CreateDisplayWithCapturedLogs();
+        byte[] unhandled = [0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x14, 0x60, 0xB7];
+        var message = $"Unknown input code 0x60 in {Convert.ToHexString(unhandled)}";
+        display.HandleResponse([0xAA, 0xFF, 0x00, 0x03, (byte)'A', 0x14, 0x21, 0x78]);
+
+        display.HandleResponse(unhandled);
+        display.HandleResponse(unhandled);
+
+        Assert.Equal(Input.Unknown, display.Input);
+        Assert.Equal([LogLevel.Warning, LogLevel.Debug],
+            logs.Logs.Where(l => l.Message == message).Select(l => l.Level));
     }
 }

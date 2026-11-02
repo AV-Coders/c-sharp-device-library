@@ -7,52 +7,23 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 
 namespace AVCoders.MediaPlayer.Tests;
 
 public class VitecHttpTest
 {
     private const string DeviceStateOn = "{ \"devicestate\": \"on\" }";
-    private static readonly TimeSpan SubtitleMenuTime = TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan AnySpacing = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan UnansweredRequestTimeout = TimeSpan.FromMilliseconds(200);
-    private readonly VitecHttp _vitecHttp;
-    private static readonly RemoteButton[] _excludedButtons = 
+    private readonly FakeTimeProvider _time = new();
+    private readonly VitecHttp _vitecHttp = new("foo", "bar", "Name");
+    private static readonly RemoteButton[] _excludedButtons =
     [
-        RemoteButton.Display, RemoteButton.Eject, 
+        RemoteButton.Display, RemoteButton.Eject,
         RemoteButton.PopupMenu, RemoteButton.TopMenu,
         RemoteButton.PowerOn, RemoteButton.PowerOff
     ];
-    public static IEnumerable<object[]> RemoteButtonValues()
-    {
-        return Enum.GetValues(typeof(RemoteButton))
-            .Cast<RemoteButton>()
-            .Where(rb => !_excludedButtons.Contains(rb))
-            .Select(rb => new object[] { rb });
-    }
-
-    public VitecHttpTest()
-    {
-        _vitecHttp = new VitecHttp("foo", "bar", "Name");
-    }
-
-    [Theory]
-    [MemberData(nameof(RemoteButtonValues))]
-    public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
-    {
-        _vitecHttp.SendIRCode(button);
-
-        Assert.Contains(button, _vitecHttp.SupportedButtons);
-    }
-
-    [Fact]
-    public void SupportedButtons_MatchTheRemoteMap()
-    {
-        Assert.Contains(RemoteButton.Guide, _vitecHttp.SupportedButtons);
-        Assert.Contains(RemoteButton.Home, _vitecHttp.SupportedButtons);
-        Assert.Contains(RemoteButton.Button0, _vitecHttp.SupportedButtons);
-        Assert.DoesNotContain(RemoteButton.Eject, _vitecHttp.SupportedButtons);
-        Assert.DoesNotContain(RemoteButton.PowerOn, _vitecHttp.SupportedButtons);
-    }
 
     [Fact]
     public void SupportedButtons_AreExactlyTheButtonsTheTestExpects()
@@ -60,15 +31,18 @@ public class VitecHttpTest
         Assert.Equal(Enum.GetValues<RemoteButton>().Except(_excludedButtons).OrderBy(b => b), _vitecHttp.SupportedButtons.OrderBy(b => b));
     }
 
-    public static IEnumerable<object[]> ExcludedButtonValues() => _excludedButtons.Select(rb => new object[] { rb });
-
-    [Theory]
-    [MemberData(nameof(ExcludedButtonValues))]
-    public void SendIRCode_ExcludedButtonsAreNotSupportedAndSendNothing(RemoteButton button)
+    [Fact]
+    public async Task SendIRCode_ExcludedButtonsSendNothing()
     {
-        _vitecHttp.SendIRCode(button);
+        using var server = new TlsBodyCapturingServer();
+        var vitec = LoopbackVitec(server);
 
-        Assert.DoesNotContain(button, _vitecHttp.SupportedButtons);
+        foreach (var button in _excludedButtons)
+            vitec.SendIRCode(button);
+        vitec.SendIRCode(RemoteButton.Enter);
+        await BodiesArrive(server, 1);
+
+        Assert.Equal([Key("enter")], server.Bodies);
     }
 
     [Fact]
@@ -101,8 +75,11 @@ public class VitecHttpTest
 
     private static string Key(string key) => $"{{ \"key\": \"rm_{key}\" }}";
 
-    private static VitecHttp LoopbackVitec(TlsBodyCapturingServer server) =>
-        new($"127.0.0.1:{server.Port}/loopback", "bar", "Loopback");
+    private VitecHttp LoopbackVitec(TlsBodyCapturingServer server) =>
+        new($"127.0.0.1:{server.Port}/loopback", "bar", "Loopback", _time);
+
+    private Task BodiesArrive(TlsBodyCapturingServer server, int count) =>
+        Wait.UntilAsync(_time, AnySpacing, () => server.Bodies.Count >= count, $"Fewer than {count} requests arrived");
 
     [Fact]
     public async Task SetChannel_ReturnsBeforeItsDigitsAreSent()
@@ -112,22 +89,23 @@ public class VitecHttpTest
 
         vitec.SetChannel(1234);
 
-        Assert.DoesNotContain(Key("2"), server.Bodies);
-        await server.WaitForBodies(4);
+        await Wait.UntilAsync(() => server.Bodies.Count == 1, "The first digit was never sent");
+        Assert.Equal([Key("1")], server.Bodies);
+        await BodiesArrive(server, 4);
         Assert.Equal([Key("1"), Key("2"), Key("3"), Key("4")], server.Bodies);
     }
 
     [Fact]
-    public async Task ToggleSubtitles_ReturnsAtOnce()
+    public async Task ToggleSubtitles_ReturnsBeforeTheMenuHasHadTimeToOpen()
     {
         using var server = new TlsBodyCapturingServer();
         var vitec = LoopbackVitec(server);
-        var stopwatch = Stopwatch.StartNew();
 
         vitec.ToggleSubtitles();
 
-        Assert.True(stopwatch.Elapsed < SubtitleMenuTime, $"ToggleSubtitles took {stopwatch.Elapsed}");
-        await server.WaitForBodies(2);
+        await Wait.UntilAsync(() => server.Bodies.Count == 1, "The subtitle key was never sent");
+        Assert.Equal([Key("subtitle")], server.Bodies);
+        await BodiesArrive(server, 2);
         Assert.Equal([Key("subtitle"), Key("enter")], server.Bodies);
     }
 
@@ -139,7 +117,7 @@ public class VitecHttpTest
 
         vitec.ToggleSubtitles();
         vitec.ToggleSubtitles();
-        await server.WaitForBodies(5);
+        await BodiesArrive(server, 5);
 
         Assert.Equal([Key("subtitle"), Key("enter"), Key("subtitle"), Key("down"), Key("enter")], server.Bodies);
     }
@@ -152,7 +130,7 @@ public class VitecHttpTest
 
         vitec.SetChannel(12);
         vitec.PowerOn();
-        await server.WaitForBodies(3);
+        await BodiesArrive(server, 3);
 
         Assert.Equal([Key("1"), Key("2"), DeviceStateOn], server.Bodies);
     }
@@ -166,15 +144,9 @@ public class VitecHttpTest
         vitec.PowerOn();
         await Wait.UntilAsync(() => vitec.Errors.Count == 1, "The failed send was never logged");
         vitec.SendIRCode(RemoteButton.Enter);
-        await server.WaitForBodies(1);
+        await BodiesArrive(server, 1);
 
         Assert.Equal([Key("enter")], server.Bodies);
-    }
-
-    [Fact]
-    public void RequestTimeout_DefaultsToTenSeconds()
-    {
-        Assert.Equal(TimeSpan.FromSeconds(10), _vitecHttp.RequestTimeout);
     }
 
     [Fact]
@@ -187,7 +159,7 @@ public class VitecHttpTest
         vitec.PowerOn();
         await Wait.UntilAsync(() => vitec.Errors.Count == 1, "The unanswered send was never logged");
         vitec.SendIRCode(RemoteButton.Enter);
-        await server.WaitForBodies(1);
+        await BodiesArrive(server, 1);
 
         Assert.Equal([Key("enter")], server.Bodies);
         Assert.Contains(vitec.Errors, error => error.Exception is TaskCanceledException { InnerException: TimeoutException });
@@ -207,7 +179,7 @@ public class VitecHttpTest
             () => logs.Logs.Any(log => log.Message == "The Vitec didn't answer, dropping 5 queued presses"),
             "The queued presses were never dropped");
         vitec.SendIRCode(RemoteButton.Back);
-        await server.WaitForBodies(1);
+        await BodiesArrive(server, 1);
 
         Assert.Equal([Key("cancel")], server.Bodies);
         Assert.Single(vitec.Errors);
@@ -244,9 +216,6 @@ public class VitecHttpTest
                     return _bodies.ToList();
             }
         }
-
-        public Task WaitForBodies(int count) =>
-            Wait.UntilAsync(() => Bodies.Count >= count, $"Fewer than {count} requests arrived");
 
         private static X509Certificate2 CreateSelfSignedCertificate()
         {

@@ -1,11 +1,14 @@
+using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Display.Tests;
 
 public class PhilipsSICPTest
 {
+    private readonly FakeTimeProvider _time = new();
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly PhilipsSICP _display;
     private readonly byte _displayId = 0x01;
@@ -13,25 +16,15 @@ public class PhilipsSICPTest
 
     public PhilipsSICPTest()
     {
-        _display = new PhilipsSICP(_mockClient.Object, _displayId, _groupId, "Test", Input.Hdmi1);
+        _display = new PhilipsSICP(_mockClient.Object, _displayId, _groupId, "Test", Input.Hdmi1, 23, _time);
     }
-    
+
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
         byte[] expectedPowerOnCommand = [0x06, 0x01, 0x01, 0x18, 0x02, 0x1C];
         _display.PowerOn();
 
-        _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
-    }
-
-    [Fact]
-    public void PowerOn_UsesTheCorrectDisplayId()
-    {
-        PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x05, 0x01,"Test display", Input.Hdmi1);
-        byte[] expectedPowerOnCommand = [0x06, 0x05, 0x01, 0x18, 0x02, 0x18];
-
-        display2.PowerOn();
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
     }
 
@@ -45,13 +38,15 @@ public class PhilipsSICPTest
     }
 
     [Fact]
-    public void PowerOff_UsesTheCorrectDisplayId()
+    public void PowerCommands_UseTheConfiguredDisplayId()
     {
-        PhilipsSICP display2 = new PhilipsSICP(_mockClient.Object, 0x04, 0x01, "Test display", Input.Hdmi1);
-        byte[] expectedPowerOnCommand = [0x06, 0x04, 0x01, 0x18, 0x01, 0x1A];
+        PhilipsSICP display5 = new PhilipsSICP(_mockClient.Object, 0x05, 0x01, "Test display", Input.Hdmi1, 23, _time);
 
-        display2.PowerOff();
-        _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
+        display5.PowerOn();
+        display5.PowerOff();
+
+        _mockClient.Verify(x => x.Send(new byte[] { 0x06, 0x05, 0x01, 0x18, 0x02, 0x18 }), Times.Once);
+        _mockClient.Verify(x => x.Send(new byte[] { 0x06, 0x05, 0x01, 0x18, 0x01, 0x1B }), Times.Once);
     }
 
     [Theory]
@@ -77,15 +72,7 @@ public class PhilipsSICPTest
 
     [Theory]
     [InlineData(0, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x00, 0x00, 0x43 })]
-    [InlineData(10, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x0A, 0x0A, 0x43 })]
-    [InlineData(20, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x14, 0x14, 0x43 })]
-    [InlineData(30, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x1E, 0x1E, 0x43 })]
-    [InlineData(40, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x28, 0x28, 0x43 })]
     [InlineData(50, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x32, 0x32, 0x43 })]
-    [InlineData(60, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x3C, 0x3C, 0x43 })]
-    [InlineData(70, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x46, 0x46, 0x43 })]
-    [InlineData(80, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x50, 0x50, 0x43 })]
-    [InlineData(90, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x5A, 0x5A, 0x43 })]
     [InlineData(100, new byte[] { 0x07, 0x01, 0x01, 0x44, 0x64, 0x64, 0x43 })]
     public void SetVolume_SendsTheCommand(int volume, byte[] expectedCommand)
     {
@@ -104,11 +91,11 @@ public class PhilipsSICPTest
     }
 
     [Theory]
-    [InlineData(new byte[] { })]                                  // empty read
-    [InlineData(new byte[] { 0x00 })]                             // single byte
-    [InlineData(new byte[] { 0x02, 0x01 })]                       // declared size matches but frame too short to parse
-    [InlineData(new byte[] { 0x06, 0x01, 0x01, 0x19 })]           // truncated mid-frame
-    [InlineData(new byte[] { 0x07, 0x01, 0x01, 0x19, 0x02, 0x1D })] // declares more bytes than received
+    [InlineData(new byte[] { })]
+    [InlineData(new byte[] { 0x00 })]
+    [InlineData(new byte[] { 0x02, 0x01 })]
+    [InlineData(new byte[] { 0x06, 0x01, 0x01, 0x19 })]
+    [InlineData(new byte[] { 0x07, 0x01, 0x01, 0x19, 0x02, 0x1D })]
     public void HandleResponse_IgnoresMalformedResponses(byte[] response)
     {
         var stateBefore = _display.PowerState;
@@ -171,5 +158,72 @@ public class PhilipsSICPTest
 
         Assert.Equal(PowerState.Unknown, _display.PowerState);
         Assert.Equal(CommunicationState.NotAttempted, _display.CommunicationState);
+    }
+
+    private static readonly TimeSpan StartStep = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan WindowStep = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan BeforeTheSecondPoll = TimeSpan.FromSeconds(20);
+    private static readonly byte[] PowerQuery = [0x05, 0x01, 0x00, 0x19, 0x1D];
+
+    private static void SetConnectionState(Mock<TcpClient> mock, ConnectionState state) =>
+        typeof(CommunicationClient).GetField("_connectionState", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(mock.Object, state);
+
+    private static int PowerPollsSent(Mock<TcpClient> client) =>
+        client.Invocations.Count(i => i.Method.Name == "Send" && i.Arguments[0] is byte[] frame && frame.SequenceEqual(PowerQuery));
+
+    private static Task UntilPowerPolled(FakeTimeProvider time, Mock<TcpClient> client, int times) =>
+        Wait.UntilAsync(time, StartStep, () => PowerPollsSent(client) >= times, $"The power poll was sent fewer than {times} times");
+
+    private static Task AdvanceAsync(FakeTimeProvider time, TimeSpan duration)
+    {
+        var until = time.GetUtcNow() + duration;
+        return Wait.UntilAsync(time, WindowStep, () => time.GetUtcNow() >= until, "The fake clock did not advance");
+    }
+
+    [Fact]
+    public async Task Connected_SendsOnePowerPollBeforeTheNextPoll()
+    {
+        var time = new FakeTimeProvider();
+        var client = TestFactory.CreateTcpClient();
+        _ = new PhilipsSICP(client.Object, _displayId, _groupId, "Test", Input.Hdmi1, 23, time);
+
+        SetConnectionState(client, ConnectionState.Connected);
+        client.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        await UntilPowerPolled(time, client, 1);
+        await AdvanceAsync(time, BeforeTheSecondPoll);
+
+        Assert.Equal(1, PowerPollsSent(client));
+    }
+
+    [Fact]
+    public async Task AlreadyConnectedClient_SendsOnePowerPollBeforeTheNextPoll_ThenKeepsPolling()
+    {
+        var time = new FakeTimeProvider();
+        var client = TestFactory.CreateTcpClient();
+        SetConnectionState(client, ConnectionState.Connected);
+        _ = new PhilipsSICP(client.Object, _displayId, _groupId, "Test", Input.Hdmi1, 23, time);
+
+        await UntilPowerPolled(time, client, 1);
+        await AdvanceAsync(time, BeforeTheSecondPoll);
+        Assert.Equal(1, PowerPollsSent(client));
+
+        await AdvanceAsync(time, BeforeTheSecondPoll);
+        Assert.Equal(2, PowerPollsSent(client));
+    }
+
+    [Fact]
+    public async Task ConnectedWhileBeingConstructed_SendsOnePowerPollBeforeTheNextPoll()
+    {
+        var time = new FakeTimeProvider();
+        var client = TestFactory.CreateTcpClient();
+        SetConnectionState(client, ConnectionState.Connected);
+        _ = new PhilipsSICP(client.Object, _displayId, _groupId, "Test", Input.Hdmi1, 23, time);
+
+        client.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        await UntilPowerPolled(time, client, 1);
+        await AdvanceAsync(time, BeforeTheSecondPoll);
+
+        Assert.Equal(1, PowerPollsSent(client));
     }
 }

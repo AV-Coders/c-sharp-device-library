@@ -2,7 +2,6 @@ namespace AVCoders.Display.Tests;
 
 public class InputTest
 {
-    // SignalR serialises Input as an integer, so the original members must keep their ordinals.
     [Theory]
     [InlineData(Input.Unknown, 0)]
     [InlineData(Input.Hdmi1, 1)]

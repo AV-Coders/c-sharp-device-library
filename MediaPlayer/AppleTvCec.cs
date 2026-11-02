@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using AVCoders.Core;
 
@@ -60,6 +59,7 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
     public static readonly TimeSpan MinimumFrameSpacing = TimeSpan.FromMilliseconds(150);
     public static readonly TimeSpan QueryReplySpacing = TimeSpan.FromMilliseconds(500);
     public static readonly TimeSpan DefaultDuplicateResponseWindow = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan PollStartDelay = TimeSpan.FromSeconds(1);
 
     private static readonly Dictionary<char, RemoteButton> NumberpadMap = new()
     {
@@ -120,9 +120,10 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
     private readonly char _deviceBroadcastHeader;
     private readonly bool _answerTvQueries;
     private readonly ThreadWorker? _pollWorker;
+    private readonly TimeProvider _timeProvider;
     private readonly object _responseLock = new();
-    private readonly object _sendLock = new();
-    private long _lastSendTimestamp = Stopwatch.GetTimestamp() - Stopwatch.Frequency;
+    private readonly SemaphoreSlim _spacingLock = new(1, 1);
+    private long _lastSendTimestamp;
     private TimeSpan _spacingAfterLastSend = TimeSpan.Zero;
 
     private char[] _physicalAddress = ['\x10', '\x00'];
@@ -154,8 +155,16 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
     /// <summary>A pollTime of 0 or less disables polling and the discovery that runs with the first poll.</summary>
     public AppleTvCec(SerialClient cecStream, string name, byte logicalAddress = LogicalAddressPlayback1,
         bool answerTvQueries = true, int pollTime = 23, TimeSpan? duplicateResponseWindow = null)
+        : this(cecStream, name, logicalAddress, answerTvQueries, pollTime, duplicateResponseWindow, null)
+    {
+    }
+
+    internal AppleTvCec(SerialClient cecStream, string name, byte logicalAddress, bool answerTvQueries, int pollTime,
+        TimeSpan? duplicateResponseWindow, TimeProvider? timeProvider)
         : base(name, cecStream)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _lastSendTimestamp = _timeProvider.GetTimestamp() - _timeProvider.TimestampFrequency;
         _cecStream = cecStream;
         _logicalAddress = logicalAddress;
         _duplicateResponseWindow = duplicateResponseWindow ?? DefaultDuplicateResponseWindow;
@@ -174,13 +183,15 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
         _cecStream.ConnectionStateHandlers += HandleConnectionState;
         if (pollTime <= 0)
             return;
-        var pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
+        var pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), false, _timeProvider);
         _pollWorker = pollWorker;
-        new Thread(_ =>
-        {
-            Thread.Sleep(1000);
-            pollWorker.Restart();
-        }) { IsBackground = true }.Start();
+        _ = Task.Run(() => RestartPollingAfterStartup(pollWorker));
+    }
+
+    private async Task RestartPollingAfterStartup(ThreadWorker pollWorker)
+    {
+        await Task.Delay(PollStartDelay, _timeProvider);
+        pollWorker.Restart();
     }
 
     private void HandleConnectionState(ConnectionState connectionState)
@@ -237,7 +248,7 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
             bool isRepeat;
             lock (_responseLock)
             {
-                var now = DateTimeOffset.UtcNow;
+                var now = _timeProvider.GetUtcNow();
                 isRepeat = incoming == _lastResponse;
                 if (isRepeat && now - _lastResponseTime < _duplicateResponseWindow)
                     return;
@@ -436,7 +447,26 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
         return sb.ToString();
     }
 
-    private void SendFrame(char[] frame, TimeSpan? spacingAfter = null)
+    private void SendFrame(char[] frame, TimeSpan? spacingAfter = null) => _ = SendInTurn(() => SendSpacedFrame(frame, spacingAfter));
+
+    private async Task SendInTurn(Func<Task> send)
+    {
+        await _spacingLock.WaitAsync();
+        try
+        {
+            await send();
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Sending to the Apple TV failed");
+        }
+        finally
+        {
+            _spacingLock.Release();
+        }
+    }
+
+    private async Task SendSpacedFrame(char[] frame, TimeSpan? spacingAfter)
     {
         if (_logicalAddress > MaxLogicalAddress)
         {
@@ -445,15 +475,12 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
             return;
         }
 
-        lock (_sendLock)
-        {
-            var wait = _spacingAfterLastSend - Stopwatch.GetElapsedTime(_lastSendTimestamp);
-            if (wait > TimeSpan.Zero)
-                Thread.Sleep(wait);
-            _cecStream.Send(frame);
-            _lastSendTimestamp = Stopwatch.GetTimestamp();
-            _spacingAfterLastSend = spacingAfter ?? MinimumFrameSpacing;
-        }
+        var wait = _spacingAfterLastSend - _timeProvider.GetElapsedTime(_lastSendTimestamp);
+        if (wait > TimeSpan.Zero)
+            await Task.Delay(wait, _timeProvider);
+        _cecStream.Send(frame);
+        _lastSendTimestamp = _timeProvider.GetTimestamp();
+        _spacingAfterLastSend = spacingAfter ?? MinimumFrameSpacing;
     }
 
     private bool IsPhysicalRemoteIntent(char header, char opcode) => opcode switch
@@ -463,13 +490,12 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
         _ => false
     };
 
-    private void RemoteControlPassthrough(char code)
+    private void RemoteControlPassthrough(char code) => _ = SendInTurn(() => SendKey(code));
+
+    private async Task SendKey(char code)
     {
-        lock (_sendLock)
-        {
-            SendFrame([_commandHeader, UserControlPressed, code], KeyHold);
-            SendFrame([_commandHeader, UserControlReleased]);
-        }
+        await SendSpacedFrame([_commandHeader, UserControlPressed, code], KeyHold);
+        await SendSpacedFrame([_commandHeader, UserControlReleased], null);
     }
 
     /// <summary>Wakes the Apple TV with the Power On Function key.</summary>
@@ -556,11 +582,13 @@ public class AppleTvCec : MediaPlayer, ISetTopBox
             return;
         }
 
-        lock (_sendLock)
-        {
-            foreach (var c in channel.ToString())
-                RemoteControlPassthrough(RemoteButtonMap[NumberpadMap[c]]);
-        }
+        _ = SendInTurn(() => SendDigits(channel));
+    }
+
+    private async Task SendDigits(int channel)
+    {
+        foreach (var c in channel.ToString())
+            await SendKey(RemoteButtonMap[NumberpadMap[c]]);
     }
 
     public void ToggleSubtitles() => RemoteControlPassthrough(RemoteButtonMap[RemoteButton.Subtitle]);

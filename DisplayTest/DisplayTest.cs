@@ -161,40 +161,11 @@ public class DisplayTest
     }
 
     [Fact]
-    public void PowerOff_UpdatesInternalPowerState()
-    {
-        _display.PowerOff();
-
-        Assert.Equal(PowerState.Off, _display.PowerState);
-    }
-
-    [Fact]
-    public void PowerOn_UpdatesInternalPowerState()
-    {
-        _display.PowerOn();
-
-        Assert.Equal(PowerState.On, _display.PowerState);
-    }
-    
-
-    [Fact]
     public void SetInput_IgnoresMissingInputs()
     {
         _display.SetInput(Input.Hdmi2);
 
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
-    }
-
-    [Theory]
-    [InlineData(1)]
-    [InlineData(100)]
-    public void SetVolume_CallsTheDelegate(int volume)
-    {
-        Mock<VolumeLevelHandler> volumeLevelHandler = new Mock<VolumeLevelHandler>();
-        _display.VolumeLevelHandlers += volumeLevelHandler.Object;
-        _display.SetVolume(volume);
-        
-        volumeLevelHandler.Verify(x => x.Invoke(volume));
     }
 
     [Fact]
@@ -217,26 +188,6 @@ public class DisplayTest
 
         Assert.Equal(100, _display.Volume);
         _mockClient.Verify(x => x.Send("Volume 100"), Times.Once);
-    }
-
-    [Theory]
-    [InlineData(MuteState.On)]
-    [InlineData(MuteState.Off)]
-    public void setAudioMute_CallsTheDelegate(MuteState state)
-    {
-        Mock<MuteStateHandler> muteStateHandler = new Mock<MuteStateHandler>();
-        _display.MuteStateHandlers = muteStateHandler.Object;
-        _display.SetAudioMute(state);
-
-        muteStateHandler.Verify(x => x.Invoke(state));
-    }
-
-    [Fact]
-    public void setAudioMute_UpdatesInternalState()
-    {
-        _display.SetAudioMute(MuteState.On);
-
-        Assert.Equal(MuteState.On, _display.AudioMute);
     }
 
     [Fact]

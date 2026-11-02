@@ -3,25 +3,22 @@ using System.Reflection;
 using System.Text;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
-using Xunit.Abstractions;
 
 namespace AVCoders.Display.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class NecUhdExternalControlTest
 {
-    private readonly ITestOutputHelper _testOutputHelper;
     private readonly NecUhdExternalControl _display;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly Mock<PowerStateHandler> _mockPowerStateHandler;
     private readonly Mock<InputHandler> _mockInputHandler;
     private readonly Mock<VolumeLevelHandler> _mockVolumeLevelHandler;
 
-    public NecUhdExternalControlTest(ITestOutputHelper testOutputHelper)
+    public NecUhdExternalControlTest()
     {
-        _testOutputHelper = testOutputHelper;
-        _display = new NecUhdExternalControl(_mockClient.Object, "Test display", Input.Hdmi1, (byte)'A');
+        _display = new NecUhdExternalControl(_mockClient.Object, "Test display", Input.Hdmi1, (byte)'A', new FakeTimeProvider());
         _mockPowerStateHandler = new Mock<PowerStateHandler>();
         _display.PowerStateHandlers += _mockPowerStateHandler.Object;
         _mockInputHandler = new Mock<InputHandler>();
@@ -43,16 +40,6 @@ public class NecUhdExternalControlTest
         _mockClient.Verify(x => x.Send(expectedPowerCommand), Times.Once);
     }
 
-    // [Fact]
-    // public void PowerOff_UsesTheCorrectDisplayId()
-    // {
-    //     NecUhdExternalControl samsungMdcForDisplay2 = new NecUhdExternalControl(0x03, _mockClient.Object);
-    //     byte[] expectedPowerOnCommand = { 0xAA, 0x11, 0x03, 0x01, 0x00, 0x15 };
-    //
-    //     samsungMdcForDisplay2.PowerOff();
-    //     _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
-    // }
-
     [Fact]
     public void PowerOn_SendsThePowerOnCommand()
     {
@@ -63,16 +50,6 @@ public class NecUhdExternalControlTest
         _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
     }
 
-    // [Fact]
-    // public void PowerOn_UsesTheCorrectDisplayId()
-    // {
-    //     SamsungMdc samsungMdcForDisplay2 = new SamsungMdc(0x02, _mockClient.Object);
-    //     byte[] expectedPowerOnCommand = { 0xAA, 0x11, 0x02, 0x01, 0x01, 0x15 };
-    //
-    //     samsungMdcForDisplay2.PowerOn();
-    //     _mockClient.Verify(x => x.Send(expectedPowerOnCommand), Times.Once);
-    // }
-    
     [Theory]
     [InlineData(Input.Hdmi1, new byte[] { 0x01, 0x30, 0x41, 0x30, 0x45, 0x30, 0x41, 0x02, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x31, 0x31, 0x03, 0x72, 0x0d })]
     [InlineData(Input.Hdmi2, new byte[] { 0x01, 0x30, 0x41, 0x30, 0x45, 0x30, 0x41, 0x02, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x31, 0x32, 0x03, 0x71, 0x0d })]
@@ -103,18 +80,6 @@ public class NecUhdExternalControlTest
     {
         _display.SetAudioMute(state);
 
-        foreach (IInvocation x in _mockClient.Invocations)
-        {
-            foreach (object xArgument in x.Arguments)
-            {
-                if (xArgument.GetType() == typeof(byte[]))
-                {
-                    byte[] bytes = (byte[])xArgument;
-                    _testOutputHelper.WriteLine(Encoding.ASCII.GetString(bytes));
-                }
-            }
-        }
-
         _mockClient.Verify(x => x.Send(command), Times.Once);
     }
 
@@ -137,15 +102,19 @@ public class NecUhdExternalControlTest
         Assert.Equal(CommunicationState.Okay, _display.CommunicationState);
     }
 
-    [Fact]
-    public void ResponseHandler_HandlesPartialPowerResponses()
+    [Theory]
+    [InlineData(new byte[] { 0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44, 0x36 },
+        new byte[] { 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x31, 0x03, 0x74, 0x0D }, PowerState.On, Input.Unknown, 0)]
+    [InlineData(new byte[] { 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x30 },
+        new byte[] { 0x30, 0x30, 0x30, 0x30, 0x38, 0x38, 0x30, 0x30, 0x31, 0x31, 0x03, 0x01, 0x0D }, PowerState.Unknown, Input.Hdmi1, 0)]
+    [InlineData(new byte[] { 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x32, 0x30 },
+        new byte[] { 0x30, 0x30, 0x30, 0x36, 0x34, 0x30, 0x30, 0x31, 0x45, 0x03, 0x75, 0x0D }, PowerState.Unknown, Input.Unknown, 30)]
+    public void ResponseHandler_ReassemblesAReplySplitAcrossTwoReceives(byte[] first, byte[] second, PowerState power, Input input, int volume)
     {
-        var response1 = new byte[]
-            { 0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44, 0x36 };
-        var response2 = new byte[] { 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x31, 0x03, 0x74, 0x0D };
-        _mockClient.Object.ResponseByteHandlers!.Invoke(response1);
-        _mockClient.Object.ResponseByteHandlers!.Invoke(response2);
-        _mockPowerStateHandler.Verify(x => x.Invoke(PowerState.On));
+        _mockClient.Object.ResponseByteHandlers!.Invoke(first);
+        _mockClient.Object.ResponseByteHandlers!.Invoke(second);
+
+        Assert.Equal((power, input, volume), (_display.PowerState, _display.Input, _display.Volume));
     }
 
     [Theory]
@@ -158,16 +127,6 @@ public class NecUhdExternalControlTest
         _mockInputHandler.Verify(x => x.Invoke(expectedInput));
     }
 
-    [Fact]
-    public void ResponseHandler_HandlesPartialInputResponses()
-    {
-        var response1 = new byte[] { 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x30 };
-        var response2 = new byte[] { 0x30, 0x30, 0x30, 0x30, 0x38, 0x38, 0x30, 0x30, 0x31, 0x31, 0x03, 0x01, 0x0D };
-        _mockClient.Object.ResponseByteHandlers!.Invoke(response1);
-        _mockClient.Object.ResponseByteHandlers!.Invoke(response2);
-        _mockInputHandler.Verify(x => x.Invoke(Input.Hdmi1));
-    }
-    
     [Theory]
     [InlineData(new byte[] { 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x32, 0x30, 0x30, 0x30, 0x30, 0x36, 0x34, 0x30, 0x30, 0x31, 0x45, 0x03, 0x75, 0x0D }, 30)]
     [InlineData(new byte[] { 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x32, 0x30, 0x30, 0x30, 0x30, 0x36, 0x34, 0x30, 0x30, 0x36, 0x34, 0x03, 0x03, 0x0D }, 100)]
@@ -177,17 +136,6 @@ public class NecUhdExternalControlTest
         _mockVolumeLevelHandler.Verify(x => x.Invoke(expectedVolumeLevel));
     }
     
-    [Fact]
-    public void ResponseHandler_HandlesPartialVolumeLevelResponses()
-    {
-        var response1 = new byte[] { 0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x32, 0x30 };
-        var response2 = new byte[] { 0x30, 0x30, 0x30, 0x36, 0x34, 0x30, 0x30, 0x31, 0x45, 0x03, 0x75, 0x0D }; 
-            
-        _mockClient.Object.ResponseByteHandlers!.Invoke(response1);
-        _mockClient.Object.ResponseByteHandlers!.Invoke(response2);
-        _mockVolumeLevelHandler.Verify(x => x.Invoke(30));
-    }
-
     [Fact]
     public void ResponseHandler_HandlesMultipleResponcesInTheOnePayload()
     {
@@ -210,27 +158,11 @@ public class NecUhdExternalControlTest
         _mockInputHandler.Verify(x => x.Invoke(Input.Hdmi1));
     }
 
-    private static readonly byte[] PowerOnReply = [0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x31, 0x03, 0x74, 0x0D];
+    internal static readonly byte[] PowerOnReply =[0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x31, 0x03, 0x74, 0x0D];
 
     private static void SetConnectionState(Mock<TcpClient> mock, ConnectionState state) =>
         typeof(CommunicationClient).GetField("_connectionState", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(mock.Object, state);
-
-    private static (Mock<TcpClient> Client, NecUhdExternalControl Display, ScopeCapturingLoggerFactory Logs) CreateDisplayWithCapturedLogs()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = TestFactory.CreateTcpClient();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return (client, new NecUhdExternalControl(client.Object, "Test display", Input.Hdmi1, (byte)'A'), logs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
 
     [Fact]
     public void ResponseHandler_IgnoresAShortFrame()
@@ -239,20 +171,6 @@ public class NecUhdExternalControlTest
 
         Assert.Null(exception);
         Assert.Equal(PowerState.Unknown, _display.PowerState);
-    }
-
-    [Fact]
-    public void ResponseHandler_ReadsAnUnmappedInputCodeAsUnknown_AndLogsAWarning()
-    {
-        var (client, display, logs) = CreateDisplayWithCapturedLogs();
-        byte[] hdmi1 = [0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x38, 0x38, 0x30, 0x30, 0x31, 0x31, 0x03, 0x01, 0x0D];
-        byte[] unmapped = [0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x38, 0x38, 0x30, 0x30, 0x30, 0x31, 0x03, 0x00, 0x0D];
-        client.Object.ResponseByteHandlers!.Invoke(hdmi1);
-
-        client.Object.ResponseByteHandlers!.Invoke(unmapped);
-
-        Assert.Equal(Input.Unknown, display.Input);
-        Assert.Contains(logs.Logs, l => l.Message == $"Unknown input code in {Convert.ToHexString(unmapped)}");
     }
 
     [Fact]
@@ -267,26 +185,77 @@ public class NecUhdExternalControlTest
     }
 
     [Fact]
-    public void ResponseHandler_KeepsThePowerStateOnAReservedPowerStatus_AndLogsAWarning()
+    public void HandleConnectionState_GivenConnected_ReturnsWithoutWaiting()
     {
-        var (client, display, logs) = CreateDisplayWithCapturedLogs();
-        byte[] reserved = [0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x33, 0x03, 0x76, 0x0D];
-        client.Object.ResponseByteHandlers!.Invoke(PowerOnReply);
+        var client = TestFactory.CreateTcpClient();
+        _ = new NecUhdExternalControl(client.Object, "Test display", Input.Hdmi1, (byte)'A');
+        var stopwatch = Stopwatch.StartNew();
 
-        client.Object.ResponseByteHandlers!.Invoke(reserved);
+        client.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
 
-        Assert.Equal(PowerState.On, display.PowerState);
-        Assert.Contains(logs.Logs, l => l.Message == $"Unknown power status in {Convert.ToHexString(reserved)}");
+        Assert.True(stopwatch.ElapsedMilliseconds < 1000);
+    }
+
+    private static readonly TimeSpan StartStep = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan WindowStep = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan BeforeTheSecondPoll = TimeSpan.FromSeconds(20);
+
+    private static int PowerPollsSent(Mock<TcpClient> client) =>
+        client.Invocations.Count(i => i.Method.Name == "Send" && i.Arguments[0] is byte[] frame && Encoding.ASCII.GetString(frame[8..^3]) == "01D6");
+
+    private static Task UntilPowerPolled(FakeTimeProvider time, Mock<TcpClient> client, int times) =>
+        Wait.UntilAsync(time, StartStep, () => PowerPollsSent(client) >= times, $"The power poll was sent fewer than {times} times");
+
+    private static Task AdvanceAsync(FakeTimeProvider time, TimeSpan duration)
+    {
+        var until = time.GetUtcNow() + duration;
+        return Wait.UntilAsync(time, WindowStep, () => time.GetUtcNow() >= until, "The fake clock did not advance");
     }
 
     [Fact]
-    public void HandleConnectionState_GivenConnected_ReturnsWithoutWaiting()
+    public async Task Connected_SendsOnePowerPollBeforeTheNextPoll()
     {
-        var stopwatch = Stopwatch.StartNew();
+        var time = new FakeTimeProvider();
+        var client = TestFactory.CreateTcpClient();
+        _ = new NecUhdExternalControl(client.Object, "Test display", Input.Hdmi1, 0x2A, time);
 
-        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        SetConnectionState(client, ConnectionState.Connected);
+        client.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        await UntilPowerPolled(time, client, 1);
+        await AdvanceAsync(time, BeforeTheSecondPoll);
 
-        Assert.True(stopwatch.ElapsedMilliseconds < 1000);
+        Assert.Equal(1, PowerPollsSent(client));
+    }
+
+    [Fact]
+    public async Task AlreadyConnectedClient_SendsOnePowerPollBeforeTheNextPoll_ThenKeepsPolling()
+    {
+        var time = new FakeTimeProvider();
+        var client = TestFactory.CreateTcpClient();
+        SetConnectionState(client, ConnectionState.Connected);
+        _ = new NecUhdExternalControl(client.Object, "Test display", Input.Hdmi1, 0x2A, time);
+
+        await UntilPowerPolled(time, client, 1);
+        await AdvanceAsync(time, BeforeTheSecondPoll);
+        Assert.Equal(1, PowerPollsSent(client));
+
+        await AdvanceAsync(time, BeforeTheSecondPoll);
+        Assert.Equal(2, PowerPollsSent(client));
+    }
+
+    [Fact]
+    public async Task ConnectedWhileBeingConstructed_SendsOnePowerPollBeforeTheNextPoll()
+    {
+        var time = new FakeTimeProvider();
+        var client = TestFactory.CreateTcpClient();
+        SetConnectionState(client, ConnectionState.Connected);
+        _ = new NecUhdExternalControl(client.Object, "Test display", Input.Hdmi1, 0x2A, time);
+
+        client.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+        await UntilPowerPolled(time, client, 1);
+        await AdvanceAsync(time, BeforeTheSecondPoll);
+
+        Assert.Equal(1, PowerPollsSent(client));
     }
 
     [Fact]
@@ -379,5 +348,52 @@ public class NecUhdExternalControlTest
         _display.SetAudioMute(MuteState.Unknown);
 
         _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class NecUhdExternalControlLogTest
+{
+    private static (Mock<TcpClient> Client, NecUhdExternalControl Display, ScopeCapturingLoggerFactory Logs) CreateDisplayWithCapturedLogs()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = TestFactory.CreateTcpClient();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (client, new NecUhdExternalControl(client.Object, "Test display", Input.Hdmi1, (byte)'A', new FakeTimeProvider()), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    [Fact]
+    public void ResponseHandler_ReadsAnUnmappedInputCodeAsUnknown_AndLogsAWarning()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+        byte[] hdmi1 = [0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x38, 0x38, 0x30, 0x30, 0x31, 0x31, 0x03, 0x01, 0x0D];
+        byte[] unmapped = [0x01, 0x30, 0x30, 0x41, 0x44, 0x31, 0x32, 0x02, 0x30, 0x30, 0x30, 0x30, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x38, 0x38, 0x30, 0x30, 0x30, 0x31, 0x03, 0x00, 0x0D];
+        client.Object.ResponseByteHandlers!.Invoke(hdmi1);
+
+        client.Object.ResponseByteHandlers!.Invoke(unmapped);
+
+        Assert.Equal(Input.Unknown, display.Input);
+        Assert.Contains(logs.Logs, l => l.Message == $"Unknown input code in {Convert.ToHexString(unmapped)}");
+    }
+
+    [Fact]
+    public void ResponseHandler_KeepsThePowerStateOnAReservedPowerStatus_AndLogsAWarning()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+        byte[] reserved = [0x01, 0x30, 0x30, 0x41, 0x42, 0x31, 0x32, 0x02, 0x30, 0x32, 0x30, 0x30, 0x44, 0x36, 0x30, 0x30, 0x30, 0x30, 0x30, 0x34, 0x30, 0x30, 0x30, 0x33, 0x03, 0x76, 0x0D];
+        client.Object.ResponseByteHandlers!.Invoke(NecUhdExternalControlTest.PowerOnReply);
+
+        client.Object.ResponseByteHandlers!.Invoke(reserved);
+
+        Assert.Equal(PowerState.On, display.PowerState);
+        Assert.Contains(logs.Logs, l => l.Message == $"Unknown power status in {Convert.ToHexString(reserved)}");
     }
 }

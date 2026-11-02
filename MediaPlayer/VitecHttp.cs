@@ -17,6 +17,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
     private readonly Uri _remoteKeyUri;
     private readonly Uri _deviceStateUri;
     private readonly string _authInfo;
+    private readonly TimeProvider _timeProvider;
     private readonly object _sendLock = new();
     private Task _sends = Task.CompletedTask;
     private int _sendGeneration;
@@ -66,9 +67,15 @@ public class VitecHttp : MediaPlayer, ISetTopBox
         { RemoteButton.Menu, "menu" }
     };
 
-    public VitecHttp(string host, string password, string name) 
+    public VitecHttp(string host, string password, string name)
+        : this(host, password, name, null)
+    {
+    }
+
+    internal VitecHttp(string host, string password, string name, TimeProvider? timeProvider)
         : base(name, CommunicationClient.None)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _remoteKeyUri = new Uri($"https://{host}:8080/irremote/key", UriKind.Absolute);
         _deviceStateUri = new Uri($"https://{host}:8080/devicestate", UriKind.Absolute);
         _authInfo = Convert.ToBase64String(Encoding.ASCII.GetBytes($"admin:{password}"));
@@ -124,7 +131,7 @@ public class VitecHttp : MediaPlayer, ISetTopBox
                 _queuedPresses--;
             }
             if (await Put(press.Uri, press.Content))
-                await Task.Delay(press.SpacingAfter);
+                await Task.Delay(press.SpacingAfter, _timeProvider);
             else
                 DropQueuedPresses();
         }

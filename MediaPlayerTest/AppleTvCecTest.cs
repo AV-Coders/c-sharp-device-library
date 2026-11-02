@@ -1,13 +1,18 @@
-using System.Diagnostics;
+using System.Collections.Concurrent;
+using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 
 namespace AVCoders.MediaPlayer.Tests;
 
 public class AppleTvCecTest
 {
-    private readonly AppleTvCec _appleTv;
+    private static readonly TimeSpan AnySpacing = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan OneTick = TimeSpan.FromTicks(1);
+    private readonly FakeTimeProvider _time = new();
     private readonly Mock<SerialClient> _mockClient = TestFactory.CreateSerialClient();
+    private readonly AppleTvCec _appleTv;
 
     private static readonly RemoteButton[] _excludedButtons =
     [
@@ -17,27 +22,57 @@ public class AppleTvCecTest
         RemoteButton.Blue, RemoteButton.Red, RemoteButton.Green, RemoteButton.Yellow
     ];
 
-    public static IEnumerable<object[]> RemoteButtonValues()
-    {
-        return Enum.GetValues(typeof(RemoteButton))
-            .Cast<RemoteButton>()
-            .Where(rb => !_excludedButtons.Contains(rb))
-            .Select(rb => new object[] { rb });
-    }
-
     public static IEnumerable<object[]> ExcludedButtonValues() => _excludedButtons.Select(rb => new object[] { rb });
 
     public AppleTvCecTest()
     {
-        _appleTv = new AppleTvCec(_mockClient.Object, "Test Apple TV", pollTime: 0);
+        _appleTv = Create(_mockClient, "Test Apple TV");
     }
+
+    private AppleTvCec Create(Mock<SerialClient> client, string name, byte logicalAddress = AppleTvCec.LogicalAddressPlayback1,
+        bool answerTvQueries = true) =>
+        new(client.Object, name, logicalAddress, answerTvQueries, 0, null, _time);
 
     private void Receive(string frame) => _mockClient.Object.ResponseHandlers!.Invoke(frame);
 
-    [Fact]
-    public void PowerOn_SendsThePowerOnFunctionKey()
+    private Task RunWithTimePassing(Action action) => RunWithTimePassing(_appleTv, action);
+
+    private async Task RunWithTimePassing(AppleTvCec appleTv, Action action)
     {
-        _appleTv.PowerOn();
+        await Task.Run(action);
+        await Wait.UntilAsync(_time, AnySpacing, () => SendsAreIdle(appleTv), "The driver never finished sending");
+        _time.Advance(AnySpacing);
+    }
+
+    private static bool SendsAreIdle(AppleTvCec appleTv) => ((SemaphoreSlim)typeof(AppleTvCec)
+        .GetField("_spacingLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(appleTv)!).CurrentCount == 1;
+
+    private ConcurrentQueue<char[]> RecordFrames()
+    {
+        var sent = new ConcurrentQueue<char[]>();
+        _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback<char[]>(sent.Enqueue);
+        return sent;
+    }
+
+    private long LastSendTimestamp() => (long)typeof(AppleTvCec)
+        .GetField("_lastSendTimestamp", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_appleTv)!;
+
+    private Task FrameSent(ConcurrentQueue<char[]> sent, int frames) =>
+        Wait.UntilAsync(() => sent.Count == frames && LastSendTimestamp() == _time.GetTimestamp(),
+            $"Frame {frames} was never sent");
+
+    private async Task AdvanceThenExpect(ConcurrentQueue<char[]> sent, TimeSpan spacing, int frames)
+    {
+        _time.Advance(spacing - OneTick);
+        Assert.Equal(frames - 1, sent.Count);
+        _time.Advance(OneTick);
+        await FrameSent(sent, frames);
+    }
+
+    [Fact]
+    public async Task PowerOn_SendsThePowerOnFunctionKey()
+    {
+        await RunWithTimePassing(_appleTv.PowerOn);
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x6D' }));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x45' }));
@@ -54,15 +89,15 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void LogicalAddress_ChangesTheHeaders()
+    public async Task LogicalAddress_ChangesTheHeaders()
     {
         var mock = TestFactory.CreateSerialClient();
-        var appleTv = new AppleTvCec(mock.Object, "Playback 2", AppleTvCec.LogicalAddressPlayback2, pollTime: 0);
+        var appleTv = Create(mock, "Playback 2", AppleTvCec.LogicalAddressPlayback2);
 
-        appleTv.PowerOn();
+        await RunWithTimePassing(appleTv, appleTv.PowerOn);
         mock.Verify(x => x.Send(new[] { '\x08', '\x44', '\x6D' }));
 
-        mock.Object.ResponseHandlers!.Invoke("\x80\x90\x01");
+        await RunWithTimePassing(appleTv, () => mock.Object.ResponseHandlers!.Invoke("\x80\x90\x01"));
         Assert.Equal(PowerState.Off, appleTv.PowerState);
     }
 
@@ -70,7 +105,7 @@ public class AppleTvCecTest
     public void Constructor_WithAnInvalidLogicalAddress_RaisesAnIssueAndSendsNothing()
     {
         var mock = TestFactory.CreateSerialClient();
-        var appleTv = new AppleTvCec(mock.Object, "Bad", 0x0F, pollTime: 0);
+        var appleTv = Create(mock, "Bad", 0x0F);
 
         appleTv.PowerOn();
         appleTv.PollPowerStatus();
@@ -81,21 +116,21 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void MakeActiveSource_BroadcastsSetStreamPathToTheKnownPhysicalAddress()
+    public async Task MakeActiveSource_BroadcastsSetStreamPathToTheKnownPhysicalAddress()
     {
         _appleTv.MakeActiveSource();
         _mockClient.Verify(x => x.Send(new[] { '\x0F', '\x86', '\x10', '\x00' }));
 
         Receive("\x4F\x84\x20\x00\x04");
-        _appleTv.MakeActiveSource();
+        await RunWithTimePassing(_appleTv.MakeActiveSource);
         _mockClient.Verify(x => x.Send(new[] { '\x0F', '\x86', '\x20', '\x00' }));
         Assert.Equal("2.0.0.0", _appleTv.PhysicalAddress);
     }
 
     [Fact]
-    public void Discover_SendsTheDiscoveryRequests()
+    public async Task Discover_SendsTheDiscoveryRequests()
     {
-        _appleTv.Discover();
+        await RunWithTimePassing(_appleTv.Discover);
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x83' }));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x46' }));
@@ -106,79 +141,85 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void PollPowerStatus_DiscoversFirstThenAsksForPowerStatus()
+    public async Task PollPowerStatus_DiscoversFirstThenAsksForPowerStatus()
     {
-        _appleTv.PollPowerStatus();
+        await RunWithTimePassing(_appleTv.PollPowerStatus);
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x83' }), Times.Once);
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x8F' }), Times.Once);
 
         Receive("\x4F\x84\x10\x00\x04");
-        _appleTv.PollPowerStatus();
+        await RunWithTimePassing(_appleTv.PollPowerStatus);
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x83' }), Times.Once);
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x8F' }), Times.Exactly(2));
     }
 
     [Fact]
-    public void PollPowerStatus_UnansweredPollsBecomeACommunicationError()
+    public async Task PollPowerStatus_UnansweredPollsBecomeACommunicationError()
     {
         Receive("\x4F\x84\x10\x00\x04");
         Receive("\x40\x90\x00");
         Assert.Equal(CommunicationState.Okay, _appleTv.CommunicationState);
 
-        for (var i = 0; i < AppleTvCec.MaxUnansweredPolls; i++)
-            _appleTv.PollPowerStatus();
+        await RunWithTimePassing(() =>
+        {
+            for (var i = 0; i < AppleTvCec.MaxUnansweredPolls; i++)
+                _appleTv.PollPowerStatus();
+        });
         Assert.Equal(CommunicationState.Okay, _appleTv.CommunicationState);
         Assert.Equal(PowerState.On, _appleTv.PowerState);
 
-        _appleTv.PollPowerStatus();
+        await RunWithTimePassing(_appleTv.PollPowerStatus);
         Assert.Equal(CommunicationState.Error, _appleTv.CommunicationState);
         Assert.Equal(PowerState.Unknown, _appleTv.PowerState);
 
+        _time.Advance(AppleTvCec.DefaultDuplicateResponseWindow);
         Receive("\x40\x90\x00");
         Assert.Equal(CommunicationState.Okay, _appleTv.CommunicationState);
         Assert.Equal(PowerState.On, _appleTv.PowerState);
     }
 
     [Fact]
-    public void SendFrame_SpacesConsecutiveFramesApart()
+    public async Task SendFrame_SpacesConsecutiveFramesApart()
     {
-        var stamps = new List<long>();
-        _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback(() => stamps.Add(Stopwatch.GetTimestamp()));
-        var tolerance = TimeSpan.FromMilliseconds(20);
+        var sent = RecordFrames();
 
         _appleTv.PowerOff();
         _appleTv.SendIRCode(RemoteButton.Play);
+
+        await FrameSent(sent, 1);
+        await AdvanceThenExpect(sent, AppleTvCec.MinimumFrameSpacing, 2);
+        await AdvanceThenExpect(sent, AppleTvCec.KeyHold, 3);
+        await Wait.UntilAsync(() => SendsAreIdle(_appleTv), "The key was never finished");
         Receive("\x40\x8F");
-
-        Assert.Equal(4, stamps.Count);
-        TimeSpan Gap(int i) => Stopwatch.GetElapsedTime(stamps[i - 1], stamps[i]);
-
-        Assert.True(Gap(1) >= AppleTvCec.MinimumFrameSpacing - tolerance,
-            $"The key press went out only {Gap(1).TotalMilliseconds:F0} ms after Standby");
-        Assert.True(Gap(2) >= AppleTvCec.KeyHold - tolerance,
-            $"The key was held for only {Gap(2).TotalMilliseconds:F0} ms");
-        Assert.True(Gap(2) < AppleTvCec.QueryReplySpacing,
-            $"The key was held for {Gap(2).TotalMilliseconds:F0} ms, long enough to trigger key repeat");
-        Assert.True(Gap(3) >= AppleTvCec.MinimumFrameSpacing - tolerance,
-            $"The reply went out only {Gap(3).TotalMilliseconds:F0} ms after the key release");
+        await AdvanceThenExpect(sent, AppleTvCec.MinimumFrameSpacing, 4);
     }
 
     [Fact]
-    public void SendFrame_WaitsLongerAfterAQuery()
+    public async Task SendIRCode_DuringTheSpacing_ReturnsAtOnceAndSendsOnceTheSpacingHasPassed()
     {
-        var stamps = new List<long>();
-        _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback(() => stamps.Add(Stopwatch.GetTimestamp()));
+        var sent = RecordFrames();
+        _appleTv.PowerOff();
+
+        _appleTv.SendIRCode(RemoteButton.Play);
+
+        Assert.Single(sent);
+        await AdvanceThenExpect(sent, AppleTvCec.MinimumFrameSpacing, 2);
+    }
+
+    [Fact]
+    public async Task SendFrame_WaitsLongerAfterAQuery()
+    {
+        var sent = RecordFrames();
         Receive("\x4F\x84\x10\x00\x04");
 
         _appleTv.PollPowerStatus();
         _appleTv.SendIRCode(RemoteButton.Play);
 
-        Assert.Equal(3, stamps.Count);
-        var gap = Stopwatch.GetElapsedTime(stamps[0], stamps[1]);
-        Assert.True(gap >= AppleTvCec.QueryReplySpacing - TimeSpan.FromMilliseconds(20),
-            $"The key went out only {gap.TotalMilliseconds:F0} ms after the poll");
+        await FrameSent(sent, 1);
+        await AdvanceThenExpect(sent, AppleTvCec.QueryReplySpacing, 2);
+        await AdvanceThenExpect(sent, AppleTvCec.KeyHold, 3);
     }
 
     [Theory]
@@ -244,17 +285,19 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void PhysicalRemote_SleepIsNotFoughtAfterPowerOn()
+    public async Task PhysicalRemote_SleepIsNotFoughtAfterPowerOn()
     {
-        _appleTv.PowerOn();
+        await RunWithTimePassing(_appleTv.PowerOn);
         _mockClient.Invocations.Clear();
 
-        Receive("\x4F\x36");
-        Receive("\x40\x36");
-        Receive("\x40\x9D\x10\x00");
-        Receive("\x4F\x90\x01");
+        await RunWithTimePassing(() =>
+        {
+            Receive("\x4F\x36");
+            Receive("\x40\x36");
+            Receive("\x40\x9D\x10\x00");
+            Receive("\x4F\x90\x01");
+        });
 
-        _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x6D' }), Times.Never);
         _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
         Assert.Equal(PowerState.Off, _appleTv.DesiredPowerState);
         Assert.Equal(PowerState.Off, _appleTv.PowerState);
@@ -262,15 +305,18 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void PhysicalRemote_WakeIsNotFoughtAfterPowerOff()
+    public async Task PhysicalRemote_WakeIsNotFoughtAfterPowerOff()
     {
         _appleTv.PowerOff();
         _mockClient.Invocations.Clear();
 
-        Receive("\x4F\x90\x00");
-        Receive("\x40\x04");
-        Receive("\x4F\x82\x10\x00");
-        Receive("\x40\x8E\x00");
+        await RunWithTimePassing(() =>
+        {
+            Receive("\x4F\x90\x00");
+            Receive("\x40\x04");
+            Receive("\x4F\x82\x10\x00");
+            Receive("\x40\x8E\x00");
+        });
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x36' }), Times.Never);
         Assert.Equal(PowerState.On, _appleTv.DesiredPowerState);
@@ -280,90 +326,84 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void PhysicalRemote_WakeSeenAsImageViewOnThenPowerStatusIsNotFought()
+    public async Task PhysicalRemote_WakeSeenAsImageViewOnThenPowerStatusIsNotFought()
     {
         _appleTv.PowerOff();
         _mockClient.Invocations.Clear();
 
-        Receive("\x40\x04");
-        Receive("\x4F\x90\x00");
+        await RunWithTimePassing(() =>
+        {
+            Receive("\x40\x04");
+            Receive("\x4F\x90\x00");
+        });
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x36' }), Times.Never);
         Assert.Equal(PowerState.On, _appleTv.DesiredPowerState);
     }
 
     [Fact]
-    public void ActiveSourceAloneIsNotWakeIntent()
+    public async Task ActiveSourceAloneIsNotWakeIntent()
     {
         _appleTv.PowerOff();
         _mockClient.Invocations.Clear();
 
-        Receive("\x4F\x82\x10\x00");
+        await RunWithTimePassing(() => Receive("\x4F\x82\x10\x00"));
 
         Assert.True(_appleTv.IsActiveSource);
         Assert.Equal(PowerState.Off, _appleTv.DesiredPowerState);
     }
 
     [Fact]
-    public void ReplayedSleepFrameAfterTheWindowDoesNotUndoPowerOn()
+    public async Task ReplayedSleepFrameAfterTheWindowDoesNotUndoPowerOn()
     {
-        var mock = TestFactory.CreateSerialClient();
-        var appleTv = new AppleTvCec(mock.Object, "Replay", pollTime: 0,
-            duplicateResponseWindow: TimeSpan.FromMilliseconds(20));
-        void Rx(string f) => mock.Object.ResponseHandlers!.Invoke(f);
+        Receive("\x4F\x36");
+        Receive("\x40\x36");
+        Receive("\x40\x9D\x10\x00");
+        Receive("\x4F\x90\x01");
+        Assert.Equal(PowerState.Off, _appleTv.DesiredPowerState);
 
-        Rx("\x4F\x36");
-        Rx("\x40\x36");
-        Rx("\x40\x9D\x10\x00");
-        Rx("\x4F\x90\x01");
-        Assert.Equal(PowerState.Off, appleTv.DesiredPowerState);
+        await RunWithTimePassing(_appleTv.PowerOn);
+        _mockClient.Invocations.Clear();
+        _time.Advance(AppleTvCec.DefaultDuplicateResponseWindow);
+        await RunWithTimePassing(() => Receive("\x4F\x90\x01"));
 
-        appleTv.PowerOn();
-        mock.Invocations.Clear();
-        Thread.Sleep(60);
-        Rx("\x4F\x90\x01");
-
-        Assert.Equal(PowerState.On, appleTv.DesiredPowerState);
-        mock.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
-        Assert.Equal(CommunicationState.Okay, appleTv.CommunicationState);
+        Assert.Equal(PowerState.On, _appleTv.DesiredPowerState);
+        _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.Never);
+        Assert.Equal(CommunicationState.Okay, _appleTv.CommunicationState);
     }
 
     [Fact]
-    public void KeyPressAndReleaseCannotBeInterleavedByAnotherSender()
+    public async Task KeyPressAndReleaseCannotBeInterleavedByAnotherSender()
     {
-        var sent = new List<(char[] frame, long at)>();
-        var pressedSeen = new ManualResetEventSlim();
-        _mockClient.Setup(x => x.Send(It.IsAny<char[]>())).Callback<char[]>(f =>
-        {
-            lock (sent) sent.Add((f, Stopwatch.GetTimestamp()));
-            if (f.Length == 3 && f[1] == '\x44')
-                pressedSeen.Set();
-        });
+        var sent = RecordFrames();
         var intruder = new Thread(() =>
         {
-            pressedSeen.Wait();
+            SpinWait.SpinUntil(() => !sent.IsEmpty);
             _appleTv.PowerOff();
         });
-        intruder.Start();
 
-        _appleTv.SendIRCode(RemoteButton.Play);
-        intruder.Join();
+        var sending = Task.Run(() =>
+        {
+            intruder.Start();
+            _appleTv.SendIRCode(RemoteButton.Play);
+            intruder.Join();
+        });
 
-        Assert.Equal(3, sent.Count);
-        Assert.Equal(new[] { '\x04', '\x44', '\x44' }, sent[0].frame);
-        Assert.Equal(new[] { '\x04', '\x45' }, sent[1].frame);
-        Assert.Equal(new[] { '\x04', '\x36' }, sent[2].frame);
-        var hold = Stopwatch.GetElapsedTime(sent[0].at, sent[1].at);
-        Assert.True(hold < AppleTvCec.QueryReplySpacing, $"The key was held for {hold.TotalMilliseconds:F0} ms");
+        await FrameSent(sent, 1);
+        await AdvanceThenExpect(sent, AppleTvCec.KeyHold, 2);
+        await sending;
+        await Wait.UntilAsync(_time, AppleTvCec.MinimumFrameSpacing, () => sent.Count == 3, "The other sender's frame was never sent");
+
+        Assert.Equal(new[] { new[] { '\x04', '\x44', '\x44' }, new[] { '\x04', '\x45' }, new[] { '\x04', '\x36' } }, sent.ToArray());
     }
 
     [Fact]
-    public void PollFindingTheDeviceOffWithoutAStandbyIsStillEnforced()
+    public async Task PollFindingTheDeviceOffWithoutAStandbyIsStillEnforced()
     {
-        _appleTv.PowerOn();
+        await RunWithTimePassing(_appleTv.PowerOn);
         _mockClient.Invocations.Clear();
 
-        Receive("\x40\x90\x01");
+        await RunWithTimePassing(() => Receive("\x40\x90\x01"));
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x6D' }), Times.Once);
         Assert.Equal(PowerState.On, _appleTv.DesiredPowerState);
@@ -422,20 +462,20 @@ public class AppleTvCecTest
 
         Assert.Equal(TransportState.Playing, _appleTv.TransportState);
 
-        var fresh = new AppleTvCec(TestFactory.CreateSerialClient().Object, "Fresh", pollTime: 0);
+        var fresh = Create(TestFactory.CreateSerialClient(), "Fresh");
         Assert.Equal(TransportState.Unknown, fresh.TransportState);
     }
 
     [Fact]
-    public void HandleResponse_AnswersTheAppleTvsQueriesAsAnOnTv()
+    public async Task HandleResponse_AnswersTheAppleTvsQueriesAsAnOnTv()
     {
         Receive("\x40\x8F");
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x90', '\x00' }), Times.Once);
 
-        Receive("\x40\x83");
+        await RunWithTimePassing(() => Receive("\x40\x83"));
         _mockClient.Verify(x => x.Send(new[] { '\x0F', '\x84', '\x00', '\x00', '\x00' }), Times.Once);
 
-        Receive("\x40\x9F");
+        await RunWithTimePassing(() => Receive("\x40\x9F"));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x9E', '\x05' }), Times.Once);
     }
 
@@ -452,7 +492,7 @@ public class AppleTvCecTest
     public void HandleResponse_DoesNotAnswerQueriesWhenDisabled()
     {
         var mock = TestFactory.CreateSerialClient();
-        _ = new AppleTvCec(mock.Object, "Quiet", answerTvQueries: false, pollTime: 0);
+        _ = Create(mock, "Quiet", answerTvQueries: false);
 
         mock.Object.ResponseHandlers!.Invoke("\x40\x8F");
 
@@ -465,18 +505,6 @@ public class AppleTvCecTest
         Receive("\x40\x00\x44\x03");
 
         Assert.Equal(CommunicationState.Okay, _appleTv.CommunicationState);
-    }
-
-    [Theory]
-    [MemberData(nameof(RemoteButtonValues))]
-    public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
-    {
-        _mockClient.Invocations.Clear();
-
-        _appleTv.SendIRCode(button);
-
-        Assert.Contains(button, _appleTv.SupportedButtons);
-        _mockClient.Verify(x => x.Send(It.IsAny<char[]>()), Times.AtLeastOnce);
     }
 
     [Theory]
@@ -510,40 +538,40 @@ public class AppleTvCecTest
     [InlineData(RemoteButton.Next, '\x4B')]
     [InlineData(RemoteButton.Previous, '\x4C')]
     [InlineData(RemoteButton.Subtitle, '\x51')]
-    public void SendIRCode_SendsPressedThenReleased(RemoteButton button, char code)
+    public async Task SendIRCode_SendsPressedThenReleased(RemoteButton button, char code)
     {
-        _appleTv.SendIRCode(button);
+        await RunWithTimePassing(() => _appleTv.SendIRCode(button));
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', code }));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x45' }));
     }
 
     [Fact]
-    public void SendIRCode_PowerOnAndOffUseTheDriverPowerMethods()
+    public async Task SendIRCode_PowerOnAndOffUseTheDriverPowerMethods()
     {
-        _appleTv.SendIRCode(RemoteButton.PowerOn);
+        await RunWithTimePassing(() => _appleTv.SendIRCode(RemoteButton.PowerOn));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x6D' }));
 
-        _appleTv.SendIRCode(RemoteButton.PowerOff);
+        await RunWithTimePassing(() => _appleTv.SendIRCode(RemoteButton.PowerOff));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x36' }));
     }
 
     [Fact]
-    public void SendIRCode_PowerTogglesFromTheKnownState()
+    public async Task SendIRCode_PowerTogglesFromTheKnownState()
     {
         Receive("\x40\x90\x00");
-        _appleTv.SendIRCode(RemoteButton.Power);
+        await RunWithTimePassing(() => _appleTv.SendIRCode(RemoteButton.Power));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x36' }), Times.Once);
 
         Receive("\x40\x90\x01");
-        _appleTv.SendIRCode(RemoteButton.Power);
+        await RunWithTimePassing(() => _appleTv.SendIRCode(RemoteButton.Power));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x6D' }), Times.Once);
     }
 
     [Fact]
-    public void SetChannel_SendsTheDigits()
+    public async Task SetChannel_SendsTheDigits()
     {
-        _appleTv.SetChannel(12);
+        await RunWithTimePassing(() => _appleTv.SetChannel(12));
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x21' }));
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x22' }));
@@ -570,9 +598,9 @@ public class AppleTvCecTest
     }
 
     [Fact]
-    public void ToggleSubtitles_SendsSubPicture()
+    public async Task ToggleSubtitles_SendsSubPicture()
     {
-        _appleTv.ToggleSubtitles();
+        await RunWithTimePassing(_appleTv.ToggleSubtitles);
 
         _mockClient.Verify(x => x.Send(new[] { '\x04', '\x44', '\x51' }));
     }

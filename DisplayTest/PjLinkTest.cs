@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Microsoft.Extensions.Logging;
@@ -6,7 +5,6 @@ using Moq;
 
 namespace AVCoders.Display.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class PjLinkTest
 {
     private readonly PjLink _display;
@@ -119,16 +117,6 @@ public class PjLinkTest
     [Theory]
     [InlineData(PowerState.On, "%1POWR=3", "%1POWR 1\r")]
     [InlineData(PowerState.Off, "%1POWR=2", "%1POWR 0\r")]
-    public void HandleResponse_DoesntForcePowerWhileTransitioningTowardsIt(PowerState desired, string response, string command)
-    {
-        if (desired == PowerState.On) _display.PowerOn(); else _display.PowerOff();
-        _mockClient.Object.ResponseHandlers?.Invoke(response + "\r");
-
-        _mockClient.Verify(x => x.Send(command), Times.Exactly(1));
-        Assert.DoesNotContain(_display.GetOngoingIssues(), i => i.Key == "power-state");
-    }
-
-    [Theory]
     [InlineData(PowerState.On, "%1POWR=2", "%1POWR 1\r")]
     [InlineData(PowerState.Off, "%1POWR=3", "%1POWR 0\r")]
     public void HandleResponse_DoesntForcePowerDuringAnyTransition(PowerState desired, string response, string command)
@@ -199,7 +187,6 @@ public class PjLinkTest
     [Fact]
     public void HandleResponse_LogsInAndPollsPower()
     {
-        // AV Coders
         _mockClient.Object.ResponseHandlers!.Invoke("PJLINK 1 3bcc52b3\r");
         byte[] expected = [0x36, 0x35, 0x36, 0x30, 0x34, 0x65, 0x38, 0x63, 0x61, 0x34, 0x32, 0x65, 0x36, 0x34, 0x65, 0x36, 0x64, 0x31, 0x63, 0x39, 0x39, 0x38, 0x66, 0x39, 0x65, 0x39, 0x35, 0x33, 0x35, 0x64, 0x38, 0x38, 0x25, 0x31, 0x50, 0x4f, 0x57, 0x52, 0x20, 0x3f, 0x0d
         ];
@@ -219,9 +206,6 @@ public class PjLinkTest
     [Fact]
     public void GetMd5Hash_PadsBytesBelow0x10()
     {
-        // MD5("1d651e5bJBMIAProjectorLink") = 83a3e3f02cea00e5215c5b0ea8495dfd, which contains a
-        // 0x02 and a 0x00 byte. The previous single-digit formatting rendered those as "2"/"0"
-        // instead of "02"/"00", producing a 30-char hash that the projector rejected with ERRA.
         var actual = _display.GetMd5Hash("1d651e5bJBMIAProjectorLink");
         var expected = System.Text.Encoding.ASCII.GetBytes("83a3e3f02cea00e5215c5b0ea8495dfd");
 
@@ -274,16 +258,6 @@ public class PjLinkTest
         foreach (var command in new[] { "CLSS", "INF1", "INF2", "INFO", "NAME", "INST" })
             _mockClient.Verify(x => x.Send($"%1{command} ?\r"), Times.Once);
         _mockClient.Verify(x => x.Send("%2SNUM ?\r"), Times.Never);
-    }
-
-    [Fact]
-    public void HandleResponse_BannerErraRaisesThePasswordIssueOnly()
-    {
-        _mockClient.Object.ResponseHandlers?.Invoke("PJLINK ERRA\r");
-
-        Assert.Single(_display.GetOngoingIssues(), i => i.Key == PjLink.PasswordIssueKey);
-        Assert.DoesNotContain(_display.GetOngoingIssues(), i => i.Key == "communication");
-        Assert.Equal(CommunicationState.NotAttempted, _display.CommunicationState);
     }
 
     [Fact]
@@ -499,7 +473,6 @@ public class PjLinkTest
             return this;
         }
 
-        // Keep the real PollWorker out of these tests so Poll() is the only caller of DoPoll.
         protected override void RestartPolling() { }
     }
 
@@ -1157,10 +1130,10 @@ public class PjLinkTest
 
         int Passes() => client.Sent.Count(s => s == "%2INNM ?11\r");
         int before = Passes();
-        await display.Poll();                        // retry after 1 tick
+        await display.Poll();
         Assert.Equal(before + 1, Passes());
         client.Feed("%2INNM=ERR3\r%2INNM=ERR3\r");
-        await display.Poll();                        // back-off now 2 ticks: nothing yet
+        await display.Poll();
         Assert.Equal(before + 1, Passes());
         await display.Poll();
         Assert.Equal(before + 2, Passes());
@@ -1203,6 +1176,8 @@ public class PjLinkTest
 
         Assert.Single(display.GetOngoingIssues(), i => i.Key == PjLink.PasswordIssueKey);
         Assert.DoesNotContain(display.GetOngoingIssues(), i => i.Key == PjLink.BannerIssueKey);
+        Assert.DoesNotContain(display.GetOngoingIssues(), i => i.Key == "communication");
+        Assert.Equal(CommunicationState.NotAttempted, display.CommunicationState);
         Assert.Equal(0, client.Reconnects);
         Assert.Empty(client.Sent);
     }
@@ -1250,71 +1225,6 @@ public class PjLinkTest
 
         Assert.Equal([Input.Hdmi1, Input.Hdmi2], _display.SupportedInputs);
         Assert.Equal(PowerState.On, _display.PowerState);
-    }
-
-    [Fact]
-    public void HandleResponse_InputCodesThatParseToTheSameNumberAreIgnoredAndLogged()
-    {
-        var (client, display, logs) = CreateDisplayWithCapturedLogs();
-
-        client.Object.ResponseHandlers?.Invoke("%1CLSS=1\r%1INST=31 031 32\r%1POWR=1\r");
-
-        Assert.Equal([Input.Hdmi1, Input.Hdmi2], display.SupportedInputs);
-        Assert.Equal(PowerState.On, display.PowerState);
-        Assert.Contains((LogLevel.Warning, "The input list 31 031 32 names an input more than once"), logs);
-    }
-
-    [Fact]
-    public void HandleResponse_UnknownPowerCode_ReportsUnknownAndLogsTheCode()
-    {
-        var (client, display, logs) = CreateDisplayWithCapturedLogs();
-        client.Object.ResponseHandlers?.Invoke("%1POWR=1\r");
-
-        client.Object.ResponseHandlers?.Invoke("%1POWR=7\r");
-
-        Assert.Equal(PowerState.Unknown, display.PowerState);
-        Assert.Contains((LogLevel.Warning, "Unknown POWR code 7"), logs);
-    }
-
-    [Fact]
-    public void HandleResponse_UnmappedInputCode_ReportsUnknownAndLogsTheCode()
-    {
-        var (client, display, logs) = CreateDisplayWithCapturedLogs();
-        client.Object.ResponseHandlers?.Invoke("%1INPT=31\r");
-
-        client.Object.ResponseHandlers?.Invoke("%1INPT=99\r");
-
-        Assert.Equal(Input.Unknown, display.Input);
-        Assert.Contains((LogLevel.Debug, "No input is mapped to INPT 99"), logs);
-    }
-
-    private static (Mock<TcpClient> Client, PjLink Display, ConcurrentQueue<(LogLevel Level, string Message)> Logs) CreateDisplayWithCapturedLogs()
-    {
-        var logs = new ConcurrentQueue<(LogLevel Level, string Message)>();
-        var client = TestFactory.CreateTcpClient();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = new CapturingLoggerFactory(logs);
-        try
-        {
-            return (client, new PjLink(client.Object, "Test display", null), logs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
-    private sealed class CapturingLoggerFactory(ConcurrentQueue<(LogLevel Level, string Message)> logs)
-        : ILoggerFactory, ILogger
-    {
-        public ILogger CreateLogger(string categoryName) => this;
-        public void AddProvider(ILoggerProvider provider) { }
-        public void Dispose() { }
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-            Func<TState, Exception?, string> formatter) => logs.Enqueue((logLevel, formatter(state, exception)));
     }
 
     [Fact]
@@ -1383,8 +1293,8 @@ public class PjLinkTest
         client.Feed("PJLINK 0\r%1CLSS=1\r%1INST=31 32\r");
 
         display.SetInput(Input.Hdmi2);
-        await display.Poll();                 // "INPT ?" is now the last INPT request
-        client.Feed("%1INPT=ERR1\r");         // ...but this ERR1 belongs to the set
+        await display.Poll();
+        client.Feed("%1INPT=ERR1\r");
 
         Assert.DoesNotContain("INPT", display.UnsupportedCommands);
         Assert.Single(display.GetIssues(), i => i.Key == "err1-INPT");
@@ -1486,5 +1396,61 @@ public class PjLinkTest
         _mockClient.Object.ResponseHandlers?.Invoke("%2INNM=Computer1\r");
 
         Assert.Contains(("%2INNM ?32\r", receiveId), sent);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class PjLinkLogTest
+{
+    private static (Mock<TcpClient> Client, PjLink Display, ScopeCapturingLoggerFactory Logs) CreateDisplayWithCapturedLogs()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = TestFactory.CreateTcpClient();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return (client, new PjLink(client.Object, "Test display", null), logs);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    [Fact]
+    public void HandleResponse_InputCodesThatParseToTheSameNumberAreIgnoredAndLogged()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+
+        client.Object.ResponseHandlers?.Invoke("%1CLSS=1\r%1INST=31 031 32\r%1POWR=1\r");
+
+        Assert.Equal([Input.Hdmi1, Input.Hdmi2], display.SupportedInputs);
+        Assert.Equal(PowerState.On, display.PowerState);
+        Assert.Contains(logs.Logs, l => l.Level == LogLevel.Warning && l.Message == "The input list 31 031 32 names an input more than once");
+    }
+
+    [Fact]
+    public void HandleResponse_UnknownPowerCode_ReportsUnknownAndLogsTheCode()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+        client.Object.ResponseHandlers?.Invoke("%1POWR=1\r");
+
+        client.Object.ResponseHandlers?.Invoke("%1POWR=7\r");
+
+        Assert.Equal(PowerState.Unknown, display.PowerState);
+        Assert.Contains(logs.Logs, l => l.Level == LogLevel.Warning && l.Message == "Unknown POWR code 7");
+    }
+
+    [Fact]
+    public void HandleResponse_UnmappedInputCode_ReportsUnknownAndLogsTheCode()
+    {
+        var (client, display, logs) = CreateDisplayWithCapturedLogs();
+        client.Object.ResponseHandlers?.Invoke("%1INPT=31\r");
+
+        client.Object.ResponseHandlers?.Invoke("%1INPT=99\r");
+
+        Assert.Equal(Input.Unknown, display.Input);
+        Assert.Contains(logs.Logs, l => l.Level == LogLevel.Debug && l.Message == "No input is mapped to INPT 99");
     }
 }

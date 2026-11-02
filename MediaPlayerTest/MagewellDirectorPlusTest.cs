@@ -1,5 +1,7 @@
 using System.Net;
+using System.Text.Json.Nodes;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using static AVCoders.MediaPlayer.Tests.MagewellDirectorPlusReplies;
 
 namespace AVCoders.MediaPlayer.Tests;
@@ -53,16 +55,6 @@ public class MagewellDirectorPlusTest
     private int CountGets(string path) => _restComms.Invocations.Count(invocation =>
         invocation.Method.Name == nameof(RestComms.Get) && invocation.Arguments.Count == 1 &&
         (invocation.Arguments[0] as Uri)?.OriginalString == path);
-
-    private static async Task WaitUntilAsync(Func<bool> condition, string failureMessage)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, failureMessage);
-            await Task.Delay(25);
-        }
-    }
 
     private Issue? Ongoing(string key) => _director.GetOngoingIssues().SingleOrDefault(issue => issue.Key == key);
 
@@ -174,15 +166,15 @@ public class MagewellDirectorPlusTest
     {
         var request = $"{{\"client\":\"{_director.InstanceUid}\"}}";
 
-        await WaitUntilAsync(() => CountPosts(StateMachinePath, request) > 0, "The statemachine was never polled");
+        await Wait.UntilAsync(() => CountPosts(StateMachinePath, request) > 0, "The statemachine was never polled");
     }
 
     [Fact]
     public async Task Poll_ReadsTheMixerIdentityAndHealth()
     {
-        await WaitUntilAsync(() => CountGets(MixerPath) > 0, "The mixer was never polled");
-        await WaitUntilAsync(() => CountPosts(DeviceInfoPath, "{}") > 0, "The device info was never read");
-        await WaitUntilAsync(() => CountPosts(SummaryPath, "{}") > 0, "The health summary was never read");
+        await Wait.UntilAsync(() => CountGets(MixerPath) > 0, "The mixer was never polled");
+        await Wait.UntilAsync(() => CountPosts(DeviceInfoPath, "{}") > 0, "The device info was never read");
+        await Wait.UntilAsync(() => CountPosts(SummaryPath, "{}") > 0, "The health summary was never read");
     }
 
     [Fact]
@@ -885,6 +877,59 @@ public class MagewellDirectorPlusTest
         Assert.Equal("3.3.1106", Detail("Software"));
         Assert.Equal("1.1", Detail("Firmware"));
         Assert.Equal("A", Detail("Hardware"));
+        Assert.Equal("Asia/Shanghai (UTC+08:00)", Detail("Time zone"));
+    }
+
+    [Fact]
+    public void DeviceInfo_NegativeOffset_ShowsAMinusSign()
+    {
+        Reply(DeviceInfoPath, DeviceInfo.Replace("\"timeZoneOffset\": 28800000", "\"timeZoneOffset\": -34200000"));
+
+        Assert.Equal("Asia/Shanghai (UTC-09:30)", Detail("Time zone"));
+    }
+
+    [Fact]
+    public void Summary_SetsTheSystemDetails()
+    {
+        Reply(SummaryPath, Summary);
+
+        Assert.Equal("3d 00:36:02", Detail("Uptime"));
+        Assert.Equal("13.69 %", Detail("CPU"));
+        Assert.Equal("7 %", Detail("GPU"));
+        Assert.Equal("5250420 KB of 8109528 KB", Detail("Memory available"));
+        Assert.Equal("473 of 1024 in use", Detail("File descriptors"));
+        Assert.Equal("left -50, right -50, charging", Detail("Battery"));
+    }
+
+    [Theory]
+    [InlineData("memInfo", "Memory available")]
+    [InlineData("fd", "File descriptors")]
+    [InlineData("battery", "Battery")]
+    public void Summary_WithoutANode_ShowsItIsNotSupportedAndKeepsTheOtherDetailsUpdating(string node, string label)
+    {
+        var summary = JsonNode.Parse(Summary)!.AsObject();
+        summary.Remove(node);
+
+        Reply(SummaryPath, summary.ToJsonString());
+
+        Assert.Contains(new DeviceDetail(label, $"Not supported: no \"{node}\" in the summary", DetailTone.Normal), _director.Details);
+        Assert.Equal("43.7 °C", Detail("Temperature"));
+        Assert.Equal("3d 00:36:02", Detail("Uptime"));
+        Assert.Equal("7 %", Detail("GPU"));
+        Assert.Equal(10, _director.Details.Count);
+        Assert.Empty(_director.GetIssues());
+    }
+
+    [Theory]
+    [InlineData("\"gpuWarning\": false", "\"gpuWarning\": true", "GPU")]
+    [InlineData("\"inUse\": 473, \"warning\": false", "\"inUse\": 473, \"warning\": true", "File descriptors")]
+    [InlineData("\"total\": 8109528, \"warning\": false", "\"total\": 8109528, \"warning\": true", "Memory available")]
+    [InlineData("\"cpuWarning\": false", "\"cpuWarning\": true", "CPU")]
+    public void Summary_Warning_MarksItsDetail(string flag, string set, string label)
+    {
+        Reply(SummaryPath, Summary.Replace(flag, set));
+
+        Assert.Equal(DetailTone.Warning, _director.Details.Single(detail => detail.Label == label).Tone);
     }
 
     [Fact]
@@ -904,6 +949,8 @@ public class MagewellDirectorPlusTest
     [InlineData("\"fanSpeedWarning\": false", "\"fanSpeedWarning\": true", "fan", IssueSeverity.Major)]
     [InlineData("\"cpuWarning\": false", "\"cpuWarning\": true", "cpu", IssueSeverity.Minor)]
     [InlineData("\"total\": 8109528, \"warning\": false", "\"total\": 8109528, \"warning\": true", "memory", IssueSeverity.Minor)]
+    [InlineData("\"gpuWarning\": false", "\"gpuWarning\": true", "gpu", IssueSeverity.Minor)]
+    [InlineData("\"inUse\": 473, \"warning\": false", "\"inUse\": 473, \"warning\": true", "file-descriptors", IssueSeverity.Minor)]
     public void Summary_Warning_RaisesAnIssueUntilCleared(string flag, string set, string key, IssueSeverity severity)
     {
         Reply(SummaryPath, Summary.Replace(flag, set));

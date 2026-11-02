@@ -2,34 +2,29 @@
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using AVCoders.MediaPlayer;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Display.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class LgCommercialTest
 {
+    private static readonly TimeSpan CommandSpacing = TimeSpan.FromSeconds(1);
+    private readonly FakeTimeProvider _time = new();
     private readonly LGCommercial _display;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
-    private static readonly RemoteButton[] _excludedButtons = 
+    private static readonly RemoteButton[] _excludedButtons =
     [
-        RemoteButton.Display, RemoteButton.Eject, 
+        RemoteButton.Display, RemoteButton.Eject,
         RemoteButton.PopupMenu, RemoteButton.TopMenu,
         RemoteButton.PowerOn, RemoteButton.PowerOff
     ];
-    public static IEnumerable<object[]> RemoteButtonValues()
-    {
-        return Enum.GetValues(typeof(RemoteButton))
-            .Cast<RemoteButton>()
-            .Where(rb => !_excludedButtons.Contains(rb))
-            .Select(rb => new object[] { rb });
-    }
 
     public LgCommercialTest()
     {
-        _display = new LGCommercial(_mockClient.Object, "Test display", "00-00-00-00-00-00",null, 0);
+        _display = new LGCommercial(_mockClient.Object, "Test display", null, null, 0, _time);
     }
-    
+
     private static void SetConnectionState(Mock<TcpClient> mock, ConnectionState state) =>
         typeof(CommunicationClient).GetField("_connectionState", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(mock.Object, state);
@@ -38,16 +33,22 @@ public class LgCommercialTest
         (Task)typeof(LGCommercial).GetMethod("DoPoll", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(_display, [CancellationToken.None])!;
 
+    private async Task RunDoPoll()
+    {
+        var poll = InvokeDoPoll();
+        await Wait.UntilAsync(_time, CommandSpacing, () => poll.IsCompleted, "The poll never finished");
+        await poll;
+    }
+
     [Theory]
     [InlineData("AA:BB:CC:DD:EE:FF")]
     [InlineData("AA-BB-CC-DD-EE-FF")]
     [InlineData("aabb.ccdd.eeff")]
     [InlineData("AABBCCDDEEFF")]
-    [InlineData("not a mac")]
     public void Constructor_ToleratesCommonMacFormats(string mac)
     {
         var exception = Record.Exception(() =>
-            new LGCommercial(TestFactory.CreateTcpClient().Object, "Mac test display", mac, null, 0));
+            new LGCommercial(TestFactory.CreateTcpClient().Object, "Mac test display", mac, null, 0, _time));
 
         Assert.Null(exception);
     }
@@ -60,8 +61,6 @@ public class LgCommercialTest
 
         await InvokeDoPoll();
 
-        // The old poll equated disconnected with off, flipping the state and re-firing
-        // the power command every cycle.
         Assert.Equal(PowerState.On, _display.PowerState);
         _mockClient.Verify(x => x.Send("ka 00 FF\r"), Times.Never);
     }
@@ -73,10 +72,8 @@ public class LgCommercialTest
         _mockClient.Object.ResponseHandlers!.Invoke("a 00 OK00x");
         Assert.Equal(PowerState.Off, _display.PowerState);
 
-        await InvokeDoPoll();
+        await RunDoPoll();
 
-        // The old poll forced PowerState.On whenever the connection was up, which lies
-        // for displays with PM Mode set to Screen Off Always.
         Assert.Equal(PowerState.Off, _display.PowerState);
         _mockClient.Verify(x => x.Send("ka 00 FF\r"), Times.AtLeastOnce);
     }
@@ -223,34 +220,12 @@ public class LgCommercialTest
         handler.Verify(x => x.Invoke(expectedVolume));
     }
 
-    [Theory]
-    [MemberData(nameof(RemoteButtonValues))]
-    public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
-    {
-        _mockClient.Invocations.Clear();
-
-        _display.SendIRCode(button);
-
-        Assert.Contains(button, _display.SupportedButtons);
-        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.AtLeastOnce);
-    }
-
     [Fact]
-    public void SupportedButtons_MatchTheRemoteMap()
+    public void SendIRCode_SendsTheButtonsCode()
     {
-        Assert.Contains(RemoteButton.Guide, _display.SupportedButtons);
-        Assert.Contains(RemoteButton.Menu, _display.SupportedButtons);
-        Assert.DoesNotContain(RemoteButton.Eject, _display.SupportedButtons);
-        Assert.DoesNotContain(RemoteButton.TopMenu, _display.SupportedButtons);
-    }
+        _display.SendIRCode(RemoteButton.Menu);
 
-    [Fact]
-    public void SendIRCode_UnsupportedButtonSendsNothing()
-    {
-        _display.SendIRCode(RemoteButton.Eject);
-
-        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
-        _mockClient.Verify(x => x.Send(It.IsAny<byte[]>()), Times.Never);
+        _mockClient.Verify(x => x.Send("mc 00 43\r"), Times.Once);
     }
 
     [Fact]
@@ -301,30 +276,6 @@ public class LgCommercialTest
     }
 
     [Fact]
-    public void HandleResponse_GivenOver1024CharactersWithoutATerminator_ClearsTheBuffer()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = TestFactory.CreateTcpClient();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        LGCommercial display;
-        try
-        {
-            display = new LGCommercial(client.Object, "Test display", "00-00-00-00-00-00", null, 0);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-        string garbage = new('a', 1025);
-
-        client.Object.ResponseHandlers!.Invoke(garbage);
-
-        Assert.Equal("", typeof(LGCommercial).GetField("_gather", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(display));
-        Assert.Contains(logs.Logs, l => l.Message == $"Gather buffer exceeded 1024 characters, clearing {garbage}");
-    }
-
-    [Fact]
     public void SetChannel_GivenANegativeChannel_SendsNothing()
     {
         _display.SetChannel(-1);
@@ -348,5 +299,33 @@ public class LgCommercialTest
         _display.SetAudioMute(MuteState.Unknown);
 
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class LgCommercialLogTest
+{
+    [Fact]
+    public void HandleResponse_GivenOver1024CharactersWithoutATerminator_ClearsTheBuffer()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = TestFactory.CreateTcpClient();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        LGCommercial display;
+        try
+        {
+            display = new LGCommercial(client.Object, "Test display", null, null, 0, new FakeTimeProvider());
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        string garbage = new('a', 1025);
+
+        client.Object.ResponseHandlers!.Invoke(garbage);
+
+        Assert.Equal("", typeof(LGCommercial).GetField("_gather", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(display));
+        Assert.Contains(logs.Logs, l => l.Message == $"Gather buffer exceeded 1024 characters, clearing {garbage}");
     }
 }

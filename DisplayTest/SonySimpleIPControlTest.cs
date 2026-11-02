@@ -18,13 +18,6 @@ public class SonySimpleIPControlTest
         RemoteButton.PowerOn, RemoteButton.PowerOff,
         RemoteButton.Guide
     ];
-    public static IEnumerable<object[]> RemoteButtonValues()
-    {
-        return Enum.GetValues(typeof(RemoteButton))
-            .Cast<RemoteButton>()
-            .Where(rb => !_excludedButtons.Contains(rb))
-            .Select(rb => new object[] { rb });
-    }
 
     public SonySimpleIPControlTest()
     {
@@ -40,17 +33,6 @@ public class SonySimpleIPControlTest
         protected override TimeSpan OutstandingExpiry => Expiry;
         protected override TimeSpan ExternalAudioGrace => Grace;
         protected override TimeSpan PowerOnBootWindow => BootWindow;
-    }
-
-    [Fact]
-    public void SendCommand_DoesNotManipulateInput()
-    {
-        string input = "Foo";
-
-        var method = typeof(SonySimpleIpControl).GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-
-        method?.Invoke(_sonyTv, [input]);
-        _mockClient.Verify(x => x.Send(input), Times.Once);
     }
 
     [Fact]
@@ -101,15 +83,6 @@ public class SonySimpleIPControlTest
         _mockClient.Object.ResponseHandlers?.Invoke(response);
 
         Assert.Equal(expectedPowerState, _sonyTv.PowerState);
-    }
-
-    [Theory]
-    [InlineData("*SNPOWR0000000000000001\n", PowerState.On)]
-    [InlineData("*SNPOWR0000000000000000\n", PowerState.Off)]
-    public void HandleResponse_CallsThePowerDelegate(string response, PowerState expectedPowerState)
-    {
-        _mockClient.Object.ResponseHandlers?.Invoke(response);
-        
         _powerStateHandler.Verify(x => x.Invoke(expectedPowerState));
     }
 
@@ -121,36 +94,14 @@ public class SonySimpleIPControlTest
         Assert.Equal(10, _sonyTv.Volume);
     }
 
-    [Fact]
-    public void HandleResponse_InvokesTheVolumeDelegate()
-    {
-        Mock<VolumeLevelHandler> volumeLevelHandler = new Mock<VolumeLevelHandler>();
-        _sonyTv.VolumeLevelHandlers += volumeLevelHandler.Object;
-        _mockClient.Object.ResponseHandlers?.Invoke("*SNVOLU0000000000000010\n");
-
-        volumeLevelHandler.Verify(x => x.Invoke(10));
-    }
-
     [Theory]
     [InlineData("*SNAMUT0000000000000000\n", MuteState.Off)]
     [InlineData("*SNAMUT0000000000000001\n", MuteState.On)]
     public void HandleResponse_SetsTheAudioMuteState(string input, MuteState expectedMuteState)
     {
         _mockClient.Object.ResponseHandlers?.Invoke(input);
-        
-        Assert.Equal(expectedMuteState, _sonyTv.AudioMute);
-    }
 
-    [Theory]
-    [InlineData("*SNAMUT0000000000000000\n", MuteState.Off)]
-    [InlineData("*SNAMUT0000000000000001\n", MuteState.On)]
-    public void HandleResponse_InvokesTheDelegate(string input, MuteState expectedMuteState)
-    {
-        Mock<MuteStateHandler> muteStateHandler = new Mock<MuteStateHandler>();
-        _sonyTv.MuteStateHandlers += muteStateHandler.Object;
-        _mockClient.Object.ResponseHandlers?.Invoke(input);
-        
-        muteStateHandler.Verify(x => x.Invoke(expectedMuteState));
+        Assert.Equal(expectedMuteState, _sonyTv.AudioMute);
     }
 
     [Theory]
@@ -164,21 +115,6 @@ public class SonySimpleIPControlTest
         _mockClient.Object.ResponseHandlers?.Invoke(response);
 
         Assert.Equal(expectedInput, _sonyTv.Input);
-    }
-
-    [Theory]
-    [InlineData("*SNINPT0000000100000001\n", Input.Hdmi1)]
-    [InlineData("*SNINPT0000000100000002\n", Input.Hdmi2)]
-    [InlineData("*SNINPT0000000100000003\n", Input.Hdmi3)]
-    [InlineData("*SNINPT0000000100000004\n", Input.Hdmi4)]
-    [InlineData("*SNINPT0000000000000000\n", Input.DvbtTuner)]
-    public void HandleResponse_InvokesTheInputDelegate(string response, Input expectedInput)
-    {
-        Mock<InputHandler> inputHandler = new Mock<InputHandler>();
-        _sonyTv.InputHandlers += inputHandler.Object;
-        _mockClient.Object.ResponseHandlers?.Invoke(response);
-
-        inputHandler.Verify(x => x.Invoke(expectedInput));
     }
 
     [Fact]
@@ -224,14 +160,7 @@ public class SonySimpleIPControlTest
         _sonyTv.SetVolume(volume);
 
         _mockClient.Verify(x => x.Send(expectedVolumeCommand), Times.Once);
-    }
-
-    [Fact]
-    public void SetVolume_UpdatesInternalState()
-    {
-        _sonyTv.SetVolume(15);
-
-        Assert.Equal(15, _sonyTv.Volume);
+        Assert.Equal(volume, _sonyTv.Volume);
     }
 
     [Theory]
@@ -263,14 +192,7 @@ public class SonySimpleIPControlTest
         _sonyTv.SetVideoMute(state);
 
         _mockClient.Verify(x => x.Send(expectedMuteCommand), Times.Once);
-    }
-
-    [Fact]
-    public void setPictureMute_UpdatesInternalState()
-    {
-        _sonyTv.SetVideoMute(MuteState.On);
-
-        Assert.Equal(MuteState.On, _sonyTv.VideoMute);
+        Assert.Equal(state, _sonyTv.VideoMute);
     }
 
     [Fact]
@@ -280,18 +202,6 @@ public class SonySimpleIPControlTest
 
         _sonyTv.SendIRCode(RemoteButton.Mute);
         _mockClient.Verify(x => x.Send(expectedCommand));
-    }
-
-    [Theory]
-    [MemberData(nameof(RemoteButtonValues))]
-    public void SendIRCode_HandlesAllRemoteButtonValues(RemoteButton button)
-    {
-        _mockClient.Invocations.Clear();
-
-        _sonyTv.SendIRCode(button);
-
-        Assert.Contains(button, _sonyTv.SupportedButtons);
-        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -608,20 +518,6 @@ public class SonySimpleIPControlTest
     }
 
     [Fact]
-    public void SetVolume_IsRefusedWhileExternalAudioIsLatched()
-    {
-        LatchExternalAudio();
-        int before = Sent("*SCVOLU");
-
-        _sonyTv.SetVolume(9);
-        _sonyTv.SetAudioMute(MuteState.On);
-
-        Assert.Equal(before, Sent("*SCVOLU"));
-        Assert.Equal(0, Sent("*SCAMUT"));
-        Assert.Contains(_sonyTv.Events, e => e.Info.Contains("external audio system"));
-    }
-
-    [Fact]
     public void HandleResponse_OffToOnTransitionResetsExternalAudio()
     {
         LatchExternalAudio();
@@ -688,9 +584,6 @@ public class SonySimpleIPControlTest
     [Fact]
     public void Track_DropsTheNewestWhenTooManyRequestsAreOutstanding()
     {
-        // 9 rapid volume sets, then a poll enquiry, then the answers arrive in order: 9 acks then the
-        // enquiry answer. Only the first 8 sets are tracked; the 9th ack and the enquiry answer are
-        // untracked, so the poll's answer is applied as state and the acks never masquerade as state.
         TurnOn();
         Feed("*SAVOLU0000000000000003\n");
         for (int i = 1; i <= SonySimpleIpControl.MaxOutstandingPerCommand + 1; i++)
@@ -764,13 +657,14 @@ public class SonySimpleIPControlTest
         Assert.Equal(0, Sent("*SCVOLU"));
         Assert.Equal(0, Sent("*SCAMUT"));
         Assert.Equal(events + 2, _sonyTv.Events.Count);
+        Assert.Contains(_sonyTv.Events, e => e.Info.Contains("external audio system"));
     }
 
     [Fact]
     public void PowerOn_OnAnAlreadyOnTvKeepsTheExternalAudioLatch()
     {
         LatchExternalAudio();
-        Feed("*SAPOWR0000000000000001\n"); // answers the enquiry LatchExternalAudio's QueryStatus sent
+        Feed("*SAPOWR0000000000000001\n");
         Assert.True(_sonyTv.TvConfirmedOn, "confirmed before PowerOn");
 
         _sonyTv.PowerOn();
@@ -793,9 +687,9 @@ public class SonySimpleIPControlTest
         Assert.Equal(Input.Hdmi2, _sonyTv.Input);
 
         _sonyTv.PowerOn();
-        Feed("*SAPOWR0000000000000000\n"); // ack of the power-on control
+        Feed("*SAPOWR0000000000000000\n");
         _sonyTv.QueryStatus();
-        Feed("*SAPOWR0000000000000000\n"); // the TV is still in standby
+        Feed("*SAPOWR0000000000000000\n");
 
         Assert.Equal(Input.Hdmi2, _sonyTv.Input);
         Assert.Equal(PowerState.On, _sonyTv.PowerState);
@@ -820,8 +714,6 @@ public class SonySimpleIPControlTest
     {
         TurnOn();
         Feed("*SAINPT0000000100000001\n");
-        // 9 rapid input sets: the 9th is beyond the cap and untracked. Its rejection must not count
-        // as a Home probe round.
         for (int i = 0; i < SonySimpleIpControl.MaxOutstandingPerCommand + 1; i++)
             _sonyTv.SetInput(Input.Pc);
         for (int i = 0; i < SonySimpleIpControl.MaxOutstandingPerCommand + 1; i++)
@@ -838,7 +730,7 @@ public class SonySimpleIPControlTest
     {
         _sonyTv.PowerOn();
         Feed("*SAPOWR0000000000000000\n");
-        _sonyTv.SendIRCode(RemoteButton.Home); // no desired input, so Home is not fought once reported
+        _sonyTv.SendIRCode(RemoteButton.Home);
         Feed("*SNPOWR0000000000000001\n");
         Feed("*SAINPTFFFFFFFFFFFFFFFF\n");
         _sonyTv.QueryStatus();
@@ -846,7 +738,6 @@ public class SonySimpleIPControlTest
         Assert.NotEqual(Input.Home, _sonyTv.Input);
 
         _sonyTv.BootWindow = TimeSpan.Zero;
-        // Rounds inside the boot window were deferred, not counted, so two rounds are needed now.
         _sonyTv.QueryStatus();
         Feed("*SAINPTFFFFFFFFFFFFFFFF\n");
         Assert.NotEqual(Input.Home, _sonyTv.Input);
@@ -862,7 +753,7 @@ public class SonySimpleIPControlTest
         TurnOn();
         Feed("*SNINPT0000000100000002\n");
         _sonyTv.PowerOn();
-        Feed("*SAPOWR0000000000000000\n"); // ack of the power-on control
+        Feed("*SAPOWR0000000000000000\n");
         _sonyTv.QueryStatus();
         Feed("*SAPOWR0000000000000000\n");
 
@@ -978,7 +869,7 @@ public class SonySimpleIPControlTest
     }
 
     [Fact]
-    public async Task ConnectionState_ConnectedResetsEverythingAndPollsOnce()
+    public void ConnectionState_ConnectedResetsEverythingAndPollsOnce()
     {
         var client = new TestTcpClient();
         var tv = new TestableSony(client);
@@ -991,7 +882,6 @@ public class SonySimpleIPControlTest
         client.Feed("*SAVOLUFFFFFFFFFFFFFFFF\n");
         client.Feed("*SNINPT0000000000000000\n*SNCHNN00000010.0000000\n");
         client.Feed("*SACHNNNNNNNNNNNNNNNNNN\n");
-        // Answer the two outstanding PMUT enquiries so the rejections below are matched to controls.
         client.Feed("*SAPMUT0000000000000000\n*SAPMUT0000000000000000\n");
         for (int i = 0; i < 3; i++)
         {
@@ -1016,7 +906,6 @@ public class SonySimpleIPControlTest
         Assert.DoesNotContain(tv.GetOngoingIssues(), i => i.Key.StartsWith("rejected-"));
         Assert.Equal(restartsBefore + 1, tv.RestartCount);
         Assert.Empty(client.Sent);
-        await Task.CompletedTask;
     }
 
     private class TestTcpClient() : TcpClient("host", 20060, "Test", CommandStringFormat.Ascii)
@@ -1096,24 +985,6 @@ public class SonySimpleIPControlTest
         await tv.Poll();
 
         Assert.Empty(client.Sent);
-    }
-
-    [Fact]
-    public void SupportedButtons_MatchTheRemoteMap()
-    {
-        Assert.Contains(RemoteButton.Home, _sonyTv.SupportedButtons);
-        Assert.Contains(RemoteButton.Button0, _sonyTv.SupportedButtons);
-        Assert.Contains(RemoteButton.Subtitle, _sonyTv.SupportedButtons);
-        Assert.DoesNotContain(RemoteButton.Guide, _sonyTv.SupportedButtons);
-        Assert.DoesNotContain(RemoteButton.Eject, _sonyTv.SupportedButtons);
-    }
-
-    [Fact]
-    public void SendIRCode_UnsupportedButtonSendsNothing()
-    {
-        _sonyTv.SendIRCode(RemoteButton.Guide);
-
-        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]

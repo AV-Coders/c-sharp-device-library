@@ -144,8 +144,13 @@ public class MagewellDirectorPlus : Recorder
     private const string TemperatureIssueKey = "temperature";
     private const string FanIssueKey = "fan";
     private const string CpuIssueKey = "cpu";
+    private const string GpuIssueKey = "gpu";
     private const string MemoryIssueKey = "memory";
+    private const string FileDescriptorIssueKey = "file-descriptors";
     private const string FirmwareUpdateIssueKey = "firmware-update";
+    private const string MemoryNode = "memInfo";
+    private const string FileDescriptorsNode = "fd";
+    private const string BatteryNode = "battery";
 
     private static readonly TimeSpan StatePollInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MixerPollInterval = TimeSpan.FromSeconds(2);
@@ -621,6 +626,7 @@ public class MagewellDirectorPlus : Recorder
         SetDetail("Software", reply["appVersion"]!.GetValue<string>());
         SetDetail("Firmware", reply["firmwareVersion"]!.GetValue<string>());
         SetDetail("Hardware", reply["hardwareVersion"]!.GetValue<string>());
+        SetDetail("Time zone", TimeZoneText(reply["timeZone"]!.GetValue<string>(), reply["timeZoneOffset"]!.GetValue<long>()));
     }
 
     private void HandleSummary(HttpResponseMessage response)
@@ -633,17 +639,79 @@ public class MagewellDirectorPlus : Recorder
         var fanWarning = reply["fanSpeedWarning"]!.GetValue<bool>();
         var storageFree = reply["storageFreeSize"]!.GetValue<double>() / MegabytesPerGigabyte;
         var storageSize = reply["storageSize"]!.GetValue<double>() / MegabytesPerGigabyte;
+        var cpuWarning = reply["cpuWarning"]!.GetValue<bool>();
+        var gpuWarning = reply["gpuWarning"]!.GetValue<bool>();
 
         SetDetail("Temperature", $"{reply["coreTemp"]!.GetValue<string>()} °C", Tone(temperatureWarning));
         SetDetail("Fan", reply["fanSpeed"]!.GetValue<string>(), Tone(fanWarning));
         SetDetail("Storage free", string.Create(CultureInfo.InvariantCulture, $"{storageFree:0.0} GB of {storageSize:0} GB"));
         SetDetail("Power draw", reply["powerConsumption"]!.GetValue<string>());
+        SetDetail("Uptime", UptimeText(TimeSpan.FromSeconds(reply["upTime"]!.GetValue<long>())));
+        SetDetail("CPU", $"{reply["cpu"]!.ToJsonString()} %", Tone(cpuWarning));
+        SetDetail("GPU", $"{reply["gpuUsage"]!.ToJsonString()} %", Tone(gpuWarning));
 
         SetIssue(TemperatureIssueKey, temperatureWarning, "Core temperature warning", IssueSeverity.Major);
         SetIssue(FanIssueKey, fanWarning, "Fan speed warning", IssueSeverity.Major);
-        SetIssue(CpuIssueKey, reply["cpuWarning"]!.GetValue<bool>(), "CPU load warning", IssueSeverity.Minor);
-        SetIssue(MemoryIssueKey, reply["memInfo"]!["warning"]!.GetValue<bool>(), "Memory warning", IssueSeverity.Minor);
+        SetIssue(CpuIssueKey, cpuWarning, "CPU load warning", IssueSeverity.Minor);
+        SetIssue(GpuIssueKey, gpuWarning, "GPU load warning", IssueSeverity.Minor);
+
+        ShowMemory(reply[MemoryNode]);
+        ShowFileDescriptors(reply[FileDescriptorsNode]);
+        ShowBattery(reply[BatteryNode]);
     }
+
+    private void ShowMemory(JsonNode? memory)
+    {
+        if (memory == null)
+        {
+            ShowNotInTheSummary("Memory available", MemoryNode);
+            ResolveIssue(MemoryIssueKey);
+            return;
+        }
+        var warning = memory["warning"]!.GetValue<bool>();
+        SetDetail("Memory available", $"{memory["avail"]!.ToJsonString()} KB of {memory["total"]!.ToJsonString()} KB", Tone(warning));
+        SetIssue(MemoryIssueKey, warning, "Memory warning", IssueSeverity.Minor);
+    }
+
+    private void ShowFileDescriptors(JsonNode? fileDescriptors)
+    {
+        if (fileDescriptors == null)
+        {
+            ShowNotInTheSummary("File descriptors", FileDescriptorsNode);
+            ResolveIssue(FileDescriptorIssueKey);
+            return;
+        }
+        var warning = fileDescriptors["warning"]!.GetValue<bool>();
+        SetDetail("File descriptors", $"{fileDescriptors["inUse"]!.ToJsonString()} of {fileDescriptors["total"]!.ToJsonString()} in use", Tone(warning));
+        SetIssue(FileDescriptorIssueKey, warning, "File descriptor warning", IssueSeverity.Minor);
+    }
+
+    private void ShowBattery(JsonNode? battery)
+    {
+        if (battery == null)
+        {
+            ShowNotInTheSummary("Battery", BatteryNode);
+            return;
+        }
+        SetDetail("Battery", BatteryText(battery));
+    }
+
+    private void ShowNotInTheSummary(string label, string node) =>
+        SetDetail(label, $"Not supported: no \"{node}\" in the summary", DetailTone.Normal);
+
+    private static string UptimeText(TimeSpan uptime) =>
+        string.Create(CultureInfo.InvariantCulture, $"{(int)uptime.TotalDays}d {uptime.Hours:00}:{uptime.Minutes:00}:{uptime.Seconds:00}");
+
+    private static string TimeZoneText(string timeZone, long offsetMilliseconds)
+    {
+        var offset = TimeSpan.FromMilliseconds(offsetMilliseconds);
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+        return $"{timeZone} (UTC{sign}{offset:hh\\:mm})";
+    }
+
+    private static string BatteryText(JsonNode battery) =>
+        $"left {battery["leftBatteryLevel"]!.ToJsonString()}, right {battery["rightBatteryLevel"]!.ToJsonString()}, " +
+        (battery["isCharging"]!.GetValue<bool>() ? "charging" : "not charging");
 
     private void SetIssue(string key, bool active, string message, IssueSeverity severity)
     {

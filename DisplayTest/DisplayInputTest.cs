@@ -5,7 +5,6 @@ namespace AVCoders.Display.Tests;
 
 public class DisplayInputTest
 {
-    // A minimal non-PjLink driver, so the base Display input logic is exercised on its own.
     private class StubDisplay(CommunicationClient client, Input? defaultInput)
         : Display([Input.Hdmi1], "Stub", defaultInput, client, CommandStringFormat.Ascii)
     {

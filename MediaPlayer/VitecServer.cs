@@ -43,6 +43,7 @@ public class VitecServer : LogBase
     private Dictionary<int, string> _channelMap = new ();
     private ThreadWorker _pollChannelsWorker;
     private readonly Dictionary<string, int> _currentChannelMap = new();
+    private readonly TaskCompletionSource _channelListLoaded = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private readonly Uri _channelUri;
     private readonly Uri _getChannelsUri;
@@ -54,6 +55,8 @@ public class VitecServer : LogBase
         _pollChannelsWorker = new ThreadWorker(PollChannels, TimeSpan.FromHours(2));
         _pollChannelsWorker.Restart();
     }
+
+    public Task ChannelListLoaded => _channelListLoaded.Task;
 
     private Task PollChannels(CancellationToken token) => Get(_getChannelsUri);
 
@@ -126,6 +129,7 @@ public class VitecServer : LogBase
             newChannelMap[channelInfo.Number] = channelInfo.Uri;
         }
         _channelMap = newChannelMap;
+        _channelListLoaded.TrySetResult();
     }
 
     private static string ChannelCommand(string channelUri, string deviceMac) => new JObject

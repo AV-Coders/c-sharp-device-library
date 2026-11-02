@@ -9,9 +9,9 @@ public class TestRecorder : Recorder
     {
     }
 
-    public void SimulateTransportState(TransportState state) => TransportState = state;
+    public void SetTransportState(TransportState state) => TransportState = state;
     public TransportState GetDesiredTransportState() => DesiredTransportState;
-    public void SimulateDesiredTransportState(TransportState state) => DesiredTransportState = state;
+    public void SetDesiredTransportState(TransportState state) => DesiredTransportState = state;
 
     public override void PowerOn() { }
     public override void PowerOff() { }
@@ -35,61 +35,45 @@ public class RecorderTest
     }
 
     [Fact]
-    public void Record_FiresTransportStateChangingBeforeStateChange()
+    public void Record_FiresTransportStateChangingWithRecordingBeforeTheStateChanges()
     {
+        TransportState? received = null;
         TransportState? capturedDuring = null;
         _recorder.TransportStateChanging += (_, state) =>
         {
+            received = state;
             capturedDuring = _recorder.TransportState;
         };
 
         _recorder.Record();
 
+        Assert.Equal(TransportState.Recording, received);
         Assert.NotNull(capturedDuring);
         Assert.NotEqual(TransportState.Recording, capturedDuring);
     }
 
     [Fact]
-    public void Record_FiresTransportStateChangingWithRecording()
+    public void Stop_FiresTransportStateChangingWithStoppedBeforeTheStateChanges()
     {
         TransportState? received = null;
-        _recorder.TransportStateChanging += (_, state) => received = state;
-
-        _recorder.Record();
-
-        Assert.Equal(TransportState.Recording, received);
-    }
-
-    [Fact]
-    public void Stop_FiresTransportStateChangingBeforeStateChange()
-    {
         TransportState? capturedDuring = null;
         _recorder.TransportStateChanging += (_, state) =>
         {
+            received = state;
             capturedDuring = _recorder.TransportState;
         };
 
         _recorder.Stop();
 
+        Assert.Equal(TransportState.Stopped, received);
         Assert.NotNull(capturedDuring);
         Assert.NotEqual(TransportState.Stopped, capturedDuring);
     }
 
     [Fact]
-    public void Stop_FiresTransportStateChangingWithStopped()
-    {
-        TransportState? received = null;
-        _recorder.TransportStateChanging += (_, state) => received = state;
-
-        _recorder.Stop();
-
-        Assert.Equal(TransportState.Stopped, received);
-    }
-
-    [Fact]
     public void Pause_FiresTransportStateChangingWhenRecording()
     {
-        _recorder.SimulateTransportState(TransportState.Recording);
+        _recorder.SetTransportState(TransportState.Recording);
         TransportState? received = null;
         _recorder.TransportStateChanging += (_, state) => received = state;
 
@@ -101,7 +85,7 @@ public class RecorderTest
     [Fact]
     public void Pause_DoesNotFireTransportStateChangingWhenStopped()
     {
-        _recorder.SimulateTransportState(TransportState.Stopped);
+        _recorder.SetTransportState(TransportState.Stopped);
         TransportState? received = null;
         _recorder.TransportStateChanging += (_, state) => received = state;
 
@@ -113,7 +97,7 @@ public class RecorderTest
     [Fact]
     public void TransportStateHandlers_FiresWhenTransportStateChanges()
     {
-        _recorder.SimulateTransportState(TransportState.Recording);
+        _recorder.SetTransportState(TransportState.Recording);
 
         _transportStateHandler.Verify(x => x.Invoke(TransportState.Recording));
     }
@@ -121,49 +105,30 @@ public class RecorderTest
     [Fact]
     public void TransportStateHandlers_DoesNotFireWhenStateIsUnchanged()
     {
-        _recorder.SimulateTransportState(TransportState.Unknown);
+        _recorder.SetTransportState(TransportState.Unknown);
 
         _transportStateHandler.Verify(x => x.Invoke(It.IsAny<TransportState>()), Times.Never);
     }
 
-    [Fact]
-    public void SetRecordState_Recording_CallsRecord()
+    [Theory]
+    [InlineData(TransportState.Recording)]
+    [InlineData(TransportState.RecordingPaused)]
+    [InlineData(TransportState.Stopped)]
+    public void SetRecordState_CallsTheMatchingTransportMethod(TransportState desiredState)
     {
+        _recorder.SetTransportState(TransportState.PreparingToRecord);
         TransportState? received = null;
         _recorder.TransportStateChanging += (_, state) => received = state;
 
-        _recorder.SetRecordState(TransportState.Recording);
+        _recorder.SetRecordState(desiredState);
 
-        Assert.Equal(TransportState.Recording, received);
-    }
-
-    [Fact]
-    public void SetRecordState_RecordingPaused_CallsPause()
-    {
-        _recorder.SimulateTransportState(TransportState.Recording);
-        TransportState? received = null;
-        _recorder.TransportStateChanging += (_, state) => received = state;
-
-        _recorder.SetRecordState(TransportState.RecordingPaused);
-
-        Assert.Equal(TransportState.RecordingPaused, received);
-    }
-
-    [Fact]
-    public void SetRecordState_Stopped_CallsStop()
-    {
-        TransportState? received = null;
-        _recorder.TransportStateChanging += (_, state) => received = state;
-
-        _recorder.SetRecordState(TransportState.Stopped);
-
-        Assert.Equal(TransportState.Stopped, received);
+        Assert.Equal(desiredState, received);
     }
 
     [Fact]
     public void Pause_FiresTransportStateChangingWhenPreparingToRecord()
     {
-        _recorder.SimulateTransportState(TransportState.PreparingToRecord);
+        _recorder.SetTransportState(TransportState.PreparingToRecord);
         TransportState? received = null;
         _recorder.TransportStateChanging += (_, state) => received = state;
 
@@ -175,7 +140,7 @@ public class RecorderTest
     [Fact]
     public void Pause_FiresTransportStateChangingWithPausedWhenPlaying()
     {
-        _recorder.SimulateDesiredTransportState(TransportState.Playing);
+        _recorder.SetDesiredTransportState(TransportState.Playing);
         TransportState? received = null;
         _recorder.TransportStateChanging += (_, state) => received = state;
 
@@ -203,7 +168,7 @@ public class RecorderTest
     [Fact]
     public void Pause_SetsDesiredTransportStateToRecordingPausedWhenRecording()
     {
-        _recorder.SimulateTransportState(TransportState.Recording);
+        _recorder.SetTransportState(TransportState.Recording);
 
         _recorder.Pause();
 
@@ -213,7 +178,7 @@ public class RecorderTest
     [Fact]
     public void Record_DoesNotFireTransportStateChangingWhenAlreadyRecording()
     {
-        _recorder.SimulateTransportState(TransportState.Recording);
+        _recorder.SetTransportState(TransportState.Recording);
         TransportState? received = null;
         _recorder.TransportStateChanging += (_, state) => received = state;
 
@@ -225,7 +190,7 @@ public class RecorderTest
     [Fact]
     public void Stop_DoesNotFireTransportStateChangingWhenAlreadyStopped()
     {
-        _recorder.SimulateTransportState(TransportState.Stopped);
+        _recorder.SetTransportState(TransportState.Stopped);
         TransportState? received = null;
         _recorder.TransportStateChanging += (_, state) => received = state;
 
