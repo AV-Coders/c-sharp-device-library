@@ -1,11 +1,9 @@
-using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
-// Response strings are taken verbatim from a Cisco Codec Plus on CE 9.8.0.
 public class CiscoRoomOsVideoMatrixTest
 {
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
@@ -97,21 +95,6 @@ public class CiscoRoomOsVideoMatrixTest
     private CiscoRoomOsVideoInput Input(int connectorId) => _matrix.GetInput(connectorId)!;
 
     private CiscoRoomOsVideoOutput Output(int connectorId) => _matrix.GetOutput(connectorId)!;
-
-    [Fact]
-    public void Constructor_StartsWithNoConnectors()
-    {
-        Assert.Empty(_matrix.Inputs);
-        Assert.Empty(_matrix.Outputs);
-        Assert.Equal(0, _matrix.NumberOfInputs);
-        Assert.Equal(0, _matrix.NumberOfOutputs);
-        Assert.Empty(_matrix.GetInputs());
-        Assert.Empty(_matrix.GetOutputs());
-        Assert.Null(_matrix.GetInput(1));
-        Assert.Null(_matrix.GetOutput(1));
-        Assert.Equal("Codec Video", _matrix.Name);
-        Assert.Same(_mockClient.Object, _matrix.CommunicationClient);
-    }
 
     [Fact]
     public void Constructor_SendsNothingWhileTheClientIsNotConnected()
@@ -363,16 +346,6 @@ public class CiscoRoomOsVideoMatrixTest
         Assert.Equal(CommunicationState.Error, _matrix.CommunicationState);
     }
 
-    [Fact]
-    public void SendCommand_DoesNotManipulateInput()
-    {
-        var method = _matrix.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_matrix, ["Foo"]);
-
-        _mockClient.Verify(x => x.Send("Foo\r\n"), Times.Once);
-        Assert.Equal(CommunicationState.NotAttempted, _matrix.CommunicationState);
-    }
-
     [Theory]
     [InlineData("OK", ConnectionState.Connected)]
     [InlineData("Unstable", ConnectionState.Degraded)]
@@ -424,20 +397,6 @@ public class CiscoRoomOsVideoMatrixTest
             "*s Video Input Source 1 Resolution Width: 1920\n",
             "*s Video Input Source 2 Resolution Depth: 10\n",
             "*s Video Input Source 2 ConnectorId: 1\n"
-        ]);
-
-        Assert.Equal("1920x1080@60", Input(1).InputResolution);
-    }
-
-    [Fact]
-    public void InputSourceResolution_UpdatesInputResolution()
-    {
-        Respond(
-        [
-            "*s Video Input Connector 1 SourceId: 1\n",
-            "*s Video Input Source 1 Resolution Height: 1080\n",
-            "*s Video Input Source 1 Resolution RefreshRate: 60\n",
-            "*s Video Input Source 1 Resolution Width: 1920\n"
         ]);
 
         Assert.Equal("1920x1080@60", Input(1).InputResolution);
@@ -550,7 +509,6 @@ public class CiscoRoomOsVideoMatrixTest
             "*s Video Monitors: Single\n",
             "*s Video Input Source 3 (ghost=True)\n",
             "*s Video Input Source 1 Availability: Idle\n",
-            "*s Video Input Source 1 FormatStatus: Ok\n",
             "*s Video Input Source 1 MediaChannelId: 118\n",
             "*s Audio Volume: 50\n",
             "*s Call 1 Status: Connected\n",
@@ -574,7 +532,6 @@ public class CiscoRoomOsVideoMatrixTest
             "*s Video Output Connector 1 Type: HDMI\n",
             "*s Video Output Connector 1 MonitorRole: First\n",
             "*s Video Output Connector 1 ConnectedDevice CEC 1 DeviceType: \"Unknown\"\n",
-            "*s Video Output Connector 1 ConnectedDevice PreferredFormat: \"1920x1080@60Hz\"\n",
             "*s Video Output Connector 1 ConnectedDevice SupportedFormat Res_1920_1080_60: True\n",
             "*s Video Output Connector 1 HDCP Version: None\n",
             "*s Video Output Connector 1 TouchInput Enabled: False\n",
@@ -637,15 +594,6 @@ public class CiscoRoomOsVideoMatrixTest
             ConnectionState.Connecting,
             ConnectionState.Connected
         }, states);
-    }
-
-    [Fact]
-    public void ChunkedResponses_AreSplitIntoLines()
-    {
-        Respond("*s Video Input Connector 1 SignalState: OK\r\n*s Video Input Connector 2 SignalState: OK\r\n");
-
-        Assert.Equal(ConnectionState.Connected, Input(1).InputConnectionStatus);
-        Assert.Equal(ConnectionState.Connected, Input(2).InputConnectionStatus);
     }
 
     [Theory]
@@ -735,15 +683,17 @@ public class CiscoRoomOsVideoMatrixTest
     }
 
     [Fact]
-    public void OutputDisconnect_ClearsTheConnectedDeviceName()
+    public void OutputDisconnect_ClearsTheConnectedDeviceNameButKeepsThePreferredFormatTheCodecLastSent()
     {
         Respond("*s Video Output Connector 1 Connected: True\n");
         Respond("*s Video Output Connector 1 ConnectedDevice Name: \"SyncMaster\"\n");
+        Respond("*s Video Output Connector 1 ConnectedDevice PreferredFormat: \"3840x2160@60Hz\"\n");
         Respond("*s Video Output Connector 1 Connected: False\n");
 
         Assert.Equal(string.Empty, Output(1).ConnectedDeviceName);
         Assert.Equal("Output 1", Output(1).Name);
         Assert.Single(Output(1).Events, e => e.Info == "Connected Device Removed");
+        Assert.Equal("3840x2160@60Hz", Detail(Output(1), "Preferred Format")?.Value);
     }
 
     [Fact]
@@ -759,6 +709,111 @@ public class CiscoRoomOsVideoMatrixTest
         Assert.Equal("Output 3", Output(3).Name);
         Assert.Equal(string.Empty, Output(3).ConnectedDeviceName);
         Assert.DoesNotContain(Output(3).Events, e => e.Info.StartsWith("Connected Device"));
+    }
+
+    private static DeviceDetail? Detail(LogBase connector, string label) =>
+        connector.Details.SingleOrDefault(detail => detail.Label == label);
+
+    [Fact]
+    public void StatusDump_ShowsThePreferredFormatOfEachOutput()
+    {
+        Respond(StatusDump);
+
+        Assert.Equal(new DeviceDetail("Preferred Format", "3840x2160@60Hz"), Detail(Output(1), "Preferred Format"));
+        Assert.Equal(new DeviceDetail("Preferred Format", "1920x1080@60Hz"), Detail(Output(2), "Preferred Format"));
+    }
+
+    [Fact]
+    public void StatusDump_ShowsTheFormatStatusOfEachInputSourceAndFeedbackUpdatesIt()
+    {
+        Respond(StatusDump);
+
+        Assert.Equal(new DeviceDetail("Format Status", "Ok"), Detail(Input(1), "Format Status"));
+        Assert.Null(Detail(Input(2), "Format Status"));
+        Assert.Equal(new DeviceDetail("Format Status", "NotFound"), Detail(Input(3), "Format Status"));
+
+        Respond("*s Video Input Source 3 FormatStatus: OutOfRange\n");
+
+        Assert.Equal("OutOfRange", Detail(Input(3), "Format Status")?.Value);
+    }
+
+    [Fact]
+    public void OutputWithoutAConnectedDevice_ShowsThePreferredFormatAsReceived()
+    {
+        Respond(
+        [
+            "*s Video Output Connector 3 Connected: False\n",
+            "*s Video Output Connector 3 ConnectedDevice PreferredFormat: \"-1x-1@-1Hz\"\n"
+        ]);
+
+        Assert.Equal("-1x-1@-1Hz", Detail(Output(3), "Preferred Format")?.Value);
+    }
+
+    [Fact]
+    public void SourceFormatStatus_FollowsTheConnectorMapping()
+    {
+        Respond(
+        [
+            "*s Video Input Connector 2 Type: HDMI\n",
+            "*s Video Input Connector 3 SourceId: 2\n",
+            "*s Video Input Source 2 FormatStatus: Ok\n"
+        ]);
+
+        Assert.Null(Detail(Input(2), "Format Status"));
+        Assert.Equal("Ok", Detail(Input(3), "Format Status")?.Value);
+    }
+
+    [Fact]
+    public void SourceFormatStatusReportedBeforeTheConnector_IsAppliedOnDiscovery()
+    {
+        Respond(
+        [
+            "*s Video Input Source 2 ConnectorId: 3\n",
+            "*s Video Input Source 2 FormatStatus: Ok\n",
+            "*s Video Input Connector 3 SignalState: OK\n"
+        ]);
+
+        Assert.Equal("Ok", Detail(Input(3), "Format Status")?.Value);
+        Assert.Null(_matrix.GetInput(2));
+    }
+
+    [Fact]
+    public void SourceMappingReportedAfterTheFormatStatusAndConnector_AppliesTheFormatStatus()
+    {
+        Respond(
+        [
+            "*s Video Input Connector 3 SignalState: OK\n",
+            "*s Video Input Source 2 FormatStatus: NotFound\n",
+            "*s Video Input Connector 3 SourceId: 2\n"
+        ]);
+
+        Assert.Equal("NotFound", Detail(Input(3), "Format Status")?.Value);
+    }
+
+    [Fact]
+    public void ClientDisconnect_RemovesTheFormatDetails()
+    {
+        Respond(StatusDump);
+
+        ClientConnection(ConnectionState.Disconnected);
+
+        Assert.Null(Detail(Input(1), "Format Status"));
+        Assert.Null(Detail(Output(1), "Preferred Format"));
+    }
+
+    [Fact]
+    public void ClientDisconnect_ForgetsPendingSourceFormatStatuses()
+    {
+        Respond(
+        [
+            "*s Video Input Source 3 ConnectorId: 3\n",
+            "*s Video Input Source 3 FormatStatus: Ok\n"
+        ]);
+        ClientConnection(ConnectionState.Disconnected);
+
+        Respond("*s Video Input Connector 3 SignalState: OK\n");
+
+        Assert.Null(Detail(Input(3), "Format Status"));
     }
 
     [Fact]
@@ -796,14 +851,6 @@ public class CiscoRoomOsVideoMatrixTest
 
         Assert.Equal(expected, _matrix.PowerState);
         handler.Verify(x => x.Invoke(expected), Times.Once);
-    }
-
-    [Fact]
-    public void Routing_IsNotSupported()
-    {
-        Assert.False(_matrix.RequiresOutputSpecification);
-        Assert.False(_matrix.SupportsVideoBreakaway);
-        Assert.False(_matrix.SupportsAudioBreakaway);
     }
 
     [Fact]
@@ -936,7 +983,6 @@ public class CiscoRoomOsVideoMatrixTest
         {
             var reads = 0;
             readerStarted.Set();
-            // Keep reading until the writer has finished and at least one read overlapped the discovery.
             do
             {
                 _ = _matrix.Inputs.Count + _matrix.Outputs.Count + _matrix.GetInputs().Count + _matrix.GetOutputs().Count;

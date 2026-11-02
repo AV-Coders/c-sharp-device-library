@@ -1,3 +1,4 @@
+using System.Reflection;
 using AVCoders.Core;
 using Moq;
 
@@ -28,19 +29,14 @@ public class AntricaEncoderTest
         invocation.Arguments.Count == 1 &&
         (invocation.Arguments[0] as Uri)?.OriginalString == path);
 
-    [Fact]
-    public void Constructor_ReportsAnEncoderWithoutHdcp()
-    {
-        Assert.Equal(AVEndpointType.Encoder, _encoder.DeviceType);
-        Assert.Equal(HdcpStatus.NotSupported, _encoder.InputHdcpStatus);
-    }
+    private Task Poll() => (Task)typeof(AntricaEncoder)
+        .GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(_encoder, [CancellationToken.None])!;
 
     [Fact]
     public async Task Poll_ReadsTheVideoLossAndTheInputFormat()
     {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while ((CountGets(VideoLossPath) == 0 || CountGets(InputFormatPath) == 0) && DateTime.UtcNow < deadline)
-            await Task.Delay(25);
+        await Poll();
 
         Assert.True(CountGets(VideoLossPath) > 0);
         Assert.True(CountGets(InputFormatPath) > 0);

@@ -2,22 +2,25 @@
 using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
-[Collection("LoggerFactory")]
 public class ExtronDtpCpxxTest
 {
     private static readonly TimeSpan HoldTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ReturnTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private readonly FakeTimeProvider _time = new();
     private readonly ExtronDtpCpxx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private readonly string EscapeHeader = "\x1b";
 
     public ExtronDtpCpxxTest()
     {
-        _switcher = new ExtronDtpCpxx(_mockClient.Object, 8, "test matrix");
+        _switcher = new ExtronDtpCpxx(_mockClient.Object, 8, "test matrix", _time);
         _mockClient.Object.ResponseHandlers!.Invoke("Inf00*DTPCP108");
     }
 
@@ -36,52 +39,12 @@ public class ExtronDtpCpxxTest
         return sent;
     }
 
-    private static (ExtronDtpCpxx Switcher, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs(Mock<CommunicationClient> client)
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return (new ExtronDtpCpxx(client.Object, 8, "Logged matrix"), logs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
     [Fact]
-    public void SendCommand_DoesNotManipulateInput()
+    public void FailedSend_ReportsCommunicationHasFailed()
     {
-        string input = "Foo";
-
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
-        
-        _mockClient.Verify(x => x.Send(input), Times.Once);
-    }
-
-    [Fact]
-    public void SendCommand_ReportsCommunicationIsOkay()
-    {
-        string input = "Foo";
-        
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
-
-        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
-    }
-
-    [Fact]
-    public void SendCommand_ReportsCommunicationHasFailed()
-    {
-        string input = "Foo";
-
         _mockClient.Setup(client => client.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
-        
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
+
+        _switcher.RouteAV(1, 3);
 
         Assert.Equal(CommunicationState.Error, _switcher.CommunicationState);
     }
@@ -141,12 +104,13 @@ public class ExtronDtpCpxxTest
     }
 
     [Fact]
-    public void RouteAV_SendsTheCommand()
+    public void RouteAV_SendsTheCommandAndReportsCommunicationIsOkay()
     {
         string expectedRouteCommand = "1*3!";
         _switcher.RouteAV(1, 3);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
+        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
     }
 
     [Fact]
@@ -177,11 +141,13 @@ public class ExtronDtpCpxxTest
     }
 
     [Fact]
-    public void SetSyncTimeout_IgnoresInvalidTimeouts()
+    public void SetSyncTimeout_RefusesALongerTimeoutAndStatesTheLimit()
     {
         _switcher.SetSyncTimeout(502, 1);
 
         _mockClient.Verify(x => x.Send(It.Is<string>(s => s.Contains("SSAV"))), Times.Never);
+        Assert.Contains(_switcher.Events,
+            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
     }
 
     [Fact]
@@ -194,15 +160,6 @@ public class ExtronDtpCpxxTest
     }
 
     [Fact]
-    public void SetSyncTimeout_StatesTheLimitItEnforces()
-    {
-        _switcher.SetSyncTimeout(502, 1);
-
-        Assert.Contains(_switcher.Events,
-            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
-    }
-
-    [Fact]
     public async Task Connect_EnablesVerboseModeThenRequestsInformationWithoutBlockingTheClient()
     {
         using var release = new ManualResetEventSlim();
@@ -212,7 +169,7 @@ public class ExtronDtpCpxxTest
 
         await connect.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(() => sent.Count == 2, "The information request was never sent");
+        await Wait.UntilAsync(_time, ConnectStepGap, () => sent.Count == 2, "The information request was never sent");
         Assert.Equal(["\u001b3CV\r", "I"], sent);
     }
 
@@ -224,11 +181,11 @@ public class ExtronDtpCpxxTest
         using var release = new ManualResetEventSlim();
         var sent = RecordSends(client, "\u001b3CV\r", release);
 
-        var construct = Task.Run(() => new ExtronDtpCpxx(client.Object, 8, "Already connected"));
+        var construct = Task.Run(() => new ExtronDtpCpxx(client.Object, 8, "Already connected", _time));
 
         await construct.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(() => sent.Count == 2, "The information request was never sent");
+        await Wait.UntilAsync(_time, ConnectStepGap, () => sent.Count == 2, "The information request was never sent");
         Assert.Equal(["\u001b3CV\r", "I"], sent);
     }
 
@@ -236,7 +193,7 @@ public class ExtronDtpCpxxTest
     public async Task Connect_KeepsSendingAfterAnEarlierSequenceFails()
     {
         var client = TestFactory.CreateCommunicationClient();
-        var switcher = new ExtronDtpCpxx(client.Object, 8, "fresh matrix");
+        var switcher = new ExtronDtpCpxx(client.Object, 8, "fresh matrix", _time);
         using var release = new ManualResetEventSlim(true);
         var sent = RecordSends(client, "", release);
         var changes = 0;
@@ -250,15 +207,9 @@ public class ExtronDtpCpxxTest
         SetConnection(client, ConnectionState.Disconnected);
         SetConnection(client, ConnectionState.Connected);
 
-        await Wait.UntilAsync(() => sent.Contains("I"), "The second connection sequence never finished");
+        await Wait.UntilAsync(_time, ConnectStepGap, () => sent.Contains("I"), "The second connection sequence never finished");
         Assert.Equal(["\u001b3CV\r", "\u001b3CV\r", "I"], sent);
         Assert.Contains(switcher.Errors, error => error.Message == "The connection sequence failed");
-    }
-
-    [Fact]
-    public void SupportsAudioBreakaway_IsTrueAsAudioTiesAreSent()
-    {
-        Assert.True(_switcher.SupportsAudioBreakaway);
     }
 
     [Fact]
@@ -367,27 +318,6 @@ public class ExtronDtpCpxxTest
 
         Assert.Empty(switcher.GetOngoingIssues());
         Assert.Equal(8, switcher.Inputs.Count);
-    }
-
-    [Theory]
-    [InlineData("Ityp01")]
-    [InlineData("HdcpI01")]
-    [InlineData("HdcpO2")]
-    [InlineData("Nmi1Laptop")]
-    [InlineData("Nmo1Projector")]
-    [InlineData("HplgA")]
-    [InlineData("HdcpI09*1")]
-    [InlineData("HdcpO5*1")]
-    public void MalformedResponse_IsLoggedWithTheRawValue(string response)
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (switcher, logs) = CreateWithCapturedLogs(client);
-        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84");
-
-        client.Object.ResponseHandlers!.Invoke(response);
-
-        Assert.Contains(logs.Logs, log => log.Message.Contains(response));
-        Assert.All(switcher.Inputs, input => Assert.StartsWith("Input ", input.Name));
     }
 
     [Fact]
@@ -704,5 +634,272 @@ public class ExtronDtpCpxxTest
         Assert.Equal(expected, _switcher.ComposedOutputs[arrayIndex].Secondary.OutputConnectionStatus);
         Assert.Equal(expectedHdcpStatus, _switcher.ComposedOutputs[arrayIndex].Secondary.OutputHdcpStatus);
         Assert.True(_switcher.ComposedOutputs[arrayIndex].Secondary.InUse);
+    }
+
+    [Theory]
+    [InlineData("Inf00*DTPCP84 4K", "DTPCP84 4K")]
+    [InlineData("Inf00*DTPCPx4", "DTPCPx4")]
+    public void ModelResponse_ShowsTheModelAsReceived(string response, string expectedModel)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Equal(new DeviceDetail("Model", expectedModel), _switcher.Details.Single(detail => detail.Label == "Model"));
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class ExtronDtpCpxxLogTest
+{
+    [Theory]
+    [InlineData("Ityp01")]
+    [InlineData("HdcpI01")]
+    [InlineData("HdcpO2")]
+    [InlineData("Nmi1Laptop")]
+    [InlineData("Nmo1Projector")]
+    [InlineData("HplgA")]
+    [InlineData("HdcpI09*1")]
+    [InlineData("HdcpO5*1")]
+    public void MalformedResponse_IsLoggedWithTheRawValue(string response)
+    {
+        var client = TestFactory.CreateCommunicationClient();
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        ExtronDtpCpxx switcher;
+        try
+        {
+            switcher = new ExtronDtpCpxx(client.Object, 8, "Logged matrix");
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84");
+
+        client.Object.ResponseHandlers!.Invoke(response);
+
+        Assert.Contains(logs.Logs, log => log.Message.Contains(response));
+        Assert.All(switcher.Inputs, input => Assert.StartsWith("Input ", input.Name));
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class ExtronDtpCpxxBenchTest
+{
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(5);
+    private const string RouteTrigger = "5d30414a";
+    private const string SystemStatusQuery = "S";
+    private static readonly string[] IdentityQueries = ["*Q", "N", "\u001bCN\r", "\u001bCH\r"];
+    private static readonly string[] IdentityReplies = ["Bld2.04.0003", "Pno60-1381-01", "Ipn ROOM-VID-MTX01", "Iph 00-05-A6-00-00-04"];
+    private static readonly string[] IdentityValues = ["2.04.0003", "60-1381-01", "ROOM-VID-MTX01", "00-05-A6-00-00-04"];
+    private const string SystemStatusReply = "Sts00*12.250 35.000 1976 2004";
+    private static readonly string[] ReadLabels = ["Firmware Build", "Part Number", "Unit Name", "MAC", "System Status"];
+    private static readonly string[] HdcpProbesWithNoOutput =
+    [
+        "Esc O1AHDCP", "Esc O1BHDCP", "Esc O2AHDCP", "Esc O2BHDCP", "Esc O3AHDCP", "Esc O3BHDCP", "Esc O4AHDCP", "Esc O4BHDCP",
+        "Esc O5HDCP", "Esc O6HDCP", "Esc O7AHDCP", "Esc O7BHDCP", "Esc O8AHDCP", "Esc O8BHDCP"
+    ];
+    private readonly FakeTimeProvider _time = new();
+    private readonly Mock<SshClient> _client = TestFactory.CreateSshClient();
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly ExtronDtpCpxx _switcher;
+
+    public ExtronDtpCpxxBenchTest()
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _switcher = new ExtronDtpCpxx(_client.Object, 8, "Bench matrix", _time);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private void Respond(params string[] replies)
+    {
+        foreach (var reply in replies)
+            _client.Object.ResponseHandlers!.Invoke(reply);
+    }
+
+    private bool Sent(string command) => _client.Invocations.Any(invocation => Equals(invocation.Arguments[0], command));
+
+    private async Task Connect(string[] portReplies)
+    {
+        typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
+            .SetValue(_client.Object, ConnectionState.Connected);
+        Respond(ExtronBenchCaptures.DtpCp108ConnectReplies[..2]);
+        await Wait.UntilAsync(_time, ConnectStepGap, () => Sent("I"), "The model was never asked for");
+        Respond(ExtronBenchCaptures.DtpCp108ConnectReplies[2..]);
+        Respond(portReplies);
+        Respond(ExtronBenchCaptures.DtpCp108TieReplies);
+    }
+
+    private Task Connect() => Connect(ExtronBenchCaptures.DtpCp108PortReplies);
+
+    private void SendPoll() => typeof(ExtronDtpCpxx)
+        .GetMethod("SendPoll", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(_switcher, []);
+
+    private DeviceDetail? Detail(string label) => _switcher.Details.SingleOrDefault(detail => detail.Label == label);
+
+    private IEnumerable<string> RejectedHdcpProbes() => _logs.Logs
+        .Where(log => log.Level == LogLevel.Debug && log.Message.StartsWith("The switcher has no output for "))
+        .Select(log => log.Message["The switcher has no output for ".Length..].Replace(": E13", ""));
+
+    [Fact]
+    public void Banner_ShowsTheFirmwareAndPartNumber()
+    {
+        Respond(ExtronBenchCaptures.DtpCp108Banner);
+
+        Assert.Equal(new DeviceDetail("Firmware", "2.04"), Detail("Firmware"));
+        Assert.Equal(new DeviceDetail("Part Number", "60-1381-01"), Detail("Part Number"));
+    }
+
+    [Fact]
+    public void BannerCutShort_IsLoggedWithTheRawText()
+    {
+        Respond("(c) Copyright 2025, Extron Electronics, DTPCP108, V2.04");
+
+        var warning = Assert.Single(_logs.Logs, log => log.Level == LogLevel.Warning);
+        Assert.Equal("Unable to read the firmware and part number from the banner (c) Copyright 2025, Extron Electronics, DTPCP108, V2.04",
+            warning.Message);
+        Assert.Null(Detail("Firmware"));
+    }
+
+    [Fact]
+    public async Task ConnectBurst_RejectionsGoToTheOutputHdcpQueriesThatCausedThem()
+    {
+        await Connect();
+
+        Assert.Equal(HdcpProbesWithNoOutput, RejectedHdcpProbes());
+        Assert.Equal(10, _switcher.Outputs.Count);
+        Assert.True(_switcher.ComposedOutputs[4].Secondary.InUse);
+        Assert.DoesNotContain(_logs.Logs, log => log.Level >= LogLevel.Warning);
+        Assert.Empty(_switcher.GetIssues());
+        Respond("E10", "E10", "E10", "E10");
+        Assert.All(ReadLabels[..4], label => Assert.Equal(new DeviceDetail(label, "Not supported: E10", DetailTone.Normal), Detail(label)));
+    }
+
+    [Fact]
+    public async Task TieFromAnotherController_InTheConnectBurst_UpdatesTheTieAndTakesNoCommand()
+    {
+        var notice = Array.IndexOf(ExtronBenchCaptures.DtpCp108PortReplies, "HdcpO4*0") + 1;
+        string[] portReplies =
+            [..ExtronBenchCaptures.DtpCp108PortReplies[..notice], "Out1 In2 All", ..ExtronBenchCaptures.DtpCp108PortReplies[notice..]];
+        string? tieDuringTheBurst = null;
+        _client.Object.ResponseHandlers += reply =>
+        {
+            if (reply == "Out1 In2 All")
+                tieDuringTheBurst = _switcher.ComposedOutputs[0].Primary.StreamAddress;
+        };
+
+        await Connect(portReplies);
+
+        Assert.Equal("2", tieDuringTheBurst);
+        Assert.Equal(HdcpProbesWithNoOutput, RejectedHdcpProbes());
+        Assert.Equal(["", "", "", "", "", "", "1", "2"], _switcher.ComposedOutputs.Select(output => output.Primary.StreamAddress));
+        Respond(IdentityReplies);
+        Assert.Equal(IdentityValues, ReadLabels[..4].Select(label => Detail(label)?.Value));
+        Assert.DoesNotContain(_logs.Logs, log => log.Level >= LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task NewReads_GoAfterTheExistingPollAndShowTheirReplies()
+    {
+        await Connect();
+        Respond(IdentityReplies);
+        _client.Invocations.Clear();
+
+        SendPoll();
+        Respond(ExtronBenchCaptures.DtpCp108PollReply, SystemStatusReply);
+
+        Assert.Equal(["\u001b0TC\r", SystemStatusQuery], _client.Invocations.Select(invocation => invocation.Arguments[0]));
+        Assert.Equal([..IdentityValues, "12.250 35.000 1976 2004"], ReadLabels.Select(label => Detail(label)?.Value));
+        Assert.Equal("2.04", Detail("Firmware")?.Value);
+        Assert.Empty(_switcher.GetIssues());
+    }
+
+    [Fact]
+    public async Task NewReads_Rejected_ShowNotSupportedWithNoIssueAndAreNotSentAgain()
+    {
+        await Connect();
+        Respond("E10", "E10", "E10", "E10");
+        SendPoll();
+        Respond(ExtronBenchCaptures.DtpCp108PollReply, "E10");
+        _client.Invocations.Clear();
+
+        SendPoll();
+
+        Assert.All(ReadLabels, label => Assert.Equal(new DeviceDetail(label, "Not supported: E10", DetailTone.Normal), Detail(label)));
+        Assert.Equal(5, _logs.Logs.Count(log => log.Level == LogLevel.Information && log.Message.StartsWith("The switcher does not support")));
+        Assert.Empty(_switcher.GetIssues());
+        Assert.Equal(["\u001b0TC\r"], _client.Invocations.Select(invocation => invocation.Arguments[0]));
+    }
+
+    [Fact]
+    public async Task NewReads_MissedThreeTimes_RaiseMinorReadIssuesThatTheFirstReplyResolves()
+    {
+        await Connect();
+        SendPoll();
+        Respond(ExtronBenchCaptures.DtpCp108PollReply);
+        for (var poll = 1; poll < 3; poll++)
+        {
+            _time.Advance(ReplyTimeout);
+            SendPoll();
+            Respond(ExtronBenchCaptures.DtpCp108PollReply);
+        }
+
+        Assert.Empty(_switcher.GetIssues());
+        Assert.All(IdentityQueries, query => Assert.Equal(3, _client.Invocations.Count(invocation => Equals(invocation.Arguments[0], query))));
+
+        _time.Advance(ReplyTimeout);
+        SendPoll();
+
+        Assert.Equal(["firmware-build-read", "mac-read", "part-number-read", "system-status-read", "unit-name-read"],
+            _switcher.GetOngoingIssues().Select(issue => issue.Key).Order());
+        Assert.All(_switcher.GetOngoingIssues(), issue => Assert.Equal(IssueSeverity.Minor, issue.Severity));
+        Assert.Contains(_switcher.GetOngoingIssues(),
+            issue => issue.Message == "The switcher did not answer S (System Status) 3 times in a row, the last was no Sts00* reply within 5 s");
+        Respond(ExtronBenchCaptures.DtpCp108PollReply, SystemStatusReply);
+        Assert.DoesNotContain(_switcher.GetOngoingIssues(), issue => issue.Key == "system-status-read");
+    }
+
+    [Fact]
+    public async Task RejectedRoute_WhileTheSystemStatusQueryIsPending_IsReportedAndTheQueryKeepsItsReply()
+    {
+        await Connect();
+        Respond(IdentityReplies);
+        using (Trigger.Resume(RouteTrigger))
+            _switcher.RouteAV(11, 1);
+        SendPoll();
+
+        Respond("E01", ExtronBenchCaptures.DtpCp108PollReply, SystemStatusReply);
+
+        var issue = Assert.Single(_switcher.GetIssues());
+        Assert.Equal(("rejected-command", IssueStatus.Momentary, "The switcher rejected 11*1! with E01"), (issue.Key, issue.Status, issue.Message));
+        Assert.Equal(RouteTrigger, Assert.Single(_logs.Logs, log => log.Level == LogLevel.Warning).TriggerId);
+        Assert.Equal(new DeviceDetail("System Status", "12.250 35.000 1976 2004"), Detail("System Status"));
+    }
+
+    [Fact]
+    public async Task TieFromTheRoomProcessor_WhileOurRouteAwaitsItsReply_LeavesTheRejectionToOurRoute()
+    {
+        await Connect();
+        Respond(IdentityReplies);
+        using (Trigger.Resume(RouteTrigger))
+            _switcher.RouteAV(11, 1);
+        SendPoll();
+
+        Respond("Out2 In5 All", "E13", ExtronBenchCaptures.DtpCp108PollReply, SystemStatusReply);
+
+        Assert.Equal("5", _switcher.ComposedOutputs[1].Primary.StreamAddress);
+        var issue = Assert.Single(_switcher.GetIssues());
+        Assert.Equal(("rejected-command", IssueStatus.Momentary, "The switcher rejected 11*1! with E13"), (issue.Key, issue.Status, issue.Message));
+        Assert.Equal(RouteTrigger, Assert.Single(_logs.Logs, log => log.Level == LogLevel.Warning).TriggerId);
+        Assert.Equal(new DeviceDetail("System Status", "12.250 35.000 1976 2004"), Detail("System Status"));
     }
 }

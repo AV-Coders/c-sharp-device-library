@@ -62,7 +62,7 @@ public abstract class CiscoRoomOsVideoConnector : SyncStatus
     }
 
     /// <summary>Forgets everything learnt from the codec, used when the connection to it is lost.</summary>
-    internal void Reset()
+    internal virtual void Reset()
     {
         SetConnectionState(ConnectionState.Unknown);
         SetHdcpStatus(HdcpStatus.Unknown);
@@ -89,6 +89,16 @@ public abstract class CiscoRoomOsVideoConnector : SyncStatus
 public class CiscoRoomOsVideoInput(string name, int connectorId)
     : CiscoRoomOsVideoConnector(name, connectorId, AVEndpointType.Encoder)
 {
+    private const string FormatStatusLabel = "Format Status";
+
+    internal void SetFormatStatus(string formatStatus) => SetDetail(FormatStatusLabel, formatStatus);
+
+    internal override void Reset()
+    {
+        base.Reset();
+        RemoveDetail(FormatStatusLabel);
+    }
+
     protected override void SetResolution(string resolution) => InputResolution = resolution;
 
     protected override void UpdateConnectionState(ConnectionState state) => InputConnectionStatus = state;
@@ -105,8 +115,17 @@ public class CiscoRoomOsVideoInput(string name, int connectorId)
 public class CiscoRoomOsVideoOutput(string name, int connectorId)
     : CiscoRoomOsVideoConnector(name, connectorId, AVEndpointType.Decoder)
 {
+    private const string PreferredFormatLabel = "Preferred Format";
     public string ConnectedDeviceName { get; private set; } = string.Empty;
     public StringHandler? ConnectedDeviceNameChangedHandlers;
+
+    internal void SetPreferredFormat(string format) => SetDetail(PreferredFormatLabel, format);
+
+    internal override void Reset()
+    {
+        base.Reset();
+        RemoveDetail(PreferredFormatLabel);
+    }
 
     internal void SetConnectedDeviceName(string deviceName)
     {

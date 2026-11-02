@@ -22,7 +22,24 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
     private const string UnencryptedHdcpMonitor = "2";
     private const string EncryptedHdcpMonitor = "3";
     private const string ModelIssueKey = "model";
+    private const string ModelTag = "Inf00*";
+    private const string ModelLabel = "Model";
+    private const string BannerTag = "(c) Copyright";
+    private const string FirmwareLabel = "Firmware";
+    private const string PartNumberLabel = "Part Number";
+    private const string InputHdcpReplyStart = "HdcpI";
+    private const string OutputHdcpReplyStart = "HdcpO";
+    private const string QuickTie = "Qik";
     private const int MaximumSyncTimeout = 501;
+    private static readonly ExtronSisCommand PortTimeoutQuery = new($"{EscapeHeader}0TC\r", "Pti0*");
+    private static readonly ExtronSisQuery[] IdentityQueries =
+    [
+        new("*Q", "Bld", "Firmware Build", "firmware-build-read"),
+        new("N", "Pno", PartNumberLabel, "part-number-read"),
+        new($"{EscapeHeader}CN\r", "Ipn ", "Unit Name", "unit-name-read"),
+        new($"{EscapeHeader}CH\r", "Iph ", "MAC", "mac-read")
+    ];
+    private static readonly ExtronSisQuery SystemStatusQuery = new("S", "Sts00*", "System Status", "system-status-read");
     public readonly List<ExtronMatrixOutput> ComposedOutputs = [];
     public readonly List<ExtronMatrixInput> Inputs = [];
     public List<ExtronMatrixEndpoint> Outputs => ComposedOutputs
@@ -44,7 +61,12 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
     }
 
     public ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name)
-        : base(communicationClient, numberOfOutputs, name)
+        : this(communicationClient, numberOfOutputs, name, null)
+    {
+    }
+
+    internal ExtronDtpCpxx(CommunicationClient communicationClient, int numberOfOutputs, string name, TimeProvider? timeProvider)
+        : base(communicationClient, numberOfOutputs, name, timeProvider)
     {
     }
 
@@ -54,12 +76,21 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
     [GeneratedRegex(@"^In(\d+) (?:All|Vid)$")]
     private static partial Regex AllOutputsVideoTieRegex();
 
+    [GeneratedRegex(@"^\(c\) Copyright \d{4}, Extron Electronics,? [^,]+, V([^,]+), ([^,]+)$")]
+    private static partial Regex BannerRegex();
+
     protected override void ProcessResponse(string response)
     {
-        if (response.StartsWith("E13"))
-            return;
-
-        if (response.StartsWith("Ityp"))
+        var line = response.Trim();
+        if (IsError(line))
+            HandleError(line);
+        else if (line.StartsWith(BannerTag, StringComparison.Ordinal))
+            HandleBanner(line);
+        else if (IdentityQueries.FirstOrDefault(query => query.IsAnsweredBy(line)) is { } identity)
+            ShowRead(identity, line);
+        else if (SystemStatusQuery.IsAnsweredBy(line))
+            ShowRead(SystemStatusQuery, line);
+        else if (response.StartsWith("Ityp"))
         {
             var parts = response.TrimEnd('\r').Split('*');
             if (parts.Length != 2)
@@ -76,7 +107,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
                 var connectionStatus = status == "0" ? ConnectionState.Disconnected : ConnectionState.Connected;
 
                 Inputs[inputNumber].SetInputStatus(connectionStatus);
-                WrapAndSendCommand($"I{Inputs[inputNumber].Number}HDCP");
+                Send(new ExtronSisCommand($"{EscapeHeader}I{Inputs[inputNumber].Number}HDCP\r", InputHdcpReplyStart));
             }
         }
         else if (response.StartsWith("HdcpI"))
@@ -164,9 +195,9 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         }
         else if (response.StartsWith("Frq00"))
             HandleSignalPresence(response[6..]);
-        else if (response.StartsWith("Inf00*DTPCP"))
+        else if (response.StartsWith($"{ModelTag}DTPCP"))
             HandleModel(response);
-        else if (response == "Qik")
+        else if (response == QuickTie)
             QueryTies();
         else if (VideoTieRegex().Match(response) is { Success: true } tie)
             SetVideoTie(int.Parse(tie.Groups[1].Value), int.Parse(tie.Groups[2].Value));
@@ -183,11 +214,23 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
             LogWarning("Ignoring the hotplug event {Response} as it doesn't name an output", response);
             return;
         }
-        WrapAndSendCommand($"O{number}{output[digits.Length..]}HDCP");
+        Send(new ExtronSisCommand($"{EscapeHeader}O{number}{output[digits.Length..]}HDCP\r", OutputHdcpReplyStart));
+    }
+
+    private void HandleBanner(string banner)
+    {
+        if (BannerRegex().Match(banner) is not { Success: true } match)
+        {
+            LogWarning("Unable to read the firmware and part number from the banner {Banner}", banner);
+            return;
+        }
+        SetDetail(FirmwareLabel, match.Groups[1].Value);
+        SetDetail(PartNumberLabel, match.Groups[2].Value);
     }
 
     private void HandleModel(string response)
     {
+        SetDetail(ModelLabel, response[ModelTag.Length..]);
         var digits = response.Remove(0, 11).TrimEnd('\r');
         if (digits.EndsWith(" 4K"))
             digits = digits.Remove(digits.Length - 3);
@@ -201,6 +244,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         ResolveIssue(ModelIssueKey);
         SetPortCounts(inputCount, outputCount);
         QueryPorts();
+        Read(IdentityQueries);
     }
 
     private static (ConnectionState Connection, HdcpStatus Hdcp) ParseInputHdcp(string value) => value switch
@@ -254,15 +298,15 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
     {
         for (var number = 1; number <= Inputs.Count; number++)
         {
-            WrapAndSendCommand($"{number}NI");
-            WrapAndSendCommand($"I{number}HDCP");
+            Send(new ExtronSisCommand($"{EscapeHeader}{number}NI\r", "Nmi"));
+            Send(new ExtronSisCommand($"{EscapeHeader}I{number}HDCP\r", InputHdcpReplyStart));
         }
         for (var number = 1; number <= ComposedOutputs.Count; number++)
         {
-            WrapAndSendCommand($"{number}NO");
-            WrapAndSendCommand($"O{number}HDCP");
-            WrapAndSendCommand($"O{number}AHDCP");
-            WrapAndSendCommand($"O{number}BHDCP");
+            Send(new ExtronSisCommand($"{EscapeHeader}{number}NO\r", "Nmo"));
+            Send(new ExtronSisCommand($"{EscapeHeader}O{number}HDCP\r", OutputHdcpReplyStart));
+            Send(new ExtronSisCommand($"{EscapeHeader}O{number}AHDCP\r", OutputHdcpReplyStart));
+            Send(new ExtronSisCommand($"{EscapeHeader}O{number}BHDCP\r", OutputHdcpReplyStart));
         }
         QueryTies();
     }
@@ -270,7 +314,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
     private void QueryTies()
     {
         for (var number = 1; number <= ComposedOutputs.Count; number++)
-            SendCommand($"{number}%");
+            Send(new ExtronSisCommand($"{number}%", new ExtronSisTie(null, number, ExtronSisTie.Video)));
     }
 
     private void HandleSignalPresence(string presence)
@@ -292,7 +336,21 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
 
     private static string AddressOf(int input) => input == 0 ? UntiedAddress : input.ToString();
 
-    protected override void SendPoll() => WrapAndSendCommand("0TC");
+    protected override void SendPoll()
+    {
+        ReportMissedReplies();
+        Send(PortTimeoutQuery);
+        ReadUnlessNotSupported(SystemStatusQuery);
+        ReadAgainIfUnanswered(IdentityQueries);
+    }
+
+    private protected override void ReportRejected(ExtronSisCommand command, string error)
+    {
+        if (command.ReplyStart == OutputHdcpReplyStart && error == ExtronSis.InvalidParameter)
+            LogDebug("The switcher has no output for {Command}: {Error}", command.Name, error);
+        else
+            base.ReportRejected(command, error);
+    }
 
     public override List<SyncStatus> GetInputs() => [..Inputs];
 
@@ -306,7 +364,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         sb.Append("+Q");
         outputs.ForEach(o => sb.Append($"{input}*{o}!"));
         sb.Append('\r');
-        SendCommand(sb.ToString());
+        Send(new ExtronSisCommand(sb.ToString(), QuickTie));
 
         AddEvent(EventType.Input, $"Switched outputs [{string.Join(", ", outputs)}] to input {input}");
     }
@@ -325,7 +383,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         sb.Append("+Q");
         outputs.ForEach(o => sb.Append($"{input}*{o}%"));
         sb.Append('\r');
-        SendCommand(sb.ToString());
+        Send(new ExtronSisCommand(sb.ToString(), QuickTie));
 
         AddEvent(EventType.Input, $"Switched video outputs [{string.Join(", ", outputs)}] to input {input}");
     }
@@ -340,7 +398,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
         sb.Append("+Q");
         outputs.ForEach(o => sb.Append($"{input}*{o}$"));
         sb.Append('\r');
-        SendCommand(sb.ToString());
+        Send(new ExtronSisCommand(sb.ToString(), QuickTie));
 
         AddEvent(EventType.Input, $"Switched audio output [{string.Join(", ", outputs)}] to input {input}");
     }
@@ -349,7 +407,7 @@ public partial class ExtronDtpCpxx : ExtronDtpCpBase
     {
         if (seconds <= MaximumSyncTimeout)
         {
-            WrapAndSendCommand($"T{output}*{seconds}SSAV");
+            Send(new ExtronSisCommand($"{EscapeHeader}T{output}*{seconds}SSAV\r", "Ssav"));
         }
         else
         {

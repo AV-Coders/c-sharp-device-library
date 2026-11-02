@@ -76,4 +76,57 @@ public class SvsiEncoderTest
         _mockInputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080", HdcpStatus.Unknown));
     }
 
+    private DeviceDetail? Detail(string label) => _svsiEncoder.Details.SingleOrDefault(detail => detail.Label == label);
+
+    [Fact]
+    public void ResponseHandler_ShowsTheIdentityAndRaisesNoIssueWhenNoUpdateHasFailed()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(_sampleStatusResponse);
+
+        Assert.Empty(_svsiEncoder.GetOngoingIssues());
+
+        Assert.Equal(
+        [
+            new DeviceDetail("Serial", "N1122A30037981"),
+            new DeviceDetail("Name", "Transmitter"),
+            new DeviceDetail("MAC", "00:19:00:11:22:33"),
+            new DeviceDetail("IP", "10.56.78.99"),
+            new DeviceDetail("Firmware", "4/10/2018"),
+            new DeviceDetail("FPGA Version", "7/18/2017"),
+            new DeviceDetail("Web Version", "1523376226")
+        ], _svsiEncoder.Details);
+    }
+
+    [Fact]
+    public void ResponseHandler_ShowsTheSerialFromTheNetworkStatus()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(_sampleNetworkStatusResponse);
+
+        Assert.Equal("N1122A30037981", Detail("Serial")?.Value);
+        Assert.Null(Detail("Web Version"));
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("yes")]
+    public void ResponseHandler_RaisesAnIssueForAFailedUpdate(string updateFailed)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"UPDFAILED:{updateFailed}\r");
+
+        var issue = Assert.Single(_svsiEncoder.GetOngoingIssues());
+        Assert.Equal("update-failed", issue.Key);
+        Assert.Equal(IssueSeverity.Major, issue.Severity);
+        Assert.Contains($"UPDFAILED:{updateFailed}", issue.Message);
+    }
+
+    [Fact]
+    public void ResponseHandler_ResolvesTheFailedUpdateIssue()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("UPDFAILED:1\r");
+
+        _mockClient.Object.ResponseHandlers!.Invoke("UPDFAILED:0\r");
+
+        Assert.Empty(_svsiEncoder.GetOngoingIssues());
+        Assert.Contains(_svsiEncoder.GetIssues(), issue => issue.Key == "update-failed" && issue.Status == IssueStatus.Resolved);
+    }
 }

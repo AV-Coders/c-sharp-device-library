@@ -1,5 +1,6 @@
 ﻿using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
@@ -10,21 +11,21 @@ public class TestSvsiEncoder : SvsiEncoder
     {
         StreamId = 3;
     }
-    
 }
 
 public class SvsiDecoderTest
 {
+    private static readonly TimeSpan SetInputLiveGap = TimeSpan.FromMilliseconds(200);
+    private readonly FakeTimeProvider _time = new();
     private readonly string _sampleStatusResponse =
         "SVSI_RXGEN2:N1222A30033627\rNAME:Receiver\rMAC:00:19:00:11:22:33\rIP:10.1.30.197\rNM:255.255.252.0\rGW:10.1.0.1\rIPTRIAL:0\rIPMODE:DHCP\rSWVER:4/3/2017\rWEBVER:1500561028\rUPDATE:0\rUPDTRY:0\rUPDFAILED:0\rMEDIAPORT0:on\rMEDIAPORT1:off\rDIVASEN:0\rDIVASIP:0.0.0.0\rMASSEREN:0\rMASSERIP:0.0.0.0\rsecurePortsOnly:off\rdiscoveryIP:239.254.12.16\renableDiscoveryPackets:on\rdiscoveryIntervalSec:10\rdiscoveryPort:50019\rBAUD:9600\rSNUMB:8\rSPAR:none\rSP2S:1\rMODE:1080p60.mode\rPORTSD1:no\rGARP:0\rGARPINT:50\rUNSOLST:1\rUNSOLSTINT:10\rID:0\rDVICEVTDLY:1\rDVIDEVTDLY:1\rUSERMCMODE:off\rUSERMCIP:0.0.0.0\rLPDISKSPACE:87336960\rSERSRCIP:0.0.0.0\rSEROPEN:0\rSLCK:0\rHTTPS:0\rLINEOUTVOL_L:100\rLINEOUTVOL_R:100\rMUTE:0\rSTREAM:2\rSTREAMAUDIO:0\rSCALERBYPASS:no\rPLAYMODE:live\rPLAYLIST:1\rHDMIAUDIO:auto\rLIVEAUDIOLP:off\rYUVOUT:off\rGEN1COMP:auto\rSIMDVIDET:off\rFRAMEHOLD:off\rVIDOFFNOSTRM:off\rNEGSYNC:off\rDVIOFF:off\rDVISTATUS:connected\rINPUTRES:1280x720\rFPGAVER:8/25/2016\rSTRMCAST:0\rNEEDVSTRM:1\rND_MRRQ:10.1.3.58\rND_MRRQ_CHG:1\rND_A_DROP:0\rND_A_DROP1S:0\rND_V_DROP:0\rND_V_DROP1S:0\rND_F_DROP:0\rND_F_DROP1S:0\rDM_D_EN:auto\rDM_D_IEN:off\rDM_A_EN:on\rDM_A_SRC:0\rDM_CGAIN:42\rDM_FGAIN:60\rDM_SLGAIN:-42\rDM_SRGAIN:42\rFCPC:on\rLPWR:0\rVMUTE:0\r";
     private readonly SvsiDecoder _svsiDecoder;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
     private readonly Mock<SyncInfoHandler> _mockOutputStatusChangedHandler;
-    
-    
+
     public SvsiDecoderTest()
     {
-        _svsiDecoder = new("Test", _mockClient.Object);
+        _svsiDecoder = new("Test", _mockClient.Object, _time);
         _mockOutputStatusChangedHandler = new();
         _svsiDecoder.OutputStatusChangedHandlers += _mockOutputStatusChangedHandler.Object;
     }
@@ -40,10 +41,55 @@ public class SvsiDecoderTest
         _mockOutputStatusChangedHandler.Verify(x => x.Invoke(ConnectionState.Connected, "1080p60", HdcpStatus.Unknown));
     }
 
+    private DeviceDetail? Detail(string label) => _svsiDecoder.Details.SingleOrDefault(detail => detail.Label == label);
+
+    [Fact]
+    public void ResponseHandler_ShowsTheIdentityAndStreamHealth()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke(_sampleStatusResponse);
+
+        Assert.Equal(
+        [
+            new DeviceDetail("Serial", "N1222A30033627"),
+            new DeviceDetail("Name", "Receiver"),
+            new DeviceDetail("MAC", "00:19:00:11:22:33"),
+            new DeviceDetail("IP", "10.1.30.197"),
+            new DeviceDetail("Firmware", "4/3/2017"),
+            new DeviceDetail("FPGA Version", "8/25/2016"),
+            new DeviceDetail("Web Version", "1500561028"),
+            new DeviceDetail("Video Drops", "0"),
+            new DeviceDetail("Audio Drops", "0"),
+            new DeviceDetail("Frame Drops", "0"),
+            new DeviceDetail("Needs Video Stream", "1", DetailTone.Warning)
+        ], _svsiDecoder.Details);
+    }
+
+    [Theory]
+    [InlineData("0", DetailTone.Normal)]
+    [InlineData("?", DetailTone.Warning)]
+    public void ResponseHandler_ShowsWhetherTheDecoderNeedsAVideoStream(string needsVideoStream, DetailTone expectedTone)
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke($"NEEDVSTRM:{needsVideoStream}\r");
+
+        Assert.Equal(new DeviceDetail("Needs Video Stream", needsVideoStream, expectedTone), Detail("Needs Video Stream"));
+    }
+
+    [Fact]
+    public void ResponseHandler_ShowsTheStreamHealthWhenTheMuteStateIsUnchanged()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("MUTE:0\rND_V_DROP:4\r");
+
+        Assert.Equal("4", Detail("Video Drops")?.Value);
+    }
+
     [Fact]
     public void ResponseHandler_IgnoresInvalidResponses()
     {
-        _mockClient.Object.ResponseHandlers!.Invoke("ND_V\r");
+        var exception = Record.Exception(() => _mockClient.Object.ResponseHandlers!.Invoke("ND_V\r"));
+
+        Assert.Null(exception);
+        Assert.Empty(_svsiDecoder.StatusDictionary);
+        Assert.Empty(_svsiDecoder.Details);
     }
 
     private List<string> SentMessages() => _mockClient.Invocations
@@ -67,7 +113,7 @@ public class SvsiDecoderTest
     {
         _svsiDecoder.SetInput(new TestSvsiEncoder(_mockClient.Object));
 
-        await Wait.UntilAsync(() => SentMessages().Contains("live\r"), "live was never sent");
+        await Wait.UntilAsync(_time, SetInputLiveGap, () => SentMessages().Contains("live\r"), "live was never sent");
         Assert.Contains("set:3\r", SentMessages());
     }
 
@@ -77,7 +123,7 @@ public class SvsiDecoderTest
         _svsiDecoder.SetInput(1);
 
         Assert.DoesNotContain("live\r", SentMessages());
-        await Wait.UntilAsync(() => SentMessages().Contains("live\r"), "live was never sent");
+        await Wait.UntilAsync(_time, SetInputLiveGap, () => SentMessages().Contains("live\r"), "live was never sent");
         Assert.True(SentMessages().IndexOf("set:1\r") < SentMessages().IndexOf("live\r"));
     }
 
@@ -87,7 +133,7 @@ public class SvsiDecoderTest
         _svsiDecoder.SetInput(1);
         _svsiDecoder.SetInput(2);
 
-        await Wait.UntilAsync(() => SentMessages().Count(message => message == "live\r") == 2, "live was never sent twice");
+        await Wait.UntilAsync(_time, SetInputLiveGap, () => SentMessages().Count(message => message == "live\r") == 2, "live was never sent twice");
         Assert.Equal(["set:1\r", "live\r", "set:2\r", "live\r"],
             SentMessages().Where(message => message != "\r"));
     }
@@ -146,7 +192,7 @@ public class SvsiDecoderTest
     {
         SetConnection(ConnectionState.Connected);
 
-        var decoder = new SvsiDecoder("Second Decoder", _mockClient.Object);
+        var decoder = new SvsiDecoder("Second Decoder", _mockClient.Object, _time);
 
         Assert.Equal(ConnectionState.Connected, decoder.DeviceConnectionState);
     }
@@ -201,7 +247,7 @@ public class SvsiDecoderTest
         _svsiDecoder.SetInput(1);
         _svsiDecoder.SetVideoMute(MuteState.Off);
 
-        await Wait.UntilAsync(() => SentMessages().Contains("dviOn\r"), "dviOn was never sent");
+        await Wait.UntilAsync(_time, SetInputLiveGap, () => SentMessages().Contains("dviOn\r"), "dviOn was never sent");
         Assert.Equal(["set:1\r", "live\r", "dviOn\r"], SentMessages().Where(message => message != "\r"));
     }
 
@@ -213,7 +259,7 @@ public class SvsiDecoderTest
         _svsiDecoder.SetInput(1);
         _svsiDecoder.SetInput(2);
 
-        await Wait.UntilAsync(() => SentMessages().Contains("live\r"), "live was never sent");
+        await Wait.UntilAsync(_time, SetInputLiveGap, () => SentMessages().Contains("live\r"), "live was never sent");
         Assert.Equal(["set:1\r", "set:2\r", "live\r"], SentMessages().Where(message => message != "\r"));
         Assert.Single(_svsiDecoder.Errors);
     }

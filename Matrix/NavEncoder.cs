@@ -5,7 +5,12 @@ namespace AVCoders.Matrix;
 public class NavEncoder : NavDeviceBase
 {
     public NavEncoder(string name, string ipAddress, Navigator navigator)
-        : base(name, AVEndpointType.Encoder, ipAddress, navigator)
+        : this(name, ipAddress, navigator, null)
+    {
+    }
+
+    internal NavEncoder(string name, string ipAddress, Navigator navigator, TimeProvider? timeProvider = null)
+        : base(name, AVEndpointType.Encoder, ipAddress, navigator, timeProvider)
     {
     }
 

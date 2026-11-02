@@ -3,7 +3,7 @@ using AVCoders.Core;
 
 namespace AVCoders.Matrix;
 
-public partial class ExtronIn18Xx : VideoMatrix
+public partial class ExtronIn18Xx : ExtronSisMatrix
 {
     private readonly int _numberOfInputs;
     public static readonly SerialSpec DefaultSerialSpec =
@@ -21,28 +21,52 @@ public partial class ExtronIn18Xx : VideoMatrix
     private const int HdmiOutput = 1;
     private const int TwistedPairOutput = 2;
     private const int MaximumSyncTimeout = 501;
+    private const string ModelTag = "Inf01*";
+    private const string ModelLabel = "Model";
+    private const string ModelIssueKey = "model";
+    private const int TieOutput = 1;
+    private const string SyncTimeoutReplyStart = "Ssav";
+    private const string VideoMuteReplyStart = "Vmt";
+    private const string InputHdcpReplyStart = "HdcpI";
+    private const string OutputHdcpReplyStart = "HdcpO";
     private static readonly char[] LineSeparators = ['\r', '\n'];
     private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan VideoMuteStepGap = TimeSpan.FromMilliseconds(300);
+    private static readonly ExtronSisCommand VerboseMode = new($"{EscapeHeader}3CV\r", "Vrb");
+    private static readonly ExtronSisCommand ModelQuery = new("1I", ModelTag);
+    private static readonly ExtronSisCommand SignalPresenceQuery = new($"{EscapeHeader}0LS\r", "In00 ");
+    private static readonly ExtronSisQuery[] IdentityQueries =
+    [
+        new("*Q", "Bld", "Firmware", "firmware-read"),
+        new("N", "Pno", "Part Number", "part-number-read"),
+        new($"{EscapeHeader}CN\r", "Ipn ", "Unit Name", "unit-name-read"),
+        new($"{EscapeHeader}CH\r", "Iph ", "MAC", "mac-read")
+    ];
+    private static readonly ExtronSisQuery TemperatureQuery = new($"{EscapeHeader}20STAT\r", "20Stat ", "Temperature", "temperature-read");
     private readonly object _spacedSendsLock = new();
     private Task _spacedSends = Task.CompletedTask;
 
     public ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name)
-        : base(1, communicationClient, name)
+        : this(communicationClient, numberOfInputs, name, null)
+    {
+    }
+
+    internal ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name, TimeProvider? timeProvider)
+        : base(1, communicationClient, name, timeProvider)
     {
         _numberOfInputs = numberOfInputs;
         ComposedOutputs[0].Primary.SetName("Output 1A");
         ComposedOutputs[0].Secondary.SetName("Output 1B");
         PowerState = PowerState.Unknown;
         CommunicationState = CommunicationState.NotAttempted;
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true, TimeProvider);
         _pollWorker.Restart();
         communicationClient.ConnectionStateHandlers += HandleConnectionState;
         communicationClient.ResponseHandlers += HandleResponse;
         HandleConnectionState(communicationClient.ConnectionState);
     }
 
-    [GeneratedRegex(@"^(?:Inf01\*)?IN180([468])\b")]
+    [GeneratedRegex(@"^(?:Inf01\*)?(IN180([468])(?:\s.*)?)$")]
     private static partial Regex ModelRegex();
 
     private void HandleResponse(string response)
@@ -56,11 +80,16 @@ public partial class ExtronIn18Xx : VideoMatrix
 
     private void ProcessResponse(string line)
     {
+        using var reply = TakeReply(line);
+        using var scope = PushProperties();
         if (ModelRegex().Match(line) is { Success: true } model)
-        {
-            SetInputCount(int.Parse(model.Groups[1].Value));
-            QueryStatus();
-        }
+            HandleModel(model.Groups[1].Value, int.Parse(model.Groups[2].Value));
+        else if (line.StartsWith(ModelTag))
+            HandleUnknownModel(line);
+        else if (IdentityQueries.FirstOrDefault(query => query.IsAnsweredBy(line)) is { } identity)
+            ShowRead(identity, line);
+        else if (TemperatureQuery.IsAnsweredBy(line))
+            ShowRead(TemperatureQuery, line);
         else if (line.StartsWith("IN00", StringComparison.OrdinalIgnoreCase))
             HandleSignalPresence(line[4..]);
         else if (line.StartsWith("HdcpI"))
@@ -71,6 +100,23 @@ public partial class ExtronIn18Xx : VideoMatrix
             HandleOutputHotplug(line[5..]);
         else if (line.StartsWith("VnamI"))
             HandleInputName(line[5..]);
+        else if (IsError(line))
+            HandleError(line);
+    }
+
+    private void HandleModel(string model, int inputCount)
+    {
+        SetDetail(ModelLabel, model);
+        ResolveIssue(ModelIssueKey);
+        SetInputCount(inputCount);
+        QueryStatus();
+        Read(IdentityQueries);
+    }
+
+    private void HandleUnknownModel(string line)
+    {
+        SetDetail(ModelLabel, line[ModelTag.Length..]);
+        RaiseOngoingIssue(ModelIssueKey, $"Unable to read the input count from the model {line}");
     }
 
     private void SetInputCount(int count)
@@ -154,6 +200,7 @@ public partial class ExtronIn18Xx : VideoMatrix
 
     private void HandleConnectionState(ConnectionState connectionState)
     {
+        ForgetCommands();
         if (connectionState != ConnectionState.Connected)
         {
             ClearStatus();
@@ -164,10 +211,10 @@ public partial class ExtronIn18Xx : VideoMatrix
             {
                 try
                 {
-                    await Task.Delay(ConnectStepGap);
-                    WrapAndSendCommand("3CV");
-                    await Task.Delay(ConnectStepGap);
-                    SendCommand("1I");
+                    await Task.Delay(ConnectStepGap, TimeProvider);
+                    Send(VerboseMode);
+                    await Task.Delay(ConnectStepGap, TimeProvider);
+                    Send(ModelQuery);
                 }
                 catch (Exception e)
                 {
@@ -190,46 +237,33 @@ public partial class ExtronIn18Xx : VideoMatrix
         }
     }
 
-    private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
-
     private Task Poll(CancellationToken arg)
     {
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return Task.CompletedTask;
+        ReportMissedReplies();
         if (Inputs.Count == 0)
-            SendCommand("1I");
+            Send(ModelQuery);
         QueryStatus();
+        ReadUnlessNotSupported(TemperatureQuery);
+        ReadAgainIfUnanswered(IdentityQueries);
         return Task.CompletedTask;
     }
 
     private void QueryStatus()
     {
-        WrapAndSendCommand("0LS");
+        Send(SignalPresenceQuery);
         for (var number = 1; number <= Inputs.Count; number++)
-            WrapAndSendCommand($"I{number}HDCP");
-        WrapAndSendCommand($"O{HdmiOutput}HDCP");
-        WrapAndSendCommand($"O{TwistedPairOutput}HDCP");
-    }
-
-    private void SendCommand(string command)
-    {
-        try
-        {
-            CommunicationClient.Send(command);
-            CommunicationState = CommunicationState.Okay;
-        }
-        catch (Exception e)
-        {
-            LogException(e);
-            CommunicationState = CommunicationState.Error;
-        }
+            Send(new ExtronSisCommand($"{EscapeHeader}I{number}HDCP\r", InputHdcpReplyStart));
+        Send(new ExtronSisCommand($"{EscapeHeader}O{HdmiOutput}HDCP\r", OutputHdcpReplyStart));
+        Send(new ExtronSisCommand($"{EscapeHeader}O{TwistedPairOutput}HDCP\r", OutputHdcpReplyStart));
     }
 
     public override void RouteAV(int input, int output)
     {
         if (input > 0 && input <= NumberOfInputs)
         {
-            SendCommand($"{input}*1!");
+            Send(new ExtronSisCommand($"{input}*{TieOutput}!", new ExtronSisTie(input, TieOutput, ExtronSisTie.VideoAndAudio)));
             AddEvent(EventType.Input, $"Switched output {output} to input {input}");
         }
         else
@@ -257,7 +291,7 @@ public partial class ExtronIn18Xx : VideoMatrix
     {
         if (input > 0 && input <= NumberOfInputs)
         {
-            SendCommand($"{input}*1%");
+            Send(new ExtronSisCommand($"{input}*{TieOutput}%", new ExtronSisTie(input, TieOutput, ExtronSisTie.Video)));
             AddEvent(EventType.Input, $"Switched video output {output} to input {input}");
         }
         else
@@ -274,7 +308,7 @@ public partial class ExtronIn18Xx : VideoMatrix
     {
         if (input > 0 && input <= NumberOfInputs)
         {
-            SendCommand($"{input}*1$");
+            Send(new ExtronSisCommand($"{input}*{TieOutput}$", new ExtronSisTie(input, TieOutput, ExtronSisTie.Audio)));
             AddEvent(EventType.Input, $"Switched audio output {output} to input {input}");
         }
         else
@@ -289,7 +323,7 @@ public partial class ExtronIn18Xx : VideoMatrix
     {
         if (seconds <= MaximumSyncTimeout)
         {
-            WrapAndSendCommand($"T1*{seconds}SSAV");
+            Send(new ExtronSisCommand($"{EscapeHeader}T1*{seconds}SSAV\r", SyncTimeoutReplyStart));
             AddEvent(EventType.VideoMute, $"Set sync timeout to {seconds} seconds");
         }
         else
@@ -307,11 +341,11 @@ public partial class ExtronIn18Xx : VideoMatrix
             {
                 try
                 {
-                    SendCommand(state == MuteState.On ? "1*2B" : "1*0B");
-                    await Task.Delay(VideoMuteStepGap);
-                    SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
-                    await Task.Delay(VideoMuteStepGap);
-                    SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
+                    Send(new ExtronSisCommand(state == MuteState.On ? "1*2B" : "1*0B", VideoMuteReplyStart));
+                    await Task.Delay(VideoMuteStepGap, TimeProvider);
+                    Send(new ExtronSisCommand(state == MuteState.On ? "2*2B" : "2*0B", VideoMuteReplyStart));
+                    await Task.Delay(VideoMuteStepGap, TimeProvider);
+                    Send(new ExtronSisCommand(state == MuteState.On ? "3*2B" : "3*0B", VideoMuteReplyStart));
                 }
                 catch (Exception e)
                 {

@@ -26,9 +26,10 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
     private readonly Dictionary<int, CiscoRoomOsVideoInput> _inputs = new();
     private readonly Dictionary<int, CiscoRoomOsVideoOutput> _outputs = new();
     private readonly Dictionary<int, int> _sourceIdToConnectorId = new();
-    // The codec reports source resolutions separately from connectors and may do so before the connector
-    // itself has been mentioned, so the latest resolution per source is kept until it can be applied.
+    // The codec reports source resolutions and format statuses separately from connectors and may do so before the
+    // connector itself has been mentioned, so the latest of each per source is kept until it can be applied.
     private readonly Dictionary<int, SourceResolution> _sourceResolutions = new();
+    private readonly Dictionary<int, string> _sourceFormatStatuses = new();
 
     private sealed class SourceResolution
     {
@@ -123,6 +124,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
             {
                 _sourceIdToConnectorId.Clear();
                 _sourceResolutions.Clear();
+                _sourceFormatStatuses.Clear();
                 connectors = [.._inputs.Values, .._outputs.Values];
             }
             connectors.ForEach(connector => connector.Reset());
@@ -252,6 +254,9 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
                 if (int.TryParse(responses[6], out var connectorId))
                     MapSource(sourceId, connectorId);
                 return;
+            case "FormatStatus:":
+                SetSourceFormatStatus(sourceId, JoinQuotedValue(responses, 6));
+                return;
             case "Resolution" when responses.Length >= 8:
                 if (!int.TryParse(responses[7].Trim(), out var value))
                     return;
@@ -283,18 +288,33 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
         }
     }
 
+    private void SetSourceFormatStatus(int sourceId, string formatStatus)
+    {
+        CiscoRoomOsVideoInput? input;
+        lock (_lock)
+        {
+            _sourceFormatStatuses[sourceId] = formatStatus;
+            input = _inputs.GetValueOrDefault(_sourceIdToConnectorId.GetValueOrDefault(sourceId, sourceId));
+        }
+        input?.SetFormatStatus(formatStatus);
+    }
+
     private void MapSource(int sourceId, int connectorId)
     {
         CiscoRoomOsVideoInput? input;
         SourceResolution? resolution;
+        string? formatStatus;
         lock (_lock)
         {
             _sourceIdToConnectorId[sourceId] = connectorId;
             input = _inputs.GetValueOrDefault(connectorId);
             resolution = _sourceResolutions.GetValueOrDefault(sourceId);
+            formatStatus = _sourceFormatStatuses.GetValueOrDefault(sourceId);
         }
         if (input != null && resolution != null)
             ApplyResolution(input, resolution);
+        if (input != null && formatStatus != null)
+            input.SetFormatStatus(formatStatus);
     }
 
     private static void ApplyResolution(CiscoRoomOsVideoInput input, SourceResolution resolution)
@@ -310,6 +330,9 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
         {
             case "ConnectedDevice" when responses.Length >= 8 && responses[6] == "Name:":
                 output.SetConnectedDeviceName(JoinQuotedValue(responses, 7));
+                return;
+            case "ConnectedDevice" when responses.Length >= 8 && responses[6] == "PreferredFormat:":
+                output.SetPreferredFormat(JoinQuotedValue(responses, 7));
                 return;
             case "Connected:":
                 output.SetConnectionState(responses[6].Trim() == "True"
@@ -340,6 +363,7 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
     {
         CiscoRoomOsVideoInput? input;
         SourceResolution? pendingResolution = null;
+        string? pendingFormatStatus = null;
         lock (_lock)
         {
             if (_inputs.TryGetValue(connectorId, out input))
@@ -351,9 +375,12 @@ public class CiscoRoomOsVideoMatrix : VideoMatrix
             if (sources.Count == 0 && !_sourceIdToConnectorId.ContainsKey(connectorId))
                 sources.Add(connectorId);
             pendingResolution = sources.Select(source => _sourceResolutions.GetValueOrDefault(source)).FirstOrDefault(r => r != null);
+            pendingFormatStatus = sources.Select(source => _sourceFormatStatuses.GetValueOrDefault(source)).FirstOrDefault(s => s != null);
         }
         if (pendingResolution != null)
             ApplyResolution(input, pendingResolution);
+        if (pendingFormatStatus != null)
+            input.SetFormatStatus(pendingFormatStatus);
         AddEvent(EventType.Other, $"Discovered input connector {connectorId}");
         EndpointsChangedHandlers?.Invoke();
         return input;

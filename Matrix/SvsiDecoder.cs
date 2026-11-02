@@ -7,12 +7,26 @@ public class SvsiDecoder : SvsiBase
     public MuteStateHandler? MuteStateHandlers;
     public VolumeLevelHandler? VolumeLevelHandlers;
     private static readonly TimeSpan SetInputLiveGap = TimeSpan.FromMilliseconds(200);
+    private const string NeedsVideoStreamKey = "NEEDVSTRM";
+    private const string NeedsVideoStreamLabel = "Needs Video Stream";
+    private const string VideoStreamNotNeeded = "0";
+    private static readonly (string Key, string Label)[] DropCounters =
+    [
+        ("ND_V_DROP", "Video Drops"),
+        ("ND_A_DROP", "Audio Drops"),
+        ("ND_F_DROP", "Frame Drops")
+    ];
     private readonly Dictionary<MuteState, string> _audoMuteDictionary;
     private readonly object _sendLock = new();
     private Task _sends = Task.CompletedTask;
     private MuteState _muteState = MuteState.Off;
     
-    public SvsiDecoder(string name, TcpClient tcpClient) : base(name, tcpClient, AVEndpointType.Decoder)
+    public SvsiDecoder(string name, TcpClient tcpClient) : this(name, tcpClient, null)
+    {
+    }
+
+    internal SvsiDecoder(string name, TcpClient tcpClient, TimeProvider? timeProvider)
+        : base(name, tcpClient, AVEndpointType.Decoder, timeProvider)
     {
         _audoMuteDictionary = new Dictionary<MuteState, string>
         {
@@ -31,6 +45,8 @@ public class SvsiDecoder : SvsiBase
             OutputResolution = resolution.Replace(".mode", string.Empty);
         }
 
+        ShowStreamHealth();
+
         if (StatusDictionary.TryGetValue("MUTE", out var muteState))
         {
             MuteState currentMuteState = muteState switch
@@ -47,6 +63,18 @@ public class SvsiDecoder : SvsiBase
         }
     }
 
+    private void ShowStreamHealth()
+    {
+        foreach (var (key, label) in DropCounters)
+        {
+            if (StatusDictionary.TryGetValue(key, out var count))
+                SetDetail(label, count);
+        }
+        if (StatusDictionary.TryGetValue(NeedsVideoStreamKey, out var needsVideoStream))
+            SetDetail(NeedsVideoStreamLabel, needsVideoStream,
+                needsVideoStream == VideoStreamNotNeeded ? DetailTone.Normal : DetailTone.Warning);
+    }
+
     private void Send(params (string Message, TimeSpan SpacingAfter)[] messages)
     {
         lock (_sendLock)
@@ -60,7 +88,7 @@ public class SvsiDecoder : SvsiBase
             foreach (var (message, spacingAfter) in messages)
             {
                 CommunicationClient.Send(message);
-                await Task.Delay(spacingAfter);
+                await Task.Delay(spacingAfter, TimeProvider);
             }
         }
         catch (Exception e)

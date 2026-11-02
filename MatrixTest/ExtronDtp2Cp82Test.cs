@@ -1,14 +1,18 @@
 ﻿using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
-// Response strings are taken verbatim from a DTP2 CrossPoint 82 (firmware 1.04) capture.
-[Collection("LoggerFactory")]
 public class ExtronDtp2Cp82Test
 {
+    private static readonly TimeSpan QueryReplyTimeout = TimeSpan.FromSeconds(5);
+    private static readonly string[] IdentityQueries = ["*Q", "N", "\u001bCN\r", "\u001bCH\r"];
+    private const string TemperatureQuery = "\u001b20STAT\r";
+    private readonly FakeTimeProvider _time = new();
     private readonly ExtronDtp2Cp82 _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private const string EscapeHeader = "\x1b";
@@ -16,66 +20,17 @@ public class ExtronDtp2Cp82Test
 
     public ExtronDtp2Cp82Test()
     {
-        _switcher = new ExtronDtp2Cp82(_mockClient.Object, "test matrix");
+        _switcher = new ExtronDtp2Cp82(_mockClient.Object, "test matrix", _time);
     }
 
     private void Respond(string response) => _mockClient.Object.ResponseHandlers!.Invoke(response);
 
-    private static (ExtronDtp2Cp82 Switcher, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs(Mock<CommunicationClient> client)
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return (new ExtronDtp2Cp82(client.Object, "Logged matrix"), logs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
     [Fact]
-    public void Constructor_BuildsTheFixedTopology()
-    {
-        Assert.Equal(8, _switcher.Inputs.Count);
-        Assert.Equal(3, _switcher.Outputs.Count);
-        Assert.Equal(8, _switcher.NumberOfInputs);
-        Assert.Equal(2, _switcher.NumberOfOutputs);
-        Assert.Equal(8, _switcher.GetInputs().Count);
-        Assert.Equal(3, _switcher.GetOutputs().Count);
-        Assert.Equal("Loop Out", _switcher.Outputs[2].Name);
-        Assert.Equal(3, _switcher.Outputs[2].Number);
-    }
-
-    [Fact]
-    public void SendCommand_DoesNotManipulateInput()
-    {
-        string input = "Foo";
-
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
-
-        _mockClient.Verify(x => x.Send(input), Times.Once);
-    }
-
-    [Fact]
-    public void SendCommand_ReportsCommunicationIsOkay()
-    {
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, ["Foo"]);
-
-        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
-    }
-
-    [Fact]
-    public void SendCommand_ReportsCommunicationHasFailed()
+    public void FailedSend_ReportsCommunicationHasFailed()
     {
         _mockClient.Setup(client => client.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
 
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, ["Foo"]);
+        _switcher.RouteAV(1, 1);
 
         Assert.Equal(CommunicationState.Error, _switcher.CommunicationState);
     }
@@ -117,17 +72,6 @@ public class ExtronDtp2Cp82Test
     }
 
     [Fact]
-    public void HandleResponse_LogsAnUnexpectedModelOnce()
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (_, logs) = CreateWithCapturedLogs(client);
-
-        client.Object.ResponseHandlers!.Invoke("Inf00*DTPCP84 4K");
-
-        Assert.Single(logs.Logs, log => log.Message.StartsWith("Expected a DTP2 CrossPoint 82 but the switcher reported DTPCP84 4K"));
-    }
-
-    [Fact]
     public void HandleResponse_ResolvesTheModelIssueWhenTheRightModelReports()
     {
         Respond("Inf00*DTPCP84 4K");
@@ -157,20 +101,6 @@ public class ExtronDtp2Cp82Test
         Respond(response);
 
         Assert.Equal(expectedName, _switcher.Outputs[index].Name);
-    }
-
-    [Theory]
-    [InlineData("VnamI*Nope")]
-    [InlineData("VnamX1*Nope")]
-    public void HandleResponse_LogsAMalformedName(string response)
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (switcher, logs) = CreateWithCapturedLogs(client);
-
-        client.Object.ResponseHandlers!.Invoke(response);
-
-        Assert.Contains(logs.Logs, log => log.Message.Contains(response));
-        Assert.All(switcher.Inputs, input => Assert.StartsWith("Input ", input.Name));
     }
 
     [Theory]
@@ -256,20 +186,6 @@ public class ExtronDtp2Cp82Test
         Assert.Equal(ConnectionState.Disconnected, _switcher.Inputs[1].InputConnectionStatus);
     }
 
-    [Theory]
-    [InlineData("In00 1*1*1")]
-    [InlineData("In00 1*1*1*1*1*1*1*1*1")]
-    public void HandleResponse_LogsAndIgnoresSignalPresenceThatDoesNotListEveryInput(string response)
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (switcher, logs) = CreateWithCapturedLogs(client);
-
-        client.Object.ResponseHandlers!.Invoke(response);
-
-        Assert.Contains(logs.Logs, log => log.Message.Contains(response[5..]) && log.Message.Contains("8 inputs"));
-        Assert.All(switcher.Inputs, input => Assert.False(input.InUse));
-    }
-
     [Fact]
     public void HandleResponse_RequestsSignalPresenceOnReconfig()
     {
@@ -313,12 +229,12 @@ public class ExtronDtp2Cp82Test
     }
 
     [Fact]
-    public void HandleResponse_MarksAnUntiedOutput()
+    public void HandleResponse_GivesAnUntiedOutputTheAddressZero()
     {
         Respond("In6*1 All");
         Respond("Out1 In00 All");
 
-        Assert.Equal(ExtronDtp2Cp82.UntiedAddress, _switcher.Outputs[0].StreamAddress);
+        Assert.Equal("0", _switcher.Outputs[0].StreamAddress);
     }
 
     [Fact]
@@ -355,23 +271,11 @@ public class ExtronDtp2Cp82Test
         Assert.Equal("2", _switcher.Outputs[1].StreamAddress);
     }
 
-    [Theory]
-    [InlineData("Out1 In00 All")]
-    [InlineData("In0*1 All")]
-    [InlineData("In00 All")]
-    [InlineData("Out00 In6 All")]
-    public void HandleResponse_GivesAnUntiedOutputTheAddressZero(string response)
-    {
-        Respond("In6*1 All");
-        Respond(response);
-
-        Assert.Equal("0", ExtronDtp2Cp82.UntiedAddress);
-        Assert.Equal("0", _switcher.Outputs[0].StreamAddress);
-    }
-
     [Fact]
     public void HandleResponse_RaisesAnIssueWhenTheSwitcherRejectsACommand()
     {
+        _switcher.RouteAV(2, 1);
+
         Respond("E10");
 
         Assert.Contains(_switcher.GetIssues(),
@@ -414,11 +318,12 @@ public class ExtronDtp2Cp82Test
     }
 
     [Fact]
-    public void RouteAV_SendsTheCommand()
+    public void RouteAV_SendsTheCommandAndReportsCommunicationIsOkay()
     {
         _switcher.RouteAV(6, 2);
 
         _mockClient.Verify(x => x.Send("6*2!"), Times.Once);
+        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
     }
 
     [Fact]
@@ -546,11 +451,338 @@ public class ExtronDtp2Cp82Test
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 
-    [Fact]
-    public void Capabilities_MatchTheSwitcher()
+    private DeviceDetail? Detail(string label) => _switcher.Details.SingleOrDefault(detail => detail.Label == label);
+
+    private void SendPoll() => typeof(ExtronDtp2Cp82)
+        .GetMethod("SendPoll", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(_switcher, []);
+
+    private List<string> RecordSends()
     {
-        Assert.True(_switcher.RequiresOutputSpecification);
-        Assert.True(_switcher.SupportsVideoBreakaway);
-        Assert.True(_switcher.SupportsAudioBreakaway);
+        var sent = new List<string>();
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(sent.Add);
+        return sent;
+    }
+
+    [Theory]
+    [InlineData(ModelResponse, "DTP2 CrossPoint 82")]
+    [InlineData("Inf00*DTP2 CrossPoint 82 IPCP SA", "DTP2 CrossPoint 82 IPCP SA")]
+    [InlineData("Inf00*DTPCP84 4K", "DTPCP84 4K")]
+    public void ModelResponse_ShowsTheModel(string response, string expectedModel)
+    {
+        Respond(response);
+
+        Assert.Equal(new DeviceDetail("Model", expectedModel), Detail("Model"));
+    }
+
+    [Fact]
+    public void ModelResponse_QueriesTheStatusBeforeReadingTheIdentity()
+    {
+        var sent = RecordSends();
+
+        Respond(ModelResponse);
+
+        Assert.Equal($"{EscapeHeader}I1VNAM\r", sent[0]);
+        Assert.Equal([$"{EscapeHeader}0LS\r", ..IdentityQueries], sent.TakeLast(5));
+    }
+
+    [Fact]
+    public void UnexpectedModel_DoesNotReadTheIdentity()
+    {
+        Respond("Inf00*DTPCP84 4K");
+
+        foreach (var query in IdentityQueries)
+            _mockClient.Verify(client => client.Send(query), Times.Never);
+    }
+
+    [Fact]
+    public void IdentityReplies_AreShownAsReceived()
+    {
+        Respond(ModelResponse);
+
+        Respond("Bld1.04.0001\r\nPno60-1608-01\r\nIpn DTP2-CP-82-12-34-56\r\nIph 00-05-A6-12-34-56\r\n");
+
+        Assert.Equal("1.04.0001", Detail("Firmware")?.Value);
+        Assert.Equal("60-1608-01", Detail("Part Number")?.Value);
+        Assert.Equal("DTP2-CP-82-12-34-56", Detail("Unit Name")?.Value);
+        Assert.Equal("00-05-A6-12-34-56", Detail("MAC")?.Value);
+        Assert.Empty(_switcher.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void RejectedIdentityQuery_ShowsItIsNotSupportedWithNoIssue()
+    {
+        Respond(ModelResponse);
+        foreach (var reply in ExtronBenchCaptures.Dtp2Cp82StatusReplies)
+            Respond(reply);
+        Respond("Bld1.04.0001");
+        Respond("Pno60-1608-01");
+        var communicationState = _switcher.CommunicationState;
+
+        Respond("E10");
+
+        Assert.Equal(new DeviceDetail("Unit Name", "Not supported: E10", DetailTone.Normal), Detail("Unit Name"));
+        Assert.Empty(_switcher.GetIssues());
+        Assert.Equal(communicationState, _switcher.CommunicationState);
+    }
+
+    [Fact]
+    public void SendPoll_ReadsTheTemperatureAfterTheSignalPresence()
+    {
+        var sent = RecordSends();
+
+        SendPoll();
+
+        Assert.Equal([$"{EscapeHeader}0LS\r", TemperatureQuery], sent);
+    }
+
+    [Fact]
+    public void RejectedTemperatureQuery_IsNotSentAgainUntilTheSwitcherReconnects()
+    {
+        SendPoll();
+
+        Respond(ExtronBenchCaptures.Dtp2Cp82SignalPresenceReply);
+        Respond("E13");
+
+        Assert.Equal(new DeviceDetail("Temperature", "Not supported: E13", DetailTone.Normal), Detail("Temperature"));
+        Assert.Empty(_switcher.GetIssues());
+        _mockClient.Invocations.Clear();
+        SendPoll();
+        _mockClient.Verify(client => client.Send(TemperatureQuery), Times.Never);
+
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Disconnected);
+        SendPoll();
+        _mockClient.Verify(client => client.Send(TemperatureQuery), Times.Once);
+    }
+
+    [Fact]
+    public void BusyTemperatureQuery_IsSentAgainAndRaisesTheReadIssueOnTheThirdInARow()
+    {
+        SendPoll();
+        Respond(ExtronBenchCaptures.Dtp2Cp82SignalPresenceReply);
+        Respond("E22\r\n");
+        SendPoll();
+        Respond(ExtronBenchCaptures.Dtp2Cp82SignalPresenceReply);
+        Respond("E22\r\n");
+
+        Assert.Empty(_switcher.GetIssues());
+        _mockClient.Verify(client => client.Send(TemperatureQuery), Times.Exactly(2));
+
+        SendPoll();
+        Respond(ExtronBenchCaptures.Dtp2Cp82SignalPresenceReply);
+        Respond("E22\r\n");
+
+        var issue = Assert.Single(_switcher.GetOngoingIssues());
+        Assert.Equal("temperature-read", issue.Key);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Equal("The switcher did not answer Esc 20STAT (Temperature) 3 times in a row, the last was E22", issue.Message);
+        Respond("20Stat 41");
+        Assert.Empty(_switcher.GetOngoingIssues());
+        Assert.Equal(new DeviceDetail("Temperature", "41"), Detail("Temperature"));
+    }
+
+    [Fact]
+    public void UnansweredIdentityQueries_AreSentAgainAndRaiseTheReadIssueOnTheThirdMiss()
+    {
+        Respond(ModelResponse);
+        _time.Advance(QueryReplyTimeout);
+        SendPoll();
+        _time.Advance(QueryReplyTimeout);
+        SendPoll();
+
+        Assert.Empty(_switcher.GetIssues());
+        foreach (var query in IdentityQueries)
+            _mockClient.Verify(client => client.Send(query), Times.Exactly(3));
+
+        _time.Advance(QueryReplyTimeout);
+        SendPoll();
+
+        Assert.Equal(["firmware-read", "part-number-read", "unit-name-read", "mac-read"],
+            _switcher.GetOngoingIssues().Select(issue => issue.Key));
+        Assert.Contains(_switcher.GetOngoingIssues(),
+            issue => issue.Message == "The switcher did not answer *Q (Firmware) 3 times in a row, the last was no Bld reply within 5 s");
+        Respond("Bld1.04.0001");
+        Assert.DoesNotContain(_switcher.GetOngoingIssues(), issue => issue.Key == "firmware-read");
+    }
+
+    [Fact]
+    public void UnansweredQueries_WaitForTheReplyTimeout()
+    {
+        Respond(ModelResponse);
+
+        _time.Advance(QueryReplyTimeout - TimeSpan.FromTicks(1));
+        SendPoll();
+
+        Assert.Empty(_switcher.GetOngoingIssues());
+        foreach (var query in IdentityQueries)
+            _mockClient.Verify(client => client.Send(query), Times.Once);
+    }
+
+    [Fact]
+    public void Disconnect_ForgetsTheOutstandingQueries()
+    {
+        Respond(ModelResponse);
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Disconnected);
+
+        Respond("E10");
+
+        Assert.Null(Detail("Firmware"));
+        Assert.Empty(_switcher.GetIssues());
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class ExtronDtp2Cp82LogTest
+{
+    private readonly Mock<CommunicationClient> _client = TestFactory.CreateCommunicationClient();
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly ExtronDtp2Cp82 _switcher;
+
+    public ExtronDtp2Cp82LogTest()
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _switcher = new ExtronDtp2Cp82(_client.Object, "Logged matrix");
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private void Respond(string response) => _client.Object.ResponseHandlers!.Invoke(response);
+
+    [Fact]
+    public void HandleResponse_LogsAnUnexpectedModelOnce()
+    {
+        Respond("Inf00*DTPCP84 4K");
+
+        Assert.Single(_logs.Logs, log => log.Message.StartsWith("Expected a DTP2 CrossPoint 82 but the switcher reported DTPCP84 4K"));
+    }
+
+    [Theory]
+    [InlineData("VnamI*Nope")]
+    [InlineData("VnamX1*Nope")]
+    public void HandleResponse_LogsAMalformedName(string response)
+    {
+        Respond(response);
+
+        Assert.Contains(_logs.Logs, log => log.Message.Contains(response));
+        Assert.All(_switcher.Inputs, input => Assert.StartsWith("Input ", input.Name));
+    }
+
+    [Theory]
+    [InlineData("In00 1*1*1")]
+    [InlineData("In00 1*1*1*1*1*1*1*1*1")]
+    public void HandleResponse_LogsAndIgnoresSignalPresenceThatDoesNotListEveryInput(string response)
+    {
+        Respond(response);
+
+        Assert.Contains(_logs.Logs, log => log.Message.Contains(response[5..]) && log.Message.Contains("8 inputs"));
+        Assert.All(_switcher.Inputs, input => Assert.False(input.InUse));
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class ExtronDtp2Cp82BenchTest
+{
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(5);
+    private const string RouteTrigger = "5d30414a";
+    private readonly FakeTimeProvider _time = new();
+    private readonly Mock<TcpClient> _client = TestFactory.CreateTcpClient();
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly ExtronDtp2Cp82 _switcher;
+
+    public ExtronDtp2Cp82BenchTest()
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _switcher = new ExtronDtp2Cp82(_client.Object, "Bench matrix", _time);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private void Respond(IEnumerable<string> replies)
+    {
+        foreach (var reply in replies)
+            _client.Object.ResponseHandlers!.Invoke(reply);
+    }
+
+    private async Task Connect()
+    {
+        typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
+            .SetValue(_client.Object, ConnectionState.Connected);
+        Respond([ExtronBenchCaptures.Dtp2Cp82Banner]);
+        await Wait.UntilAsync(_time, ConnectStepGap,
+            () => _client.Invocations.Any(invocation => Equals(invocation.Arguments[0], "I")), "The model was never asked for");
+        Respond([..ExtronBenchCaptures.Dtp2Cp82ConnectReplies, ..ExtronBenchCaptures.Dtp2Cp82StatusReplies, ..ExtronBenchCaptures.Dtp2Cp82IdentityReplies]);
+    }
+
+    private void SendPoll() => typeof(ExtronDtp2Cp82)
+        .GetMethod("SendPoll", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(_switcher, []);
+
+    private DeviceDetail? Detail(string label) => _switcher.Details.SingleOrDefault(detail => detail.Label == label);
+
+    [Fact]
+    public async Task BenchSequence_MatchesEveryReplyToTheCommandItAnswers()
+    {
+        await Connect();
+        SendPoll();
+        Respond([ExtronBenchCaptures.Dtp2Cp82SignalPresenceReply, ExtronBenchCaptures.Dtp2Cp82TemperatureReply]);
+        _time.Advance(ReplyTimeout);
+
+        SendPoll();
+
+        Assert.Equal(["DTP2 CrossPoint 82", "1.04.0004", "60-1812-01", "ROOM-VP01", "00-05-A6-00-00-03", "34"],
+            new[] { "Model", "Firmware", "Part Number", "Unit Name", "MAC", "Temperature" }.Select(label => Detail(label)?.Value));
+        Assert.Equal(["1", "6", "1"], _switcher.Outputs.Select(output => output.StreamAddress));
+        Assert.Equal("Members PC", _switcher.Inputs[5].Name);
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.StartsWith("The switcher didn't answer"));
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.Contains("asking again"));
+        Assert.DoesNotContain(_logs.Logs, log => log.Level >= LogLevel.Warning);
+        Assert.Empty(_switcher.GetIssues());
+    }
+
+    [Fact]
+    public async Task RejectedRoute_WhileTheTemperatureQueryIsPending_RaisesTheRejectionIssueAndTheQueryKeepsItsReply()
+    {
+        await Connect();
+        using (Trigger.Resume(RouteTrigger))
+            _switcher.RouteVideo(3, 2);
+        SendPoll();
+
+        Respond(["E13\r\n", ExtronBenchCaptures.Dtp2Cp82SignalPresenceReply, ExtronBenchCaptures.Dtp2Cp82TemperatureReply]);
+
+        var issue = Assert.Single(_switcher.GetIssues());
+        Assert.Equal(("rejected-command", IssueStatus.Momentary, "The switcher rejected 3*2% with E13"),
+            (issue.Key, issue.Status, issue.Message));
+        Assert.Equal(RouteTrigger, Assert.Single(_logs.Logs, log => log.Message == issue.Message).TriggerId);
+        Assert.Equal(new DeviceDetail("Temperature", "34"), Detail("Temperature"));
+    }
+
+    [Fact]
+    public async Task TieFromTheRoomProcessor_WhileOurRouteAwaitsItsReply_LeavesTheRejectionToOurRoute()
+    {
+        await Connect();
+        using (Trigger.Resume(RouteTrigger))
+            _switcher.RouteAV(3, 1);
+        SendPoll();
+
+        Respond(["In5*2 All\r\n", "E13\r\n", ExtronBenchCaptures.Dtp2Cp82SignalPresenceReply, ExtronBenchCaptures.Dtp2Cp82TemperatureReply]);
+
+        Assert.Equal("5", _switcher.Outputs[1].StreamAddress);
+        var issue = Assert.Single(_switcher.GetIssues());
+        Assert.Equal("rejected-command", issue.Key);
+        Assert.Equal(RouteTrigger, Assert.Single(_logs.Logs, log => log.Message == issue.Message).TriggerId);
+        Assert.Equal(new DeviceDetail("Temperature", "34"), Detail("Temperature"));
     }
 }

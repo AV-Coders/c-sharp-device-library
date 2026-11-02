@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace AVCoders.Matrix;
 
 /// <summary>SW HD 4K PLUS switcher with model discovery and SIS sync feedback.</summary>
-public partial class ExtronSw : VideoMatrix, IDisposable
+public partial class ExtronSw : ExtronSisMatrix, IDisposable
 {
     public readonly List<ExtronMatrixInput> Inputs = [];
     public readonly List<ExtronMatrixEndpoint> Outputs =
@@ -14,7 +14,23 @@ public partial class ExtronSw : VideoMatrix, IDisposable
     ];
 
     private const string EscapeHeader = "\x1b";
+    private const string ModelTag = "Inf01*";
+    private const string ModelLabel = "Model";
+    private const string ModelIssueKey = "model";
     private static readonly char[] LineSeparators = ['\r', '\n'];
+    private static readonly ExtronSisCommand VerboseMode = new($"{EscapeHeader}3CV\r", "Vrb");
+    private static readonly ExtronSisCommand ModelQuery = new("1I", ModelTag);
+    private static readonly ExtronSisCommand SignalStatusQuery = new($"{EscapeHeader}LS\r", "Sig");
+    private static readonly ExtronSisCommand InputHdcpQuery = new($"{EscapeHeader}IHDCP\r", "Hdcp");
+    private static readonly ExtronSisCommand OutputHdcpQuery = new($"{EscapeHeader}OHDCP\r", "Hdcp");
+    private static readonly ExtronSisCommand TieQuery = new("!", new ExtronSisTie(null, ExtronSisTie.AllOutputs, ExtronSisTie.VideoAndAudio));
+    private static readonly ExtronSisQuery[] IdentityQueries =
+    [
+        new("Q", "Ver01*", "Firmware", "firmware-read"),
+        new("N", "Pno", "Part Number", "part-number-read"),
+        new($"{EscapeHeader}CN\r", "Ipn ", "Unit Name", "unit-name-read"),
+        new($"{EscapeHeader}CH\r", "Iph ", "MAC", "mac-read")
+    ];
     private readonly ThreadWorker _pollWorker;
     private readonly object _responseLock = new();
     private readonly StringBuilder _pendingResponse = new();
@@ -25,11 +41,16 @@ public partial class ExtronSw : VideoMatrix, IDisposable
 
     /// <summary>Discovers the input count on connection; the HDMI output is always output 1.</summary>
     public ExtronSw(CommunicationClient communicationClient, string name)
-        : base(1, communicationClient, name)
+        : this(communicationClient, name, null)
+    {
+    }
+
+    internal ExtronSw(CommunicationClient communicationClient, string name, TimeProvider? timeProvider)
+        : base(1, communicationClient, name, timeProvider)
     {
         PowerState = PowerState.Unknown;
         CommunicationState = CommunicationState.NotAttempted;
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true, TimeProvider);
         CommunicationClient.ResponseHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         HandleConnectionState(CommunicationClient.ConnectionState);
@@ -79,6 +100,7 @@ public partial class ExtronSw : VideoMatrix, IDisposable
             inputs = [..Inputs];
             output = Outputs[0];
         }
+        ForgetCommands();
         foreach (var input in inputs)
         {
             input.SetInputStatus(ConnectionState.Unknown);
@@ -89,8 +111,8 @@ public partial class ExtronSw : VideoMatrix, IDisposable
         output.SetStreamAddress(string.Empty);
         if (connectionState != ConnectionState.Connected)
             return;
-        WrapAndSendCommand("3CV");
-        SendCommand("1I");
+        SendCommand(VerboseMode);
+        SendCommand(ModelQuery);
         QueryStatus();
     }
 
@@ -99,9 +121,11 @@ public partial class ExtronSw : VideoMatrix, IDisposable
         if (!_disposed && !token.IsCancellationRequested &&
             CommunicationClient.ConnectionState == ConnectionState.Connected)
         {
+            ReportMissedReplies();
             if (NumberOfInputs == 0)
-                SendCommand("1I");
+                SendCommand(ModelQuery);
             QueryStatus();
+            ReadAgainIfUnanswered(IdentityQueries);
         }
         return Task.CompletedTask;
     }
@@ -109,15 +133,13 @@ public partial class ExtronSw : VideoMatrix, IDisposable
     // These read-only queries double as a heartbeat every 20 seconds while connected.
     private void QueryStatus()
     {
-        WrapAndSendCommand("LS");
-        WrapAndSendCommand("IHDCP");
-        WrapAndSendCommand("OHDCP");
-        SendCommand("!");
+        SendCommand(SignalStatusQuery);
+        SendCommand(InputHdcpQuery);
+        SendCommand(OutputHdcpQuery);
+        SendCommand(TieQuery);
     }
 
-    private void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
-
-    [GeneratedRegex(@"^(?:Inf01\*)?SW([2468])\s+HD\s+4K\s+PLUS(?:\s+Series)?$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?:Inf01\*)?(SW([2468])\s+HD\s+4K\s+PLUS(?:\s+Series)?)$", RegexOptions.IgnoreCase)]
     private static partial Regex ModelRegex();
 
     [GeneratedRegex(@"^In\s*(\d+)\s+(?:All|Ausw.*)$", RegexOptions.IgnoreCase)]
@@ -176,14 +198,36 @@ public partial class ExtronSw : VideoMatrix, IDisposable
     private void ProcessResponse(string response)
     {
         var line = response.Trim();
+        using var reply = TakeReply(line);
+        using var scope = PushProperties();
         if (ModelRegex().Match(line) is { Success: true } model)
-            SetInputCount(int.Parse(model.Groups[1].Value));
+            HandleModel(model.Groups[1].Value, int.Parse(model.Groups[2].Value));
+        else if (line.StartsWith(ModelTag))
+            HandleUnknownModel(line);
+        else if (IdentityQueries.FirstOrDefault(query => query.IsAnsweredBy(line)) is { } identity)
+            ShowRead(identity, line);
         else if (line.StartsWith("Sig", StringComparison.OrdinalIgnoreCase))
             HandleSignalStatus(line[3..]);
         else if (line.StartsWith("Hdcp", StringComparison.OrdinalIgnoreCase))
             HandleHdcp(line[4..].TrimStart());
         else if (TieRegex().Match(line) is { Success: true } tie)
             HandleTie(line, tie.Groups[1].Value);
+        else if (IsError(line))
+            HandleError(line);
+    }
+
+    private void HandleModel(string model, int inputCount)
+    {
+        SetDetail(ModelLabel, model);
+        ResolveIssue(ModelIssueKey);
+        SetInputCount(inputCount);
+        Read(IdentityQueries);
+    }
+
+    private void HandleUnknownModel(string line)
+    {
+        SetDetail(ModelLabel, line[ModelTag.Length..]);
+        RaiseOngoingIssue(ModelIssueKey, $"Unable to read the input count from the model {line}");
     }
 
     private void HandleTie(string line, string input)
@@ -266,20 +310,10 @@ public partial class ExtronSw : VideoMatrix, IDisposable
         return tokens.Length > 0;
     }
 
-    private void SendCommand(string command)
+    private void SendCommand(ExtronSisCommand command)
     {
-        if (_disposed)
-            return;
-        try
-        {
-            CommunicationClient.Send(command);
-            CommunicationState = CommunicationState.Okay;
-        }
-        catch (Exception e)
-        {
-            LogException(e);
-            CommunicationState = CommunicationState.Error;
-        }
+        if (!_disposed)
+            Send(command);
     }
 
     public void Dispose()
@@ -334,7 +368,7 @@ public partial class ExtronSw : VideoMatrix, IDisposable
     {
         if (input > 0 && input <= NumberOfInputs)
         {
-            SendCommand($"{input}!");
+            SendCommand(new ExtronSisCommand($"{input}!", new ExtronSisTie(input, ExtronSisTie.AllOutputs, ExtronSisTie.VideoAndAudio)));
             AddEvent(EventType.Input, $"Switched to input {input}");
         }
         else

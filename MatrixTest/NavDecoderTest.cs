@@ -1,11 +1,9 @@
-﻿using System.Text;
-using AVCoders.Core;
+﻿using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
-[Collection("LoggerFactory")]
 public class NavDecoderTest
 {
     private readonly Mock<SshClient> _mockSshClient = TestFactory.CreateSshClient();
@@ -32,12 +30,30 @@ public class NavDecoderTest
         _outputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080@60", HdcpStatus.Available));
     }
 
+    private DeviceDetail? Detail(string label) => _navDecoder.Details.SingleOrDefault(detail => detail.Label == label);
+
     [Fact]
-    public void ResponseHandler_ProcessesGeneralSystemInfoWithNoSignal()
+    public void ResponseHandler_ProcessesGeneralSystemInfoWithNoSignalAndShowsTheAudioStreamAndLinkFields()
     {
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
         theAction.Invoke("VidI0*HdcpI1*HdcpO0*ResI0x0@0*AudI0*StrmI0*Lnk1*Dec");
+
         _outputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Disconnected, "", HdcpStatus.Unknown));
+        Assert.Equal("0", Detail("Audio Input")?.Value);
+        Assert.Equal("0", Detail("Stream Input")?.Value);
+        Assert.Equal("1", Detail("Link")?.Value);
+    }
+
+    [Fact]
+    public void ResponseHandler_ShowsTheSerialNumberAndHostname()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Inf98*Z9Y8X7");
+        theAction.Invoke("Ipn NAV-D-101");
+
+        Assert.Equal("Z9Y8X7", Detail("Serial")?.Value);
+        Assert.Equal("NAV-D-101", Detail("Hostname")?.Value);
+        Assert.Equal("NAV-D-101", _navDecoder.Hostname);
     }
 
     [Fact]
@@ -48,44 +64,28 @@ public class NavDecoderTest
         _addressChangeHandlerMock.Verify(x => x.Invoke("3696"));
     }
 
-    [Fact]
-    public void ResponseHandler_ProcessesVideoMuteOn()
+    [Theory]
+    [InlineData("Vmt2", MuteState.On)]
+    [InlineData("Vmt0", MuteState.Off)]
+    public void ResponseHandler_ProcessesVideoMute(string response, MuteState expected)
     {
         Mock<MuteStateHandler> muteStateHandlerMock = new();
         _navDecoder.VideoMuteStateHandlers = muteStateHandlerMock.Object;
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
-        theAction.Invoke("Vmt2");
-        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.On));
+        theAction.Invoke(response);
+        muteStateHandlerMock.Verify(x => x.Invoke(expected));
     }
 
-    [Fact]
-    public void ResponseHandler_ProcessesVideoMuteOff()
-    {
-        Mock<MuteStateHandler> muteStateHandlerMock = new();
-        _navDecoder.VideoMuteStateHandlers = muteStateHandlerMock.Object;
-        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
-        theAction.Invoke("Vmt0");
-        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.Off));
-    }
-
-    [Fact]
-    public void ResponseHandler_ProcessesAudioMuteOn()
+    [Theory]
+    [InlineData("Amt1*1", MuteState.On)]
+    [InlineData("Amt1*0", MuteState.Off)]
+    public void ResponseHandler_ProcessesAudioMute(string response, MuteState expected)
     {
         Mock<MuteStateHandler> muteStateHandlerMock = new();
         _navDecoder.AudioMuteStateHandlers = muteStateHandlerMock.Object;
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
-        theAction.Invoke("Amt1*1");
-        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.On));
-    }
-
-    [Fact]
-    public void ResponseHandler_ProcessesAudioMuteOff()
-    {
-        Mock<MuteStateHandler> muteStateHandlerMock = new();
-        _navDecoder.AudioMuteStateHandlers = muteStateHandlerMock.Object;
-        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
-        theAction.Invoke("Amt1*0");
-        muteStateHandlerMock.Verify(x => x.Invoke(MuteState.Off));
+        theAction.Invoke(response);
+        muteStateHandlerMock.Verify(x => x.Invoke(expected));
     }
 
     [Fact]
@@ -195,35 +195,6 @@ public class NavDecoderTest
         Assert.Null(_navDecoder.DesiredVideoInput);
     }
 
-    private (NavDecoder Decoder, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return (new NavDecoder("Logged decoder", "3.3.3.3", _navigatorMock.Object), logs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
-    [Fact]
-    public void SetInput_WithAnEncoderWhoseNumberIsUnknown_SendsNothingAndLogs()
-    {
-        var (decoder, logs) = CreateWithCapturedLogs();
-        var encoder = new NavEncoder("Encoder", "2.2.2.2", _navigatorMock.Object);
-        RegisteredResponseHandler("3.3.3.3").Invoke("Dnum101");
-
-        decoder.SetInput(encoder);
-
-        _navigatorMock.Verify(x => x.RouteAV(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
-        Assert.Null(decoder.DesiredVideoInput);
-        Assert.Contains(logs.Logs, log => log.Message == "Not requesting a route to Encoder as its device number is 0");
-    }
-
     [Fact]
     public void SetAudioMute_Unknown_SendsNothing()
     {
@@ -255,8 +226,6 @@ public class NavDecoderTest
         _navigatorMock.Verify(x => x.DeregisterDevice(It.IsAny<string>()), Times.Never);
     }
 
-    
-    
     [Theory]
     [InlineData("HplgO0", ConnectionState.Disconnected)]
     [InlineData("HplgO1", ConnectionState.Connected)]
@@ -277,5 +246,47 @@ public class NavDecoderTest
         theAction.Invoke(response);
         
         Assert.Equal(expectedState, _outputSyncInfoHandlerMock.Invocations[0].Arguments[2]);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class NavDecoderLogTest
+{
+    private readonly Mock<SshClient> _mockSshClient = TestFactory.CreateSshClient();
+    private readonly Mock<Navigator> _navigatorMock;
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly NavDecoder _decoder;
+
+    public NavDecoderLogTest()
+    {
+        _navigatorMock = new Mock<Navigator>("NAV!", _mockSshClient.Object);
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _decoder = new NavDecoder("Logged decoder", "3.3.3.3", _navigatorMock.Object);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private Action<string> RegisteredResponseHandler(string deviceId) => (Action<string>)_navigatorMock.Invocations
+        .Last(invocation => invocation.Method.Name == nameof(Navigator.RegisterDevice) &&
+                            invocation.Arguments[0] as string == deviceId)
+        .Arguments[1];
+
+    [Fact]
+    public void SetInput_WithAnEncoderWhoseNumberIsUnknown_SendsNothingAndLogs()
+    {
+        var encoder = new NavEncoder("Encoder", "2.2.2.2", _navigatorMock.Object);
+        RegisteredResponseHandler("3.3.3.3").Invoke("Dnum101");
+
+        _decoder.SetInput(encoder);
+
+        _navigatorMock.Verify(x => x.RouteAV(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+        Assert.Null(_decoder.DesiredVideoInput);
+        Assert.Contains(_logs.Logs, log => log.Message == "Not requesting a route to Encoder as its device number is 0");
     }
 }

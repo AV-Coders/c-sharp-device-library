@@ -21,17 +21,24 @@ public partial class ExtronIn16Xx : VideoMatrix
     private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan VideoMuteStepGap = TimeSpan.FromMilliseconds(300);
     private readonly int _numberOfInputs;
+    private readonly TimeProvider _timeProvider;
     private readonly ThreadWorker _pollWorker;
     private readonly object _spacedSendsLock = new();
     private Task _spacedSends = Task.CompletedTask;
 
-    public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name) 
+    public ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name)
+        : this(communicationClient, numberOfInputs, name, TimeProvider.System)
+    {
+    }
+
+    internal ExtronIn16Xx(CommunicationClient communicationClient, int numberOfInputs, string name, TimeProvider timeProvider)
         : base(1, communicationClient, name)
     {
         _numberOfInputs = numberOfInputs;
+        _timeProvider = timeProvider;
         PowerState = PowerState.Unknown;
         CommunicationState = CommunicationState.NotAttempted;
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true, _timeProvider);
         _pollWorker.Restart();
         communicationClient.ConnectionStateHandlers += HandleConnectionState;
         communicationClient.ResponseHandlers += HandleResponse;
@@ -86,9 +93,9 @@ public partial class ExtronIn16Xx : VideoMatrix
             {
                 try
                 {
-                    await Task.Delay(ConnectStepGap);
+                    await Task.Delay(ConnectStepGap, _timeProvider);
                     WrapAndSendCommand("3CV");
-                    await Task.Delay(ConnectStepGap);
+                    await Task.Delay(ConnectStepGap, _timeProvider);
                     SendCommand("I");
                     WrapAndSendCommand("0LS");
                 }
@@ -208,9 +215,9 @@ public partial class ExtronIn16Xx : VideoMatrix
                 try
                 {
                     SendCommand(state == MuteState.On ? "1*2B" : "1*0B");
-                    await Task.Delay(VideoMuteStepGap);
+                    await Task.Delay(VideoMuteStepGap, _timeProvider);
                     SendCommand(state == MuteState.On ? "2*2B" : "2*0B");
-                    await Task.Delay(VideoMuteStepGap);
+                    await Task.Delay(VideoMuteStepGap, _timeProvider);
                     SendCommand(state == MuteState.On ? "3*2B" : "3*0B");
                 }
                 catch (Exception e)

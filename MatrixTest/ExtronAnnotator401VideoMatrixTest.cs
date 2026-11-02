@@ -4,7 +4,6 @@ using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
-// Response strings are taken verbatim from an Annotator 401 (firmware V1.01) capture.
 public class ExtronAnnotator401VideoMatrixTest : IDisposable
 {
     private readonly ExtronAnnotator401VideoMatrix _matrix;
@@ -145,7 +144,6 @@ public class ExtronAnnotator401VideoMatrixTest : IDisposable
         Assert.Equal(HdcpStatus.NotSupported, _matrix.Outputs[1].OutputHdcpStatus);
     }
 
-    // The annotation driver shares this client, so its traffic must leave the video status alone.
     [Theory]
     [InlineData("Draw02")]
     [InlineData("Ashw3")]
@@ -181,8 +179,6 @@ public class ExtronAnnotator401VideoMatrixTest : IDisposable
     [Fact]
     public void HandleResponse_KeepsProcessingAfterASubscriberThrows()
     {
-        // The client wraps the whole multicast handler in one try/catch, so an exception escaping this driver
-        // would stop the annotation driver on the same client from ever seeing the rest of the response.
         _matrix.Inputs[0].InputStatusChangedHandlers += (_, _, _) => throw new InvalidOperationException("UI gone");
 
         Respond("In00 1\r\nHdcpO2*1\r\n");

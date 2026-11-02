@@ -117,7 +117,6 @@ public class ExtronSwTransportTest
             .GetField("_pollWorker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(switcher)!;
         await worker.Stop();
 
-        // Force Stop to await unfinished work, avoiding a race with the real polling delay.
         var pendingWork = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancellation = new CancellationTokenSource();
         var cancellationHandle = cancellation.Token.WaitHandle;
@@ -162,7 +161,6 @@ public class ExtronSwTransportTest
         public override void Post(SendOrPostCallback callback, object? state)
         {
             Interlocked.Increment(ref PostCount);
-            // Allow a regressed implementation to finish so the assertion fails without hanging.
             ThreadPool.QueueUserWorkItem(_ => callback(state));
         }
     }

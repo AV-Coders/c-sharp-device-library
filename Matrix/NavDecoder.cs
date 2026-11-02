@@ -49,8 +49,13 @@ public class NavDecoder : NavDeviceBase
         { MuteState.On, "1" },
     };
 
-    public NavDecoder(string name, string ipAddress, Navigator navigator) 
-        : base(name, AVEndpointType.Decoder, ipAddress, navigator)
+    public NavDecoder(string name, string ipAddress, Navigator navigator)
+        : this(name, ipAddress, navigator, null)
+    {
+    }
+
+    internal NavDecoder(string name, string ipAddress, Navigator navigator, TimeProvider? timeProvider = null)
+        : base(name, AVEndpointType.Decoder, ipAddress, navigator, timeProvider)
     {
     }
 

@@ -50,36 +50,16 @@ public class BlustreamAmf41WTest
         Assert.Equal(CommunicationState.Error, _matrix.CommunicationState);
     }
 
-    [Fact]
-    public void RouteAV_SetsHdmi1()
+    [Theory]
+    [InlineData(1, "config --source-select hdmi1\r")]
+    [InlineData(2, "config --source-select hdmi2\r")]
+    [InlineData(3, "config --source-select hdmi3\r")]
+    [InlineData(4, "config --source-select hdmi4\r")]
+    public void RouteAV_SetsTheHdmiInput(int input, string expectedCommand)
     {
-        _matrix.RouteAV(1, 0);
+        _matrix.RouteAV(input, 0);
 
-        _mockClient.Verify(x => x.Send("config --source-select hdmi1\r"), Times.Once);
-    }
-
-    [Fact]
-    public void RouteAV_SetsHdmi2()
-    {
-        _matrix.RouteAV(2, 0);
-
-        _mockClient.Verify(x => x.Send("config --source-select hdmi2\r"), Times.Once);
-    }
-
-    [Fact]
-    public void RouteAV_SetsHdmi3()
-    {
-        _matrix.RouteAV(3, 0);
-
-        _mockClient.Verify(x => x.Send("config --source-select hdmi3\r"), Times.Once);
-    }
-
-    [Fact]
-    public void RouteAV_SetsHdmi4()
-    {
-        _matrix.RouteAV(4, 0);
-
-        _mockClient.Verify(x => x.Send("config --source-select hdmi4\r"), Times.Once);
+        _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
     }
 
     [Fact]

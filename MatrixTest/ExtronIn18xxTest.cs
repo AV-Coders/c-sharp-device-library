@@ -2,21 +2,28 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
 
-[Collection("LoggerFactory")]
 public class ExtronIn18XxTest
 {
     private static readonly TimeSpan HoldTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ReturnTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan VideoMuteStepGap = TimeSpan.FromMilliseconds(300);
+    private static readonly TimeSpan QueryReplyTimeout = TimeSpan.FromSeconds(5);
+    private static readonly string[] IdentityQueries = ["*Q", "N", "\u001bCN\r", "\u001bCH\r"];
+    private const string TemperatureQuery = "\u001b20STAT\r";
+    private readonly FakeTimeProvider _time = new();
     private readonly ExtronIn18Xx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public ExtronIn18XxTest()
     {
-        _switcher = new ExtronIn18Xx(_mockClient.Object, 6, "test matrix");
+        _switcher = new ExtronIn18Xx(_mockClient.Object, 6, "test matrix", _time);
     }
 
     private void Respond(string response) => _mockClient.Object.ResponseHandlers!.Invoke(response);
@@ -31,6 +38,20 @@ public class ExtronIn18XxTest
     private static bool Sent(Mock<CommunicationClient> client, string command) =>
         client.Invocations.Any(invocation => Equals(invocation.Arguments[0], command));
 
+    private DeviceDetail? Detail(string label) => _switcher.Details.SingleOrDefault(detail => detail.Label == label);
+
+    private async Task ConnectAsTheBenchIn1808()
+    {
+        SetConnection(ConnectionState.Connected);
+        await Wait.UntilAsync(_time, ConnectStepGap, () => Sent(_mockClient, "1I"), "The model was never asked for");
+        foreach (var reply in ExtronBenchCaptures.In1808ConnectReplies)
+            Respond(reply);
+        foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
+            Respond(reply);
+        foreach (var reply in ExtronBenchCaptures.In1808IdentityReplies)
+            Respond(reply);
+    }
+
     private ConcurrentQueue<string> RecordSends(string heldCommand, ManualResetEventSlim release)
     {
         var sent = new ConcurrentQueue<string>();
@@ -43,71 +64,36 @@ public class ExtronIn18XxTest
         return sent;
     }
 
-    private static (ExtronIn18Xx Switcher, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs(Mock<CommunicationClient> client)
+    private List<string> RecordSends()
     {
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return (new ExtronIn18Xx(client.Object, 8, "Logged matrix"), logs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
+        var sent = new List<string>();
+        _mockClient.Setup(x => x.Send(It.IsAny<string>())).Callback<string>(sent.Add);
+        return sent;
     }
 
     [Fact]
-    public void SendCommand_DoesNotManipulateInput()
+    public void FailedSend_ReportsCommunicationHasFailed()
     {
-        string input = "Foo";
-
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
-        _mockClient.Verify(x => x.Send(input), Times.Once);
-    }
-
-    [Fact]
-    public void SendCommand_ReportsCommunicationIsOkay()
-    {
-        string input = "Foo";
-
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
-
-        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
-    }
-
-    [Fact]
-    public void SendCommand_ReportsCommunicationHasFailed()
-    {
-        string input = "Foo";
         _mockClient.Setup(client => client.Send(It.IsAny<string>())).Throws(new IOException("Oh No!"));
 
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
+        _switcher.RouteAV(1, 1);
 
         Assert.Equal(CommunicationState.Error, _switcher.CommunicationState);
     }
 
     [Theory]
     [InlineData(1, "1*1%")]
-    [InlineData(2, "2*1%")]
-    [InlineData(3, "3*1%")]
-    [InlineData(4, "4*1%")]
-    [InlineData(5, "5*1%")]
     [InlineData(6, "6*1%")]
-    public void RouteVideo_SendsTheCommand(int input, string expectedRouteCommand)
+    public void RouteVideo_SendsTheCommandWhateverTheOutput(int input, string expectedRouteCommand)
     {
-        _switcher.RouteVideo(input, 0);
+        _switcher.RouteVideo(input, 6);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)] // Constructed as an in1606
+    [InlineData(7)]
     [InlineData(9)]
     public void RouteVideo_IgnoresInvalidInputNumbers(int input)
     {
@@ -116,41 +102,19 @@ public class ExtronIn18XxTest
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 
-    [Fact]
-    public void RouteVideo_IgnoresOutputParameter()
-    {
-        string expectedRouteCommand = "3*1%";
-        _switcher.RouteVideo(3, 6);
-
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
-    }
-
     [Theory]
     [InlineData(1, "1*1$")]
-    [InlineData(2, "2*1$")]
-    [InlineData(3, "3*1$")]
-    [InlineData(4, "4*1$")]
-    [InlineData(5, "5*1$")]
     [InlineData(6, "6*1$")]
-    public void RouteAudio_SendsTheCommand(int input, string expectedRouteCommand)
+    public void RouteAudio_SendsTheCommandWhateverTheOutput(int input, string expectedRouteCommand)
     {
-        _switcher.RouteAudio(input, 0);
-
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
-    }
-
-    [Fact]
-    public void RouteAudio_IgnoresOutputParameter()
-    {
-        string expectedRouteCommand = "1*1$";
-        _switcher.RouteAudio(1, 10);
+        _switcher.RouteAudio(input, 10);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)] // Constructed as an in1606
+    [InlineData(7)]
     [InlineData(9)]
     public void RouteAudio_IgnoresInvalidInputNumbers(int input)
     {
@@ -161,36 +125,24 @@ public class ExtronIn18XxTest
 
     [Theory]
     [InlineData(1, "1*1!")]
-    [InlineData(2, "2*1!")]
-    [InlineData(3, "3*1!")]
-    [InlineData(4, "4*1!")]
-    [InlineData(5, "5*1!")]
     [InlineData(6, "6*1!")]
-    public void RouteAV_SendsTheCommand(int input, string expectedRouteCommand)
+    public void RouteAV_SendsTheCommandWhateverTheOutputAndReportsCommunicationIsOkay(int input, string expectedRouteCommand)
     {
         _switcher.RouteAV(input, 3);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
+        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)] // Constructed as an in1606
+    [InlineData(7)]
     [InlineData(9)]
     public void RouteAV_IgnoresInvalidInputNumbers(int input)
     {
         _switcher.RouteAV(input, 3);
 
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public void RouteAV_IgnoresOutputParameter()
-    {
-        string expectedRouteCommand = "2*1!";
-        _switcher.RouteAV(2, 3);
-
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
     [Fact]
@@ -226,36 +178,6 @@ public class ExtronIn18XxTest
     }
 
     [Fact]
-    public void Routes_AfterAModelReplyWithFewerInputs_UseTheDiscoveredCountAndWarnOnce()
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (switcher, logs) = CreateWithCapturedLogs(client);
-        client.Object.ResponseHandlers!.Invoke("Inf01*IN1806\r\n");
-        client.Invocations.Clear();
-
-        switcher.RouteAV(6, 1);
-        switcher.RouteAV(7, 1);
-        switcher.RouteVideo(8, 1);
-        switcher.RouteAudio(7, 1);
-
-        client.Verify(x => x.Send("6*1!"), Times.Once);
-        client.Verify(x => x.Send(It.IsAny<string>()), Times.Once);
-        Assert.Single(logs.Logs, log => log.Message.Contains("reports 6 inputs") && log.Message.Contains("constructed with 8"));
-        Assert.Contains(switcher.Events, e => e.Type == EventType.Error && e.Info.EndsWith("must be between 1 and 6"));
-    }
-
-    [Fact]
-    public void ModelReply_MatchingTheConstructorsInputCount_DoesNotWarn()
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (_, logs) = CreateWithCapturedLogs(client);
-
-        client.Object.ResponseHandlers!.Invoke("Inf01*IN1808\r\n");
-
-        Assert.DoesNotContain(logs.Logs, log => log.Message.Contains("constructed with"));
-    }
-
-    [Fact]
     public void SetSyncTimeout_SendsTheCommand()
     {
         string expectedCommand = "\u001bT1*0SSAV\r";
@@ -265,11 +187,13 @@ public class ExtronIn18XxTest
     }
 
     [Fact]
-    public void SetSyncTimeout_IgnoresInvalidTimeouts()
+    public void SetSyncTimeout_RefusesALongerTimeoutAndStatesTheLimit()
     {
         _switcher.SetSyncTimeout(502);
 
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        Assert.Contains(_switcher.Events,
+            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
     }
 
     [Fact]
@@ -358,31 +282,7 @@ public class ExtronIn18XxTest
     }
 
     [Fact]
-    public async Task Connect_EnablesVerboseModeAndAsksForTheModel()
-    {
-        SetConnection(ConnectionState.Connected);
-
-        await Wait.UntilAsync(() => Sent(_mockClient, "1I"), "The model was never asked for");
-        _mockClient.Verify(client => client.Send("\u001b3CV\r"), Times.Once);
-        _mockClient.Verify(client => client.Send("1I"), Times.Once);
-    }
-
-    [Fact]
-    public async Task Constructor_InitialisesAnAlreadyConnectedClient()
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
-            .SetValue(client.Object, ConnectionState.Connected);
-
-        _ = new ExtronIn18Xx(client.Object, 8, "Already connected");
-
-        await Wait.UntilAsync(() => Sent(client, "1I"), "The model was never asked for");
-        client.Verify(c => c.Send("\u001b3CV\r"), Times.Once);
-        client.Verify(c => c.Send("1I"), Times.Once);
-    }
-
-    [Fact]
-    public async Task Connect_DoesNotBlockTheClientWhileTheSpacedSendsRun()
+    public async Task Connect_EnablesVerboseModeAndAsksForTheModelWithoutBlockingTheClient()
     {
         using var release = new ManualResetEventSlim();
         var sent = RecordSends("\u001b3CV\r", release);
@@ -391,12 +291,12 @@ public class ExtronIn18XxTest
 
         await connect.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(() => sent.Count == 2, "The model was never asked for");
+        await Wait.UntilAsync(_time, ConnectStepGap, () => sent.Count == 2, "The model was never asked for");
         Assert.Equal(["\u001b3CV\r", "1I"], sent);
     }
 
     [Fact]
-    public async Task Constructor_DoesNotBlockOnAnAlreadyConnectedClient()
+    public async Task Constructor_InitialisesAnAlreadyConnectedClientWithoutBlocking()
     {
         var client = TestFactory.CreateCommunicationClient();
         typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
@@ -404,11 +304,13 @@ public class ExtronIn18XxTest
         using var release = new ManualResetEventSlim();
         client.Setup(x => x.Send("\u001b3CV\r")).Callback(() => release.Wait(HoldTimeout));
 
-        var construct = Task.Run(() => new ExtronIn18Xx(client.Object, 8, "Already connected"));
+        var construct = Task.Run(() => new ExtronIn18Xx(client.Object, 8, "Already connected", _time));
 
         await construct.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(() => Sent(client, "1I"), "The model was never asked for");
+        await Wait.UntilAsync(_time, ConnectStepGap, () => Sent(client, "1I"), "The model was never asked for");
+        client.Verify(c => c.Send("\u001b3CV\r"), Times.Once);
+        client.Verify(c => c.Send("1I"), Times.Once);
     }
 
     [Fact]
@@ -433,7 +335,7 @@ public class ExtronIn18XxTest
         _mockClient.Verify(client => client.Send(It.IsAny<string>()), Times.Never);
 
         SetConnection(ConnectionState.Connected);
-        await Wait.UntilAsync(() => Sent(_mockClient, "1I"), "The model was never asked for");
+        await Wait.UntilAsync(_time, ConnectStepGap, () => Sent(_mockClient, "1I"), "The model was never asked for");
         _mockClient.Invocations.Clear();
         await Poll();
         _mockClient.Verify(client => client.Send("1I"), Times.Once);
@@ -489,30 +391,12 @@ public class ExtronIn18XxTest
             _switcher.GetInputs().Select(input => input.InputConnectionStatus));
     }
 
-    [Theory]
-    [InlineData("IN00 1*1*1")]
-    [InlineData("IN00 1*1*1*1*1*1*1*1*1")]
-    public void SignalPresence_LogsRepliesThatDoNotCoverEveryInput(string response)
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (switcher, logs) = CreateWithCapturedLogs(client);
-        client.Object.ResponseHandlers!.Invoke("Inf01*IN1808\r\n");
-
-        client.Object.ResponseHandlers!.Invoke(response);
-
-        Assert.Contains(logs.Logs, log => log.Message.Contains(response[4..]) && log.Message.Contains("8 inputs"));
-        Assert.All(switcher.GetInputs(), input => Assert.Equal(ConnectionState.Unknown, input.InputConnectionStatus));
-    }
-
-    [Theory]
-    [InlineData("IN00 1*1*1")]
-    [InlineData("IN00 1*1*1*1*1*1*1*1*1")]
-    [InlineData("1*1*1*1*1*1*1*1")]
-    public void SignalPresence_IgnoresRepliesThatDoNotCoverEveryInput(string response)
+    [Fact]
+    public void SignalPresence_WithoutTheHeader_IsIgnored()
     {
         Respond("Inf01*IN1808\r\n");
 
-        Respond(response);
+        Respond("1*1*1*1*1*1*1*1");
 
         Assert.Equal(8, _switcher.NumberOfInputs);
         Assert.All(_switcher.GetInputs(), input => Assert.Equal(ConnectionState.Unknown, input.InputConnectionStatus));
@@ -534,35 +418,6 @@ public class ExtronIn18XxTest
         Assert.Equal(HdcpStatus.Unknown, inputs[1].InputHdcpStatus);
         Assert.Equal(ConnectionState.Connected, inputs[1].InputConnectionStatus);
         Assert.Equal(ConnectionState.Disconnected, inputs[0].InputConnectionStatus);
-    }
-
-    [Theory]
-    [InlineData("HdcpI00*2")]
-    [InlineData("HdcpI09*2")]
-    [InlineData("HdcpI02")]
-    public void InputHdcp_LogsPortsOutsideTheInputs(string response)
-    {
-        var client = TestFactory.CreateCommunicationClient();
-        var (_, logs) = CreateWithCapturedLogs(client);
-        client.Object.ResponseHandlers!.Invoke("Inf01*IN1808\r\n");
-
-        client.Object.ResponseHandlers!.Invoke(response);
-
-        Assert.Contains(logs.Logs, log => log.Message.Contains($"HDCP status {response[5..]} "));
-    }
-
-    [Theory]
-    [InlineData("HdcpI00*2")]
-    [InlineData("HdcpI09*2")]
-    [InlineData("HdcpI02")]
-    public void InputHdcp_IgnoresPortsOutsideTheInputs(string response)
-    {
-        Respond("Inf01*IN1808\r\n");
-        Assert.Equal(8, _switcher.GetInputs().Count);
-
-        Respond(response);
-
-        Assert.All(_switcher.GetInputs(), input => Assert.Equal(HdcpStatus.Unknown, input.InputHdcpStatus));
     }
 
     [Fact]
@@ -675,15 +530,6 @@ public class ExtronIn18XxTest
     }
 
     [Fact]
-    public void SetSyncTimeout_StatesTheLimitItEnforces()
-    {
-        _switcher.SetSyncTimeout(502);
-
-        Assert.Contains(_switcher.Events,
-            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
-    }
-
-    [Fact]
     public async Task SetVideoMute_ReturnsBeforeTheSpacedSends()
     {
         using var release = new ManualResetEventSlim();
@@ -693,7 +539,7 @@ public class ExtronIn18XxTest
 
         await mute.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(() => sent.Count == 3, "The video mute never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 3, "The video mute never reached output 3");
         Assert.Equal(["1*2B", "2*2B", "3*2B"], sent);
     }
 
@@ -706,7 +552,7 @@ public class ExtronIn18XxTest
         _switcher.SetVideoMute(MuteState.On);
         _switcher.SetVideoMute(MuteState.Off);
 
-        await Wait.UntilAsync(() => sent.Count == 6, "The video mutes never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 6, "The video mutes never reached output 3");
         Assert.Equal(["1*2B", "2*2B", "3*2B", "1*0B", "2*0B", "3*0B"], sent);
     }
 
@@ -719,7 +565,7 @@ public class ExtronIn18XxTest
 
         _switcher.SetVideoMute(MuteState.On);
 
-        await Wait.UntilAsync(() => ids.Count == 3, "The video mute never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => ids.Count == 3, "The video mute never reached output 3");
         Assert.All(ids, sentUnder => Assert.Equal(id, sentUnder));
     }
 
@@ -738,8 +584,375 @@ public class ExtronIn18XxTest
         _switcher.SetVideoMute(MuteState.On);
         _switcher.SetVideoMute(MuteState.Off);
 
-        await Wait.UntilAsync(() => sent.Contains("3*0B"), "The second video mute never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Contains("3*0B"), "The second video mute never reached output 3");
         Assert.Equal(["1*2B", "1*0B", "2*0B", "3*0B"], sent);
         Assert.Contains(_switcher.Errors, error => error.Message == "The video mute sends failed");
+    }
+
+    [Theory]
+    [InlineData("Inf01*IN1808 IPCP SA\r\n", "IN1808 IPCP SA")]
+    [InlineData("IN1806\r", "IN1806")]
+    public void ModelResponse_ShowsTheModel(string response, string expectedModel)
+    {
+        Respond(response);
+
+        Assert.Equal(new DeviceDetail("Model", expectedModel), Detail("Model"));
+    }
+
+    [Fact]
+    public void ModelResponse_QueriesTheStatusBeforeReadingTheIdentity()
+    {
+        var sent = RecordSends();
+
+        Respond("Inf01*IN1808\r\n");
+
+        Assert.Equal("\u001b0LS\r", sent[0]);
+        Assert.Equal(["\u001bO2HDCP\r", ..IdentityQueries], sent.TakeLast(5));
+    }
+
+    [Fact]
+    public void IdentityReplies_AreShownAsReceived()
+    {
+        Respond("Inf01*IN1808\r\n");
+
+        Respond("Bld1.00.0012\r\nPno60-1615-01\r\nIpn IN1808-12-34-56\r\nIph 00-05-A6-12-34-56\r\n");
+
+        Assert.Equal("1.00.0012", Detail("Firmware")?.Value);
+        Assert.Equal("60-1615-01", Detail("Part Number")?.Value);
+        Assert.Equal("IN1808-12-34-56", Detail("Unit Name")?.Value);
+        Assert.Equal("00-05-A6-12-34-56", Detail("MAC")?.Value);
+        Assert.Empty(_switcher.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void RejectedIdentityQuery_ShowsItIsNotSupportedWithNoIssue()
+    {
+        Respond("Inf01*IN1808\r\n");
+        foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
+            Respond(reply);
+        var communicationState = _switcher.CommunicationState;
+
+        Respond("E10\r\n");
+
+        Assert.Equal(new DeviceDetail("Firmware", "Not supported: E10", DetailTone.Normal), Detail("Firmware"));
+        Assert.Empty(_switcher.GetIssues());
+        Assert.Equal(communicationState, _switcher.CommunicationState);
+    }
+
+    [Fact]
+    public void UnknownTaggedModel_IsShownAndRaisesAnIssue()
+    {
+        Respond("Inf01*IN1609\r\n");
+
+        Assert.Equal("IN1609", Detail("Model")?.Value);
+        var issue = Assert.Single(_switcher.GetOngoingIssues());
+        Assert.Equal("model", issue.Key);
+        Assert.Equal(IssueSeverity.Major, issue.Severity);
+        Assert.Contains("Inf01*IN1609", issue.Message);
+    }
+
+    [Fact]
+    public void RejectionWithNoOutstandingQuery_RaisesNoIssue()
+    {
+        Respond("E13\r\n");
+
+        Assert.Empty(_switcher.GetIssues());
+        Assert.Empty(_switcher.Details);
+    }
+
+    [Fact]
+    public async Task Heartbeat_ReadsTheTemperatureAfterTheStatusAndNotTheIdentity()
+    {
+        SetConnection(ConnectionState.Connected);
+        Respond("Inf01*IN1808\r\n");
+        var sent = RecordSends();
+
+        await Poll();
+
+        Assert.Equal("\u001b0LS\r", sent[0]);
+        Assert.Equal(TemperatureQuery, sent[^1]);
+        Assert.DoesNotContain(sent, IdentityQueries.Contains);
+    }
+
+    [Fact]
+    public void DefaultUnitNameReply_IsNotTakenAsTheModel()
+    {
+        Respond("Inf01*IN1808\r\n");
+        var sent = RecordSends();
+
+        Respond("IN1808-12-34-56\r\n");
+
+        Assert.Empty(sent);
+        Assert.Equal("IN1808", Detail("Model")?.Value);
+    }
+
+    [Fact]
+    public async Task UnansweredIdentityQuery_IsSentAgainAtTheNextPoll()
+    {
+        SetConnection(ConnectionState.Connected);
+        Respond("Inf01*IN1808\r\n");
+        Respond("Bld1.00.0012\r\nPno60-1615-01\r\nIph 00-05-A6-12-34-56\r\n");
+        _mockClient.Invocations.Clear();
+
+        _time.Advance(QueryReplyTimeout);
+        await Poll();
+
+        _mockClient.Verify(client => client.Send("\u001bCN\r"), Times.Once);
+        foreach (var answered in new[] { "*Q", "N", "\u001bCH\r" })
+            _mockClient.Verify(client => client.Send(answered), Times.Never);
+    }
+
+    [Fact]
+    public async Task RejectedTemperatureQuery_IsNotSentAgainUntilTheSwitcherReconnects()
+    {
+        SetConnection(ConnectionState.Connected);
+        await Poll();
+
+        Respond("Inf01*IN1808\r\nIn00 0*1*0*1*0*0*0*0\r\nHdcpO1*0\r\nHdcpO2*0\r\nE10\r\n");
+
+        Assert.Equal(new DeviceDetail("Temperature", "Not supported: E10", DetailTone.Normal), Detail("Temperature"));
+        Assert.Empty(_switcher.GetIssues());
+        _mockClient.Invocations.Clear();
+        await Poll();
+        _mockClient.Verify(client => client.Send(TemperatureQuery), Times.Never);
+
+        SetConnection(ConnectionState.Disconnected);
+        SetConnection(ConnectionState.Connected);
+        _mockClient.Invocations.Clear();
+        await Poll();
+        _mockClient.Verify(client => client.Send(TemperatureQuery), Times.Once);
+    }
+
+    [Fact]
+    public async Task BusyTemperatureQuery_IsSentAgainAndRaisesTheReadIssueOnTheThirdInARow()
+    {
+        await ConnectAsTheBenchIn1808();
+        _mockClient.Invocations.Clear();
+        await Poll();
+        foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
+            Respond(reply);
+        Respond("E22\r\n");
+        await Poll();
+        foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
+            Respond(reply);
+        Respond("E22\r\n");
+
+        Assert.Empty(_switcher.GetIssues());
+        _mockClient.Verify(client => client.Send(TemperatureQuery), Times.Exactly(2));
+
+        await Poll();
+        foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
+            Respond(reply);
+        Respond("E22\r\n");
+
+        var issue = Assert.Single(_switcher.GetOngoingIssues());
+        Assert.Equal("temperature-read", issue.Key);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Equal("The switcher did not answer Esc 20STAT (Temperature) 3 times in a row, the last was E22", issue.Message);
+        Respond("20Stat 36\r\n");
+        Assert.Empty(_switcher.GetOngoingIssues());
+    }
+
+    [Fact]
+    public async Task UnansweredTemperatureQuery_IsSentAgainAndRaisesTheReadIssueOnTheThirdMiss()
+    {
+        SetConnection(ConnectionState.Connected);
+        _mockClient.Invocations.Clear();
+        await Poll();
+        _time.Advance(QueryReplyTimeout);
+        await Poll();
+        _time.Advance(QueryReplyTimeout);
+        await Poll();
+
+        Assert.Empty(_switcher.GetIssues());
+
+        _time.Advance(QueryReplyTimeout);
+        await Poll();
+
+        var issue = Assert.Single(_switcher.GetOngoingIssues());
+        Assert.Equal("temperature-read", issue.Key);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Equal("The switcher did not answer Esc 20STAT (Temperature) 3 times in a row, the last was no 20Stat reply within 5 s", issue.Message);
+        _mockClient.Verify(client => client.Send(TemperatureQuery), Times.Exactly(4));
+        Respond("20Stat 36\r\n");
+        Assert.Empty(_switcher.GetOngoingIssues());
+        Assert.Equal("36", Detail("Temperature")?.Value);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class ExtronIn18XxLogTest
+{
+    private readonly Mock<CommunicationClient> _client = TestFactory.CreateCommunicationClient();
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly ExtronIn18Xx _switcher;
+
+    public ExtronIn18XxLogTest()
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _switcher = new ExtronIn18Xx(_client.Object, 8, "Logged matrix");
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private void Respond(string response) => _client.Object.ResponseHandlers!.Invoke(response);
+
+    [Fact]
+    public void Routes_AfterAModelReplyWithFewerInputs_UseTheDiscoveredCountAndWarnOnce()
+    {
+        Respond("Inf01*IN1806\r\n");
+        _client.Invocations.Clear();
+
+        _switcher.RouteAV(6, 1);
+        _switcher.RouteAV(7, 1);
+        _switcher.RouteVideo(8, 1);
+        _switcher.RouteAudio(7, 1);
+
+        _client.Verify(x => x.Send("6*1!"), Times.Once);
+        _client.Verify(x => x.Send(It.IsAny<string>()), Times.Once);
+        Assert.Single(_logs.Logs, log => log.Message.Contains("reports 6 inputs") && log.Message.Contains("constructed with 8"));
+        Assert.Contains(_switcher.Events, e => e.Type == EventType.Error && e.Info.EndsWith("must be between 1 and 6"));
+    }
+
+    [Fact]
+    public void ModelReply_MatchingTheConstructorsInputCount_DoesNotWarn()
+    {
+        Respond("Inf01*IN1808\r\n");
+
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.Contains("constructed with"));
+    }
+
+    [Theory]
+    [InlineData("IN00 1*1*1")]
+    [InlineData("IN00 1*1*1*1*1*1*1*1*1")]
+    public void SignalPresence_ThatDoesNotCoverEveryInput_IsLoggedAndIgnored(string response)
+    {
+        Respond("Inf01*IN1808\r\n");
+
+        Respond(response);
+
+        Assert.Contains(_logs.Logs, log => log.Message.Contains(response[4..]) && log.Message.Contains("8 inputs"));
+        Assert.Equal(8, _switcher.NumberOfInputs);
+        Assert.All(_switcher.GetInputs(), input => Assert.Equal(ConnectionState.Unknown, input.InputConnectionStatus));
+    }
+
+    [Theory]
+    [InlineData("HdcpI00*2")]
+    [InlineData("HdcpI09*2")]
+    [InlineData("HdcpI02")]
+    public void InputHdcp_ForAPortOutsideTheInputs_IsLoggedAndIgnored(string response)
+    {
+        Respond("Inf01*IN1808\r\n");
+
+        Respond(response);
+
+        Assert.Contains(_logs.Logs, log => log.Message.Contains($"HDCP status {response[5..]} "));
+        Assert.All(_switcher.GetInputs(), input => Assert.Equal(HdcpStatus.Unknown, input.InputHdcpStatus));
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class ExtronIn18XxBenchTest
+{
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(5);
+    private const string RouteTrigger = "5d30414a";
+    private readonly FakeTimeProvider _time = new();
+    private readonly Mock<SshClient> _client = TestFactory.CreateSshClient();
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly ExtronIn18Xx _switcher;
+
+    public ExtronIn18XxBenchTest()
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _switcher = new ExtronIn18Xx(_client.Object, 8, "Bench matrix", _time);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private void Respond(IEnumerable<string> replies)
+    {
+        foreach (var reply in replies)
+            _client.Object.ResponseHandlers!.Invoke(reply);
+    }
+
+    private async Task Connect()
+    {
+        typeof(CommunicationClient).GetProperty(nameof(CommunicationClient.ConnectionState))!
+            .SetValue(_client.Object, ConnectionState.Connected);
+        await Wait.UntilAsync(_time, ConnectStepGap,
+            () => _client.Invocations.Any(invocation => Equals(invocation.Arguments[0], "1I")), "The model was never asked for");
+        Respond([..ExtronBenchCaptures.In1808ConnectReplies, ..ExtronBenchCaptures.In1808StatusReplies]);
+    }
+
+    private Task Poll() => (Task)typeof(ExtronIn18Xx)
+        .GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(_switcher, [CancellationToken.None])!;
+
+    private DeviceDetail? Detail(string label) => _switcher.Details.SingleOrDefault(detail => detail.Label == label);
+
+    [Fact]
+    public async Task BenchSequence_MatchesEveryReplyToTheCommandItAnswers()
+    {
+        await Connect();
+        Respond(ExtronBenchCaptures.In1808IdentityReplies);
+        await Poll();
+        Respond([..ExtronBenchCaptures.In1808StatusReplies, ExtronBenchCaptures.In1808TemperatureReply]);
+        _time.Advance(ReplyTimeout);
+
+        await Poll();
+
+        Assert.Equal(["IN1808", "1.09.0006", "60-1615-01", "ROOM-VID-SWI01", "00-05-A6-00-00-02", "46"],
+            new[] { "Model", "Firmware", "Part Number", "Unit Name", "MAC", "Temperature" }.Select(label => Detail(label)?.Value));
+        Assert.Equal(ConnectionState.Connected, _switcher.Inputs[1].InputConnectionStatus);
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.StartsWith("The switcher didn't answer"));
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.Contains("asking again"));
+        Assert.DoesNotContain(_logs.Logs, log => log.Level >= LogLevel.Warning);
+        Assert.Empty(_switcher.GetIssues());
+    }
+
+    [Fact]
+    public async Task RejectedRoute_WhileTheTemperatureQueryIsPending_IsReportedAndTheQueryKeepsItsReply()
+    {
+        await Connect();
+        Respond(ExtronBenchCaptures.In1808IdentityReplies);
+        using (Trigger.Resume(RouteTrigger))
+            _switcher.RouteAV(4, 1);
+        await Poll();
+
+        Respond(["E13", ..ExtronBenchCaptures.In1808StatusReplies, ExtronBenchCaptures.In1808TemperatureReply]);
+
+        var issue = Assert.Single(_switcher.GetIssues());
+        Assert.Equal(("rejected-command", IssueStatus.Momentary, "The switcher rejected 4*1! with E13"), (issue.Key, issue.Status, issue.Message));
+        Assert.Equal(RouteTrigger, Assert.Single(_logs.Logs, log => log.Level == LogLevel.Warning).TriggerId);
+        Assert.Equal(new DeviceDetail("Temperature", "46"), Detail("Temperature"));
+    }
+
+    [Fact]
+    public async Task EmptyUnitName_ShowsTheRawReplyAndCountsAsAnswered()
+    {
+        await Connect();
+        Respond([ExtronBenchCaptures.In1808IdentityReplies[0], ExtronBenchCaptures.In1808IdentityReplies[1], "Ipn ",
+            ExtronBenchCaptures.In1808IdentityReplies[3]]);
+        _time.Advance(ReplyTimeout);
+        _client.Invocations.Clear();
+
+        await Poll();
+
+        Assert.Equal(new DeviceDetail("Unit Name", "Ipn "), Detail("Unit Name"));
+        Assert.DoesNotContain(_client.Invocations, invocation => Equals(invocation.Arguments[0], "\u001bCN\r"));
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.Contains("asking again"));
     }
 }

@@ -18,8 +18,24 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     public const string UntiedAddress = "0";
     private const int UntiedInput = 0;
     private const string ModelName = "DTP2 CrossPoint 82";
+    private const string ModelTag = "Inf00*";
+    private const string ModelLabel = "Model";
     private const string ModelIssueKey = "model";
-    private const string RejectedCommandIssueKey = "rejected-command";
+    private const string InputNameReplyStart = "VnamI";
+    private const string OutputNameReplyStart = "VnamO";
+    private const string InputHdcpReplyStart = "HdcpI";
+    private const string OutputHdcpReplyStart = "HdcpO";
+    private const string LoopOutReplyStart = "Lout";
+    private static readonly ExtronSisCommand LoopOutQuery = new($"{EscapeHeader}LOUT\r", LoopOutReplyStart);
+    private static readonly ExtronSisCommand SignalPresenceQuery = new($"{EscapeHeader}0LS\r", "In00 ");
+    private static readonly ExtronSisQuery[] IdentityQueries =
+    [
+        new("*Q", "Bld", "Firmware", "firmware-read"),
+        new("N", "Pno", "Part Number", "part-number-read"),
+        new($"{EscapeHeader}CN\r", "Ipn ", "Unit Name", "unit-name-read"),
+        new($"{EscapeHeader}CH\r", "Iph ", "MAC", "mac-read")
+    ];
+    private static readonly ExtronSisQuery TemperatureQuery = new($"{EscapeHeader}20STAT\r", "20Stat ", "Temperature", "temperature-read");
 
     public readonly List<ExtronMatrixInput> Inputs = Enumerable.Range(1, InputCount)
         .Select(index => new ExtronMatrixInput($"Input {index}", index))
@@ -33,7 +49,12 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     ];
 
     public ExtronDtp2Cp82(CommunicationClient communicationClient, string name)
-        : base(communicationClient, OutputCount, name)
+        : this(communicationClient, name, null)
+    {
+    }
+
+    internal ExtronDtp2Cp82(CommunicationClient communicationClient, string name, TimeProvider? timeProvider)
+        : base(communicationClient, OutputCount, name, timeProvider)
     {
     }
 
@@ -52,17 +73,18 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     [GeneratedRegex(@"^In00 ([01](?:\*[01])*)$", RegexOptions.IgnoreCase)]
     private static partial Regex SignalPresenceRegex();
 
-    [GeneratedRegex(@"^E\d\d$")]
-    private static partial Regex ErrorRegex();
-
     protected override void ProcessResponse(string response)
     {
         var line = response.Trim();
         if (line.Length == 0)
             return;
 
-        if (line.StartsWith("Inf00*"))
-            HandleModel(line[6..]);
+        if (line.StartsWith(ModelTag))
+            HandleModel(line[ModelTag.Length..]);
+        else if (IdentityQueries.FirstOrDefault(query => query.IsAnsweredBy(line)) is { } identity)
+            ShowRead(identity, line);
+        else if (TemperatureQuery.IsAnsweredBy(line))
+            ShowRead(TemperatureQuery, line);
         else if (line.StartsWith("Vnam"))
             HandleName(line);
         else if (line.StartsWith("HdcpI"))
@@ -74,7 +96,7 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
         else if (line.StartsWith("Lout"))
             HandleLoopOut(line);
         else if (line == "Reconfig")
-            WrapAndSendCommand("0LS");
+            Send(SignalPresenceQuery);
         else if (line == "In00 All")
             Outputs.Take(OutputCount).ToList().ForEach(output => output.SetStreamAddress(UntiedAddress));
         else if (SignalPresenceRegex().Match(line) is { Success: true } presence)
@@ -85,16 +107,18 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
             HandleTie(UntiedInput, int.Parse(untiedOutput.Groups[1].Value), "All");
         else if (UntieInputRegex().Match(line) is { Success: true } untiedInput)
             HandleInputUntied(int.Parse(untiedInput.Groups[1].Value));
-        else if (ErrorRegex().IsMatch(line))
-            RaiseMomentaryIssue($"The switcher rejected a command with error {line}", RejectedCommandIssueKey);
+        else if (IsError(line))
+            HandleError(line);
     }
 
     private void HandleModel(string model)
     {
+        SetDetail(ModelLabel, model);
         if (model.Contains(ModelName))
         {
             ResolveIssue(ModelIssueKey);
             QueryStatus();
+            Read(IdentityQueries);
             return;
         }
 
@@ -105,26 +129,26 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     {
         foreach (var input in Inputs)
         {
-            WrapAndSendCommand($"I{input.Number}VNAM");
-            WrapAndSendCommand($"I{input.Number}HDCP");
+            Send(new ExtronSisCommand($"{EscapeHeader}I{input.Number}VNAM\r", InputNameReplyStart));
+            Send(new ExtronSisCommand($"{EscapeHeader}I{input.Number}HDCP\r", InputHdcpReplyStart));
         }
 
         foreach (var output in Outputs)
         {
-            WrapAndSendCommand($"O{output.Number}VNAM");
-            WrapAndSendCommand($"O{output.Number}HDCP");
+            Send(new ExtronSisCommand($"{EscapeHeader}O{output.Number}VNAM\r", OutputNameReplyStart));
+            Send(new ExtronSisCommand($"{EscapeHeader}O{output.Number}HDCP\r", OutputHdcpReplyStart));
         }
 
         // The combined tie query (X@!) is rejected while an output has audio broken away,
         // so read the video and audio ties separately.
         for (var output = 1; output <= OutputCount; output++)
         {
-            SendCommand($"{output}%");
-            SendCommand($"{output}$");
+            Send(new ExtronSisCommand($"{output}%", new ExtronSisTie(null, output, ExtronSisTie.Video)));
+            Send(new ExtronSisCommand($"{output}$", new ExtronSisTie(null, output, ExtronSisTie.Audio)));
         }
 
-        WrapAndSendCommand("LOUT");
-        WrapAndSendCommand("0LS");
+        Send(LoopOutQuery);
+        Send(SignalPresenceQuery);
     }
 
     private void HandleName(string line)
@@ -171,7 +195,7 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
     {
         var outputToken = line[5..].Split('*')[0];
         if (int.TryParse(outputToken, out var number) && TryGetOutput(number, out _))
-            WrapAndSendCommand($"O{number}HDCP");
+            Send(new ExtronSisCommand($"{EscapeHeader}O{number}HDCP\r", OutputHdcpReplyStart));
     }
 
     private void HandleLoopOut(string line)
@@ -222,7 +246,13 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
         return output != null;
     }
 
-    protected override void SendPoll() => WrapAndSendCommand("0LS");
+    protected override void SendPoll()
+    {
+        ReportMissedReplies();
+        Send(SignalPresenceQuery);
+        ReadUnlessNotSupported(TemperatureQuery);
+        ReadAgainIfUnanswered(IdentityQueries);
+    }
 
     public override List<SyncStatus> GetInputs() => [..Inputs];
 
@@ -284,7 +314,7 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
             return;
         }
 
-        WrapAndSendCommand($"{input}LOUT");
+        Send(new ExtronSisCommand($"{EscapeHeader}{input}LOUT\r", LoopOutReplyStart));
         AddEvent(EventType.Input, $"Switched the loop out to input {input}");
     }
 
@@ -302,7 +332,7 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
             return;
         }
 
-        WrapAndSendCommand($"T1*{seconds}SSAV");
+        Send(new ExtronSisCommand($"{EscapeHeader}T1*{seconds}SSAV\r", "Ssav"));
         AddEvent(EventType.VideoMute, $"Set the output 2 sync timeout to {seconds} seconds");
     }
 }

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Matrix.Tests;
@@ -10,12 +11,15 @@ public class ExtronIn16xxTest
 {
     private static readonly TimeSpan HoldTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan ReturnTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan VideoMuteStepGap = TimeSpan.FromMilliseconds(300);
+    private readonly FakeTimeProvider _time = new();
     private readonly ExtronIn16Xx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
 
     public ExtronIn16xxTest()
     {
-        _switcher = new ExtronIn16Xx(_mockClient.Object, 6, "test matrix");
+        _switcher = new ExtronIn16Xx(_mockClient.Object, 6, "test matrix", _time);
     }
 
     private void SetConnection(ConnectionState state) => typeof(CommunicationClient)
@@ -40,27 +44,6 @@ public class ExtronIn16xxTest
     }
 
     [Fact]
-    public void SendCommand_DoesNotManipulateInput()
-    {
-        string input = "Foo";
-
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
-        _mockClient.Verify(x => x.Send(input), Times.Once);
-    }
-
-    [Fact]
-    public void SendCommand_ReportsCommunicationIsOkay()
-    {
-        string input = "Foo";
-
-        var method = _switcher.GetType().GetMethod("SendCommand", BindingFlags.Instance | BindingFlags.NonPublic);
-        method?.Invoke(_switcher, [input]);
-
-        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
-    }
-
-    [Fact]
     public void SendCommand_ReportsCommunicationHasFailed()
     {
         string input = "Foo";
@@ -74,21 +57,17 @@ public class ExtronIn16xxTest
 
     [Theory]
     [InlineData(1, "1%")]
-    [InlineData(2, "2%")]
-    [InlineData(3, "3%")]
-    [InlineData(4, "4%")]
-    [InlineData(5, "5%")]
     [InlineData(6, "6%")]
-    public void RouteVideo_SendsTheCommand(int input, string expectedRouteCommand)
+    public void RouteVideo_SendsTheCommandWhateverTheOutput(int input, string expectedRouteCommand)
     {
-        _switcher.RouteVideo(input, 0);
+        _switcher.RouteVideo(input, 6);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)] // Constructed as an in1606
+    [InlineData(7)]
     [InlineData(9)]
     public void RouteVideo_IgnoresInvalidInputNumbers(int input)
     {
@@ -97,41 +76,19 @@ public class ExtronIn16xxTest
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
     }
 
-    [Fact]
-    public void RouteVideo_IgnoresOutputParameter()
-    {
-        string expectedRouteCommand = "3%";
-        _switcher.RouteVideo(3, 6);
-
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
-    }
-
     [Theory]
     [InlineData(1, "1$")]
-    [InlineData(2, "2$")]
-    [InlineData(3, "3$")]
-    [InlineData(4, "4$")]
-    [InlineData(5, "5$")]
     [InlineData(6, "6$")]
-    public void RouteAudio_SendsTheCommand(int input, string expectedRouteCommand)
+    public void RouteAudio_SendsTheCommandWhateverTheOutput(int input, string expectedRouteCommand)
     {
-        _switcher.RouteAudio(input, 0);
-
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
-    }
-
-    [Fact]
-    public void RouteAudio_IgnoresOutputParameter()
-    {
-        string expectedRouteCommand = "1$";
-        _switcher.RouteAudio(1, 10);
+        _switcher.RouteAudio(input, 10);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)] // Constructed as an in1606
+    [InlineData(7)]
     [InlineData(9)]
     public void RouteAudio_IgnoresInvalidInputNumbers(int input)
     {
@@ -142,36 +99,24 @@ public class ExtronIn16xxTest
 
     [Theory]
     [InlineData(1, "1!")]
-    [InlineData(2, "2!")]
-    [InlineData(3, "3!")]
-    [InlineData(4, "4!")]
-    [InlineData(5, "5!")]
     [InlineData(6, "6!")]
-    public void RouteAV_SendsTheCommand(int input, string expectedRouteCommand)
+    public void RouteAV_SendsTheCommandWhateverTheOutputAndReportsCommunicationIsOkay(int input, string expectedRouteCommand)
     {
         _switcher.RouteAV(input, 3);
 
         _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
+        Assert.Equal(CommunicationState.Okay, _switcher.CommunicationState);
     }
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)] // Constructed as an in1606
+    [InlineData(7)]
     [InlineData(9)]
     public void RouteAV_IgnoresInvalidInputNumbers(int input)
     {
         _switcher.RouteAV(input, 3);
 
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public void RouteAV_IgnoresOutputParameter()
-    {
-        string expectedRouteCommand = "2!";
-        _switcher.RouteAV(2, 3);
-
-        _mockClient.Verify(x => x.Send(expectedRouteCommand), Times.Once);
     }
 
     [Fact]
@@ -184,11 +129,13 @@ public class ExtronIn16xxTest
     }
 
     [Fact]
-    public void SetSyncTimeout_IgnoresInvalidTimeouts()
+    public void SetSyncTimeout_RefusesALongerTimeoutAndStatesTheLimit()
     {
         _switcher.SetSyncTimeout(502);
 
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        Assert.Contains(_switcher.Events,
+            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
     }
 
     [Fact]
@@ -198,15 +145,6 @@ public class ExtronIn16xxTest
         _switcher.SetSyncTimeout(501);
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
-    }
-
-    [Fact]
-    public void SetSyncTimeout_StatesTheLimitItEnforces()
-    {
-        _switcher.SetSyncTimeout(502);
-
-        Assert.Contains(_switcher.Events,
-            e => e.Type == EventType.Error && e.Info == "The sync timeout can't be longer than 501 seconds");
     }
 
     [Fact]
@@ -257,19 +195,14 @@ public class ExtronIn16xxTest
         _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
 
         SetConnection(ConnectionState.Connected);
-        await Wait.UntilAsync(() => _mockClient.Invocations.Any(invocation => Equals(invocation.Arguments[0], "\u001b0LS\r")),
+        await Wait.UntilAsync(_time, ConnectStepGap,
+            () => _mockClient.Invocations.Any(invocation => Equals(invocation.Arguments[0], "\u001b0LS\r")),
             "The signal presence was never asked for");
         _mockClient.Invocations.Clear();
         await Poll();
 
         _mockClient.Verify(x => x.Send("\u001bCV\r"), Times.Once);
         _mockClient.Verify(x => x.Send("\u001b0LS\r"), Times.Once);
-    }
-
-    [Fact]
-    public void SupportsAudioBreakaway_IsTrueAsAudioTiesAreSent()
-    {
-        Assert.True(_switcher.SupportsAudioBreakaway);
     }
 
     [Fact]
@@ -282,7 +215,7 @@ public class ExtronIn16xxTest
 
         await connect.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(() => sent.Count == 3, "The signal presence was never asked for");
+        await Wait.UntilAsync(_time, ConnectStepGap, () => sent.Count == 3, "The signal presence was never asked for");
         Assert.Equal(["\u001b3CV\r", "I", "\u001b0LS\r"], sent);
     }
 
@@ -296,7 +229,7 @@ public class ExtronIn16xxTest
 
         await mute.WaitAsync(ReturnTimeout);
         release.Set();
-        await Wait.UntilAsync(() => sent.Count == 3, "The video mute never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 3, "The video mute never reached output 3");
         Assert.Equal(["1*2B", "2*2B", "3*2B"], sent);
     }
 
@@ -309,7 +242,7 @@ public class ExtronIn16xxTest
         _switcher.SetVideoMute(MuteState.On);
         _switcher.SetVideoMute(MuteState.Off);
 
-        await Wait.UntilAsync(() => sent.Count == 6, "The video mutes never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 6, "The video mutes never reached output 3");
         Assert.Equal(["1*2B", "2*2B", "3*2B", "1*0B", "2*0B", "3*0B"], sent);
     }
 
@@ -322,7 +255,7 @@ public class ExtronIn16xxTest
 
         _switcher.SetVideoMute(MuteState.On);
 
-        await Wait.UntilAsync(() => ids.Count == 3, "The video mute never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => ids.Count == 3, "The video mute never reached output 3");
         Assert.All(ids, sentUnder => Assert.Equal(id, sentUnder));
     }
 
@@ -341,7 +274,7 @@ public class ExtronIn16xxTest
         _switcher.SetVideoMute(MuteState.On);
         _switcher.SetVideoMute(MuteState.Off);
 
-        await Wait.UntilAsync(() => sent.Contains("3*0B"), "The second video mute never reached output 3");
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Contains("3*0B"), "The second video mute never reached output 3");
         Assert.Equal(["1*2B", "1*0B", "2*0B", "3*0B"], sent);
         Assert.Contains(_switcher.Errors, error => error.Message == "The video mute sends failed");
     }

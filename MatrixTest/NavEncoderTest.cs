@@ -1,4 +1,5 @@
-﻿using AVCoders.Core;
+﻿using System.Reflection;
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
@@ -17,7 +18,6 @@ public class NavEncoderTest
         _navEncoder = new NavEncoder("Encoder", "1.1.1.1", _navigatorMock.Object);
         _inputSyncInfoHandlerMock = new Mock<SyncInfoHandler>();
         _navEncoder.InputStatusChangedHandlers += _inputSyncInfoHandlerMock.Object;
-
     }
 
     private class TestSshClient() : SshClient("host", 22023, "Test", CommandStringFormat.Ascii)
@@ -39,13 +39,17 @@ public class NavEncoderTest
         protected override Task Receive(CancellationToken token) => Task.CompletedTask;
     }
 
+    private static Task Poll(NavEncoder encoder) => (Task)typeof(NavDeviceBase)
+        .GetMethod("PrePoll", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(encoder, [CancellationToken.None])!;
+
     [Fact]
     public async Task Poll_SendsTheDeviceQueriesThroughTheNavigator()
     {
         var sshClient = new TestSshClient();
-        _ = new NavEncoder("Encoder", "1.1.1.1", new Navigator("Nav", sshClient));
+        var encoder = new NavEncoder("Encoder", "1.1.1.1", new Navigator("Nav", sshClient));
 
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Poll(encoder);
 
         Assert.Contains($"{{1.1.1.1:{Navigator.EscapeHeader}DNUM\r}}\r", sshClient.Sent);
     }
@@ -56,9 +60,9 @@ public class NavEncoderTest
         var sshClient = new TestSshClient();
         var navigator = new Navigator("Nav", sshClient);
         sshClient.Disconnect();
+        var encoder = new NavEncoder("Encoder", "1.1.1.1", navigator);
 
-        _ = new NavEncoder("Encoder", "1.1.1.1", navigator);
-        await Task.Delay(TimeSpan.FromSeconds(1));
+        await Poll(encoder);
 
         Assert.Empty(sshClient.Sent);
     }
@@ -117,9 +121,33 @@ public class NavEncoderTest
     {
         Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
         theAction.Invoke(response);
-        
+
         Assert.Equal(expectedState, _inputSyncInfoHandlerMock.Invocations[0].Arguments[2]);
     }
-    
-    
+
+    private DeviceDetail? Detail(string label) => _navEncoder.Details.SingleOrDefault(detail => detail.Label == label);
+
+    [Fact]
+    public void ResponseHandler_ShowsTheSerialNumberAndHostname()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("Inf98*A1B2C3D");
+        theAction.Invoke("Ipn NAV-E-101-12-34-56");
+
+        Assert.Equal("A1B2C3D", Detail("Serial")?.Value);
+        Assert.Equal("NAV-E-101-12-34-56", Detail("Hostname")?.Value);
+        Assert.Equal("NAV-E-101-12-34-56", _navEncoder.Hostname);
+    }
+
+    [Fact]
+    public void ResponseHandler_ShowsTheAudioStreamAndLinkFieldsAsReceived()
+    {
+        Action<string> theAction = (Action<string>)_navigatorMock.Invocations[0].Arguments[1];
+        theAction.Invoke("SigI1*HdcpI2*HdcpO2*ResI1920x1080@60*AudI0*StrmI1*Lnk1*Enc");
+
+        Assert.Equal("0", Detail("Audio Input")?.Value);
+        Assert.Equal("1", Detail("Stream Input")?.Value);
+        Assert.Equal("1", Detail("Link")?.Value);
+        _inputSyncInfoHandlerMock.Verify(x => x.Invoke(ConnectionState.Connected, "1920x1080@60", HdcpStatus.Active));
+    }
 }

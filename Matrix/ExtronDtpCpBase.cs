@@ -7,7 +7,7 @@ namespace AVCoders.Matrix;
 /// HDCP status decoding, verbose-mode setup on connect and the keepalive poll. Model-specific
 /// discovery, naming, hotplug and signal-presence handling live in the concrete drivers.
 /// </summary>
-public abstract class ExtronDtpCpBase : VideoMatrix
+public abstract class ExtronDtpCpBase : ExtronSisMatrix
 {
     public static readonly ushort DefaultPort = 22023;
     public static readonly SerialSpec DefaultSerialSpec =
@@ -15,19 +15,26 @@ public abstract class ExtronDtpCpBase : VideoMatrix
     protected const string EscapeHeader = "\x1b";
     private static readonly char[] LineSeparators = ['\r', '\n'];
     private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly ExtronSisCommand VerboseMode = new($"{EscapeHeader}3CV\r", "Vrb");
+    private static readonly ExtronSisCommand ModelQuery = new("I", "Inf00*");
     private readonly ThreadWorker _pollWorker;
     private readonly object _spacedSendsLock = new();
     private Task _spacedSends = Task.CompletedTask;
 
     protected ExtronDtpCpBase(CommunicationClient communicationClient, int numberOfOutputs, string name)
-        : base(numberOfOutputs, communicationClient, name)
+        : this(communicationClient, numberOfOutputs, name, null)
+    {
+    }
+
+    private protected ExtronDtpCpBase(CommunicationClient communicationClient, int numberOfOutputs, string name, TimeProvider? timeProvider)
+        : base(numberOfOutputs, communicationClient, name, timeProvider)
     {
         CommunicationClient.ResponseHandlers += HandleResponse;
         PowerState = PowerState.Unknown;
         CommunicationState = CommunicationState.NotAttempted;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         HandleConnectionState(CommunicationClient.ConnectionState);
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true, TimeProvider);
         _pollWorker.Restart();
     }
 
@@ -38,7 +45,9 @@ public abstract class ExtronDtpCpBase : VideoMatrix
         using (PushProperties())
         {
             foreach (var line in response.Split(LineSeparators, StringSplitOptions.RemoveEmptyEntries))
-                ProcessResponse(line);
+                using (TakeReply(line.Trim()))
+                using (PushProperties("ProcessResponse"))
+                    ProcessResponse(line);
         }
     }
 
@@ -57,6 +66,7 @@ public abstract class ExtronDtpCpBase : VideoMatrix
 
     private void HandleConnectionState(ConnectionState connectionState)
     {
+        ForgetCommands();
         if (connectionState != ConnectionState.Connected)
             return;
         lock (_spacedSendsLock)
@@ -64,32 +74,16 @@ public abstract class ExtronDtpCpBase : VideoMatrix
             {
                 try
                 {
-                    await Task.Delay(ConnectStepGap);
-                    WrapAndSendCommand("3CV");
-                    await Task.Delay(ConnectStepGap);
-                    SendCommand("I");
+                    await Task.Delay(ConnectStepGap, TimeProvider);
+                    Send(VerboseMode);
+                    await Task.Delay(ConnectStepGap, TimeProvider);
+                    Send(ModelQuery);
                 }
                 catch (Exception e)
                 {
                     LogException(e, "The connection sequence failed");
                 }
             }, TaskScheduler.Default).Unwrap();
-    }
-
-    protected void WrapAndSendCommand(string command) => SendCommand($"{EscapeHeader}{command}\r");
-
-    protected void SendCommand(string command)
-    {
-        try
-        {
-            CommunicationClient.Send(command);
-            CommunicationState = CommunicationState.Okay;
-        }
-        catch (Exception e)
-        {
-            LogException(e);
-            CommunicationState = CommunicationState.Error;
-        }
     }
 
     /// <summary>
@@ -117,19 +111,19 @@ public abstract class ExtronDtpCpBase : VideoMatrix
 
     public override void RouteAV(int input, int output)
     {
-        SendCommand(output == 0 ? $"{input}*!" : $"{input}*{output}!");
+        Send(new ExtronSisCommand(output == 0 ? $"{input}*!" : $"{input}*{output}!", new ExtronSisTie(input, output, ExtronSisTie.VideoAndAudio)));
         AddEvent(EventType.Input, $"Switched output {output} to input {input}");
     }
 
     public override void RouteVideo(int input, int output)
     {
-        SendCommand(output == 0 ? $"{input}*%" : $"{input}*{output}%");
+        Send(new ExtronSisCommand(output == 0 ? $"{input}*%" : $"{input}*{output}%", new ExtronSisTie(input, output, ExtronSisTie.Video)));
         AddEvent(EventType.Input, $"Switched video output {output} to input {input}");
     }
 
     public override void RouteAudio(int input, int output)
     {
-        SendCommand(output == 0 ? $"{input}*$" : $"{input}*{output}$");
+        Send(new ExtronSisCommand(output == 0 ? $"{input}*$" : $"{input}*{output}$", new ExtronSisTie(input, output, ExtronSisTie.Audio)));
         AddEvent(EventType.Input, $"Switched audio output {output} to input {input}");
     }
 
