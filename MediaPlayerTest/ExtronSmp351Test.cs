@@ -111,7 +111,7 @@ public class ExtronSmp351Test
     }
 
     [Fact]
-    public void HandleConnectionState_SetsVerboseMode3OnceTheDelayHasPassed()
+    public async Task HandleConnectionState_SetsVerboseMode3OnceTheDelayHasPassed()
     {
         SetConnection(ConnectionState.Connected);
 
@@ -121,7 +121,7 @@ public class ExtronSmp351Test
 
         _time.Advance(OneTick);
 
-        Assert.Equal(1, VerboseModeSends());
+        await Wait.UntilAsync(() => VerboseModeSends() == 1, "verbose mode was never sent");
     }
 
     [Fact]

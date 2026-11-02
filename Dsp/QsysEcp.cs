@@ -174,10 +174,8 @@ public class QsysEcp : Dsp
     private readonly object _controlsLock = new();
     private readonly Regex _responseParser;
     private readonly Regex _badIdParser;
-    private readonly Regex _statusParser = new("^sr \"(?<design>[^\"]*)\" \"(?<id>[^\"]*)\" (?<primary>[01]) (?<active>[01])$",
-        RegexOptions.None, TimeSpan.FromMilliseconds(30));
-    private readonly Regex _meterTokenParser = new("\"(?<quoted>[^\"]*)\"|(?<bare>[^ ]+)",
-        RegexOptions.None, TimeSpan.FromMilliseconds(30));
+    private readonly Regex _statusParser = new("^sr \"(?<design>[^\"]*)\" \"(?<id>[^\"]*)\" (?<primary>[01]) (?<active>[01])$");
+    private readonly Regex _meterTokenParser = new("\"(?<quoted>[^\"]*)\"|(?<bare>[^ ]+)");
 
     // There is a limit of 4 change groups.
     private const int ChangeGroupGains = 1;
@@ -218,8 +216,8 @@ public class QsysEcp : Dsp
             coreManager.HttpResponseHandlers += HandleCoreManagerResponse;
 
         string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]*)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
-        _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
-        _badIdParser = new Regex("bad_id\\s\"([^\"]*)\"", RegexOptions.None, TimeSpan.FromMilliseconds(30));
+        _responseParser = new Regex(responsePattern);
+        _badIdParser = new Regex("bad_id\\s\"([^\"]*)\"");
 
         _muteStateDictionary = new Dictionary<MuteState, string>
         {

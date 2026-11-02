@@ -14,8 +14,9 @@ public class AvCodersUdpClientTest : IDisposable
     private static readonly TimeSpan AgeMargin = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan SocketRetryInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(10);
-    // Windows refuses a UDP connect to 0.0.0.0, Linux one to the broadcast address without SO_BROADCAST.
-    private static readonly IPAddress UnconnectableAddress = OperatingSystem.IsWindows() ? IPAddress.Any : IPAddress.Broadcast;
+    // Windows refuses a UDP connect to 0.0.0.0, Linux one to a broadcast address without SO_BROADCAST.
+    // UdpClient turns SO_BROADCAST on itself for 255.255.255.255, so Linux uses the loopback broadcast.
+    private static readonly IPAddress UnconnectableAddress = OperatingSystem.IsWindows() ? IPAddress.Any : IPAddress.Parse("127.255.255.255");
     private static readonly FieldInfo SocketField = typeof(AvCodersUdpClient).GetField("_client", BindingFlags.Instance | BindingFlags.NonPublic)!;
     private static readonly MethodInfo ReceiveMethod = typeof(AvCodersUdpClient).GetMethod("Receive", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
