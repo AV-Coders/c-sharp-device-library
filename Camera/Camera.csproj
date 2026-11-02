@@ -16,6 +16,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <InternalsVisibleTo Include="AVCoders.Camera.Tests" />
     </ItemGroup>
 
 </Project>

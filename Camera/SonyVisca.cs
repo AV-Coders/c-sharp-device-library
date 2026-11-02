@@ -8,6 +8,10 @@ public class SonyVisca : CameraBase, IDisposable
     {
         ViscaCommand, ViscaInquiry
     }
+    private enum InquiryState
+    {
+        Owed, Asked, Done
+    }
     private readonly bool _useIpHeaders;
     private byte _panSpeed;
     private byte _tiltSpeed;
@@ -22,7 +26,11 @@ public class SonyVisca : CameraBase, IDisposable
     private const int IpLengthLowOffset = 3;
     private const int IpSequenceOffset = 7;
     private const int MaxReplyLength = 16;
-    private const byte SocketZeroError = 0x60;
+    private const byte SocketMask = 0x0F;
+    private const int PowerReplyLength = 4;
+    private const int MaxSilentPolls = 3;
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CompletionTimeout = TimeSpan.FromMinutes(5);
     private const byte HeaderBase = 0x80;
     private const byte MinCameraId = 1;
     private const byte MaxCameraId = 7;
@@ -31,6 +39,36 @@ public class SonyVisca : CameraBase, IDisposable
     private const byte MaxZoomSpeed = 7;
     private const int MaxPresetNumber = 0xFE;
     private const string CameraIdIssueKey = "camera-id";
+    private const string VersionIssueKey = "version-read";
+    private const string PanTiltStatusIssueKey = "pan-tilt-status-read";
+    private const string PanMechanismIssueKey = "pan-mechanism";
+    private const string TiltMechanismIssueKey = "tilt-mechanism";
+    private const string PanPositionIssueKey = "pan-position";
+    private const string TiltPositionIssueKey = "tilt-position";
+    private const string PanTiltInitialisationIssueKey = "pan-tilt-initialisation";
+    private const string PanTiltOperationIssueKey = "pan-tilt-operation";
+    private const string VendorIdLabel = "Vendor ID";
+    private const string ModelIdLabel = "Model ID";
+    private const string RomRevisionLabel = "ROM Revision";
+    private const string PanTiltStatusLabel = "Pan/Tilt Status";
+    private const int ErrorCodeIndex = 2;
+    private const byte SyntaxError = 0x02;
+    private const int MaxMissedReplies = 3;
+    private const string NoReply = "no reply";
+    private const int VersionReplyLength = 10;
+    private const int VendorIdOffset = 2;
+    private const int ModelIdOffset = 4;
+    private const int RomRevisionOffset = 6;
+    private const int PanTiltStatusReplyLength = 5;
+    private const int InitialisationAndTiltByte = 2;
+    private const int PanByte = 3;
+    private const int HighNibbleShift = 4;
+    private const int OperationShift = 2;
+    private const byte TwoBitMask = 0x03;
+    private const byte InitialisationFailed = 0x03;
+    private const byte OperationFailed = 0x03;
+    private const byte PositionNotDetected = 0x01;
+    private const byte MechanismDefective = 0x02;
     private static readonly Dictionary<PayloadType, byte[]> IpHeaders = new()
     {
         { PayloadType.ViscaCommand, [0x01, 0x00] },
@@ -39,15 +77,24 @@ public class SonyVisca : CameraBase, IDisposable
     private static readonly byte[][] ReplyHeaders = [[0x01, 0x11], [0x02, 0x01]];
     private readonly ThreadWorker _pollWorker;
     private bool _disposed;
-    private record PendingCommand(string Description, Action? OnCompleted, string? TriggerId);
-    private record PendingInquiry(string Description, Action<byte[]> OnReply, string? TriggerId);
+    private abstract record PendingRequest(byte[] Bytes, string? Description, string? TriggerId);
+    private sealed record PendingCommand(byte[] Bytes, string? Description, Action? OnCompleted, string? TriggerId)
+        : PendingRequest(Bytes, Description, TriggerId);
+    private sealed record PendingInquiry(byte[] Bytes, string Description, int ReplyLength, Action<byte[]> OnReply,
+        Action<byte[]>? OnError, string? TriggerId) : PendingRequest(Bytes, Description, TriggerId);
 
     private readonly object _pendingLock = new();
     private readonly Dictionary<byte, PendingCommand> _pendingCommands = new Dictionary<byte, PendingCommand>();
-    private PendingCommand? _lastCommand;
-    private readonly Queue<PendingInquiry> _pendingInquiries = new();
     private readonly Dictionary<byte, PendingInquiry> _pendingInquiriesBySequence = new();
+    private readonly SentCommandTracker<PendingRequest> _sent;
+    private readonly SentCommandTracker<(byte Socket, PendingCommand Command)> _executing;
     private byte[] _partialReply = [];
+    private InquiryState _versionInquiry = InquiryState.Owed;
+    private InquiryState _panTiltStatusInquiry = InquiryState.Owed;
+    private readonly Dictionary<string, int> _missedReplies = new();
+    private readonly List<byte[]> _polledInquiries = [];
+    private bool _replySincePoll;
+    private int _silentPolls;
 
     private static readonly Dictionary<byte, string> ErrorMessages = new Dictionary<byte, string>
     {
@@ -60,9 +107,16 @@ public class SonyVisca : CameraBase, IDisposable
     };
 
     public SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId = 0x01, int pollTime = 30)
+        : this(client, useIpHeaders, name, presetNames, cameraId, pollTime, null)
+    {
+    }
+
+    internal SonyVisca(CommunicationClient client, bool useIpHeaders, string name, Dictionary<int, string> presetNames, byte cameraId, int pollTime, TimeProvider? timeProvider)
         : base(name, client, presetNames)
     {
         _useIpHeaders = useIpHeaders;
+        _sent = new SentCommandTracker<PendingRequest>(ReplyTimeout, timeProvider);
+        _executing = new SentCommandTracker<(byte Socket, PendingCommand Command)>(CompletionTimeout, timeProvider);
         SetCameraId(cameraId);
         CommunicationClient.ResponseByteHandlers += HandleResponse;
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
@@ -73,7 +127,7 @@ public class SonyVisca : CameraBase, IDisposable
         CommunicationState = CommunicationState.NotAttempted;
         _sequenceNumber = 0x00;
         // waitFirst: the first inquiry must not beat an object initialiser that turns responses off.
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), waitFirst: true);
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), waitFirst: true, timeProvider);
         _ = _pollWorker.Restart();
     }
 
@@ -83,10 +137,14 @@ public class SonyVisca : CameraBase, IDisposable
         {
             // A stale entry must not be matched against a later command that reuses its sequence number.
             _pendingCommands.Clear();
-            _lastCommand = null;
-            _pendingInquiries.Clear();
             _pendingInquiriesBySequence.Clear();
+            _sent.Clear();
+            _executing.Clear();
             _partialReply = [];
+            _versionInquiry = InquiryState.Owed;
+            _panTiltStatusInquiry = InquiryState.Owed;
+            _missedReplies.Clear();
+            ForgetPolls();
         }
         if (DeviceSendsResponses)
             return;
@@ -100,7 +158,24 @@ public class SonyVisca : CameraBase, IDisposable
     private void HandleConnectionState(ConnectionState connectionState)
     {
         lock (_pendingLock)
+        {
             _partialReply = [];
+            _sent.Clear();
+            _executing.Clear();
+            ForgetPolls();
+            if (connectionState != ConnectionState.Connected)
+                return;
+            _versionInquiry = InquiryState.Owed;
+            _panTiltStatusInquiry = InquiryState.Owed;
+            _missedReplies.Clear();
+        }
+    }
+
+    private void ForgetPolls()
+    {
+        _polledInquiries.Clear();
+        _replySincePoll = false;
+        _silentPolls = 0;
     }
 
     private Task Poll(CancellationToken token)
@@ -111,18 +186,207 @@ public class SonyVisca : CameraBase, IDisposable
         using (PushProperties("Poll"))
         {
             lock (_pendingLock)
-            {
-                _pendingInquiries.Clear();
                 _pendingInquiriesBySequence.Clear();
-            }
+            ForgetMissedReplies();
+            CountSilentPoll();
             SendPollInquiries();
+            AskForThePanTiltStatus();
+            AskForTheVersion();
         }
         return Task.CompletedTask;
     }
 
+    private void ForgetMissedReplies()
+    {
+        foreach (var missed in _sent.TakeMissed())
+            using (Trigger.Resume(missed.Command.TriggerId))
+                LogDebug("No reply to {Request}", BitConverter.ToString(missed.Command.Bytes));
+        foreach (var missed in _executing.TakeMissed())
+            using (Trigger.Resume(missed.Command.Command.TriggerId))
+                LogDebug("No completion for {Command}", BitConverter.ToString(missed.Command.Command.Bytes));
+    }
+
+    private void CountSilentPoll()
+    {
+        string unanswered;
+        int silentPolls;
+        lock (_pendingLock)
+        {
+            var silent = !_replySincePoll && _polledInquiries.Count > 0;
+            unanswered = string.Join(", ", _polledInquiries.Select(inquiry => BitConverter.ToString(inquiry)));
+            _polledInquiries.Clear();
+            _replySincePoll = false;
+            if (!silent)
+                return;
+            silentPolls = ++_silentPolls;
+        }
+        if (silentPolls < MaxSilentPolls)
+        {
+            LogInformation("The camera gave no reply to {Inquiries} ({SilentPolls} of {MaxSilentPolls})",
+                unanswered, silentPolls, MaxSilentPolls);
+            return;
+        }
+        if (silentPolls > MaxSilentPolls)
+            return;
+        LogWarning("The camera gave no reply to {MaxSilentPolls} polls in a row, the last was {Inquiries}", MaxSilentPolls, unanswered);
+        AddEvent(EventType.Error, $"No reply to {unanswered}");
+        CommunicationState = CommunicationState.Error;
+    }
+
+    private void ReplyReceived()
+    {
+        lock (_pendingLock)
+        {
+            _replySincePoll = true;
+            _silentPolls = 0;
+        }
+    }
+
     protected virtual void SendPollInquiries()
     {
-        SendInquiry([_header, 0x09, 0x04, 0x00, CommandFooter], "query the power state", HandlePowerReply);
+        SendInquiry([_header, 0x09, 0x04, 0x00, CommandFooter], PowerReplyLength, "query the power state", HandlePowerReply);
+    }
+
+    private void AskForTheVersion()
+    {
+        if (_versionInquiry == InquiryState.Done)
+            return;
+        if (_versionInquiry == InquiryState.Asked)
+            MissedReply("version", VersionIssueKey, NoReply);
+        _versionInquiry = InquiryState.Asked;
+        SendInquiry([_header, 0x09, 0x00, 0x02, CommandFooter], VersionReplyLength, "query the version", HandleVersionReply, HandleVersionError);
+    }
+
+    private void HandleVersionReply(byte[] payload)
+    {
+        if (payload.Length != VersionReplyLength)
+        {
+            _versionInquiry = InquiryState.Owed;
+            MissedReply("version", VersionIssueKey, $"{BitConverter.ToString(payload)}, which is not a version reply");
+            return;
+        }
+        _versionInquiry = InquiryState.Done;
+        SetDetail(VendorIdLabel, TwoBytesHex(payload, VendorIdOffset));
+        SetDetail(ModelIdLabel, TwoBytesHex(payload, ModelIdOffset));
+        SetDetail(RomRevisionLabel, TwoBytesHex(payload, RomRevisionOffset));
+        ReadAnswered(VersionIssueKey);
+    }
+
+    private void HandleVersionError(byte[] payload)
+    {
+        if (IsRejection(payload))
+        {
+            _versionInquiry = InquiryState.Done;
+            ShowNotSupported("version", VersionIssueKey, payload, VendorIdLabel, ModelIdLabel, RomRevisionLabel);
+            return;
+        }
+        _versionInquiry = InquiryState.Owed;
+        MissedReply("version", VersionIssueKey, $"{BitConverter.ToString(payload)} ({ErrorText(payload)})");
+    }
+
+    private static bool IsRejection(byte[] payload) => payload[ErrorCodeIndex] == SyntaxError;
+
+    private void MissedReply(string inquiry, string issueKey, string reply)
+    {
+        int missed;
+        lock (_pendingLock)
+        {
+            missed = _missedReplies.GetValueOrDefault(issueKey) + 1;
+            _missedReplies[issueKey] = missed;
+        }
+        if (missed < MaxMissedReplies)
+        {
+            LogInformation("The camera gave {Reply} to the {Inquiry} inquiry, asking again on the next poll ({Missed} of {MaxMissedReplies})",
+                reply, inquiry, missed, MaxMissedReplies);
+            return;
+        }
+        if (CommunicationState == CommunicationState.Error)
+        {
+            LogDebug("The camera gave {Reply} to the {Inquiry} inquiry, not raising the read issue while communication is in error",
+                reply, inquiry);
+            return;
+        }
+        RaiseOngoingIssue(issueKey,
+            $"The camera did not answer the {inquiry} inquiry {MaxMissedReplies} times in a row, the last was {reply}", IssueSeverity.Minor);
+    }
+
+    private void ReadAnswered(string issueKey)
+    {
+        lock (_pendingLock)
+            _missedReplies.Remove(issueKey);
+        ResolveIssue(issueKey);
+    }
+
+    private void ShowNotSupported(string inquiry, string issueKey, byte[] payload, params string[] labels)
+    {
+        string raw = BitConverter.ToString(payload);
+        LogInformation("The camera does not support the {Inquiry} inquiry: {Response} ({Error})", inquiry, raw, ErrorText(payload));
+        foreach (var label in labels)
+            SetDetail(label, $"Not supported: {raw}", DetailTone.Normal);
+        ReadAnswered(issueKey);
+    }
+
+    private static string TwoBytesHex(byte[] payload, int offset) => $"{payload[offset]:X2}{payload[offset + 1]:X2}";
+
+    private void AskForThePanTiltStatus()
+    {
+        if (PowerState != PowerState.On || _panTiltStatusInquiry == InquiryState.Done)
+            return;
+        if (_panTiltStatusInquiry == InquiryState.Asked)
+            MissedReply("pan/tilt status", PanTiltStatusIssueKey, NoReply);
+        _panTiltStatusInquiry = InquiryState.Asked;
+        SendInquiry([_header, 0x09, 0x06, 0x10, CommandFooter], PanTiltStatusReplyLength, "query the pan/tilt status",
+            HandlePanTiltStatusReply, HandlePanTiltStatusError);
+    }
+
+    private void HandlePanTiltStatusReply(byte[] payload)
+    {
+        _panTiltStatusInquiry = InquiryState.Owed;
+        if (payload.Length != PanTiltStatusReplyLength)
+        {
+            MissedReply("pan/tilt status", PanTiltStatusIssueKey, $"{BitConverter.ToString(payload)}, which is not a status reply");
+            return;
+        }
+        ReadAnswered(PanTiltStatusIssueKey);
+        var initialisationAndTilt = payload[InitialisationAndTiltByte];
+        var pan = payload[PanByte] >> HighNibbleShift;
+        (string Key, bool Active, string Message)[] faults =
+        [
+            (PanTiltInitialisationIssueKey, (initialisationAndTilt >> HighNibbleShift & TwoBitMask) == InitialisationFailed,
+                "The pan/tilt initialisation failed"),
+            (PanTiltOperationIssueKey, (initialisationAndTilt >> OperationShift & TwoBitMask) == OperationFailed,
+                "A pan/tilt operation failed"),
+            (TiltMechanismIssueKey, (initialisationAndTilt & MechanismDefective) != 0, "The tilt mechanism is defective"),
+            (TiltPositionIssueKey, (initialisationAndTilt & PositionNotDetected) != 0, "The tilt position cannot be detected"),
+            (PanMechanismIssueKey, (pan & MechanismDefective) != 0, "The pan mechanism is defective"),
+            (PanPositionIssueKey, (pan & PositionNotDetected) != 0, "The pan position cannot be detected")
+        ];
+        foreach (var (key, active, message) in faults)
+            SetFault(key, active, message);
+        if (faults.Any(fault => fault.Active))
+            RemoveDetail(PanTiltStatusLabel);
+        else
+            SetDetail(PanTiltStatusLabel, $"Normal: {BitConverter.ToString(payload)}");
+    }
+
+    private void HandlePanTiltStatusError(byte[] payload)
+    {
+        if (IsRejection(payload))
+        {
+            _panTiltStatusInquiry = InquiryState.Done;
+            ShowNotSupported("pan/tilt status", PanTiltStatusIssueKey, payload, PanTiltStatusLabel);
+            return;
+        }
+        _panTiltStatusInquiry = InquiryState.Owed;
+        MissedReply("pan/tilt status", PanTiltStatusIssueKey, $"{BitConverter.ToString(payload)} ({ErrorText(payload)})");
+    }
+
+    private void SetFault(string key, bool active, string message)
+    {
+        if (active)
+            RaiseOngoingIssue(key, message, IssueSeverity.Major);
+        else
+            ResolveIssue(key);
     }
 
     private void HandlePowerReply(byte[] payload)
@@ -136,16 +400,17 @@ public class SonyVisca : CameraBase, IDisposable
         ProcessPowerState();
     }
 
-    protected void SendInquiry(byte[] bytes, string description, Action<byte[]> onReply)
+    protected void SendInquiry(byte[] bytes, int replyLength, string description, Action<byte[]> onReply, Action<byte[]>? onError = null)
     {
         if (!CameraIdIsValid)
         {
             LogWarning("Not sending {inquiry}, camera id {cameraId} is out of range", BitConverter.ToString(bytes), _cameraId);
             return;
         }
-        var pending = new PendingInquiry(description, onReply, Trigger.Id);
+        var pending = new PendingInquiry(bytes, description, replyLength, onReply, onError, Trigger.Id);
         try
         {
+            byte[] message;
             if (_useIpHeaders)
             {
                 byte sequenceNumber;
@@ -155,12 +420,16 @@ public class SonyVisca : CameraBase, IDisposable
                     _pendingCommands.Remove(sequenceNumber);
                     _pendingInquiriesBySequence[sequenceNumber] = pending;
                 }
-                CommunicationClient.Send(PayloadWithIpHeader(PayloadType.ViscaInquiry, sequenceNumber, bytes));
-                return;
+                message = PayloadWithIpHeader(PayloadType.ViscaInquiry, sequenceNumber, bytes);
             }
+            else
+            {
+                WarnIfDropped(_sent.Add(pending)?.Command);
+                message = bytes;
+            }
+            CommunicationClient.Send(message);
             lock (_pendingLock)
-                _pendingInquiries.Enqueue(pending);
-            CommunicationClient.Send(bytes);
+                _polledInquiries.Add(message);
         }
         catch (Exception e)
         {
@@ -179,7 +448,7 @@ public class SonyVisca : CameraBase, IDisposable
         }
         try
         {
-            var pending = description == null ? null : new PendingCommand(description, onCompleted, Trigger.Id);
+            var pending = new PendingCommand(bytes, description, onCompleted, Trigger.Id);
             if (_useIpHeaders)
             {
                 byte sequenceNumber;
@@ -187,7 +456,7 @@ public class SonyVisca : CameraBase, IDisposable
                 {
                     sequenceNumber = _sequenceNumber++;
                     _pendingInquiriesBySequence.Remove(sequenceNumber);
-                    if (pending == null)
+                    if (description == null)
                         _pendingCommands.Remove(sequenceNumber);
                     else
                         _pendingCommands[sequenceNumber] = pending;
@@ -196,8 +465,8 @@ public class SonyVisca : CameraBase, IDisposable
             }
             else
             {
-                lock (_pendingLock)
-                    _lastCommand = pending;
+                if (DeviceSendsResponses)
+                    WarnIfDropped(_sent.Add(pending)?.Command);
                 CommunicationClient.Send(bytes);
             }
             if (!DeviceSendsResponses)
@@ -210,6 +479,13 @@ public class SonyVisca : CameraBase, IDisposable
             CommunicationState = CommunicationState.Error;
             return false;
         }
+    }
+
+    private void WarnIfDropped(PendingRequest? dropped)
+    {
+        if (dropped != null)
+            LogWarning("Dropped {Request}: more than {MaxCommands} requests awaiting a reply",
+                BitConverter.ToString(dropped.Bytes), SentCommandTracker<PendingRequest>.MaxCommands);
     }
 
     private static byte[] PayloadWithIpHeader(PayloadType payloadType, byte sequenceNumber, byte[] payload) =>
@@ -474,33 +750,38 @@ public class SonyVisca : CameraBase, IDisposable
             return;
         }
 
+        ReplyReceived();
+        var socket = (byte)(payload[1] & SocketMask);
         switch (payload[1] & 0xF0)
         {
             case 0x40:
                 CommunicationState = CommunicationState.Okay;
-                InvokePendingCallback(sequenceNumber);
+                InvokePendingCallback(socket, sequenceNumber);
                 LogVerbose("Command acknowledged");
                 break;
             case 0x50:
                 CommunicationState = CommunicationState.Okay;
                 if (payload.Length == 3)
                 {
-                    CompletePendingCommand(sequenceNumber);
+                    CompletePendingCommand(socket, sequenceNumber);
                     LogVerbose("Command complete");
                     return;
                 }
                 AnswerPendingInquiry(payload, sequenceNumber);
                 break;
             case 0x60:
-                var errorMessage = ErrorMessages.TryGetValue(payload[2], out var message)
-                    ? message
-                    : $"Unknown error 0x{payload[2]:X2}";
-                var failed = ConsumeFailedRequest(payload[1], sequenceNumber);
-                if (failed != null)
-                    errorMessage = $"Unable to {failed.Value.Description}: {errorMessage}";
+                var errorMessage = ErrorText(payload);
+                var failed = ConsumeFailedRequest(socket, sequenceNumber);
+                if (failed?.Description is { } description)
+                    errorMessage = $"Unable to {description}: {errorMessage}";
                 using (Trigger.Resume(failed?.TriggerId))
                 using (PushProperties("ProcessViscaPayload"))
                 {
+                    if (failed?.OnError is { } onError)
+                    {
+                        onError(payload);
+                        break;
+                    }
                     LogError("The camera reported an error: {error} ({response})", errorMessage, BitConverter.ToString(payload));
                     AddEvent(EventType.Error, errorMessage);
                     CommunicationState = CommunicationState.Error;
@@ -514,7 +795,7 @@ public class SonyVisca : CameraBase, IDisposable
 
     // The callbacks run under the lock so that turning responses off, which takes the same lock,
     // either happens before the lookup (nothing found) or after the callback has finished.
-    private void InvokePendingCallback(byte? sequenceNumber)
+    private void InvokePendingCallback(byte socket, byte? sequenceNumber)
     {
         lock (_pendingLock)
         {
@@ -530,22 +811,24 @@ public class SonyVisca : CameraBase, IDisposable
                     pending.OnCompleted.Invoke();
                 return;
             }
-            if (_lastCommand?.OnCompleted is not { } onCompleted)
+            if (TakeUnacknowledgedCommand() is not { } acknowledged)
                 return;
-            _lastCommand = _lastCommand with { OnCompleted = null };
-            using (Trigger.Resume(_lastCommand.TriggerId))
+            // The camera reuses a socket only once the command in it has finished.
+            TakeExecutingCommand(socket);
+            WarnIfDropped(_executing.Add((socket, acknowledged with { OnCompleted = null }))?.Command.Command);
+            using (Trigger.Resume(acknowledged.TriggerId))
             using (PushProperties("InvokePendingCallback"))
-                onCompleted.Invoke();
+                acknowledged.OnCompleted?.Invoke();
         }
     }
 
-    private void CompletePendingCommand(byte? sequenceNumber)
+    private void CompletePendingCommand(byte socket, byte? sequenceNumber)
     {
         lock (_pendingLock)
         {
             if (!DeviceSendsResponses)
                 return;
-            if (ConsumePendingCommand(sequenceNumber) is not { } pending)
+            if (ConsumePendingCommand(socket, sequenceNumber) is not { } pending)
                 return;
             using (Trigger.Resume(pending.TriggerId))
             using (PushProperties("CompletePendingCommand"))
@@ -553,17 +836,21 @@ public class SonyVisca : CameraBase, IDisposable
         }
     }
 
-    private PendingCommand? ConsumePendingCommand(byte? sequenceNumber)
+    private PendingCommand? ConsumePendingCommand(byte socket, byte? sequenceNumber)
     {
         lock (_pendingLock)
         {
             if (sequenceNumber is { } sequence)
                 return _pendingCommands.Remove(sequence, out var pending) ? pending : null;
-            var last = _lastCommand;
-            _lastCommand = null;
-            return last;
+            return TakeExecutingCommand(socket) ?? TakeUnacknowledgedCommand();
         }
     }
+
+    private PendingCommand? TakeExecutingCommand(byte socket) =>
+        _executing.TakeReply(executing => executing.Socket == socket)?.Command.Command;
+
+    private PendingCommand? TakeUnacknowledgedCommand() =>
+        (PendingCommand?)_sent.TakeReply(request => request is PendingCommand)?.Command;
 
     private void AnswerPendingInquiry(byte[] payload, byte? sequenceNumber)
     {
@@ -571,7 +858,7 @@ public class SonyVisca : CameraBase, IDisposable
         {
             if (!DeviceSendsResponses)
                 return;
-            if (ConsumePendingInquiry(sequenceNumber) is not { } inquiry)
+            if (ConsumePendingInquiry(payload.Length, sequenceNumber) is not { } inquiry)
             {
                 LogWarning("Unexpected inquiry reply {response}", BitConverter.ToString(payload));
                 return;
@@ -582,35 +869,42 @@ public class SonyVisca : CameraBase, IDisposable
         }
     }
 
-    private PendingInquiry? ConsumePendingInquiry(byte? sequenceNumber)
+    private PendingInquiry? ConsumePendingInquiry(int replyLength, byte? sequenceNumber)
     {
         lock (_pendingLock)
         {
             if (sequenceNumber is { } sequence)
                 return _pendingInquiriesBySequence.Remove(sequence, out var pending) ? pending : null;
-            return _pendingInquiries.TryDequeue(out var oldest) ? oldest : null;
+            return (PendingInquiry?)_sent.TakeReply(request => request is PendingInquiry inquiry && inquiry.ReplyLength == replyLength)?.Command;
         }
     }
 
-    private (string Description, string? TriggerId)? ConsumeFailedRequest(byte errorReply, byte? sequenceNumber)
+    private (string? Description, string? TriggerId, Action<byte[]>? OnError)? ConsumeFailedRequest(byte socket, byte? sequenceNumber)
     {
         lock (_pendingLock)
         {
-            if (sequenceNumber != null)
+            if (sequenceNumber is { } sequence)
             {
-                if (ConsumePendingCommand(sequenceNumber) is { } command)
-                    return (command.Description, command.TriggerId);
-                if (ConsumePendingInquiry(sequenceNumber) is { } inquiry)
-                    return (inquiry.Description, inquiry.TriggerId);
+                if (_pendingCommands.Remove(sequence, out var command))
+                    return (command.Description, command.TriggerId, null);
+                if (_pendingInquiriesBySequence.Remove(sequence, out var inquiry))
+                    return (inquiry.Description, inquiry.TriggerId, inquiry.OnError);
                 return null;
             }
-            if (errorReply == SocketZeroError && ConsumePendingInquiry(null) is { } oldestInquiry)
-                return (oldestInquiry.Description, oldestInquiry.TriggerId);
-            if (ConsumePendingCommand(null) is { } lastCommand)
-                return (lastCommand.Description, lastCommand.TriggerId);
-            return null;
+            var failed = socket == 0
+                ? _sent.TakeError()?.Command
+                : TakeExecutingCommand(socket) ?? _sent.TakeError(request => request is PendingCommand)?.Command;
+            return failed switch
+            {
+                PendingInquiry failedInquiry => (failedInquiry.Description, failedInquiry.TriggerId, failedInquiry.OnError),
+                PendingCommand failedCommand => (failedCommand.Description, failedCommand.TriggerId, null),
+                _ => null
+            };
         }
     }
+
+    private static string ErrorText(byte[] payload) =>
+        ErrorMessages.TryGetValue(payload[2], out var message) ? message : $"Unknown error 0x{payload[2]:X2}";
 
     private void ReportMalformedResponse(byte[] response)
     {

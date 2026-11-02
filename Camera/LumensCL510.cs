@@ -11,14 +11,22 @@ public class LumensCL510 : CameraBase
     private const byte Tele = 0x00;
     private const byte Wide = 0x01;
     private const int MaxPresets = 8;
+    private static readonly TimeSpan AutoFocusAfterZoomDelay = TimeSpan.FromSeconds(1);
 
     private readonly bool _autoFocusAfterZoom;
+    private readonly TimeProvider _timeProvider;
     private CancellationTokenSource? _autoFocusCts;
 
     public LumensCL510(string name, CommunicationClient client, bool autoFocusAfterZoom, Dictionary<int, string> presetNames)
+        : this(name, client, autoFocusAfterZoom, presetNames, null)
+    {
+    }
+
+    internal LumensCL510(string name, CommunicationClient client, bool autoFocusAfterZoom, Dictionary<int, string> presetNames, TimeProvider? timeProvider)
         : base(name, client, presetNames)
     {
         _autoFocusAfterZoom = autoFocusAfterZoom;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         // This driver never reads a reply, so state is always assumed on send.
         DeviceSendsResponses = false;
     }
@@ -63,7 +71,7 @@ public class LumensCL510 : CameraBase
         {
             try
             {
-                await Task.Delay(1000, token);
+                await Task.Delay(AutoFocusAfterZoomDelay, _timeProvider, token);
                 OneTimeAutoFocus();
             }
             catch (OperationCanceledException) { }

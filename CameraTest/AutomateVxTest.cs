@@ -4,11 +4,10 @@ using AVCoders.Core.Tests;
 
 namespace AVCoders.Camera.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class AutomateVxTest
 {
-    private const string TokenReply = "{\"status\": \"OK\", \"token\": \"abc\"}";
-    private const string UnauthorizedReply = "{\"status\": \"Error\", \"err\": \"Unauthorized\"}";
+    internal const string TokenReply = "{\"status\": \"OK\", \"token\": \"abc\"}";
+    internal const string UnauthorizedReply = "{\"status\": \"Error\", \"err\": \"Unauthorized\"}";
     private readonly Mock<RestComms> _mockClient;
     private readonly AutomateVX _automateVx;
 
@@ -18,7 +17,7 @@ public class AutomateVxTest
         _automateVx = new AutomateVX(_mockClient.Object);
     }
 
-    private static HttpResponseMessage Reply(string path, string body) =>
+    internal static HttpResponseMessage Reply(string path, string body) =>
         new(HttpStatusCode.OK)
         {
             Content = new StringContent(body),
@@ -30,40 +29,17 @@ public class AutomateVxTest
     private void VerifyPosts(string path, Times times) =>
         _mockClient.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == path), It.IsAny<string>(), "application/json"), times);
 
-    private static (Mock<RestComms> Client, AutomateVX Camera, ScopeCapturingLoggerFactory Logs) CreateWithCapturedLogs()
-    {
-        Mock<RestComms> client = new("foo", (ushort)1, "Test");
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return (client, new AutomateVX(client.Object), logs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
     [Fact]
     public void ResponseHandler_HandlesAToken()
     {
         var response = new HttpResponseMessage(HttpStatusCode.OK);
         response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"token\": \"abcdefghijklmonp\"\n}");
-        
+
         _mockClient.Object.HttpResponseHandlers!.Invoke(response);
-        
+
         _mockClient.Verify(x => x.AddDefaultHeader("Authorization", "abcdefghijklmonp"));
     }
-    
-    [Fact]
-    public void ResponseHandler_TokenError()
-    {
-        var response = new HttpResponseMessage(HttpStatusCode.OK);
-        response.Content = new StringContent("{\n    \"status\": \"Error\",\n    \"err\": \"Incorrect Username or Password\"\n}");
-    }
-    
+
     [Fact]
     public void ResponseHandler_ProcessesLayoutResponses()
     {
@@ -99,30 +75,19 @@ public class AutomateVxTest
         )));
     }
 
-    [Fact]
-    public void ResponseHandler_InvokesTheScenarioHandler()
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(2, 1)]
+    public void ResponseHandler_InvokesTheScenarioHandler(int calledScenario, int expectedIndex)
     {
         Mock<IntHandler> mockhandler = new();
         _automateVx.ActiveScenarioChangedHandlers += mockhandler.Object;
         var response = new HttpResponseMessage(HttpStatusCode.OK);
-        response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Successfully called scenario 1\",\n    \"cameras\": []\n}");
+        response.Content = new StringContent($"{{\n    \"status\": \"OK\",\n    \"message\": \"Successfully called scenario {calledScenario}\",\n    \"cameras\": []\n}}");
         _mockClient.Object.HttpResponseHandlers!.Invoke(response);
-        
-        mockhandler.Verify(x => x.Invoke(0));
-        Assert.Equal(0, _automateVx.ActiveScenario);
-    }
 
-    [Fact]
-    public void ResponseHandler_InvokesTheScenarioHandlerForADifferentIndex()
-    {
-        Mock<IntHandler> mockhandler = new();
-        _automateVx.ActiveScenarioChangedHandlers += mockhandler.Object;
-        var response = new HttpResponseMessage(HttpStatusCode.OK);
-        response.Content = new StringContent("{\n    \"status\": \"OK\",\n    \"message\": \"Successfully called scenario 2\",\n    \"cameras\": []\n}");
-        _mockClient.Object.HttpResponseHandlers!.Invoke(response);
-        
-        mockhandler.Verify(x => x.Invoke(1));
-        Assert.Equal(1, _automateVx.ActiveScenario);
+        mockhandler.Verify(x => x.Invoke(expectedIndex));
+        Assert.Equal(expectedIndex, _automateVx.ActiveScenario);
     }
     
     [Fact]
@@ -224,25 +189,6 @@ public class AutomateVxTest
     }
 
     [Fact]
-    public void ResponseHandler_UnauthorizedReplyMatchingNoRequest_LogsItAndRetriesNothing()
-    {
-        var (client, _, logs) = CreateWithCapturedLogs();
-        client.Object.HttpResponseHandlers!.Invoke(Reply("/get-token", TokenReply));
-
-        client.Object.HttpResponseHandlers!.Invoke(Reply("/api/Unknown", UnauthorizedReply));
-        client.Object.HttpResponseHandlers!.Invoke(Reply("/get-token", TokenReply));
-
-        Assert.Contains(logs.Logs,
-            log => log.Message == "The unauthorized reply to /api/Unknown matches no request, so nothing is retried");
-        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/get-token"), "", "application/json"),
-            Times.Exactly(2));
-        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetLayouts"), "", "application/json"),
-            Times.Once);
-        client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetScenarios"), "", "application/json"),
-            Times.Once);
-    }
-
-    [Fact]
     public void SetLayout_BeforeTheLayoutsLoad_PostsNothingAndAddsAnErrorEvent()
     {
         _automateVx.SetLayout(0);
@@ -275,25 +221,65 @@ public class AutomateVxTest
     }
 
     [Fact]
-    public void SetScenario_LogsTheScenarioName()
+    public void SetScenario_AfterTheScenariosLoad_PostsTheScenarioId()
     {
-        var (client, camera, logs) = CreateWithCapturedLogs();
-        client.Object.HttpResponseHandlers!.Invoke(Reply("/api/GetScenarios",
-            "{\"status\": \"OK\", \"scenarios\": [{\"id\": 1, \"name\": \"Lectern\"}]}"));
+        Respond("/api/GetScenarios", "{\"status\": \"OK\", \"scenarios\": [{\"id\": 1, \"name\": \"Lectern\"}]}");
 
-        camera.SetScenario(0);
+        _automateVx.SetScenario(0);
 
-        Assert.Contains(logs.Logs, log => log.Message == "Setting Scenario to Lectern");
+        _mockClient.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GoToScenario"), "{\"id\": \"1\"}",
+            "application/json"), Times.Once);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class AutomateVxLogTest
+{
+    private readonly Mock<RestComms> _client = new("foo", (ushort)1, "Test");
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly AutomateVX _camera;
+
+    public AutomateVxLogTest()
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _camera = new AutomateVX(_client.Object);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    private void Respond(string path, string body) =>
+        _client.Object.HttpResponseHandlers!.Invoke(AutomateVxTest.Reply(path, body));
+
+    [Fact]
+    public void ResponseHandler_UnauthorizedReplyMatchingNoRequest_LogsItAndRetriesNothing()
+    {
+        Respond("/get-token", AutomateVxTest.TokenReply);
+
+        Respond("/api/Unknown", AutomateVxTest.UnauthorizedReply);
+        Respond("/get-token", AutomateVxTest.TokenReply);
+
+        Assert.Contains(_logs.Logs,
+            log => log.Message == "The unauthorized reply to /api/Unknown matches no request, so nothing is retried");
+        _client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/get-token"), "", "application/json"),
+            Times.Exactly(2));
+        _client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetLayouts"), "", "application/json"),
+            Times.Once);
+        _client.Verify(x => x.Post(It.Is<Uri>(uri => uri.ToString() == "/api/GetScenarios"), "", "application/json"),
+            Times.Once);
     }
 
     [Fact]
     public void ResponseHandler_NonStringStatus_LogsTheContentAsUnparseable()
     {
-        var (client, camera, logs) = CreateWithCapturedLogs();
+        Respond("/api/GetLayouts", "{\"status\": 5}");
 
-        client.Object.HttpResponseHandlers!.Invoke(Reply("/api/GetLayouts", "{\"status\": 5}"));
-
-        Assert.Contains(logs.Logs, log => log.Message == "Failed to parse 1Beyond response: {\"status\": 5}");
-        Assert.Empty(camera.Errors);
+        Assert.Contains(_logs.Logs, log => log.Message == "Failed to parse 1Beyond response: {\"status\": 5}");
+        Assert.Empty(_camera.Errors);
     }
 }

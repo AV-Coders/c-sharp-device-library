@@ -14,12 +14,6 @@ public class LumensCl511Test
     }
 
     [Fact]
-    public void DeviceSendsResponses_IsFalse()
-    {
-        Assert.False(_camera.DeviceSendsResponses);
-    }
-
-    [Fact]
     public void DeviceSendsResponses_SetToTrue_StaysFalse()
     {
         _camera.DeviceSendsResponses = true;
@@ -47,13 +41,6 @@ public class LumensCl511Test
         _camera.PowerOn();
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
-    }
-
-    [Fact]
-    public void PowerOn_SetsTheDesiredAndActualPowerState()
-    {
-        _camera.PowerOn();
-
         Assert.Equal(PowerState.On, _camera.DesiredPowerState);
         Assert.Equal(PowerState.On, _camera.PowerState);
     }
@@ -65,13 +52,6 @@ public class LumensCl511Test
         _camera.PowerOff();
 
         _mockClient.Verify(x => x.Send(expectedCommand), Times.Once);
-    }
-
-    [Fact]
-    public void PowerOff_SetsTheDesiredAndActualPowerState()
-    {
-        _camera.PowerOff();
-
         Assert.Equal(PowerState.Off, _camera.DesiredPowerState);
         Assert.Equal(PowerState.Off, _camera.PowerState);
     }

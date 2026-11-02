@@ -13,6 +13,7 @@ public class CrestronIvCamI12 : CrestronIvCam, ITrackingCamera
     private const int PresenterTrackingFeedPreset = 86;
     private const byte TrackingActive = 0x02;
     private const byte TrackingPaused = 0x03;
+    private const int TrackingReplyLength = 4;
 
     private static readonly int[] BlockedRecallPresets =
     [
@@ -77,7 +78,7 @@ public class CrestronIvCamI12 : CrestronIvCam, ITrackingCamera
     protected override void SendPollInquiries()
     {
         base.SendPollInquiries();
-        SendInquiry([_header, 0x09, 0x08, 0x01, CommandFooter], "query the tracking state", HandleTrackingReply);
+        SendInquiry([_header, 0x09, 0x08, 0x01, CommandFooter], TrackingReplyLength, "query the tracking state", HandleTrackingReply);
     }
 
     private void HandleTrackingReply(byte[] payload)

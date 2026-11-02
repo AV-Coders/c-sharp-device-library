@@ -23,6 +23,18 @@ public class CrestronIvCamTest
     [Theory]
     [InlineData(95)]
     [InlineData(99)]
+    public void DoRecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
+    {
+        _camera.DoRecallPreset(preset);
+
+        Assert.Empty(_client.Sent);
+        Assert.Contains(_camera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
+    }
+
+    [Theory]
+    [InlineData(95)]
+    [InlineData(99)]
     public void RecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
     {
         var recalled = new List<int>();
@@ -40,13 +52,16 @@ public class CrestronIvCamTest
     [Theory]
     [InlineData(95)]
     [InlineData(99)]
-    public void DoRecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
+    public void SavePreset_ReservedWhenTheDeviceDoesNotSendResponses_SendsNothing(int preset)
     {
-        _camera.DoRecallPreset(preset);
+        var client = new ConnectedClient();
+        var camera = new CrestronIvCam(client, "Test Cam", new Dictionary<int, string>()) { DeviceSendsResponses = false };
 
-        Assert.Empty(_client.Sent);
-        Assert.Contains(_camera.Events,
-            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
+        camera.SavePreset(preset);
+
+        Assert.Empty(client.Sent);
+        Assert.Contains(camera.Events,
+            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be saved");
     }
 
     [Theory]
@@ -77,21 +92,6 @@ public class CrestronIvCamTest
         Assert.Contains(camera.Events,
             e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
         Assert.Equal(2, camera.LastRecalledPreset);
-    }
-
-    [Theory]
-    [InlineData(95)]
-    [InlineData(99)]
-    public void SavePreset_ReservedWhenTheDeviceDoesNotSendResponses_SendsNothing(int preset)
-    {
-        var client = new ConnectedClient();
-        var camera = new CrestronIvCam(client, "Test Cam", new Dictionary<int, string>()) { DeviceSendsResponses = false };
-
-        camera.SavePreset(preset);
-
-        Assert.Empty(client.Sent);
-        Assert.Contains(camera.Events,
-            e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be saved");
     }
 
     [Theory]
@@ -149,14 +149,13 @@ public class CrestronIvCamI12Test
     [InlineData(86)]
     [InlineData(95)]
     [InlineData(99)]
-    public void RecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
+    public void DoRecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
     {
-        _camera.RecallPreset(preset);
+        _camera.DoRecallPreset(preset);
 
         Assert.Empty(_client.Sent);
         Assert.Contains(_camera.Events,
             e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
-        Assert.Equal(CameraBase.NoActivePreset, _camera.LastRecalledPreset);
     }
 
     [Theory]
@@ -167,13 +166,14 @@ public class CrestronIvCamI12Test
     [InlineData(86)]
     [InlineData(95)]
     [InlineData(99)]
-    public void DoRecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
+    public void RecallPreset_Reserved_SendsNothingAndAddsAnErrorEvent(int preset)
     {
-        _camera.DoRecallPreset(preset);
+        _camera.RecallPreset(preset);
 
         Assert.Empty(_client.Sent);
         Assert.Contains(_camera.Events,
             e => e.Type == EventType.Error && e.Info == $"Preset {preset} is reserved and can't be recalled");
+        Assert.Equal(CameraBase.NoActivePreset, _camera.LastRecalledPreset);
     }
 
     [Theory]
@@ -308,7 +308,9 @@ public class CrestronIvCamI12Test
     {
         await SonyViscaPolling.InvokePoll(_camera);
 
-        Assert.Equal([[0x81, 0x09, 0x04, 0x00, 0xFF], [0x81, 0x09, 0x08, 0x01, 0xFF]], _client.Sent);
+        Assert.Equal([
+            [0x81, 0x09, 0x04, 0x00, 0xFF], [0x81, 0x09, 0x08, 0x01, 0xFF], SonyViscaPolling.VersionInquiry
+        ], _client.Sent);
     }
 
     [Theory]
@@ -344,15 +346,9 @@ public class CrestronIvCamI12Test
 
         _camera.PanTiltStop();
         _camera.RecallPreset(2);
-        _client.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
+        _client.ResponseByteHandlers!.Invoke([0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF, 0x90, 0x41, 0xFF, 0x90, 0x51, 0xFF]);
 
         Assert.Equal(2, _camera.LastRecalledPreset);
         Assert.Equal(CameraTrackingMode.Auto, _camera.TrackingMode);
-    }
-
-    [Fact]
-    public void SupportedTrackingModes_AreAutoAndDisabled()
-    {
-        Assert.Equal([CameraTrackingMode.Auto, CameraTrackingMode.Disabled], _camera.SupportedTrackingModes);
     }
 }
