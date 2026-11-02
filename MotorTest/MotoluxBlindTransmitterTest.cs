@@ -21,21 +21,14 @@ public class MotoluxBlindTransmitterTest
     }
 
     [Fact]
-    public void Lower_SetsTheCommunicationStateToOkay()
-    {
-        _device.Lower();
-
-        Assert.Equal(CommunicationState.Okay, _device.CommunicationState);
-    }
-
-    [Fact]
-    public void Lower_SendsTheCommand()
+    public void Lower_SendsTheCommandAndSetsTheCommunicationStateToOkay()
     {
         _device.Lower();
 
         char[] expectedPayload = ['\u009a', '\u0002', '\u0000', '\u0002', '\u000a', '\u00EE', '\u00E4'];
-        
+
         _mockClient.Verify(x => x.Send(expectedPayload));
+        Assert.Equal(CommunicationState.Okay, _device.CommunicationState);
     }
 
     [Fact]

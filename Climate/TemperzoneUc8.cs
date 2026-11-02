@@ -159,6 +159,9 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
     private const string PowerHoldIssueKey = "power-enforcement-hold";
     private const string AdoptedControlIssueKey = "adopted-control";
 
+    private const string IdCodeLabel = "ID Code";
+    private const string SoftwareVersionLabel = "Software Version";
+
     private static readonly TimeSpan PowerEnforcementBackoff = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan DisposeTimeout = TimeSpan.FromSeconds(10);
 
@@ -196,6 +199,14 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
         { 1034, "Reverse Cycle Valve Faults" }, { 1035, "IUC Communications Faults" },
         { 1036, "IUC Faults" }, { 1037, "Inverter Faults" }, { 1038, "Compressor Out-Of-Envelope Faults" },
     };
+
+    private static readonly ushort[] CounterDetails =
+        [1009, 1010, 1011, 1012, 1013, 1021, 1025, 1026, 1027, 1028, 1029, 1030, 1031, 1032];
+
+    private static readonly (ushort Hours, ushort Minutes, string Label)[] RunTimeDetails =
+    [
+        (1003, 1004, "Cooling Run Time"), (1005, 1006, "Heating Run Time"), (1007, 1008, "De-Ice Run Time"),
+    ];
 
     private record FaultDefinition(int Bit, string Key, string Message, IssueSeverity Severity = IssueSeverity.Major);
 
@@ -504,6 +515,8 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
     {
         if (info.Length < 2 || address.Length < 1)
             return;
+        SetDetail(IdCodeLabel, info[0].ToString(), info[0] == ExpectedIdCode ? DetailTone.Normal : DetailTone.Error);
+        SetDetail(SoftwareVersionLabel, info[1].ToString());
         if (info[0] == ExpectedIdCode && address[0] == _deviceId)
         {
             _identityVerified = true;
@@ -879,12 +892,22 @@ public class TemperzoneUc8 : DeviceBase, IDisposable, IAsyncDisposable
 
     private void ProcessCounters(ushort[] values, ushort blockStart)
     {
+        foreach (var runTime in RunTimeDetails)
+        {
+            var hours = runTime.Hours - blockStart;
+            var minutes = runTime.Minutes - blockStart;
+            if (hours < 0 || minutes >= values.Length)
+                continue;
+            SetDetail(runTime.Label, $"{values[hours]} h {values[minutes]} min");
+        }
         foreach (var pair in CounterPoints)
         {
             var index = pair.Key - blockStart;
             if (index < 0 || index >= values.Length)
                 continue;
             History.Record(pair.Value, values[index]);
+            if (CounterDetails.Contains(pair.Key))
+                SetDetail(pair.Value, values[index].ToString());
         }
     }
 

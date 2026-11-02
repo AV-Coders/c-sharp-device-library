@@ -1,48 +1,63 @@
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Motor.Tests;
 
 public class ScreenTechnicsConnectTest
 {
+    private const int MoveSeconds = 2;
+    private static readonly TimeSpan ConnectedSettleTime = TimeSpan.FromMilliseconds(500);
+    private readonly FakeTimeProvider _time = new();
     private readonly ScreenTechnicsConnect _motor;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient(ScreenTechnicsConnect.DefaultPort);
 
     public ScreenTechnicsConnectTest()
     {
-        _motor = new ScreenTechnicsConnect("Projector Screen", _mockClient.Object, RelayAction.Lower, 1, 2);
+        _motor = new ScreenTechnicsConnect("Projector Screen", _mockClient.Object, RelayAction.Lower, 1, MoveSeconds, _time);
     }
-    
+
+    private async Task Connect()
+    {
+        var sends = Sends();
+        await Task.Run(() => _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected));
+        await Wait.UntilAsync(_time, ConnectedSettleTime, () => Sends() > sends, "The queued command was never sent after connecting");
+    }
+
+    private int Sends() => _mockClient.Invocations.Count(invocation => invocation.Method.Name == nameof(TcpClient.Send));
+
+    private int Disconnects() => _mockClient.Invocations.Count(invocation => invocation.Method.Name == nameof(TcpClient.Disconnect));
+
     [Fact]
-    public void Raise_SendsTheCommand()
+    public async Task Raise_SendsTheCommand()
     {
         _motor.Raise();
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
-        
+        await Connect();
+
         _mockClient.Verify(x => x.Send("30 1\r"));
     }
-    
+
     [Fact]
-    public void Lower_SendsTheCommand()
+    public async Task Lower_SendsTheCommand()
     {
         _motor.Lower();
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
-        
+        await Connect();
+
         _mockClient.Verify(x => x.Send("33 1\r"));
     }
-    
+
     [Fact]
-    public void Stop_SendsTheCommand()
+    public async Task Stop_SendsTheCommand()
     {
         _motor.Stop();
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
-        
+        await Connect();
+
         _mockClient.Verify(x => x.Send("36 1\r"));
     }
 
     [Fact]
-    public void QueuedMessage_IsSentUnderTheEnqueuersTriggerId()
+    public async Task QueuedMessage_IsSentUnderTheEnqueuersTriggerId()
     {
         string? sentUnder = null;
         _mockClient.Setup(x => x.Send("30 1\r")).Callback(() => sentUnder = Trigger.Id);
@@ -50,13 +65,13 @@ public class ScreenTechnicsConnectTest
         _motor.Raise();
 
         Trigger.Start();
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+        await Connect();
 
         Assert.Equal(raise, sentUnder);
     }
 
     [Fact]
-    public void QueuedMessage_EnqueuedWithNoTriggerId_IsSentUnderTheConnectionEventsTriggerId()
+    public async Task QueuedMessage_EnqueuedWithNoTriggerId_IsSentUnderTheConnectionEventsTriggerId()
     {
         string? sentUnder = null;
         _mockClient.Setup(x => x.Send("30 1\r")).Callback(() => sentUnder = Trigger.Id);
@@ -64,17 +79,32 @@ public class ScreenTechnicsConnectTest
         _motor.Raise();
 
         var connected = Trigger.Start();
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+        await Connect();
 
         Assert.Equal(connected, sentUnder);
     }
 
     [Fact]
-    public void Client_DisconnectsAfterMoveTime()
+    public async Task Client_DisconnectsAfterMoveTime()
     {
         _motor.Stop();
-        Thread.Sleep(2100);
+
+        await Wait.UntilAsync(_time, TimeSpan.FromSeconds(MoveSeconds), () => Disconnects() == 2,
+            "The client was never disconnected after the move");
         _mockClient.Verify(x => x.Disconnect(), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Client_DisconnectFailingAfterTheMove_IsRecordedAsAnError()
+    {
+        var failure = new InvalidOperationException("The socket is gone");
+        _mockClient.Setup(x => x.Disconnect()).Throws(failure);
+        _motor.Stop();
+
+        await Wait.UntilAsync(_time, TimeSpan.FromSeconds(MoveSeconds), () => _motor.Errors.Any(),
+            "The failed disconnect was never recorded");
+
+        Assert.Same(failure, Assert.Single(_motor.Errors).Exception);
     }
 
     [Fact]
@@ -85,24 +115,38 @@ public class ScreenTechnicsConnectTest
     }
 
     [Fact]
-    public void CommandQueuedWhileTheQueuedOneIsSent_IsKeptForTheNextConnection()
+    public async Task CommandQueuedWhileTheQueuedOneIsSent_IsKeptForTheNextConnection()
     {
         _mockClient.Setup(x => x.Send("30 1\r")).Callback(() => _motor.Lower());
         _motor.Raise();
 
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+        await Connect();
         _mockClient.Verify(x => x.Send("33 1\r"), Times.Never);
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+        await Connect();
 
         _mockClient.Verify(x => x.Send("33 1\r"), Times.Once);
     }
 
     [Fact]
-    public void QueuedCommand_SentOnConnection_SetsTheCommunicationStateToOkay()
+    public async Task QueuedCommand_IsSentTheSettleTimeAfterConnectingWithoutBlockingTheConnectionHandler()
     {
         _motor.Raise();
 
-        _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected);
+        await Task.Run(() => _mockClient.Object.ConnectionStateHandlers?.Invoke(ConnectionState.Connected));
+        _time.Advance(ConnectedSettleTime - TimeSpan.FromTicks(1));
+        _mockClient.Verify(x => x.Send(It.IsAny<string>()), Times.Never);
+        _time.Advance(TimeSpan.FromTicks(1));
+
+        await Wait.UntilAsync(() => Sends() == 1, "The queued command was never sent after the settle time");
+        _mockClient.Verify(x => x.Send("30 1\r"));
+    }
+
+    [Fact]
+    public async Task QueuedCommand_SentOnConnection_SetsTheCommunicationStateToOkay()
+    {
+        _motor.Raise();
+
+        await Connect();
 
         Assert.Equal(CommunicationState.Okay, _motor.CommunicationState);
     }

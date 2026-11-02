@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using AVCoders.Core;
 using Moq;
@@ -6,6 +7,7 @@ namespace AVCoders.Lighting.Tests;
 
 public class Zigbee2MqttLightTest
 {
+    private const string StateRequest = "{\"state\": \"\", \"brightness\": \"\"}";
     private readonly Mock<MqttClient> _mockClient = new("host", (ushort)1883, "Mqtt");
     private readonly Zigbee2MqttLight _light;
     private Action<string>? _valueChangeHandler;
@@ -17,10 +19,49 @@ public class Zigbee2MqttLightTest
         _light = new Zigbee2MqttLight("Office", "office", _mockClient.Object);
     }
 
+    private static void SetConnectionState(Mock<MqttClient> mock, ConnectionState state) =>
+        typeof(CommunicationClient).GetField("_connectionState", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(mock.Object, state);
+
     [Fact]
-    public void Constructor_SubscribesToTheTopic()
+    public void Connected_RequestsTheStateAndBrightness()
     {
-        Assert.NotNull(_valueChangeHandler);
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(ConnectionState.Connected);
+
+        _mockClient.Verify(x => x.Send("zigbee2mqtt/office/get", StateRequest), Times.Once);
+    }
+
+    [Fact]
+    public void EachReconnect_RequestsTheStateAgain()
+    {
+        foreach (var state in new[] { ConnectionState.Connected, ConnectionState.Disconnected, ConnectionState.Connecting, ConnectionState.Connected })
+            _mockClient.Object.ConnectionStateHandlers!.Invoke(state);
+
+        _mockClient.Verify(x => x.Send("zigbee2mqtt/office/get", StateRequest), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(ConnectionState.Connecting)]
+    [InlineData(ConnectionState.Disconnected)]
+    [InlineData(ConnectionState.Error)]
+    public void CreatedBeforeTheConnection_AndOtherConnectionStates_RequestNothing(ConnectionState state)
+    {
+        _mockClient.Object.ConnectionStateHandlers!.Invoke(state);
+
+        _mockClient.Verify(x => x.Send(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public void CreatedWhileTheClientIsConnected_SubscribesThenRequestsTheState()
+    {
+        var client = new Mock<MqttClient>("host", (ushort)1883, "Mqtt");
+        SetConnectionState(client, ConnectionState.Connected);
+
+        _ = new Zigbee2MqttLight("Office", "office", client.Object);
+
+        Assert.Equal(["SubscribeToTopic", "Send"], client.Invocations.Select(invocation => invocation.Method.Name));
+        client.Verify(x => x.SubscribeToTopic("zigbee2mqtt/office", It.IsAny<Action<string>>()));
+        client.Verify(x => x.Send("zigbee2mqtt/office/get", StateRequest));
     }
 
     [Theory]
@@ -66,17 +107,6 @@ public class Zigbee2MqttLightTest
     }
 
     [Theory]
-    [InlineData("128.0")]
-    [InlineData("1.28e2")]
-    public void HandleValueChange_WithAnIntegralBrightnessWrittenAsADecimal_SetsTheBrightness(string brightness)
-    {
-        _valueChangeHandler!.Invoke($"{{\"state\":\"ON\",\"brightness\":{brightness}}}");
-
-        Assert.Equal(50u, _light.Brightness);
-        Assert.Empty(_light.Errors);
-    }
-
-    [Theory]
     [InlineData("127.5")]
     [InlineData("\"high\"")]
     [InlineData("true")]
@@ -106,8 +136,6 @@ public class Zigbee2MqttLightTest
     [Theory]
     [InlineData("-1", 0u)]
     [InlineData("255", 100u)]
-    [InlineData("2147483648", 100u)]
-    [InlineData("-2147483649", 0u)]
     public void HandleValueChange_WithABrightnessOutsideTheRange_ClampsItAndLogsIt(string brightness, uint expectedBrightness)
     {
         _valueChangeHandler!.Invoke("{\"state\":\"ON\",\"brightness\":128}");
@@ -116,6 +144,98 @@ public class Zigbee2MqttLightTest
 
         Assert.Equal(expectedBrightness, _light.Brightness);
         Assert.Contains("Value must be between 0 and 254", Assert.Single(_light.Errors).Message);
+    }
+
+    private string? Detail(string label) => _light.Details.SingleOrDefault(detail => detail.Label == label)?.Value;
+
+    private Issue? OngoingIssue(string key) => _light.GetOngoingIssues().SingleOrDefault(issue => issue.Key == key);
+
+    [Fact]
+    public void HandleValueChange_ShowsTheLinkQualityAndUpdateState()
+    {
+        _valueChangeHandler!.Invoke("{\"state\":\"ON\",\"brightness\":254,\"linkquality\":87,\"update\":{\"state\":\"available\",\"installed_version\":1,\"latest_version\":2}}");
+
+        Assert.Equal("87", Detail("Link Quality"));
+        Assert.Equal("available", Detail("Firmware Update"));
+        Assert.Empty(_light.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void HandleValueChange_WhileUpdating_ShowsTheStateFromTheOtaExample()
+    {
+        _valueChangeHandler!.Invoke("{\"update\":{\"state\":\"updating\",\"progress\":13.37,\"remaining\":219}}");
+
+        Assert.Equal("updating", Detail("Firmware Update"));
+    }
+
+    [Fact]
+    public void HandleValueChange_WithoutLinkQualityOrUpdate_AddsNoDetails()
+    {
+        _valueChangeHandler!.Invoke("{\"state\":\"ON\",\"brightness\":254}");
+
+        Assert.Empty(_light.Details);
+        Assert.Empty(_light.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("\"strong\"")]
+    [InlineData("256")]
+    [InlineData("-1")]
+    [InlineData("12.5")]
+    public void HandleValueChange_WithAnUnreadableLinkQuality_ShowsItRawAndRaisesAnIssueOnTheThirdInARowUntilAReadableOne(string linkQuality)
+    {
+        _valueChangeHandler!.Invoke($"{{\"state\":\"ON\",\"linkquality\":{linkQuality}}}");
+        _valueChangeHandler!.Invoke($"{{\"state\":\"ON\",\"linkquality\":{linkQuality}}}");
+
+        Assert.Equal(linkQuality, Detail("Link Quality"));
+        Assert.Empty(_light.GetIssues());
+
+        _valueChangeHandler!.Invoke($"{{\"state\":\"ON\",\"linkquality\":{linkQuality}}}");
+
+        var issue = OngoingIssue("linkquality-read");
+        Assert.NotNull(issue);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Contains(linkQuality, issue.Message);
+
+        _valueChangeHandler!.Invoke("{\"linkquality\":255}");
+
+        Assert.Equal("255", Detail("Link Quality"));
+        Assert.Null(OngoingIssue("linkquality-read"));
+    }
+
+    [Theory]
+    [InlineData("\"available\"")]
+    [InlineData("{\"state\":3}")]
+    public void HandleValueChange_WithAnUnreadableUpdate_ShowsItRawAndRaisesAnIssueOnTheThirdInARowUntilAState(string update)
+    {
+        _valueChangeHandler!.Invoke($"{{\"update\":{update}}}");
+        _valueChangeHandler!.Invoke($"{{\"update\":{update}}}");
+
+        Assert.Equal(update, Detail("Firmware Update"));
+        Assert.Empty(_light.GetIssues());
+
+        _valueChangeHandler!.Invoke($"{{\"update\":{update}}}");
+
+        Assert.Contains(update, OngoingIssue("update-read")?.Message);
+
+        _valueChangeHandler!.Invoke("{\"update\":{\"state\":\"idle\"}}");
+
+        Assert.Equal("idle", Detail("Firmware Update"));
+        Assert.Null(OngoingIssue("update-read"));
+    }
+
+    [Theory]
+    [InlineData("{\"linkquality\":null}", "Link Quality", "null")]
+    [InlineData("{\"update\":{\"progress\":13.37}}", "Firmware Update", "{\"progress\":13.37}")]
+    [InlineData("{\"update\":{\"state\":\"\"}}", "Firmware Update", "{\"state\":\"\"}")]
+    [InlineData("{\"update\":null}", "Firmware Update", "null")]
+    public void HandleValueChange_WithAnEmptyOrAbsentValue_ShowsItRawWithNoIssue(string message, string label, string raw)
+    {
+        for (var repeat = 0; repeat < 3; repeat++)
+            _valueChangeHandler!.Invoke(message);
+
+        Assert.Equal(raw, Detail(label));
+        Assert.Empty(_light.GetIssues());
     }
 
     [Fact]

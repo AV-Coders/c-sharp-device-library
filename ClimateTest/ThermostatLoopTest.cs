@@ -1,54 +1,28 @@
 using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace AVCoders.Climate.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class ThermostatLoopTest : IDisposable
 {
+    private readonly List<string> _ops = [];
+    private readonly Mock<ModbusRtuClient> _mockClient;
     private readonly TemperzoneUc8 _uc8;
     private readonly ThermostatLoop _loop;
-    private readonly Mock<ModbusRtuClient> _mockClient = new("Test client", "host", (ushort)502);
-    private readonly List<string> _ops = [];
-    private readonly ScopeCapturingLoggerFactory _logs = new();
     private const byte DeviceId = 44;
-    private const string OutsideReleaseWarning =
-        "Control of Test HVAC was released outside the loop; the loop is disabled";
-    private static readonly string[] Released = ["coil:1=0", "coil:2=0", "coil:8=0"];
-    private static readonly string[] ArmedForCooling =
+    internal static readonly string[] Released = ["coil:1=0", "coil:2=0", "coil:8=0"];
+    internal static readonly string[] ArmedForCooling =
         ["coil:2=1", "reg:103=0", "coil:1=1", "reg:102=1", "coil:8=1", "reg:109=40"];
     private static readonly TimeSpan HandlerCallTimeout = TimeSpan.FromSeconds(2);
 
     public ThermostatLoopTest()
     {
-        _mockClient.Setup(client => client.WriteRegister(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<ushort>(),
-                It.IsAny<CancellationToken>()))
-            .Callback<byte, ushort, ushort, CancellationToken>((_, register, value, _) =>
-                _ops.Add($"reg:{register}={value}"))
-            .Returns(Task.CompletedTask);
-        _mockClient.Setup(client => client.WriteCoil(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<bool>(),
-                It.IsAny<CancellationToken>()))
-            .Callback<byte, ushort, bool, CancellationToken>((_, coil, value, _) =>
-                _ops.Add($"coil:{coil}={(value ? 1 : 0)}"))
-            .Returns(Task.CompletedTask);
-        _uc8 = new TemperzoneUc8("Test HVAC", _mockClient.Object);
-        VerifyIdentity(_uc8);
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = _logs;
-        try
-        {
-            _loop = new ThermostatLoop("Test loop", _uc8)
-            {
-                MinDecisionInterval = TimeSpan.Zero,
-                ChangeoverLockout = TimeSpan.Zero
-            };
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
+        _mockClient = CreateClient(_ops);
+        _uc8 = CreateUnit(_mockClient);
+        _loop = CreateLoop(_uc8);
     }
 
     public void Dispose()
@@ -57,17 +31,46 @@ public class ThermostatLoopTest : IDisposable
         _uc8.Dispose();
     }
 
+    internal static Mock<ModbusRtuClient> CreateClient(List<string> ops)
+    {
+        var client = new Mock<ModbusRtuClient>("Test client", "host", (ushort)502);
+        client.Setup(c => c.WriteRegister(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<ushort>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<byte, ushort, ushort, CancellationToken>((_, register, value, _) =>
+                ops.Add($"reg:{register}={value}"))
+            .Returns(Task.CompletedTask);
+        client.Setup(c => c.WriteCoil(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<bool>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<byte, ushort, bool, CancellationToken>((_, coil, value, _) =>
+                ops.Add($"coil:{coil}={(value ? 1 : 0)}"))
+            .Returns(Task.CompletedTask);
+        return client;
+    }
+
+    internal static TemperzoneUc8 CreateUnit(Mock<ModbusRtuClient> client)
+    {
+        var unit = new TemperzoneUc8("Test HVAC", client.Object);
+        VerifyIdentity(unit);
+        return unit;
+    }
+
+    internal static ThermostatLoop CreateLoop(TemperzoneUc8 unit) => new("Test loop", unit)
+    {
+        MinDecisionInterval = TimeSpan.Zero,
+        ChangeoverLockout = TimeSpan.Zero
+    };
+
     private static void VerifyIdentity(TemperzoneUc8 unit) =>
         typeof(TemperzoneUc8).GetMethod("ProcessIdentity", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(unit, [new ushort[] { 210, 209 }, new ushort[] { DeviceId }]);
 
-    private void InvokeEvaluate() =>
+    internal static void InvokeEvaluate(ThermostatLoop loop) =>
         typeof(ThermostatLoop).GetMethod("Evaluate", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(_loop, []);
+            .Invoke(loop, []);
 
-    private void MakeRoomTemperatureStale() =>
+    internal static void MakeRoomTemperatureStale(ThermostatLoop loop) =>
         typeof(ThermostatLoop).GetField("_roomTemperatureReceivedAt", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(_loop, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(10));
+            .SetValue(loop, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(10));
 
     [Fact]
     public void CoolMode_StartsCoolingAboveTheBand()
@@ -77,7 +80,7 @@ public class ThermostatLoopTest : IDisposable
 
         _loop.SetRoomTemperature(24.6f);
 
-        Assert.Equal(new[] { "coil:2=1", "reg:103=0", "coil:1=1", "reg:102=1", "coil:8=1", "reg:109=40" }, _ops);
+        Assert.Equal(ArmedForCooling, _ops);
         Assert.Equal(ThermostatLoopState.Cooling, _loop.State);
     }
 
@@ -334,15 +337,15 @@ public class ThermostatLoopTest : IDisposable
         _loop.Enable();
         _loop.SetRoomTemperature(25f);
         _ops.Clear();
-        MakeRoomTemperatureStale();
+        MakeRoomTemperatureStale(_loop);
 
-        InvokeEvaluate();
+        InvokeEvaluate(_loop);
 
         Assert.Equal(new[] { "reg:102=0" }, _ops);
         Assert.Equal(ThermostatLoopState.InputStale, _loop.State);
         Assert.Single(_loop.GetOngoingIssues(), i => i.Key == "stale-input");
 
-        InvokeEvaluate();
+        InvokeEvaluate(_loop);
 
         Assert.Equal(new[] { "reg:102=0" }, _ops);
     }
@@ -353,8 +356,8 @@ public class ThermostatLoopTest : IDisposable
         _loop.SetMode(ThermostatLoopMode.Cool);
         _loop.Enable();
         _loop.SetRoomTemperature(25f);
-        MakeRoomTemperatureStale();
-        InvokeEvaluate();
+        MakeRoomTemperatureStale(_loop);
+        InvokeEvaluate(_loop);
         _ops.Clear();
 
         _loop.SetRoomTemperature(25f);
@@ -370,10 +373,10 @@ public class ThermostatLoopTest : IDisposable
         _loop.SetMode(ThermostatLoopMode.Cool);
         _loop.Enable();
         _loop.SetRoomTemperature(24.2f);
-        MakeRoomTemperatureStale();
+        MakeRoomTemperatureStale(_loop);
 
-        InvokeEvaluate();
-        InvokeEvaluate();
+        InvokeEvaluate(_loop);
+        InvokeEvaluate(_loop);
 
         Assert.Equal(new[] { "coil:1=1", "reg:102=0" }, _ops);
         Assert.True(_loop.Enabled);
@@ -411,36 +414,13 @@ public class ThermostatLoopTest : IDisposable
     }
 
     [Fact]
-    public void Disable_ReleasesControlOnceThenStaysSilent()
-    {
-        _loop.SetMode(ThermostatLoopMode.Cool);
-        _loop.Enable();
-        _loop.SetRoomTemperature(25f);
-        _ops.Clear();
-
-        _loop.Disable();
-
-        Assert.Equal(Released, _ops);
-        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
-
-        _loop.SetRoomTemperature(30f);
-        _loop.SetCoolSetpoint(22f);
-        InvokeEvaluate();
-        _loop.Disable();
-        _loop.Dispose();
-
-        Assert.Equal(Released, _ops);
-        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
-    }
-
-    [Fact]
     public void Disable_ResolvesTheStaleInputIssue()
     {
         _loop.SetMode(ThermostatLoopMode.Cool);
         _loop.Enable();
         _loop.SetRoomTemperature(25f);
-        MakeRoomTemperatureStale();
-        InvokeEvaluate();
+        MakeRoomTemperatureStale(_loop);
+        InvokeEvaluate(_loop);
 
         _loop.Disable();
 
@@ -474,80 +454,8 @@ public class ThermostatLoopTest : IDisposable
 
         _loop.Enable();
 
-        Assert.Equal(new[] { "coil:2=1", "reg:103=0", "coil:1=1", "reg:102=1", "coil:8=1", "reg:109=40" }, _ops);
+        Assert.Equal(ArmedForCooling, _ops);
         Assert.Equal(ThermostatLoopState.Cooling, _loop.State);
-    }
-
-    [Fact]
-    public void OutsideRelease_WhileRunning_DisablesTheLoopAndSendsNothingMore()
-    {
-        _loop.SetMode(ThermostatLoopMode.Cool);
-        _loop.Enable();
-        _loop.SetRoomTemperature(25f);
-        _ops.Clear();
-
-        _uc8.ReleaseControl();
-        _loop.SetRoomTemperature(30f);
-        InvokeEvaluate();
-
-        Assert.Equal(Released, _ops);
-        Assert.False(_loop.Enabled);
-        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
-        Assert.Single(_logs.Logs, log => log.Message == OutsideReleaseWarning);
-        Assert.Contains(_loop.Events, e => e.Info == OutsideReleaseWarning);
-    }
-
-    [Fact]
-    public void OutsideRelease_WhileWaiting_DisablesTheLoopAndSendsNothingMore()
-    {
-        _loop.SetMode(ThermostatLoopMode.Cool);
-        _loop.Enable();
-
-        _uc8.ReleaseControl();
-        _loop.SetRoomTemperature(30f);
-        InvokeEvaluate();
-
-        Assert.Empty(_ops);
-        Assert.False(_loop.Enabled);
-        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
-        Assert.Single(_logs.Logs, log => log.Message == OutsideReleaseWarning);
-        Assert.Contains(_loop.Events, e => e.Info == OutsideReleaseWarning);
-    }
-
-    [Fact]
-    public void OutsideRelease_WhileInputStale_DisablesTheLoopAndResolvesTheStaleInputIssue()
-    {
-        _loop.SetMode(ThermostatLoopMode.Cool);
-        _loop.Enable();
-        _loop.SetRoomTemperature(25f);
-        MakeRoomTemperatureStale();
-        InvokeEvaluate();
-        _ops.Clear();
-
-        _uc8.ReleaseControl();
-        InvokeEvaluate();
-
-        Assert.Equal(Released, _ops);
-        Assert.False(_loop.Enabled);
-        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
-        Assert.DoesNotContain(_loop.GetOngoingIssues(), i => i.Key == "stale-input");
-        Assert.Single(_logs.Logs, log => log.Message == OutsideReleaseWarning);
-    }
-
-    [Fact]
-    public void Disable_DoesNotLogTheOutsideReleaseWarningAndReleasesOnce()
-    {
-        _loop.SetMode(ThermostatLoopMode.Cool);
-        _loop.Enable();
-        _loop.SetRoomTemperature(25f);
-        _ops.Clear();
-
-        _loop.Disable();
-
-        Assert.Equal(Released, _ops);
-        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
-        Assert.DoesNotContain(_logs.Logs, log => log.Message == OutsideReleaseWarning);
-        Assert.DoesNotContain(_loop.Events, e => e.Info == OutsideReleaseWarning);
     }
 
     [Fact]
@@ -629,5 +537,112 @@ public class ThermostatLoopTest : IDisposable
         Assert.Contains(_uc8.History.GetSamples(ThermostatLoop.RoomTemperaturePoint), s => s.Value == 26f);
         Assert.Contains(_uc8.History.GetSamples(ThermostatLoop.StatePoint), s => s.Value == ThermostatLoop.CoolingCode);
         Assert.Contains(_uc8.History.GetSamples(ThermostatLoop.CommandedCapacityPoint), s => s.Value == 60f);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class ThermostatLoopLogTest : IDisposable
+{
+    private const string OutsideReleaseWarning =
+        "Control of Test HVAC was released outside the loop; the loop is disabled";
+    private readonly ILoggerFactory _originalLoggerFactory = LogBase.LoggerFactory;
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly List<string> _ops = [];
+    private readonly TemperzoneUc8 _uc8;
+    private readonly ThermostatLoop _loop;
+
+    public ThermostatLoopLogTest()
+    {
+        _uc8 = ThermostatLoopTest.CreateUnit(ThermostatLoopTest.CreateClient(_ops));
+        LogBase.LoggerFactory = _logs;
+        _loop = ThermostatLoopTest.CreateLoop(_uc8);
+    }
+
+    public void Dispose()
+    {
+        _loop.Dispose();
+        _uc8.Dispose();
+        LogBase.LoggerFactory = _originalLoggerFactory;
+    }
+
+    [Fact]
+    public void Disable_ReleasesControlOnceThenStaysSilent()
+    {
+        _loop.SetMode(ThermostatLoopMode.Cool);
+        _loop.Enable();
+        _loop.SetRoomTemperature(25f);
+        _ops.Clear();
+
+        _loop.Disable();
+
+        Assert.Equal(ThermostatLoopTest.Released, _ops);
+        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
+        Assert.DoesNotContain(_logs.Logs, log => log.Message == OutsideReleaseWarning);
+        Assert.DoesNotContain(_loop.Events, e => e.Info == OutsideReleaseWarning);
+
+        _loop.SetRoomTemperature(30f);
+        _loop.SetCoolSetpoint(22f);
+        ThermostatLoopTest.InvokeEvaluate(_loop);
+        _loop.Disable();
+        _loop.Dispose();
+
+        Assert.Equal(ThermostatLoopTest.Released, _ops);
+        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
+    }
+
+    [Fact]
+    public void OutsideRelease_WhileRunning_DisablesTheLoopAndSendsNothingMore()
+    {
+        _loop.SetMode(ThermostatLoopMode.Cool);
+        _loop.Enable();
+        _loop.SetRoomTemperature(25f);
+        _ops.Clear();
+
+        _uc8.ReleaseControl();
+        _loop.SetRoomTemperature(30f);
+        ThermostatLoopTest.InvokeEvaluate(_loop);
+
+        Assert.Equal(ThermostatLoopTest.Released, _ops);
+        Assert.False(_loop.Enabled);
+        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
+        Assert.Single(_logs.Logs, log => log.Message == OutsideReleaseWarning);
+        Assert.Contains(_loop.Events, e => e.Info == OutsideReleaseWarning);
+    }
+
+    [Fact]
+    public void OutsideRelease_WhileWaiting_DisablesTheLoopAndSendsNothingMore()
+    {
+        _loop.SetMode(ThermostatLoopMode.Cool);
+        _loop.Enable();
+
+        _uc8.ReleaseControl();
+        _loop.SetRoomTemperature(30f);
+        ThermostatLoopTest.InvokeEvaluate(_loop);
+
+        Assert.Empty(_ops);
+        Assert.False(_loop.Enabled);
+        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
+        Assert.Single(_logs.Logs, log => log.Message == OutsideReleaseWarning);
+        Assert.Contains(_loop.Events, e => e.Info == OutsideReleaseWarning);
+    }
+
+    [Fact]
+    public void OutsideRelease_WhileInputStale_DisablesTheLoopAndResolvesTheStaleInputIssue()
+    {
+        _loop.SetMode(ThermostatLoopMode.Cool);
+        _loop.Enable();
+        _loop.SetRoomTemperature(25f);
+        ThermostatLoopTest.MakeRoomTemperatureStale(_loop);
+        ThermostatLoopTest.InvokeEvaluate(_loop);
+        _ops.Clear();
+
+        _uc8.ReleaseControl();
+        ThermostatLoopTest.InvokeEvaluate(_loop);
+
+        Assert.Equal(ThermostatLoopTest.Released, _ops);
+        Assert.False(_loop.Enabled);
+        Assert.Equal(ThermostatLoopState.Disabled, _loop.State);
+        Assert.DoesNotContain(_loop.GetOngoingIssues(), i => i.Key == "stale-input");
+        Assert.Single(_logs.Logs, log => log.Message == OutsideReleaseWarning);
     }
 }

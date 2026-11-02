@@ -5,17 +5,25 @@ namespace AVCoders.Motor;
 public class ScreenTechnicsConnect : Motor
 {
     public static readonly ushort DefaultPort = 3001;
+    private static readonly TimeSpan ConnectedSettleTime = TimeSpan.FromMilliseconds(500);
     private readonly TcpClient _client;
     private readonly int _moduleId;
+    private readonly TimeProvider _timeProvider;
     private record QueuedMessage(string Message, string? TriggerId);
     private QueuedMessage? _queuedMessage;
     private Guid _currentConnectionKeepAlive = Guid.Empty;
 
     public ScreenTechnicsConnect(string name, TcpClient client, RelayAction powerOnAction,int moduleId = 1, int moveSeconds = 36)
+        : this(name, client, powerOnAction, moduleId, moveSeconds, null)
+    {
+    }
+
+    internal ScreenTechnicsConnect(string name, TcpClient client, RelayAction powerOnAction, int moduleId, int moveSeconds, TimeProvider? timeProvider)
         : base(name, powerOnAction, moveSeconds, client)
     {
         _client = client;
         _moduleId = moduleId;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _client.Disconnect();
         _client.ConnectionStateHandlers += ConnectionStateHandlers;
     }
@@ -25,12 +33,23 @@ public class ScreenTechnicsConnect : Motor
         if (connectionState != ConnectionState.Connected)
             return;
         if (Interlocked.Exchange(ref _queuedMessage, null) is { } queued)
+            _ = SendTheQueuedMessage(queued);
+    }
+
+    private async Task SendTheQueuedMessage(QueuedMessage queued)
+    {
+        using (Trigger.Resume(queued.TriggerId))
+        using (PushProperties("SendTheQueuedMessage"))
         {
-            Thread.Sleep(500); // You need a slight pause because the device doesn't accept commands when the event is triggered.
-            using (Trigger.Resume(queued.TriggerId))
+            try
             {
+                await Task.Delay(ConnectedSettleTime, _timeProvider); // You need a slight pause because the device doesn't accept commands when the event is triggered.
                 _client.Send(queued.Message);
                 CommunicationState = CommunicationState.Okay;
+            }
+            catch (Exception e)
+            {
+                LogException(e, "Sending the queued command after connecting failed");
             }
         }
     }
@@ -39,7 +58,7 @@ public class ScreenTechnicsConnect : Motor
     {
         Guid thisConnectionKeepAlive = Guid.NewGuid();
         _currentConnectionKeepAlive = thisConnectionKeepAlive;
-        
+
         if(_client.ConnectionState == ConnectionState.Connected)
         {
             _client.Send(message);
@@ -51,12 +70,24 @@ public class ScreenTechnicsConnect : Motor
             _client.Connect();
         }
 
-        new Thread(_ =>
+        _ = DisconnectAfterTheMove(thisConnectionKeepAlive);
+    }
+
+    private async Task DisconnectAfterTheMove(Guid thisConnectionKeepAlive)
+    {
+        using (PushProperties("DisconnectAfterTheMove"))
         {
-            Thread.Sleep(MoveSeconds * 1000);
-            CurrentMoveAction = RelayAction.None;
-            TryDisconnect(thisConnectionKeepAlive);
-        }).Start();
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(MoveSeconds), _timeProvider);
+                CurrentMoveAction = RelayAction.None;
+                TryDisconnect(thisConnectionKeepAlive);
+            }
+            catch (Exception e)
+            {
+                LogException(e, "Disconnecting the screen after the move failed");
+            }
+        }
     }
 
     private void TryDisconnect(Guid thisConnectionKeepAlive)

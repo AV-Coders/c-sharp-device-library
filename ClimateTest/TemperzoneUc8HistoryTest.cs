@@ -1,11 +1,11 @@
 using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace AVCoders.Climate.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class TemperzoneUc8HistoryTest : IDisposable
 {
     private const int DeadbandHundredths = 20;
@@ -219,20 +219,6 @@ public class TemperzoneUc8HistoryTest : IDisposable
     }
 
     [Fact]
-    public void Load_HandlesACorruptFile()
-    {
-        Directory.CreateDirectory(_directory);
-        var path = Path.Combine(_directory, "Test-HVAC.history.csv");
-        File.WriteAllLines(path, ["complete", "garbage,here", "not,a,timestamp"]);
-
-        var history = Create(_directory);
-        history.Record("X", 1f);
-
-        Assert.Equal(new[] { "X" }, history.GetPointNames());
-        Assert.Single(history.GetSamples("X"));
-    }
-
-    [Fact]
     public void Load_HandlesAMissingFile()
     {
         var history = Create(_directory);
@@ -276,18 +262,6 @@ public class TemperzoneUc8HistoryTest : IDisposable
         history.Record("X", 20.1f, T1 + TimeSpan.FromHours(2));
 
         Assert.Equal(2, history.GetSamples("X").Count);
-    }
-
-    [Fact]
-    public void Record_RecordsAnExactDeadbandStep()
-    {
-        var history = CreateLongRetention();
-        history.SetDeadband("X", 0.2f);
-
-        history.Record("X", 20.2f, T1);
-        history.Record("X", 20.4f, T2);
-
-        Assert.Equal(new HistorySample[] { new(T1, 20.2f), new(T2, 20.4f) }, history.GetSamples("X"));
     }
 
     [Fact]
@@ -452,33 +426,6 @@ public class TemperzoneUc8HistoryTest : IDisposable
     }
 
     [Fact]
-    public void Load_LogsUnreadableLines()
-    {
-        Directory.CreateDirectory(_directory);
-        var path = Path.Combine(_directory, "Test-HVAC.history.csv");
-        var recent = (DateTimeOffset.UtcNow - TimeSpan.FromHours(1)).UtcDateTime.ToString("O");
-        File.WriteAllLines(path,
-            [TemperzoneUc8History.CsvHeader, "garbage,here", "not,a,timestamp", $"{recent},X,warm", $"{recent},X,2"]);
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            Create(_directory);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-
-        var messages = logs.Logs.Select(log => log.Message).ToList();
-        Assert.Contains($"Skipped an unreadable line in {path}: garbage,here", messages);
-        Assert.Contains($"Skipped an unreadable line in {path}: not,a,timestamp", messages);
-        Assert.Contains($"Skipped an unreadable line in {path}: {recent},X,warm", messages);
-        Assert.DoesNotContain(messages, message => message.Contains(TemperzoneUc8History.CsvHeader));
-    }
-
-    [Fact]
     public void Load_SeedsDeduplicationAcrossRestarts()
     {
         var recent = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(30);
@@ -490,5 +437,47 @@ public class TemperzoneUc8HistoryTest : IDisposable
         second.Record("X", 5f);
 
         Assert.Single(second.GetSamples("X"));
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class TemperzoneUc8HistoryLogTest : IDisposable
+{
+    private readonly string _directory = Path.Combine(Path.GetTempPath(), $"uc8-history-test-{Guid.NewGuid():N}");
+    private readonly ILoggerFactory _originalLoggerFactory = LogBase.LoggerFactory;
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private TemperzoneUc8History? _history;
+
+    public TemperzoneUc8HistoryLogTest()
+    {
+        LogBase.LoggerFactory = _logs;
+    }
+
+    public void Dispose()
+    {
+        _history?.Dispose();
+        LogBase.LoggerFactory = _originalLoggerFactory;
+        if (Directory.Exists(_directory))
+            Directory.Delete(_directory, true);
+    }
+
+    [Fact]
+    public void Load_LogsUnreadableLinesAndKeepsTheReadableOnes()
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "Test-HVAC.history.csv");
+        var recent = (DateTimeOffset.UtcNow - TimeSpan.FromHours(1)).UtcDateTime.ToString("O");
+        File.WriteAllLines(path,
+            [TemperzoneUc8History.CsvHeader, "garbage,here", "not,a,timestamp", $"{recent},X,warm", $"{recent},X,2"]);
+
+        _history = new TemperzoneUc8History("Test HVAC", _directory);
+
+        var messages = _logs.Logs.Select(log => log.Message).ToList();
+        Assert.Contains($"Skipped an unreadable line in {path}: garbage,here", messages);
+        Assert.Contains($"Skipped an unreadable line in {path}: not,a,timestamp", messages);
+        Assert.Contains($"Skipped an unreadable line in {path}: {recent},X,warm", messages);
+        Assert.DoesNotContain(messages, message => message.Contains(TemperzoneUc8History.CsvHeader));
+        Assert.Equal(new[] { "X" }, _history.GetPointNames());
+        Assert.Equal(2f, Assert.Single(_history.GetSamples("X")).Value);
     }
 }

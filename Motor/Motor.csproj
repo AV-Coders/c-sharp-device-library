@@ -18,4 +18,8 @@
     <ItemGroup>
     </ItemGroup>
 
+    <ItemGroup>
+      <InternalsVisibleTo Include="AVCoders.Motor.Tests" />
+    </ItemGroup>
+
 </Project>

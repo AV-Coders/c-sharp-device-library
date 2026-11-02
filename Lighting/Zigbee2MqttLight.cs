@@ -9,9 +9,21 @@ public class Zigbee2MqttLight : Light
     private readonly MqttClient _client;
     private const string TopicPrefix = "zigbee2mqtt";
     private const string BrightnessProperty = "brightness";
+    private const string LinkQualityProperty = "linkquality";
+    private const string UpdateProperty = "update";
+    private const string UpdateStateProperty = "state";
+    private const string LinkQualityLabel = "Link Quality";
+    private const string UpdateLabel = "Firmware Update";
+    private const string LinkQualityIssueKey = "linkquality-read";
+    private const string UpdateIssueKey = "update-read";
     private const double MinimumBrightness = 0;
     private const double MaximumBrightness = 254;
     private const double PercentScale = 100;
+    private const int MinimumLinkQuality = 0;
+    private const int MaximumLinkQuality = 255;
+    private const int MaxMissedReplies = 3;
+    private const string StateRequest = "{\"state\": \"\", \"brightness\": \"\"}";
+    private readonly Dictionary<string, int> _missedReplies = new();
 
     public Zigbee2MqttLight(string name, string topic, MqttClient client) : base(name)
     {
@@ -19,22 +31,91 @@ public class Zigbee2MqttLight : Light
         _client = client;
 
         _client.SubscribeToTopic($"{TopicPrefix}/{topic}", HandleValueChange);
+        _client.ConnectionStateHandlers += HandleConnectionState;
+        HandleConnectionState(_client.ConnectionState);
+    }
+
+    private void HandleConnectionState(ConnectionState connectionState)
+    {
+        if (connectionState != ConnectionState.Connected)
+            return;
+        _client.Send($"{TopicPrefix}/{_topic}/get", StateRequest);
     }
 
     private void HandleValueChange(string valueChange)
     {
-        try
+        using (PushProperties())
         {
-            using var document = JsonDocument.Parse(valueChange);
-            var data = document.RootElement;
-            CommunicationState = CommunicationState.Okay;
-            TryToGetBrightness(data);
-            TryToGetPowerState(data);
+            try
+            {
+                using var document = JsonDocument.Parse(valueChange);
+                var data = document.RootElement;
+                CommunicationState = CommunicationState.Okay;
+                TryToGetBrightness(data);
+                TryToGetPowerState(data);
+                ShowLinkQuality(data);
+                ShowUpdateState(data);
+            }
+            catch (JsonException e)
+            {
+                LogException(e, $"Unable to parse {valueChange}");
+            }
         }
-        catch (JsonException e)
+    }
+
+    private void ShowLinkQuality(JsonElement data)
+    {
+        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty(LinkQualityProperty, out JsonElement linkQuality))
+            return;
+        SetDetail(LinkQualityLabel, linkQuality.GetRawText());
+        if (IsEmpty(linkQuality) || linkQuality.ValueKind == JsonValueKind.Number && linkQuality.TryGetInt32(out int value)
+            && value is >= MinimumLinkQuality and <= MaximumLinkQuality)
+            ReadAnswered(LinkQualityIssueKey);
+        else
+            CountMissedReply(LinkQualityIssueKey,
+                $"a {LinkQualityProperty} from {MinimumLinkQuality} to {MaximumLinkQuality}", linkQuality.GetRawText());
+    }
+
+    private void ShowUpdateState(JsonElement data)
+    {
+        if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty(UpdateProperty, out JsonElement update))
+            return;
+        if (update.ValueKind == JsonValueKind.Object && update.TryGetProperty(UpdateStateProperty, out JsonElement state)
+            && state.ValueKind == JsonValueKind.String && state.GetString() is { Length: > 0 } text)
         {
-            LogException(e, $"Unable to parse {valueChange}");
+            SetDetail(UpdateLabel, text);
+            ReadAnswered(UpdateIssueKey);
+            return;
         }
+        SetDetail(UpdateLabel, update.GetRawText());
+        if (IsEmpty(update) || update.ValueKind == JsonValueKind.Object
+            && (!update.TryGetProperty(UpdateStateProperty, out JsonElement stateValue) || IsEmpty(stateValue)))
+            ReadAnswered(UpdateIssueKey);
+        else
+            CountMissedReply(UpdateIssueKey, $"an {UpdateProperty} with a text {UpdateStateProperty}", update.GetRawText());
+    }
+
+    private static bool IsEmpty(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.String && value.GetString()!.Length == 0;
+
+    private void CountMissedReply(string issueKey, string expected, string raw)
+    {
+        var missed = _missedReplies.GetValueOrDefault(issueKey) + 1;
+        _missedReplies[issueKey] = missed;
+        if (missed < MaxMissedReplies)
+        {
+            LogInformation("The light sent {Value} instead of {Expected} ({Missed} of {MaxMissedReplies})",
+                raw, expected, missed, MaxMissedReplies);
+            return;
+        }
+        RaiseOngoingIssue(issueKey,
+            $"The light sent {MaxMissedReplies} messages in a row without {expected}, the last was {raw}", IssueSeverity.Minor);
+    }
+
+    private void ReadAnswered(string issueKey)
+    {
+        _missedReplies.Remove(issueKey);
+        ResolveIssue(issueKey);
     }
 
     private void TryToGetPowerState(JsonElement data)

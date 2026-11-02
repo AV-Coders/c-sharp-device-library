@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 
 namespace AVCoders.Lighting.Tests;
@@ -9,7 +10,7 @@ public class CBusLightTest
 {
     private readonly CBusLight _light;
     private readonly CBusSerialInterface _interface;
-    private readonly ManualTimeProvider _time = new();
+    private readonly FakeTimeProvider _time = new();
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
     private readonly List<string> _sent = [];
 

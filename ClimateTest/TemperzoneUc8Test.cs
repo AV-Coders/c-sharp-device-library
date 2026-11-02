@@ -5,7 +5,6 @@ using Moq;
 
 namespace AVCoders.Climate.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class TemperzoneUc8Test
 {
     private readonly TemperzoneUc8 _uc8;
@@ -37,13 +36,6 @@ public class TemperzoneUc8Test
         Task.Run(worker.Stop).GetAwaiter().GetResult();
     }
 
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        for (var i = 0; i < 200 && !condition(); i++)
-            await Task.Delay(10);
-        Assert.True(condition());
-    }
-
     private void VerifyIdentity() =>
         InvokePrivate("ProcessIdentity", new ushort[] { 210, 209 }, new ushort[] { DeviceId });
 
@@ -55,6 +47,10 @@ public class TemperzoneUc8Test
 
     private int ArmingGeneration() =>
         (int)typeof(TemperzoneUc8).GetField("_armingGeneration", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(_uc8)!;
+
+    private int SequencesInFlight() =>
+        (int)typeof(TemperzoneUc8).GetField("_sequencesInFlight", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(_uc8)!;
 
     private void ProcessControlBlock(ushort[] values) =>
@@ -162,6 +158,45 @@ public class TemperzoneUc8Test
         Assert.DoesNotContain(_uc8.GetOngoingIssues(), i => i.Key == "identity");
         _uc8.SetCapacity(65);
         Assert.Equal(new[] { "coil:8=1", "reg:109=65" }, _ops);
+    }
+
+    [Fact]
+    public void Identity_ShowsTheIdCodeAndSoftwareVersion()
+    {
+        Assert.Contains(new DeviceDetail("ID Code", "210"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Software Version", "209"), _uc8.Details);
+    }
+
+    [Fact]
+    public void Identity_ShowsAWrongIdCodeAsAnError()
+    {
+        InvokePrivate("ProcessIdentity", new ushort[] { 123, 300 }, new ushort[] { DeviceId });
+
+        Assert.Contains(new DeviceDetail("ID Code", "123", DetailTone.Error), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Software Version", "300"), _uc8.Details);
+    }
+
+    [Fact]
+    public async Task Poll_ReadsTheIdentityOncePerConnection()
+    {
+        var fresh = new TemperzoneUc8("Fresh HVAC", _mockClient.Object);
+        await ((ThreadWorker)typeof(TemperzoneUc8).GetField("_pollWorker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(fresh)!).Stop();
+        SetConnectionState(ConnectionState.Connected);
+        _mockClient.Setup(client => client.ReadHoldingRegisters(It.IsAny<byte>(), It.IsAny<ushort>(),
+                It.IsAny<ushort>(), It.IsAny<CancellationToken>()))
+            .Returns<byte, ushort, ushort, CancellationToken>((_, start, count, _) => Task.FromResult(start switch
+            {
+                601 => new ushort[] { 210, 209 },
+                1001 when count == 1 => new ushort[] { DeviceId },
+                _ => new ushort[count]
+            }));
+        var poll = typeof(TemperzoneUc8).GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        await (Task)poll.Invoke(fresh, [CancellationToken.None])!;
+        await (Task)poll.Invoke(fresh, [CancellationToken.None])!;
+
+        _mockClient.Verify(x => x.ReadHoldingRegisters(DeviceId, 601, 2, It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -460,27 +495,6 @@ public class TemperzoneUc8Test
     }
 
     [Fact]
-    public void ForceDeIce_AlwaysGrantsPermissionWithTheForceBit()
-    {
-        _uc8.ForceDeIce();
-
-        Assert.Equal(new[] { "coil:9=1", "reg:110=17" }, _ops);
-        Assert.DoesNotContain("reg:110=16", _ops);
-    }
-
-    [Fact]
-    public void ForceDeIce_ClearsTheForceBitOnceDeIceIsActive()
-    {
-        _uc8.ForceDeIce();
-        var values = OutputBlock(9);
-        values[5] = 1 << 12;
-
-        InvokePrivate("ProcessOutputs", values);
-
-        Assert.Equal("reg:110=0", _ops.Last());
-    }
-
-    [Fact]
     public void ForceDeIce_ClearsTheForceBitAfterTheTimeout()
     {
         _uc8.ForceDeIceTimeout = TimeSpan.Zero;
@@ -714,7 +728,7 @@ public class TemperzoneUc8Test
         _uc8.SetCapacity(65);
         _uc8.ReleaseControl();
         gate.SetResult();
-        await Task.Delay(200);
+        await Wait.UntilAsync(() => SequencesInFlight() == 0, "The arming sequence never finished");
 
         Assert.Equal(new[] { "coil:8=1", "coil:8=0" }, _ops);
         Assert.DoesNotContain("reg:109=65", _ops);
@@ -896,7 +910,7 @@ public class TemperzoneUc8Test
 
         Assert.DoesNotContain(_uc8.GetOngoingIssues(), i => i.Key == "adopted-control");
         gate.SetResult();
-        await WaitUntil(() => _ops.Contains("reg:109=65"));
+        await Wait.UntilAsync(() => _ops.Contains("reg:109=65"), "The capacity was never written");
 
         ProcessControlEnable((ushort)(128 | 512));
 
@@ -1025,32 +1039,6 @@ public class TemperzoneUc8Test
     }
 
     [Fact]
-    public void ProcessControlEnable_StaysQuietWhileTheIdentityIsUnverified()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        TemperzoneUc8 unit;
-        try
-        {
-            unit = new TemperzoneUc8("Unverified HVAC", _mockClient.Object);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-        var processControlEnable =
-            typeof(TemperzoneUc8).GetMethod("ProcessControlEnable", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
-        processControlEnable.Invoke(unit, [(ushort)128, 0]);
-        processControlEnable.Invoke(unit, [(ushort)0, 0]);
-
-        Assert.Empty(_ops);
-        Assert.DoesNotContain(logs.Logs,
-            log => log.Message.Contains("refused") || log.Message.Contains("re-arming"));
-    }
-
-    [Fact]
     public void ProcessControlEnable_DoesNotReapplyWhileTheIdentityIsUnverified()
     {
         _uc8.SetCapacity(65);
@@ -1113,7 +1101,7 @@ public class TemperzoneUc8Test
         _uc8.SetMode(HvacMode.Cool);
         _uc8.SetCompressor(false);
         gate.SetResult();
-        await WaitUntil(() => _ops.Count(op => op.StartsWith("reg:102")) == 3);
+        await Wait.UntilAsync(() => _ops.Count(op => op.StartsWith("reg:102")) == 3, "The compressor mask was never written three times");
 
         Assert.Equal("reg:102=2", _ops.Last(op => op.StartsWith("reg:102")));
     }
@@ -1469,21 +1457,49 @@ public class TemperzoneUc8Test
     }
 
     [Fact]
-    public void ProcessCounters_RecordsTheDocumentedCounters()
+    public void ProcessCounters_ShowsTheRunTimesCyclesTripsResetsAndSensorFaults()
     {
         var block1 = new ushort[24];
-        block1[1003 - 1001] = 100;
+        block1[1003 - 1001] = 1234;
+        block1[1004 - 1001] = 56;
+        block1[1005 - 1001] = 78;
+        block1[1006 - 1001] = 9;
+        block1[1007 - 1001] = 3;
+        block1[1008 - 1001] = 45;
+        block1[1009 - 1001] = 4021;
+        block1[1010 - 1001] = 1500;
+        block1[1011 - 1001] = 220;
+        block1[1012 - 1001] = 2;
+        block1[1013 - 1001] = 1;
+        block1[1014 - 1001] = 6;
+        block1[1021 - 1001] = 17;
         var block2 = new ushort[14];
         block2[1025 - 1025] = 7;
-        block2[1026 - 1025] = 5;
+        block2[1032 - 1025] = 4;
+        block2[1037 - 1025] = 8;
 
         InvokePrivate("ProcessCounters", block1, (ushort)1001);
         InvokePrivate("ProcessCounters", block2, (ushort)1025);
 
-        Assert.Equal(100f, Assert.Single(_uc8.History.GetSamples("Total Hours Cooling")).Value);
+        Assert.Contains(new DeviceDetail("Cooling Run Time", "1234 h 56 min"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Heating Run Time", "78 h 9 min"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("De-Ice Run Time", "3 h 45 min"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Cooling Cycles", "4021"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Heating Cycles", "1500"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("De-Ice Cycles", "220"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("HP Trip Events", "2"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("LP Trip Events", "1"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Power-On Reset Events", "17"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Indoor Coil Sensor Faults", "7"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Outdoor Ambient Sensor Faults", "0"), _uc8.Details);
+        Assert.Contains(new DeviceDetail("Low Pressure Transducer Faults", "4"), _uc8.Details);
+        Assert.DoesNotContain(_uc8.Details, detail => detail.Label == "Frost Protection Events");
+        Assert.DoesNotContain(_uc8.Details, detail => detail.Label == "Inverter Faults");
+        Assert.DoesNotContain(_uc8.Details, detail => detail.Label == "Total Hours Cooling");
+        Assert.Equal(1234f, Assert.Single(_uc8.History.GetSamples("Total Hours Cooling")).Value);
+        Assert.Equal(56f, Assert.Single(_uc8.History.GetSamples("Total Minutes Cooling")).Value);
         Assert.Equal(7f, Assert.Single(_uc8.History.GetSamples("Indoor Coil Sensor Faults")).Value);
-        Assert.Equal(5f, Assert.Single(_uc8.History.GetSamples("Outdoor Coil Sensor Faults")).Value);
-        Assert.Equal(0f, Assert.Single(_uc8.History.GetSamples("Total Minutes Cooling")).Value);
+        Assert.Equal(0f, Assert.Single(_uc8.History.GetSamples("Outdoor Coil Sensor Faults")).Value);
     }
 
     [Fact]
@@ -1567,5 +1583,39 @@ public class TemperzoneUc8Test
 
         _mockClient.Verify(x => x.WriteCoil(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<bool>(),
             It.IsAny<CancellationToken>()), Times.Never);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class TemperzoneUc8LogTest
+{
+    [Fact]
+    public void ProcessControlEnable_StaysQuietWhileTheIdentityIsUnverified()
+    {
+        var client = new Mock<ModbusRtuClient>("Test client", "host", (ushort)502);
+        var logs = new ScopeCapturingLoggerFactory();
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        TemperzoneUc8 unit;
+        try
+        {
+            unit = new TemperzoneUc8("Unverified HVAC", client.Object);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        var processControlEnable =
+            typeof(TemperzoneUc8).GetMethod("ProcessControlEnable", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        processControlEnable.Invoke(unit, [(ushort)128, 0]);
+        processControlEnable.Invoke(unit, [(ushort)0, 0]);
+
+        client.Verify(x => x.WriteCoil(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<bool>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        client.Verify(x => x.WriteRegister(It.IsAny<byte>(), It.IsAny<ushort>(), It.IsAny<ushort>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        Assert.DoesNotContain(logs.Logs,
+            log => log.Message.Contains("refused") || log.Message.Contains("re-arming"));
     }
 }

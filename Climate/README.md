@@ -5,6 +5,8 @@ Climate and HVAC drivers for the AV Coders device library.
 ## Devices
 
 - Temperzone UC8 unit controller (`TemperzoneUc8`) over Modbus RTU: power, heat/cool/dry/fan-only modes, indoor fan speed, capacity, quiet/dry/economy modes, supply air targets, de-ice monitoring and control, lockout detection and reset, fault reporting via the issues API, and on-change history recording with configurable retention, disk persistence and CSV export (`TemperzoneUc8History`).
+  - Shows the UC8 ID code and software version (registers 601 and 602) as details, read on each identity check after connecting
+  - Shows the cooling, heating and de-ice run times, cycle counts, HP and LP trips, power-on resets and sensor fault counts (registers 1003-1032) as details, read every 100 polls
 
 ## Usage
 
