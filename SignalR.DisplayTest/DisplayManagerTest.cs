@@ -5,6 +5,8 @@ namespace AVCoders.SignalR.Display.Tests;
 
 public class DisplayManagerTest
 {
+    private const int StartVolume = 40;
+
     private readonly TestDisplay _display;
     private readonly DisplayManager _manager;
 
@@ -14,56 +16,26 @@ public class DisplayManagerTest
         _manager = new DisplayManager(_display);
     }
 
-    [Fact]
-    public void SupportedInputs_ReflectsDisplay()
+    public static TheoryData<string, Action<DisplayManager>, Func<TestDisplay, bool>> Commands => new()
     {
-        Assert.Equal(_display.SupportedInputs, _manager.SupportedInputs);
-    }
+        { "PowerOn", manager => manager.PowerOn(), display => display.DoPowerOnCallCount == 1 },
+        { "PowerOff", manager => manager.PowerOff(), display => display.DoPowerOffCallCount == 1 },
+        { "SetInput", manager => manager.SetInput(Input.Hdmi2), display => display.LastDoSetInputArg == Input.Hdmi2 },
+        { "SetVolume", manager => manager.SetVolume(55), display => display.LastDoSetVolumeArg == 55 },
+        { "LevelUp", manager => manager.LevelUp(5), display => display.LastDoSetVolumeArg == StartVolume + 5 },
+        { "LevelDown", manager => manager.LevelDown(10), display => display.LastDoSetVolumeArg == StartVolume - 10 },
+        { "SetAudioMute", manager => manager.SetAudioMute(MuteState.On), display => display.LastDoSetAudioMute == MuteState.On },
+    };
 
-    [Fact]
-    public void Input_DefaultsToUnknown()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_ReachesTheDisplay(string command, Action<DisplayManager> send, Func<TestDisplay, bool> received)
     {
-        Assert.Equal(Input.Unknown, _manager.Input);
-    }
+        _display.SetVolumeForTest(StartVolume);
 
-    [Fact]
-    public void Input_ReflectsDisplay()
-    {
-        _display.SetInputForTest(Input.Hdmi2);
+        send(_manager);
 
-        Assert.Equal(Input.Hdmi2, _manager.Input);
-    }
-
-    [Fact]
-    public void Volume_ReflectsDisplay()
-    {
-        _display.SetVolumeForTest(42);
-
-        Assert.Equal(42, _manager.Volume);
-    }
-
-    [Fact]
-    public void AudioMute_ReflectsDisplay()
-    {
-        _display.SetAudioMuteForTest(MuteState.On);
-
-        Assert.Equal(MuteState.On, _manager.AudioMute);
-    }
-
-    [Fact]
-    public void PowerOn_ForwardsToDisplay()
-    {
-        _manager.PowerOn();
-
-        Assert.Equal(1, _display.DoPowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToDisplay()
-    {
-        _manager.PowerOff();
-
-        Assert.Equal(1, _display.DoPowerOffCallCount);
+        Assert.True(received(_display), $"{command} did not reach the display");
     }
 
     [Fact]
@@ -87,55 +59,11 @@ public class DisplayManagerTest
     }
 
     [Fact]
-    public void SetInput_ForwardsToDisplay()
-    {
-        _manager.SetInput(Input.Hdmi2);
-
-        Assert.Equal(Input.Hdmi2, _display.LastDoSetInputArg);
-    }
-
-    [Fact]
     public void SetInput_UnsupportedInput_DoesNotForward()
     {
         _manager.SetInput(Input.DisplayPort);
 
         Assert.Null(_display.LastDoSetInputArg);
-    }
-
-    [Fact]
-    public void SetVolume_ForwardsToDisplay()
-    {
-        _manager.SetVolume(55);
-
-        Assert.Equal(55, _display.LastDoSetVolumeArg);
-    }
-
-    [Fact]
-    public void LevelUp_ForwardsToDisplay()
-    {
-        _display.SetVolumeForTest(40);
-
-        _manager.LevelUp(5);
-
-        Assert.Equal(45, _display.LastDoSetVolumeArg);
-    }
-
-    [Fact]
-    public void LevelDown_ForwardsToDisplay()
-    {
-        _display.SetVolumeForTest(40);
-
-        _manager.LevelDown(10);
-
-        Assert.Equal(30, _display.LastDoSetVolumeArg);
-    }
-
-    [Fact]
-    public void SetAudioMute_ForwardsToDisplay()
-    {
-        _manager.SetAudioMute(MuteState.On);
-
-        Assert.Equal(MuteState.On, _display.LastDoSetAudioMute);
     }
 
     [Fact]

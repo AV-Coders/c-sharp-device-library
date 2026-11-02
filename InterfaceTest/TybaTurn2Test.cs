@@ -11,11 +11,10 @@ namespace AvCoders.Interface.Tests;
 
 public sealed class FakeTyba : IDisposable
 {
-    private const int Port = 55555;
     private const string StreamResponse =
         "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n\r\n";
 
-    private readonly TcpListener _listener = new(IPAddress.Loopback, Port);
+    private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
     private readonly CancellationTokenSource _stop = new();
     private readonly ConcurrentBag<System.Net.Sockets.TcpClient> _clients = [];
     private volatile NetworkStream? _eventStream;
@@ -24,10 +23,11 @@ public sealed class FakeTyba : IDisposable
 
     public FakeTyba()
     {
-        _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _listener.Start();
         _ = Accept();
     }
+
+    public ushort Port => (ushort)((IPEndPoint)_listener.LocalEndpoint).Port;
 
     public ConcurrentQueue<string> Puts { get; } = new();
 
@@ -130,7 +130,7 @@ public sealed class TybaTurn2Test : IDisposable
         LogBase.LoggerFactory = _logs;
         try
         {
-            var tyba = new TybaTurn2(address, "Tyba");
+            var tyba = new TybaTurn2(address, "Tyba", _server.Port);
             tyba.CommunicationStateHandlers += state => _states.Enqueue(state);
             _tybas.Add(tyba);
             return tyba;
@@ -292,7 +292,7 @@ public sealed class TybaTurn2Test : IDisposable
         tyba.ShadeFeedback(9, 40);
 
         await Wait.UntilAsync(() => _states.Contains(CommunicationState.Error), "The rejected PUT was not reported");
-        Assert.Contains($"Response 404: Not Found from http://{Address}:55555/api/v1.0/control/channels/shade/9/1/state",
+        Assert.Contains($"Response 404: Not Found from http://{Address}:{_server.Port}/api/v1.0/control/channels/shade/9/1/state",
             Messages());
     }
 

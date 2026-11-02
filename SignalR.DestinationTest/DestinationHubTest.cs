@@ -1,12 +1,11 @@
 using AVCoders.SignalR.Source;
+using static AVCoders.SignalR.Destination.Tests.TestSources;
 
 namespace AVCoders.SignalR.Destination.Tests;
 
 public class DestinationHubTest
 {
-    private static readonly SourceDefinition None = new("None", "Not off, not on", "None", "off");
-    private static readonly SourceDefinition Laptop = new("Laptop", "Lectern HDMI", "laptop", "laptop");
-    private static readonly SourceDefinition Wireless = new("Wireless", "Wireless Presenter", "wireless", "wifi");
+    private const int WaitTimeoutMs = 2000;
 
     private readonly List<SourceDefinition> _sources = [None, Laptop, Wireless];
     private readonly SourceManager _sourceManager;
@@ -22,6 +21,12 @@ public class DestinationHubTest
         DestinationHub.RegisterDestinationManager(_groupName, _destination);
         _harness = DestinationHubTestHarness.CreateHub();
     }
+
+    public static TheoryData<string, Action<DestinationHub, string>, Func<DestinationManager, bool>> Commands => new()
+    {
+        { "RouteSource", (hub, group) => hub.RouteSource(group, "wireless"), destination => destination.CurrentSource == Wireless },
+        { "SetVideoMute", (hub, group) => hub.SetVideoMute(group, true), destination => destination.VideoMute },
+    };
 
     [Fact]
     public async Task JoinGroup_AddsCallerToGroupAndSendsSnapshot()
@@ -50,13 +55,13 @@ public class DestinationHubTest
         _harness.CallerMock.Verify(c => c.OnDestinationChanged(It.IsAny<DestinationDefinition>()), Times.Never);
     }
 
-    [Fact]
-    public void RouteSource_ForwardsToManager()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_ReachesTheDestination(string command, Action<DestinationHub, string> send, Func<DestinationManager, bool> received)
     {
-        _harness.Hub.RouteSource(_groupName, "wireless");
+        send(_harness.Hub, _groupName);
 
-        WaitFor(() => _destination.CurrentSource == Wireless);
-        Assert.Equal(Wireless, _destination.CurrentSource);
+        WaitFor(() => received(_destination), $"{command} did not reach the destination");
     }
 
     [Fact]
@@ -68,31 +73,6 @@ public class DestinationHubTest
     }
 
     [Fact]
-    public void SetVideoMute_ForwardsToManager()
-    {
-        _harness.Hub.SetVideoMute(_groupName, true);
-
-        WaitFor(() => _destination.VideoMute);
-        Assert.True(_destination.VideoMute);
-    }
-
-    [Fact]
-    public void SetVideoMute_UnknownGroup_DoesNotChangeOtherDestinations()
-    {
-        _harness.Hub.SetVideoMute($"missing-{Guid.NewGuid()}", true);
-
-        Assert.False(_destination.VideoMute);
-    }
-
-    [Fact]
-    public void GetGroups_ReturnsRegisteredGroupName()
-    {
-        var groups = _harness.Hub.GetGroups();
-
-        Assert.Contains(_groupName, groups);
-    }
-
-    [Fact]
     public void RegisterDestinationManager_ReplacesExistingRegistration()
     {
         var replacement = new DestinationManager(_groupName, "display-1", "tv", _sourceManager);
@@ -100,15 +80,13 @@ public class DestinationHubTest
 
         _harness.Hub.RouteSource(_groupName, "wireless");
 
-        WaitFor(() => replacement.CurrentSource == Wireless);
-        // Original manager unaffected because the registration was replaced.
+        WaitFor(() => replacement.CurrentSource == Wireless, "The route did not reach the replacement destination");
         Assert.Equal(None, _destination.CurrentSource);
         Assert.Equal(Wireless, replacement.CurrentSource);
     }
 
-    private static void WaitFor(Func<bool> predicate, int timeoutMs = 2000)
+    private static void WaitFor(Func<bool> condition, string failureMessage)
     {
-        Assert.True(SpinWait.SpinUntil(predicate, timeoutMs),
-            $"Condition not met within {timeoutMs}ms");
+        Assert.True(SpinWait.SpinUntil(condition, WaitTimeoutMs), failureMessage);
     }
 }

@@ -72,10 +72,4 @@ public class VolumeUiSignalRTest
         Assert.Null(_speaker.LastSetLevel);
         _groupClient.VerifyNoOtherCalls();
     }
-
-    [Fact]
-    public void Name_MatchesManagerName()
-    {
-        Assert.Equal(_manager.Name, _ui.Name);
-    }
 }

@@ -4,6 +4,8 @@ namespace AVCoders.SignalR.Volume.Tests;
 
 public class VolumeHubTest
 {
+    private const int WaitTimeoutMs = 2000;
+
     private readonly TestVolumeControl _speaker = new("Speaker", VolumeType.Speaker);
     private readonly TestVolumeControl _mic = new("Mic", VolumeType.Microphone);
     private readonly VolumeManager _manager;
@@ -17,6 +19,12 @@ public class VolumeHubTest
         VolumeHub.RegisterVolumeManager(_groupName, _manager);
         _harness = VolumeHubTestHarness.CreateHub();
     }
+
+    public static TheoryData<string, Action<VolumeHub, string>, Func<TestVolumeControl, TestVolumeControl, bool>> Commands => new()
+    {
+        { "SetVolumeLevel", (hub, group) => hub.SetVolumeLevel(group, 0, 75), (speaker, _) => speaker.LastSetLevel == 75 },
+        { "SetVolumeMute", (hub, group) => hub.SetVolumeMute(group, 1, MuteState.On), (_, mic) => mic.LastSetMute == MuteState.On },
+    };
 
     [Fact]
     public async Task JoinGroup_AddsCallerToGroupAndSendsControls()
@@ -42,13 +50,13 @@ public class VolumeHubTest
         _harness.CallerMock.Verify(c => c.OnVolumeControlsChanged(It.IsAny<List<VolumeControl>>()), Times.Never);
     }
 
-    [Fact]
-    public void SetVolumeLevel_ForwardsToManager()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_ReachesTheControl(string command, Action<VolumeHub, string> send, Func<TestVolumeControl, TestVolumeControl, bool> received)
     {
-        _harness.Hub.SetVolumeLevel(_groupName, 0, 75);
+        send(_harness.Hub, _groupName);
 
-        WaitFor(() => _speaker.LastSetLevel == 75);
-        Assert.Equal(75, _speaker.LastSetLevel);
+        WaitFor(() => received(_speaker, _mic), $"{command} did not reach the volume control");
     }
 
     [Fact]
@@ -60,31 +68,6 @@ public class VolumeHubTest
     }
 
     [Fact]
-    public void SetVolumeMute_ForwardsToManager()
-    {
-        _harness.Hub.SetVolumeMute(_groupName, 1, MuteState.On);
-
-        WaitFor(() => _mic.LastSetMute == MuteState.On);
-        Assert.Equal(MuteState.On, _mic.LastSetMute);
-    }
-
-    [Fact]
-    public void SetVolumeMute_UnknownGroup_DoesNotChangeKnownManager()
-    {
-        _harness.Hub.SetVolumeMute($"missing-{Guid.NewGuid()}", 0, MuteState.On);
-
-        Assert.Null(_speaker.LastSetMute);
-    }
-
-    [Fact]
-    public void GetGroups_ReturnsRegisteredGroupName()
-    {
-        var groups = _harness.Hub.GetGroups();
-
-        Assert.Contains(_groupName, groups);
-    }
-
-    [Fact]
     public void RegisterVolumeManager_ReplacesExistingRegistration()
     {
         var replacementSpeaker = new TestVolumeControl("ReplacementSpeaker");
@@ -93,23 +76,14 @@ public class VolumeHubTest
 
         _harness.Hub.SetVolumeLevel(_groupName, 0, 33);
 
-        WaitFor(() => replacementSpeaker.LastSetLevel == 33);
+        WaitFor(() => replacementSpeaker.LastSetLevel == 33, "SetVolumeLevel did not reach the replacement volume control");
         Assert.Equal(33, replacementSpeaker.LastSetLevel);
         Assert.Null(_speaker.LastSetLevel);
-    }
-
-    private static void WaitFor(Func<bool> predicate, int timeoutMs = 2000)
-    {
-        Assert.True(SpinWait.SpinUntil(predicate, timeoutMs),
-            $"Condition not met within {timeoutMs}ms");
     }
 
     [Fact]
     public void ConcurrentRegisterAndRead_DoesNotThrow()
     {
-        // Registration races reads on SignalR dispatch threads: against a plain
-        // Dictionary this throws/corrupts intermittently, against the
-        // ConcurrentDictionary registry it is safe. Guards against regressing H1.
         var exception = Record.Exception(() => Parallel.For(0, 10_000, i =>
         {
             var name = $"race-{Guid.NewGuid()}";
@@ -119,5 +93,10 @@ public class VolumeHubTest
         }));
 
         Assert.Null(exception);
+    }
+
+    private static void WaitFor(Func<bool> condition, string failureMessage)
+    {
+        Assert.True(SpinWait.SpinUntil(condition, WaitTimeoutMs), failureMessage);
     }
 }

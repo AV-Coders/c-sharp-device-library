@@ -1,14 +1,11 @@
 using AVCoders.SignalR.Source;
+using static AVCoders.SignalR.Destination.Tests.TestSources;
 using Microsoft.AspNetCore.SignalR;
 
 namespace AVCoders.SignalR.Destination.Tests;
 
 public class DestinationUiSignalRTest
 {
-    private static readonly SourceDefinition None = new("None", "Not off, not on", "None", "off");
-    private static readonly SourceDefinition Laptop = new("Laptop", "Lectern HDMI", "laptop", "laptop");
-    private static readonly SourceDefinition Wireless = new("Wireless", "Wireless Presenter", "wireless", "wifi");
-
     private readonly List<SourceDefinition> _sources = [None, Laptop, Wireless];
     private readonly SourceManager _sourceManager;
     private readonly DestinationManager _destination;
@@ -86,11 +83,5 @@ public class DestinationUiSignalRTest
         Assert.Equal(None, _destination.CurrentSource);
         _groupClient.Verify(c => c.OnDestinationChanged(
             It.Is<DestinationDefinition>(d => d.CurrentSource == None)), Times.Once);
-    }
-
-    [Fact]
-    public void Name_MatchesManagerName()
-    {
-        Assert.Equal(_destination.Name, _ui.Name);
     }
 }

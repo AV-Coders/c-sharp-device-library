@@ -4,10 +4,6 @@ using AVCoders.Core.Tests;
 
 namespace AVCoders.SignalR.Display.Tests;
 
-/// <summary>
-/// Concrete <see cref="AVCoders.Display.Display"/> used by the SignalR.Display tests so we can
-/// drive state changes from outside the class and observe command invocations.
-/// </summary>
 public class TestDisplay : AVCoders.Display.Display
 {
     public int DoPowerOnCallCount;

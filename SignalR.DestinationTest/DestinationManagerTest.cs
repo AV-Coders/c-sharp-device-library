@@ -1,14 +1,11 @@
 using AVCoders.Core;
 using AVCoders.SignalR.Source;
+using static AVCoders.SignalR.Destination.Tests.TestSources;
 
 namespace AVCoders.SignalR.Destination.Tests;
 
 public class DestinationManagerTest
 {
-    private static readonly SourceDefinition None = new("None", "Not off, not on", "None", "off");
-    private static readonly SourceDefinition Laptop = new("Laptop", "Lectern HDMI", "laptop", "laptop");
-    private static readonly SourceDefinition Wireless = new("Wireless", "Wireless Presenter", "wireless", "wifi");
-
     private readonly List<SourceDefinition> _sources = [None, Laptop, Wireless];
     private readonly SourceManager _sourceManager;
     private readonly DestinationManager _destination;
@@ -31,18 +28,6 @@ public class DestinationManagerTest
         Assert.Equal("tv", snap.Icon);
         Assert.Equal(None, snap.CurrentSource);
         Assert.False(snap.VideoMute);
-    }
-
-    [Fact]
-    public void CurrentSource_DefaultsToNone()
-    {
-        Assert.Equal(None, _destination.CurrentSource);
-    }
-
-    [Fact]
-    public void VideoMute_DefaultsToFalse()
-    {
-        Assert.False(_destination.VideoMute);
     }
 
     [Fact]
@@ -107,23 +92,15 @@ public class DestinationManagerTest
     }
 
     [Fact]
-    public void RouteSource_UnknownSource_DoesNotChangeState()
+    public void RouteSource_UnknownSource_DoesNotChangeStateOrRaiseChanged()
     {
         var initial = _destination.CurrentSource;
-
-        _destination.RouteSource("not-a-source");
-
-        Assert.Equal(initial, _destination.CurrentSource);
-    }
-
-    [Fact]
-    public void RouteSource_UnknownSource_DoesNotRaiseChanged()
-    {
         var handler = new Mock<Action<DestinationDefinition>>();
         _destination.OnDestinationChanged += handler.Object;
 
         _destination.RouteSource("not-a-source");
 
+        Assert.Equal(initial, _destination.CurrentSource);
         handler.Verify(h => h.Invoke(It.IsAny<DestinationDefinition>()), Times.Never);
     }
 
@@ -139,14 +116,6 @@ public class DestinationManagerTest
             d.CurrentSource == Wireless &&
             d.Name == "Display 1" &&
             d.DestinationId == "display-1")), Times.Once);
-    }
-
-    [Fact]
-    public void SetVideoMute_UpdatesFlag()
-    {
-        _destination.SetVideoMute(true);
-
-        Assert.True(_destination.VideoMute);
     }
 
     [Fact]

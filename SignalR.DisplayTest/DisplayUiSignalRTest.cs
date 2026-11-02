@@ -23,20 +23,19 @@ public class DisplayUiSignalRTest
         _ui = new DisplayUiSignalR(_manager, _hubContext.Object);
     }
 
-    [Fact]
-    public void PowerOn_ForwardsToDisplay()
+    public static TheoryData<string, Action<DisplayUiSignalR>, Func<TestDisplay, bool>> PowerCommands => new()
     {
-        _ui.PowerOn();
+        { "PowerOn", ui => ui.PowerOn(), display => display.DoPowerOnCallCount == 1 },
+        { "PowerOff", ui => ui.PowerOff(), display => display.DoPowerOffCallCount == 1 },
+    };
 
-        Assert.Equal(1, _display.DoPowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToDisplay()
+    [Theory]
+    [MemberData(nameof(PowerCommands))]
+    public void PowerCommand_ReachesTheDisplay(string command, Action<DisplayUiSignalR> send, Func<TestDisplay, bool> received)
     {
-        _ui.PowerOff();
+        send(_ui);
 
-        Assert.Equal(1, _display.DoPowerOffCallCount);
+        Assert.True(received(_display), $"{command} did not reach the display");
     }
 
     [Fact]

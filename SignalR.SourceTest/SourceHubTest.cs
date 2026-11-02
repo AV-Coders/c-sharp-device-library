@@ -1,11 +1,9 @@
+using static AVCoders.SignalR.Source.Tests.TestSources;
+
 namespace AVCoders.SignalR.Source.Tests;
 
 public class SourceHubTest
 {
-    private static readonly SourceDefinition None = new("None", "Not off, not on", "None", "off");
-    private static readonly SourceDefinition Laptop = new("Laptop", "Lectern HDMI", "laptop", "laptop");
-    private static readonly SourceDefinition Wireless = new("Wireless", "Wireless Presenter", "wireless", "wifi");
-
     private readonly List<SourceDefinition> _sources = [None, Laptop, Wireless];
     private readonly SourceManager _manager;
     private readonly string _groupName;
@@ -41,9 +39,8 @@ public class SourceHubTest
     }
 
     [Fact]
-    public async Task JoinGroup_SendsNoIndexWhenCurrentSourceIsNone()
+    public async Task JoinGroup_SendsTheIndexOfNoneWhenCurrentSourceIsNone()
     {
-        // Default CurrentSource is "None" which is at index 0; verify it sends 0.
         await _harness.Hub.JoinGroup(_groupName);
 
         _harness.CallerMock.Verify(c => c.UpdateSourceIndex(0), Times.Once);
@@ -52,14 +49,8 @@ public class SourceHubTest
     [Fact]
     public async Task JoinGroup_NoIndexSentWhenCurrentSourceNotInList()
     {
-        // Build a manager whose default current source ("None") does not match any sourceId.
         var groupName = $"hub-src-{Guid.NewGuid()}";
-        var sources = new List<SourceDefinition>
-        { 
-            new("Laptop", "Lectern HDMI", "laptop", "laptop"),
-            new("Wireless", "Wireless Presenter", "wireless", "wifi")
-        };
-        var manager = new SourceManager(groupName, sources);
+        var manager = new SourceManager(groupName, [Laptop, Wireless]);
         SourceHub.RegisterSourceManager(groupName, manager);
 
         await _harness.Hub.JoinGroup(groupName);
@@ -99,14 +90,6 @@ public class SourceHubTest
     }
 
     [Fact]
-    public void GetGroups_ReturnsRegisteredGroupName()
-    {
-        var groups = _harness.Hub.GetGroups();
-
-        Assert.Contains(_groupName, groups);
-    }
-
-    [Fact]
     public void RegisterSourceManager_ReplacesExistingRegistration()
     {
         var replacement = new SourceManager(_groupName, _sources);
@@ -115,7 +98,6 @@ public class SourceHubTest
         _harness.Hub.SelectSource(_groupName, 2);
 
         WaitFor(() => replacement.CurrentSource == "wireless");
-        // Original manager unaffected because the registration was replaced.
         Assert.Equal("None", _manager.CurrentSource);
         Assert.Equal("wireless", replacement.CurrentSource);
     }

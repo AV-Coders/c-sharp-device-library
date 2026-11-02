@@ -4,10 +4,6 @@ using AVCoders.MediaPlayer;
 
 namespace AVCoders.SignalR.SetTopBox.Tests;
 
-/// <summary>
-/// Concrete <see cref="AVCoders.MediaPlayer.MediaPlayer"/> implementing <see cref="ISetTopBox"/> so the
-/// SignalR.SetTopBox tests can drive state changes from outside the class and observe command invocations.
-/// </summary>
 public class TestSetTopBox : AVCoders.MediaPlayer.MediaPlayer, ISetTopBox
 {
     public static readonly RemoteButton[] DefaultSupportedButtons =
@@ -38,7 +34,6 @@ public class TestSetTopBox : AVCoders.MediaPlayer.MediaPlayer, ISetTopBox
     public void ToggleSubtitles() { }
 }
 
-/// <summary>A <see cref="AVCoders.MediaPlayer.MediaPlayer"/> that is not a set-top box, for the manager's guard test.</summary>
 public class TestPlainMediaPlayer : AVCoders.MediaPlayer.MediaPlayer
 {
     public TestPlainMediaPlayer(string name = "TestPlainMediaPlayer")

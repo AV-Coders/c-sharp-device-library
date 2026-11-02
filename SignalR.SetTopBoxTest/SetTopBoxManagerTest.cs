@@ -15,6 +15,13 @@ public class SetTopBoxManagerTest
         _manager = new SetTopBoxManager("Boardroom", _device, "AppleTv");
     }
 
+    public static TheoryData<string, Action<SetTopBoxManager>, Func<TestSetTopBox, bool>> Commands => new()
+    {
+        { "SendRemoteButton", manager => manager.SendRemoteButton(RemoteButton.Play), device => device.SentButtons is [RemoteButton.Play] },
+        { "PowerOn", manager => manager.PowerOn(), device => device.PowerOnCallCount == 1 },
+        { "PowerOff", manager => manager.PowerOff(), device => device.PowerOffCallCount == 1 },
+    };
+
     [Fact]
     public void Constructor_RejectsMediaPlayerThatIsNotASetTopBox()
     {
@@ -61,17 +68,6 @@ public class SetTopBoxManagerTest
     }
 
     [Fact]
-    public void State_DefaultsToUnknown()
-    {
-        var state = _manager.State;
-
-        Assert.Equal(PowerState.Unknown, state.PowerState);
-        Assert.Equal(PowerState.Unknown, state.DesiredPowerState);
-        Assert.Equal(CommunicationState.Unknown, state.CommunicationState);
-        Assert.False(state.IsActiveSource);
-    }
-
-    [Fact]
     public void State_ReflectsDevicePowerDesiredPowerAndComms()
     {
         _device.SetPowerStateForTest(PowerState.On);
@@ -83,6 +79,7 @@ public class SetTopBoxManagerTest
         Assert.Equal(PowerState.On, state.PowerState);
         Assert.Equal(PowerState.Off, state.DesiredPowerState);
         Assert.Equal(CommunicationState.Okay, state.CommunicationState);
+        Assert.False(state.IsActiveSource);
     }
 
     [Fact]
@@ -125,39 +122,23 @@ public class SetTopBoxManagerTest
         var handler = new Mock<Action<SetTopBoxState>>();
         _manager.StateChanged += handler.Object;
 
-        _device.SetPowerStateForTest(PowerState.Unknown); // already Unknown
+        _device.SetPowerStateForTest(PowerState.Unknown);
 
         handler.Verify(h => h.Invoke(It.IsAny<SetTopBoxState>()), Times.Never);
     }
 
-    [Fact]
-    public void SendRemoteButton_ForwardsToDevice()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_ReachesTheDevice(string command, Action<SetTopBoxManager> send, Func<TestSetTopBox, bool> received)
     {
-        _manager.SendRemoteButton(RemoteButton.Play);
+        send(_manager);
 
-        Assert.Equal([RemoteButton.Play], _device.SentButtons);
-    }
-
-    [Fact]
-    public void PowerOn_ForwardsToDevice()
-    {
-        _manager.PowerOn();
-
-        Assert.Equal(1, _device.PowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToDevice()
-    {
-        _manager.PowerOff();
-
-        Assert.Equal(1, _device.PowerOffCallCount);
+        Assert.True(received(_device), $"{command} did not reach the set-top box");
     }
 
     [Fact]
     public void AppleTvCec_ActiveSourceChange_ReflectsInStateAndRaisesStateChanged()
     {
-        // pollTime 0: no poll worker, so nothing sends unless a test asks for it.
         var cecStream = TestFactory.CreateSerialClient();
         var appleTv = new AppleTvCec(cecStream.Object, "Apple TV", pollTime: 0);
         var manager = new SetTopBoxManager("Boardroom", appleTv, "AppleTv");

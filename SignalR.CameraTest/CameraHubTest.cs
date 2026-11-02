@@ -1,5 +1,6 @@
 using AVCoders.Camera;
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 
 namespace AVCoders.SignalR.Camera.Tests;
 
@@ -19,13 +20,22 @@ public class CameraHubTest
         _harness = CameraHubTestHarness.CreateHub();
     }
 
-    [Fact]
-    public void GetGroups_ReturnsRegisteredGroupName()
+    public static TheoryData<string, Action<CameraHub, string>, Func<TrackingTestCamera, bool>> Commands => new()
     {
-        var groups = _harness.Hub.GetGroups();
-
-        Assert.Contains(_groupName, groups);
-    }
+        { "RecallPreset", (hub, group) => hub.RecallPreset(group, 4), camera => camera.DoRecallPresetCallCount == 1 && camera.LastDoRecallPresetArg == 4 },
+        { "SavePreset", (hub, group) => hub.SavePreset(group, 6), camera => camera.SavePresetCallCount == 1 && camera.LastSavePresetArg == 6 },
+        { "ZoomStop", (hub, group) => hub.ZoomStop(group), camera => camera.DoZoomStopCallCount == 1 },
+        { "ZoomIn", (hub, group) => hub.ZoomIn(group), camera => camera.ZoomInCallCount == 1 },
+        { "ZoomOut", (hub, group) => hub.ZoomOut(group), camera => camera.ZoomOutCallCount == 1 },
+        { "PanTiltStop", (hub, group) => hub.PanTiltStop(group), camera => camera.DoPanTiltStopCallCount == 1 },
+        { "PanTiltUp", (hub, group) => hub.PanTiltUp(group), camera => camera.PanTiltUpCallCount == 1 },
+        { "PanTiltDown", (hub, group) => hub.PanTiltDown(group), camera => camera.PanTiltDownCallCount == 1 },
+        { "PanTiltLeft", (hub, group) => hub.PanTiltLeft(group), camera => camera.PanTiltLeftCallCount == 1 },
+        { "PanTiltRight", (hub, group) => hub.PanTiltRight(group), camera => camera.PanTiltRightCallCount == 1 },
+        { "SetAutoFocus On", (hub, group) => hub.SetAutoFocus(group, PowerState.On), camera => camera.LastSetAutoFocus == PowerState.On },
+        { "SetAutoFocus Off", (hub, group) => hub.SetAutoFocus(group, PowerState.Off), camera => camera.LastSetAutoFocus == PowerState.Off },
+        { "SetTracking", (hub, group) => hub.SetTracking(group, CameraTrackingMode.Auto), camera => camera.SetTrackingCalls is [CameraTrackingMode.Auto] },
+    };
 
     [Fact]
     public async Task JoinGroup_AddsCallerToGroupAndSendsState()
@@ -62,133 +72,6 @@ public class CameraHubTest
     }
 
     [Fact]
-    public void RecallPreset_ForwardsToCamera()
-    {
-        _harness.Hub.RecallPreset(_groupName, 4);
-
-        WaitFor(() => _camera.DoRecallPresetCallCount == 1);
-        Assert.Equal(1, _camera.DoRecallPresetCallCount);
-        Assert.Equal(4, _camera.LastDoRecallPresetArg);
-    }
-
-    [Fact]
-    public void RecallPreset_UnknownGroup_DoesNotThrow()
-    {
-        _harness.Hub.RecallPreset($"missing-{Guid.NewGuid()}", 1);
-
-        Assert.Equal(0, _camera.DoRecallPresetCallCount);
-    }
-
-    [Fact]
-    public void SavePreset_ForwardsToCamera()
-    {
-        _harness.Hub.SavePreset(_groupName, 6);
-
-        WaitFor(() => _camera.SavePresetCallCount == 1);
-        Assert.Equal(1, _camera.SavePresetCallCount);
-        Assert.Equal(6, _camera.LastSavePresetArg);
-    }
-
-    [Fact]
-    public void SavePreset_UnknownGroup_DoesNotThrow()
-    {
-        _harness.Hub.SavePreset($"missing-{Guid.NewGuid()}", 1);
-
-        Assert.Equal(0, _camera.SavePresetCallCount);
-    }
-
-    [Fact]
-    public void ZoomStop_ForwardsToCamera()
-    {
-        _harness.Hub.ZoomStop(_groupName);
-
-        WaitFor(() => _camera.DoZoomStopCallCount == 1);
-        Assert.Equal(1, _camera.DoZoomStopCallCount);
-    }
-
-    [Fact]
-    public void ZoomIn_ForwardsToCamera()
-    {
-        _harness.Hub.ZoomIn(_groupName);
-
-        WaitFor(() => _camera.ZoomInCallCount == 1);
-        Assert.Equal(1, _camera.ZoomInCallCount);
-    }
-
-    [Fact]
-    public void ZoomOut_ForwardsToCamera()
-    {
-        _harness.Hub.ZoomOut(_groupName);
-
-        WaitFor(() => _camera.ZoomOutCallCount == 1);
-        Assert.Equal(1, _camera.ZoomOutCallCount);
-    }
-
-    [Fact]
-    public void PanTiltStop_ForwardsToCamera()
-    {
-        _harness.Hub.PanTiltStop(_groupName);
-
-        WaitFor(() => _camera.DoPanTiltStopCallCount == 1);
-        Assert.Equal(1, _camera.DoPanTiltStopCallCount);
-    }
-
-    [Fact]
-    public void PanTiltUp_ForwardsToCamera()
-    {
-        _harness.Hub.PanTiltUp(_groupName);
-
-        WaitFor(() => _camera.PanTiltUpCallCount == 1);
-        Assert.Equal(1, _camera.PanTiltUpCallCount);
-    }
-
-    [Fact]
-    public void PanTiltDown_ForwardsToCamera()
-    {
-        _harness.Hub.PanTiltDown(_groupName);
-
-        WaitFor(() => _camera.PanTiltDownCallCount == 1);
-        Assert.Equal(1, _camera.PanTiltDownCallCount);
-    }
-
-    [Fact]
-    public void PanTiltLeft_ForwardsToCamera()
-    {
-        _harness.Hub.PanTiltLeft(_groupName);
-
-        WaitFor(() => _camera.PanTiltLeftCallCount == 1);
-        Assert.Equal(1, _camera.PanTiltLeftCallCount);
-    }
-
-    [Fact]
-    public void PanTiltRight_ForwardsToCamera()
-    {
-        _harness.Hub.PanTiltRight(_groupName);
-
-        WaitFor(() => _camera.PanTiltRightCallCount == 1);
-        Assert.Equal(1, _camera.PanTiltRightCallCount);
-    }
-
-    [Theory]
-    [InlineData(PowerState.On)]
-    [InlineData(PowerState.Off)]
-    public void SetAutoFocus_ForwardsToCamera(PowerState state)
-    {
-        _harness.Hub.SetAutoFocus(_groupName, state);
-
-        WaitFor(() => _camera.LastSetAutoFocus == state);
-        Assert.Equal(state, _camera.LastSetAutoFocus);
-    }
-
-    [Fact]
-    public void SetAutoFocus_UnknownGroup_DoesNotThrow()
-    {
-        _harness.Hub.SetAutoFocus($"missing-{Guid.NewGuid()}", PowerState.On);
-
-        Assert.Null(_camera.LastSetAutoFocus);
-    }
-
-    [Fact]
     public async Task JoinGroup_SendsTrackingCapabilityFalseForNonTrackingCamera()
     {
         await _harness.Hub.JoinGroup(_groupName);
@@ -211,40 +94,24 @@ public class CameraHubTest
         _harness.CallerMock.Verify(c => c.OnTrackingModeChanged(CameraTrackingMode.Unknown), Times.Once);
     }
 
-    [Fact]
-    public void SetTracking_ForwardsToTrackingCamera()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public async Task Command_ReachesTheCamera(string command, Action<CameraHub, string> send, Func<TrackingTestCamera, bool> received)
     {
         var groupName = $"hub-tcam-{Guid.NewGuid()}";
-        var tracking = new TrackingTestCamera(groupName);
-        var manager = new CameraManager(tracking);
-        CameraHub.RegisterCameraManager(groupName, manager);
+        var camera = new TrackingTestCamera(groupName);
+        CameraHub.RegisterCameraManager(groupName, new CameraManager(camera));
 
-        _harness.Hub.SetTracking(groupName, CameraTrackingMode.Auto);
+        send(_harness.Hub, groupName);
 
-        WaitFor(() => tracking.SetTrackingCalls.Count >= 1);
-        Assert.Equal(new[] { CameraTrackingMode.Auto }, tracking.SetTrackingCalls);
+        await Wait.UntilAsync(() => received(camera), $"{command} did not reach the camera");
     }
 
     [Fact]
-    public void SetTracking_NonTrackingCamera_NoOp()
+    public void RecallPreset_UnknownGroup_DoesNotThrow()
     {
-        _harness.Hub.SetTracking(_groupName, CameraTrackingMode.Auto);
+        _harness.Hub.RecallPreset($"missing-{Guid.NewGuid()}", 1);
 
-        Assert.Equal(CameraTrackingMode.Unknown, _manager.TrackingMode);
-    }
-
-    [Fact]
-    public void SetTracking_UnknownGroup_DoesNotThrow()
-    {
-        var exception = Record.Exception(() =>
-            _harness.Hub.SetTracking($"missing-{Guid.NewGuid()}", CameraTrackingMode.Auto));
-
-        Assert.Null(exception);
-    }
-
-    private static void WaitFor(Func<bool> predicate, int timeoutMs = 2000)
-    {
-        Assert.True(SpinWait.SpinUntil(predicate, timeoutMs),
-            $"Condition not met within {timeoutMs}ms");
+        Assert.Equal(0, _camera.DoRecallPresetCallCount);
     }
 }

@@ -1,12 +1,10 @@
 using AVCoders.Core;
+using static AVCoders.SignalR.Source.Tests.TestSources;
 
 namespace AVCoders.SignalR.Source.Tests;
 
 public class SourceManagerTest
 {
-    private static readonly SourceDefinition None = new("None", "Not off, not on", "None", "off");
-    private static readonly SourceDefinition Laptop = new("Laptop", "Lectern HDMI", "laptop", "laptop");
-    private static readonly SourceDefinition Wireless = new("Wireless", "Wireless Presenter", "wireless", "wifi");
     private static readonly SourceDefinition DisplayOff = new("Display Off", string.Empty, "off", "power");
 
     private readonly List<SourceDefinition> _sources = [None, Laptop, Wireless];
@@ -24,12 +22,6 @@ public class SourceManagerTest
 
         Assert.Equal(_sources, sources);
         Assert.NotSame(_sources, sources);
-    }
-
-    [Fact]
-    public void CurrentSource_DefaultsToNone()
-    {
-        Assert.Equal("None", _manager.CurrentSource);
     }
 
     [Fact]

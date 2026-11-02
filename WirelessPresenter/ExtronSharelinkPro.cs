@@ -10,6 +10,8 @@ public class ExtronSharelinkPro : DeviceBase, IDisposable
     public static readonly ushort DefaultPort = 22023;
     public static readonly TimeSpan ConnectedUsersNotifyDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ConnectStepGap = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(20);
+    private readonly TimeProvider _timeProvider;
     private readonly CommunicationClient _client;
     private readonly ThreadWorker _pollWorker;
     private readonly ThreadWorker _connectedUserNotifier;
@@ -21,14 +23,20 @@ public class ExtronSharelinkPro : DeviceBase, IDisposable
     public readonly List<ExtronSharelinkUser> ConnectedUsers = [];
     public IntHandler? ConnectedUsersHandlers;
 
-    public ExtronSharelinkPro(CommunicationClient client, string name) 
+    public ExtronSharelinkPro(CommunicationClient client, string name)
+        : this(client, name, null)
+    {
+    }
+
+    internal ExtronSharelinkPro(CommunicationClient client, string name, TimeProvider? timeProvider)
         : base(name, client)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _client = client;
-        _connectedUserNotifier = new ThreadWorker(NotifyOfConnectedUsers, ConnectedUsersNotifyDelay, true);
+        _connectedUserNotifier = new ThreadWorker(NotifyOfConnectedUsers, ConnectedUsersNotifyDelay, true, _timeProvider);
         _client.ConnectionStateHandlers += HandleConnectionState;
         _client.ResponseHandlers += HandleResponse;
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
+        _pollWorker = new ThreadWorker(Poll, PollInterval, true, _timeProvider);
         _pollWorker.Restart();
         HandleConnectionState(_client.ConnectionState);
     }
@@ -118,11 +126,11 @@ public class ExtronSharelinkPro : DeviceBase, IDisposable
         try
         {
             WrapAndSendCommand("3CV");
-            await Task.Delay(ConnectStepGap, _disposeCancellation.Token);
+            await Task.Delay(ConnectStepGap, _timeProvider, _disposeCancellation.Token);
             WrapAndSendCommand("0ECHO");
-            await Task.Delay(ConnectStepGap, _disposeCancellation.Token);
+            await Task.Delay(ConnectStepGap, _timeProvider, _disposeCancellation.Token);
             WrapAndSendCommand("QSHAR");
-            await Task.Delay(ConnectStepGap, _disposeCancellation.Token);
+            await Task.Delay(ConnectStepGap, _timeProvider, _disposeCancellation.Token);
             WrapAndSendCommand("KSHAR");
         }
         catch (OperationCanceledException) when (_disposeCancellation.IsCancellationRequested)

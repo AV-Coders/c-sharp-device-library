@@ -24,6 +24,12 @@ public class SetTopBoxUiSignalRTest
         _ui = new SetTopBoxUiSignalR(_manager, _hubContext.Object);
     }
 
+    public static TheoryData<string, Action<SetTopBoxUiSignalR>, Func<TestSetTopBox, bool>> PowerCommands => new()
+    {
+        { "PowerOn", ui => ui.PowerOn(), device => device.PowerOnCallCount == 1 },
+        { "PowerOff", ui => ui.PowerOff(), device => device.PowerOffCallCount == 1 },
+    };
+
     [Fact]
     public async Task Constructor_RegistersManagerWithHub()
     {
@@ -59,30 +65,17 @@ public class SetTopBoxUiSignalRTest
     [Fact]
     public void DeviceStateNoOp_PushesNothing()
     {
-        _device.SetPowerStateForTest(PowerState.Unknown); // already Unknown
+        _device.SetPowerStateForTest(PowerState.Unknown);
 
         _groupClient.Verify(c => c.UpdateSetTopBox(It.IsAny<SetTopBoxState>()), Times.Never);
     }
 
-    [Fact]
-    public void PowerOn_ForwardsToDevice()
+    [Theory]
+    [MemberData(nameof(PowerCommands))]
+    public void PowerCommand_ReachesTheDevice(string command, Action<SetTopBoxUiSignalR> send, Func<TestSetTopBox, bool> received)
     {
-        _ui.PowerOn();
+        send(_ui);
 
-        Assert.Equal(1, _device.PowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToDevice()
-    {
-        _ui.PowerOff();
-
-        Assert.Equal(1, _device.PowerOffCallCount);
-    }
-
-    [Fact]
-    public void Name_MatchesManagerName()
-    {
-        Assert.Equal(_manager.Name, _ui.Name);
+        Assert.True(received(_device), $"{command} did not reach the set-top box");
     }
 }

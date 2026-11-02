@@ -23,20 +23,19 @@ public class CameraUiSignalRTest
         _ui = new CameraUiSignalR(_manager, _hubContext.Object);
     }
 
-    [Fact]
-    public void PowerOn_ForwardsToCamera()
+    public static TheoryData<string, Action<CameraUiSignalR>, Func<TestCamera, bool>> PowerCommands => new()
     {
-        _ui.PowerOn();
+        { "PowerOn", ui => ui.PowerOn(), camera => camera.PowerOnCallCount == 1 },
+        { "PowerOff", ui => ui.PowerOff(), camera => camera.PowerOffCallCount == 1 },
+    };
 
-        Assert.Equal(1, _camera.PowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToCamera()
+    [Theory]
+    [MemberData(nameof(PowerCommands))]
+    public void PowerCommand_ReachesTheCamera(string command, Action<CameraUiSignalR> send, Func<TestCamera, bool> received)
     {
-        _ui.PowerOff();
+        send(_ui);
 
-        Assert.Equal(1, _camera.PowerOffCallCount);
+        Assert.True(received(_camera), $"{command} did not reach the camera");
     }
 
     [Fact]
@@ -105,8 +104,6 @@ public class CameraUiSignalRTest
     [Fact]
     public async Task Constructor_RegistersManagerWithHub()
     {
-        // After construction, JoinGroup on the static hub should find this manager.
-        // We exercise that by joining via a CameraHub instance with mocked clients/groups.
         var hub = CameraHubTestHarness.CreateHub();
         await hub.JoinGroup(_manager.Name);
 

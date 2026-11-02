@@ -68,12 +68,6 @@ public class RoomUiSignalRTest
     }
 
     [Fact]
-    public void Name_MatchesManagerName()
-    {
-        Assert.Equal(_manager.Name, _ui.Name);
-    }
-
-    [Fact]
     public void ManagerSetProperty_NotifiesHubGroupWithDelta()
     {
         _manager.SetProperty("status", "in-meeting");

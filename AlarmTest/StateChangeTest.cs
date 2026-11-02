@@ -59,12 +59,7 @@ public class StateChangeTest
         Assert.Equal([ZoneState.Unsealed], states);
         Assert.Equal([true], isolated);
         Assert.Equal([true, false], tampered);
-    }
-
-    [Fact]
-    public void Zone_KeepsItsType()
-    {
-        Assert.Equal(ZoneType.Motion, new TestZone().Type);
+        Assert.Equal(ZoneType.Motion, zone.Type);
     }
 
     [Fact]

@@ -2,10 +2,6 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace AVCoders.SignalR.SetTopBox.Tests;
 
-/// <summary>
-/// Wraps a <see cref="SetTopBoxHub"/> with mocked SignalR plumbing so the hub
-/// methods can be invoked from tests.
-/// </summary>
 public class SetTopBoxHubTestHarness
 {
     public SetTopBoxHub Hub { get; }

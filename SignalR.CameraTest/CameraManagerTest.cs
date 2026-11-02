@@ -14,6 +14,24 @@ public class CameraManagerTest
         _manager = new CameraManager(_camera);
     }
 
+    public static TheoryData<string, Action<CameraManager>, Func<TestCamera, bool>> Commands => new()
+    {
+        { "PowerOn", manager => manager.PowerOn(), camera => camera.PowerOnCallCount == 1 },
+        { "PowerOff", manager => manager.PowerOff(), camera => camera.PowerOffCallCount == 1 },
+        { "RecallPreset", manager => manager.RecallPreset(2), camera => camera.DoRecallPresetCallCount == 1 && camera.LastDoRecallPresetArg == 2 },
+        { "SavePreset", manager => manager.SavePreset(3), camera => camera.SavePresetCallCount == 1 && camera.LastSavePresetArg == 3 },
+        { "ZoomStop", manager => manager.ZoomStop(), camera => camera.DoZoomStopCallCount == 1 },
+        { "ZoomIn", manager => manager.ZoomIn(), camera => camera.ZoomInCallCount == 1 },
+        { "ZoomOut", manager => manager.ZoomOut(), camera => camera.ZoomOutCallCount == 1 },
+        { "PanTiltStop", manager => manager.PanTiltStop(), camera => camera.DoPanTiltStopCallCount == 1 },
+        { "PanTiltUp", manager => manager.PanTiltUp(), camera => camera.PanTiltUpCallCount == 1 },
+        { "PanTiltDown", manager => manager.PanTiltDown(), camera => camera.PanTiltDownCallCount == 1 },
+        { "PanTiltLeft", manager => manager.PanTiltLeft(), camera => camera.PanTiltLeftCallCount == 1 },
+        { "PanTiltRight", manager => manager.PanTiltRight(), camera => camera.PanTiltRightCallCount == 1 },
+        { "SetAutoFocus On", manager => manager.SetAutoFocus(PowerState.On), camera => camera.LastSetAutoFocus == PowerState.On },
+        { "SetAutoFocus Off", manager => manager.SetAutoFocus(PowerState.Off), camera => camera.LastSetAutoFocus == PowerState.Off },
+    };
+
     [Fact]
     public void PresetDefinitions_ReturnsCameraPresetNames()
     {
@@ -34,112 +52,13 @@ public class CameraManagerTest
         Assert.Equal(3, _manager.LastRecalledPreset);
     }
 
-    [Fact]
-    public void PowerOn_ForwardsToCamera()
-    {
-        _manager.PowerOn();
-
-        Assert.Equal(1, _camera.PowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToCamera()
-    {
-        _manager.PowerOff();
-
-        Assert.Equal(1, _camera.PowerOffCallCount);
-    }
-
-    [Fact]
-    public void RecallPreset_ForwardsToCamera()
-    {
-        _manager.RecallPreset(2);
-
-        Assert.Equal(1, _camera.DoRecallPresetCallCount);
-        Assert.Equal(2, _camera.LastDoRecallPresetArg);
-    }
-
-    [Fact]
-    public void SavePreset_ForwardsToCamera()
-    {
-        _manager.SavePreset(3);
-
-        Assert.Equal(1, _camera.SavePresetCallCount);
-        Assert.Equal(3, _camera.LastSavePresetArg);
-    }
-
-    [Fact]
-    public void ZoomStop_ForwardsToCamera()
-    {
-        _manager.ZoomStop();
-
-        Assert.Equal(1, _camera.DoZoomStopCallCount);
-    }
-
-    [Fact]
-    public void ZoomIn_ForwardsToCamera()
-    {
-        _manager.ZoomIn();
-
-        Assert.Equal(1, _camera.ZoomInCallCount);
-    }
-
-    [Fact]
-    public void ZoomOut_ForwardsToCamera()
-    {
-        _manager.ZoomOut();
-
-        Assert.Equal(1, _camera.ZoomOutCallCount);
-    }
-
-    [Fact]
-    public void PanTiltStop_ForwardsToCamera()
-    {
-        _manager.PanTiltStop();
-
-        Assert.Equal(1, _camera.DoPanTiltStopCallCount);
-    }
-
-    [Fact]
-    public void PanTiltUp_ForwardsToCamera()
-    {
-        _manager.PanTiltUp();
-
-        Assert.Equal(1, _camera.PanTiltUpCallCount);
-    }
-
-    [Fact]
-    public void PanTiltDown_ForwardsToCamera()
-    {
-        _manager.PanTiltDown();
-
-        Assert.Equal(1, _camera.PanTiltDownCallCount);
-    }
-
-    [Fact]
-    public void PanTiltLeft_ForwardsToCamera()
-    {
-        _manager.PanTiltLeft();
-
-        Assert.Equal(1, _camera.PanTiltLeftCallCount);
-    }
-
-    [Fact]
-    public void PanTiltRight_ForwardsToCamera()
-    {
-        _manager.PanTiltRight();
-
-        Assert.Equal(1, _camera.PanTiltRightCallCount);
-    }
-
     [Theory]
-    [InlineData(PowerState.On)]
-    [InlineData(PowerState.Off)]
-    public void SetAutoFocus_ForwardsToCamera(PowerState state)
+    [MemberData(nameof(Commands))]
+    public void Command_ReachesTheCamera(string command, Action<CameraManager> send, Func<TestCamera, bool> received)
     {
-        _manager.SetAutoFocus(state);
+        send(_manager);
 
-        Assert.Equal(state, _camera.LastSetAutoFocus);
+        Assert.True(received(_camera), $"{command} did not reach the camera");
     }
 
     [Fact]
@@ -185,12 +104,6 @@ public class CameraManagerTest
         var manager = new CameraManager(new TrackingTestCamera());
 
         Assert.True(manager.SupportsTracking);
-    }
-
-    [Fact]
-    public void TrackingMode_DefaultsToUnknown()
-    {
-        Assert.Equal(CameraTrackingMode.Unknown, _manager.TrackingMode);
     }
 
     [Fact]

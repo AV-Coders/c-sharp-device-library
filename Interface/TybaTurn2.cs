@@ -30,6 +30,7 @@ public record TemperatureChangeData(
 
 public class TybaTurn2 : LogBase, IDisposable
 {
+    public const ushort DefaultPort = 55555;
     private const string Heartbeat = ": heartbeat";
     private const string EventField = "event:";
     private const string DataField = "data:";
@@ -53,7 +54,11 @@ public class TybaTurn2 : LogBase, IDisposable
     private readonly Guid _thisInstanceGuid = Guid.NewGuid();
 
 
-    public TybaTurn2(string ipAddress, string name) : base(name)
+    public TybaTurn2(string ipAddress, string name) : this(ipAddress, name, DefaultPort)
+    {
+    }
+
+    public TybaTurn2(string ipAddress, string name, ushort port) : base(name)
     {
         _ipAddress = ipAddress;
         _headers = new Dictionary<string, string>();
@@ -61,7 +66,7 @@ public class TybaTurn2 : LogBase, IDisposable
         _headers.Add("Content-Type", "application/json");
         _streamWorker = new ThreadWorker(ConnectToTyba, TimeSpan.FromSeconds(30));
 
-        if (!Uri.TryCreate($"http://{ipAddress}:55555/api/v1.0/", UriKind.Absolute, out var baseUri))
+        if (!Uri.TryCreate($"http://{ipAddress}:{port}/api/v1.0/", UriKind.Absolute, out var baseUri))
         {
             RaiseOngoingIssue(AddressIssueKey,
                 $"The address {ipAddress} does not make a valid URI, so the Tyba is not contacted",
@@ -101,8 +106,8 @@ public class TybaTurn2 : LogBase, IDisposable
             httpClient.DefaultRequestHeaders.ConnectionClose = false; // Keep the connection alive
             Uri requestUri = new Uri(_baseUri!, "control/events/channels");
 
-            var stream = await httpClient.GetStreamAsync(requestUri, token);
-            var streamReader = new StreamReader(stream);
+            using var stream = await httpClient.GetStreamAsync(requestUri, token);
+            using var streamReader = new StreamReader(stream);
 
             while (await streamReader.ReadLineAsync(token) is { } line)
             {

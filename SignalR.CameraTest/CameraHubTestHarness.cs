@@ -2,10 +2,6 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace AVCoders.SignalR.Camera.Tests;
 
-/// <summary>
-/// Wraps a <see cref="CameraHub"/> with mocked SignalR plumbing so the hub methods
-/// can be invoked from tests.
-/// </summary>
 public class CameraHubTestHarness
 {
     public CameraHub Hub { get; }

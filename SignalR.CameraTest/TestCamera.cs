@@ -4,10 +4,6 @@ using AVCoders.Core.Tests;
 
 namespace AVCoders.SignalR.Camera.Tests;
 
-/// <summary>
-/// Concrete <see cref="CameraBase"/> used by the SignalR.Camera tests so we can drive
-/// state changes (PowerState, LastRecalledPreset) from outside the class.
-/// </summary>
 public class TestCamera : CameraBase
 {
     public int PowerOnCallCount;

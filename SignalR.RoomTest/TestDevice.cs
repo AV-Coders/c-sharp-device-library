@@ -2,11 +2,6 @@ using AVCoders.Core;
 
 namespace AVCoders.SignalR.Room.Tests;
 
-/// <summary>
-/// Concrete <see cref="DeviceBase"/> used by the SignalR.Room tests. PowerOn and
-/// PowerOff write to the protected base setter so the PowerStateHandlers chain
-/// fires (which is how <see cref="RoomManager"/> observes per-device changes).
-/// </summary>
 public class TestDevice : DeviceBase
 {
     public int PowerOnCallCount;

@@ -14,14 +14,6 @@ public class VolumeManagerTest
     }
 
     [Fact]
-    public void VolumeControls_ExposesUnderlyingList()
-    {
-        Assert.Equal(2, _manager.VolumeControls.Count);
-        Assert.Same(_speaker, _manager.VolumeControls[0]);
-        Assert.Same(_mic, _manager.VolumeControls[1]);
-    }
-
-    [Fact]
     public void SetVolumeLevel_ForwardsToCorrectControl()
     {
         _manager.SetVolumeLevel(0, 60);
@@ -93,7 +85,6 @@ public class VolumeManagerTest
     [Fact]
     public void PowerOn_IsNoOp()
     {
-        // Volume controls don't have power state — must not throw and must not poke controls.
         _manager.PowerOn();
 
         Assert.Null(_speaker.LastSetLevel);

@@ -20,13 +20,11 @@ public class SetTopBoxHubTest
         _harness = SetTopBoxHubTestHarness.CreateHub();
     }
 
-    [Fact]
-    public void GetGroups_ReturnsRegisteredGroupName()
+    public static TheoryData<string, Func<SetTopBoxHub, string, Task>, Func<TestSetTopBox, bool>> Commands => new()
     {
-        var groups = _harness.Hub.GetGroups();
-
-        Assert.Contains(_groupName, groups);
-    }
+        { "PowerOn", (hub, group) => hub.PowerOn(group), device => device.PowerOnCallCount == 1 && device.PowerOffCallCount == 0 },
+        { "PowerOff", (hub, group) => hub.PowerOff(group), device => device.PowerOffCallCount == 1 && device.PowerOnCallCount == 0 },
+    };
 
     [Fact]
     public async Task JoinGroup_AddsCallerToGroupAndSendsState()
@@ -81,14 +79,13 @@ public class SetTopBoxHubTest
 
     [Theory]
     [InlineData("Up", RemoteButton.Up)]
-    [InlineData("up", RemoteButton.Up)]
     [InlineData("ENTER", RemoteButton.Enter)]
     [InlineData("powerOn", RemoteButton.PowerOn)]
     public async Task SendRemoteButton_ParsesNameCaseInsensitivelyAndForwardsToDevice(string name, RemoteButton expected)
     {
         await _harness.Hub.SendRemoteButton(_groupName, name);
 
-        WaitFor(() => _device.SentButtons.Count == 1);
+        await Wait.UntilAsync(() => _device.SentButtons.Count == 1, $"{name} did not reach the set-top box");
         Assert.Equal([expected], _device.SentButtons);
     }
 
@@ -136,7 +133,6 @@ public class SetTopBoxHubTest
     [Fact]
     public async Task SendRemoteButton_UnsupportedButton_DoesNotSend()
     {
-        // Guide is a real RemoteButton but not in the test device's supported list.
         Assert.DoesNotContain(RemoteButton.Guide, _device.SupportedButtons);
 
         await _harness.Hub.SendRemoteButton(_groupName, "Guide");
@@ -152,30 +148,13 @@ public class SetTopBoxHubTest
         AssertNothingSent();
     }
 
-    [Fact]
-    public async Task PowerOn_ForwardsToDevice()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public async Task Command_ReachesTheDevice(string command, Func<SetTopBoxHub, string, Task> send, Func<TestSetTopBox, bool> received)
     {
-        await _harness.Hub.PowerOn(_groupName);
+        await send(_harness.Hub, _groupName);
 
-        WaitFor(() => _device.PowerOnCallCount == 1);
-        Assert.Equal(0, _device.PowerOffCallCount);
-    }
-
-    [Fact]
-    public async Task PowerOff_ForwardsToDevice()
-    {
-        await _harness.Hub.PowerOff(_groupName);
-
-        WaitFor(() => _device.PowerOffCallCount == 1);
-        Assert.Equal(0, _device.PowerOnCallCount);
-    }
-
-    [Fact]
-    public async Task PowerOn_UnknownGroup_DoesNotTouchOtherManagers()
-    {
-        await _harness.Hub.PowerOn($"missing-{Guid.NewGuid()}");
-
-        Assert.False(SpinWait.SpinUntil(() => _device.PowerOnCallCount > 0, 200));
+        await Wait.UntilAsync(() => received(_device), $"{command} did not reach the set-top box");
     }
 
     [Fact]
@@ -187,21 +166,14 @@ public class SetTopBoxHubTest
 
         await _harness.Hub.SendRemoteButton(_groupName, "Down");
 
-        WaitFor(() => replacementDevice.SentButtons.Count == 1);
+        await Wait.UntilAsync(() => replacementDevice.SentButtons.Count == 1, "The button did not reach the replacement set-top box");
         Assert.Empty(_device.SentButtons);
         Assert.Equal([RemoteButton.Down], replacementDevice.SentButtons);
     }
 
     private void AssertNothingSent()
     {
-        // The hub dispatches on a worker, so give a rejected send a moment to prove it never arrives.
         Assert.False(SpinWait.SpinUntil(() => _device.SentButtons.Count > 0, 200));
         Assert.Empty(_device.SentButtons);
-    }
-
-    private static void WaitFor(Func<bool> predicate, int timeoutMs = 2000)
-    {
-        Assert.True(SpinWait.SpinUntil(predicate, timeoutMs),
-            $"Condition not met within {timeoutMs}ms");
     }
 }

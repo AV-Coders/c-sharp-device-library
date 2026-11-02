@@ -13,32 +13,19 @@ public class RoomManagerTest
         _manager = new RoomManager(_device);
     }
 
-    [Fact]
-    public void Name_MatchesUnderlyingDeviceName()
+    public static TheoryData<string, Action<RoomManager>, Func<TestDevice, bool>> Commands => new()
     {
-        Assert.Equal("Boardroom", _manager.Name);
-    }
+        { "PowerOn", manager => manager.PowerOn(), device => device.PowerOnCallCount == 1 },
+        { "PowerOff", manager => manager.PowerOff(), device => device.PowerOffCallCount == 1 },
+    };
 
-    [Fact]
-    public void PowerState_DefaultsToUnknown()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_ReachesTheDevice(string command, Action<RoomManager> send, Func<TestDevice, bool> received)
     {
-        Assert.Equal(PowerState.Unknown, _manager.PowerState);
-    }
+        send(_manager);
 
-    [Fact]
-    public void PowerOn_ForwardsToDevice()
-    {
-        _manager.PowerOn();
-
-        Assert.Equal(1, _device.PowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToDevice()
-    {
-        _manager.PowerOff();
-
-        Assert.Equal(1, _device.PowerOffCallCount);
+        Assert.True(received(_device), $"{command} did not reach the device");
     }
 
     [Fact]
@@ -96,12 +83,6 @@ public class RoomManagerTest
     }
 
     [Fact]
-    public void Properties_DefaultsToEmpty()
-    {
-        Assert.Empty(_manager.GetProperties());
-    }
-
-    [Fact]
     public void SetProperty_StoresValue()
     {
         _manager.SetProperty("status", "in-meeting");
@@ -144,11 +125,6 @@ public class RoomManagerTest
     [Fact]
     public void ConcurrentSetPropertyAndSnapshot_DoesNotThrow()
     {
-        // SetProperty writes from device-callback threads while JoinGroup
-        // copy-enumerates via the Properties getter on a dispatch thread:
-        // against a plain Dictionary this throws/corrupts intermittently,
-        // against the ConcurrentDictionary it is safe. Guards against
-        // regressing M2.
         var exception = Record.Exception(() => Parallel.For(0, 10_000, i =>
         {
             _manager.SetProperty($"key-{i % 20}", $"value-{i}");

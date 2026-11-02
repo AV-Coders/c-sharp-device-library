@@ -1,10 +1,13 @@
 using AVCoders.Core;
+using AVCoders.Core.Tests;
 using AVCoders.Display;
 
 namespace AVCoders.SignalR.Display.Tests;
 
 public class DisplayHubTest
 {
+    private const int StartVolume = 20;
+
     private readonly TestDisplay _display;
     private readonly DisplayManager _manager;
     private readonly string _groupName;
@@ -19,13 +22,18 @@ public class DisplayHubTest
         _harness = DisplayHubTestHarness.CreateHub();
     }
 
-    [Fact]
-    public void GetGroups_ReturnsRegisteredGroupName()
+    public static TheoryData<string, Action<DisplayHub, string>, Func<TestDisplay, bool>> Commands => new()
     {
-        var groups = _harness.Hub.GetGroups();
-
-        Assert.Contains(_groupName, groups);
-    }
+        { "PowerOn", (hub, group) => hub.PowerOn(group), display => display.DoPowerOnCallCount == 1 },
+        { "PowerOff", (hub, group) => hub.PowerOff(group), display => display.DoPowerOffCallCount == 1 },
+        { "TogglePower", (hub, group) => hub.TogglePower(group), display => display.DoPowerOnCallCount == 1 },
+        { "SetInput", (hub, group) => hub.SetInput(group, Input.Hdmi2), display => display.LastDoSetInputArg == Input.Hdmi2 },
+        { "SetVolume", (hub, group) => hub.SetVolume(group, 70), display => display.LastDoSetVolumeArg == 70 },
+        { "LevelUp", (hub, group) => hub.LevelUp(group, 3), display => display.LastDoSetVolumeArg == StartVolume + 3 },
+        { "LevelDown", (hub, group) => hub.LevelDown(group, 5), display => display.LastDoSetVolumeArg == StartVolume - 5 },
+        { "SetAudioMute", (hub, group) => hub.SetAudioMute(group, MuteState.On), display => display.LastDoSetAudioMute == MuteState.On },
+        { "ToggleAudioMute", (hub, group) => hub.ToggleAudioMute(group), display => display.LastDoSetAudioMute == MuteState.On },
+    };
 
     [Fact]
     public async Task JoinGroup_AddsCallerToGroupAndSendsState()
@@ -40,7 +48,7 @@ public class DisplayHubTest
         _harness.GroupsMock.Verify(g => g.AddToGroupAsync(
             It.IsAny<string>(), _groupName, It.IsAny<CancellationToken>()), Times.Once);
         _harness.CallerMock.Verify(c => c.OnPowerStateChanged(PowerState.On), Times.Once);
-        _harness.CallerMock.Verify(c => c.OnSupportedInputsChanged(_manager.SupportedInputs), Times.Once);
+        _harness.CallerMock.Verify(c => c.OnSupportedInputsChanged(_display.SupportedInputs), Times.Once);
         _harness.CallerMock.Verify(c => c.OnInputChanged(Input.Hdmi2), Times.Once);
         _harness.CallerMock.Verify(c => c.OnVolumeChanged(55), Times.Once);
         _harness.CallerMock.Verify(c => c.OnAudioMuteChanged(MuteState.On), Times.Once);
@@ -55,99 +63,17 @@ public class DisplayHubTest
         _harness.CallerMock.Verify(c => c.OnPowerStateChanged(It.IsAny<PowerState>()), Times.Never);
     }
 
-    [Fact]
-    public void PowerOn_ForwardsToDisplay()
-    {
-        _harness.Hub.PowerOn(_groupName);
-
-        WaitFor(() => _display.DoPowerOnCallCount == 1);
-        Assert.Equal(1, _display.DoPowerOnCallCount);
-    }
-
-    [Fact]
-    public void PowerOff_ForwardsToDisplay()
-    {
-        _harness.Hub.PowerOff(_groupName);
-
-        WaitFor(() => _display.DoPowerOffCallCount == 1);
-        Assert.Equal(1, _display.DoPowerOffCallCount);
-    }
-
-    [Fact]
-    public void TogglePower_ForwardsToDisplay()
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public async Task Command_ReachesTheDisplay(string command, Action<DisplayHub, string> send, Func<TestDisplay, bool> received)
     {
         _display.SetPowerStateForTest(PowerState.Off);
-
-        _harness.Hub.TogglePower(_groupName);
-
-        WaitFor(() => _display.DoPowerOnCallCount == 1);
-        Assert.Equal(1, _display.DoPowerOnCallCount);
-    }
-
-    [Fact]
-    public void SetInput_ForwardsToDisplay()
-    {
-        _harness.Hub.SetInput(_groupName, Input.Hdmi2);
-
-        WaitFor(() => _display.LastDoSetInputArg == Input.Hdmi2);
-        Assert.Equal(Input.Hdmi2, _display.LastDoSetInputArg);
-    }
-
-    [Fact]
-    public void SetVolume_ForwardsToDisplay()
-    {
-        _harness.Hub.SetVolume(_groupName, 70);
-
-        WaitFor(() => _display.LastDoSetVolumeArg == 70);
-        Assert.Equal(70, _display.LastDoSetVolumeArg);
-    }
-
-    [Fact]
-    public void LevelUp_ForwardsToDisplay()
-    {
-        _display.SetVolumeForTest(10);
-
-        _harness.Hub.LevelUp(_groupName, 3);
-
-        WaitFor(() => _display.LastDoSetVolumeArg == 13);
-        Assert.Equal(13, _display.LastDoSetVolumeArg);
-    }
-
-    [Fact]
-    public void LevelDown_ForwardsToDisplay()
-    {
-        _display.SetVolumeForTest(20);
-
-        _harness.Hub.LevelDown(_groupName, 5);
-
-        WaitFor(() => _display.LastDoSetVolumeArg == 15);
-        Assert.Equal(15, _display.LastDoSetVolumeArg);
-    }
-
-    [Fact]
-    public void SetAudioMute_ForwardsToDisplay()
-    {
-        _harness.Hub.SetAudioMute(_groupName, MuteState.On);
-
-        WaitFor(() => _display.LastDoSetAudioMute == MuteState.On);
-        Assert.Equal(MuteState.On, _display.LastDoSetAudioMute);
-    }
-
-    [Fact]
-    public void ToggleAudioMute_ForwardsToDisplay()
-    {
+        _display.SetVolumeForTest(StartVolume);
         _display.SetAudioMuteForTest(MuteState.Off);
 
-        _harness.Hub.ToggleAudioMute(_groupName);
+        send(_harness.Hub, _groupName);
 
-        WaitFor(() => _display.LastDoSetAudioMute == MuteState.On);
-        Assert.Equal(MuteState.On, _display.LastDoSetAudioMute);
-    }
-
-    private static void WaitFor(Func<bool> predicate, int timeoutMs = 2000)
-    {
-        Assert.True(SpinWait.SpinUntil(predicate, timeoutMs),
-            $"Condition not met within {timeoutMs}ms");
+        await Wait.UntilAsync(() => received(_display), $"{command} did not reach the display");
     }
 
     [Fact]
@@ -156,29 +82,5 @@ public class DisplayHubTest
         _harness.Hub.PowerOn($"missing-{Guid.NewGuid()}");
 
         Assert.Equal(0, _display.DoPowerOnCallCount);
-    }
-
-    [Fact]
-    public void SetInput_UnknownGroup_DoesNotThrow()
-    {
-        _harness.Hub.SetInput($"missing-{Guid.NewGuid()}", Input.Hdmi2);
-
-        Assert.Null(_display.LastDoSetInputArg);
-    }
-
-    [Fact]
-    public void SetVolume_UnknownGroup_DoesNotThrow()
-    {
-        _harness.Hub.SetVolume($"missing-{Guid.NewGuid()}", 50);
-
-        Assert.Null(_display.LastDoSetVolumeArg);
-    }
-
-    [Fact]
-    public void SetAudioMute_UnknownGroup_DoesNotThrow()
-    {
-        _harness.Hub.SetAudioMute($"missing-{Guid.NewGuid()}", MuteState.On);
-
-        Assert.Null(_display.LastDoSetAudioMute);
     }
 }

@@ -2,10 +2,6 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace AVCoders.SignalR.Display.Tests;
 
-/// <summary>
-/// Wraps a <see cref="DisplayHub"/> with mocked SignalR plumbing so the hub methods
-/// can be invoked from tests.
-/// </summary>
 public class DisplayHubTestHarness
 {
     public DisplayHub Hub { get; }

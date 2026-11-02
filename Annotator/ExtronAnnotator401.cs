@@ -18,6 +18,8 @@ public class ExtronAnnotator401 : AnnotatorBase
     public static readonly ushort DefaultPort = 22023;
     private static readonly TimeSpan ConnectStepGap = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan OutputStepGap = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(20);
+    private readonly TimeProvider _timeProvider;
     private readonly ThreadWorker _pollWorker;
     private readonly object _spacedSendsLock = new();
     private Task _spacedSends = Task.CompletedTask;
@@ -45,12 +47,18 @@ public class ExtronAnnotator401 : AnnotatorBase
         ToolCodes.ToDictionary(kvp => kvp.Value, kvp => kvp.Key);
 
     public ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs = Annotator401Outputs.All, Annotator401Outputs cursorOutputs = Annotator401Outputs.All)
+        : this(client, name, fileprefix, annotationOutputs, cursorOutputs, null)
+    {
+    }
+
+    internal ExtronAnnotator401(CommunicationClient client, string name, string fileprefix, Annotator401Outputs annotationOutputs, Annotator401Outputs cursorOutputs, TimeProvider? timeProvider)
         : base(name, client)
     {
         _fileprefix = fileprefix;
         _annotationOutputs = annotationOutputs;
         _cursorOutputs = cursorOutputs;
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(20), true);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _pollWorker = new ThreadWorker(Poll, PollInterval, true, _timeProvider);
         _pollWorker.Restart();
         CommunicationClient.ConnectionStateHandlers += HandleConnectionState;
         CommunicationClient.ResponseHandlers += HandleResponse;
@@ -106,11 +114,11 @@ public class ExtronAnnotator401 : AnnotatorBase
         try
         {
             WrapAndSendCommand("3CV");
-            await Task.Delay(ConnectStepGap);
+            await Task.Delay(ConnectStepGap, _timeProvider);
             WrapAndSendCommand("ASHW");
-            await Task.Delay(ConnectStepGap);
+            await Task.Delay(ConnectStepGap, _timeProvider);
             WrapAndSendCommand($"P{_fileprefix}CFMT");
-            await Task.Delay(ConnectStepGap);
+            await Task.Delay(ConnectStepGap, _timeProvider);
             QueryTool();
         }
         catch (Exception e)
@@ -152,7 +160,7 @@ public class ExtronAnnotator401 : AnnotatorBase
             foreach (var (command, spacingAfter) in commands)
             {
                 WrapAndSendCommand(command);
-                await Task.Delay(spacingAfter);
+                await Task.Delay(spacingAfter, _timeProvider);
             }
         }
         catch (Exception e)

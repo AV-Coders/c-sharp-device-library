@@ -2,10 +2,6 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace AVCoders.SignalR.Room.Tests;
 
-/// <summary>
-/// Wraps a <see cref="RoomHub"/> with mocked SignalR plumbing so the hub
-/// methods can be invoked from tests.
-/// </summary>
 public class RoomHubTestHarness
 {
     public RoomHub Hub { get; }

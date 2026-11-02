@@ -14,4 +14,8 @@
       <ProjectReference Include="..\Core\Core.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <InternalsVisibleTo Include="AVCoders.Annotator.Tests" />
+    </ItemGroup>
+
 </Project>
