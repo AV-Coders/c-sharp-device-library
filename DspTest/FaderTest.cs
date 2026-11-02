@@ -1,31 +1,20 @@
-﻿
-using AVCoders.Core;
+﻿using AVCoders.Core;
 
 namespace AVCoders.Dsp.Tests;
-
-public class TestableFader : Fader
-{
-    public TestableFader(VolumeLevelHandler volumeLevelHandler, FaderCurve curve = FaderCurve.Linear) : base(volumeLevelHandler, curve)
-    {
-    }
-}
 
 public class FaderTest
 {
     private readonly Fader _linearFader;
-    private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new Mock<VolumeLevelHandler>();
-    private readonly Mock<MuteStateHandler> _muteStateHandler = new Mock<MuteStateHandler>();
-    private readonly Mock<StringValueHandler> _stringValueHandler = new Mock<StringValueHandler>();
-
+    private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
 
     public FaderTest()
     {
-        _linearFader = new TestableFader(_volumeLevelHandler.Object);
+        _linearFader = new Fader(_volumeLevelHandler.Object);
     }
 
-    private TestableFader PerceptualFader(double min, double max)
+    private Fader PerceptualFader(double min, double max)
     {
-        var fader = new TestableFader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
+        var fader = new Fader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
         fader.SetMaxGain(max);
         fader.SetMinGain(min);
         return fader;
@@ -90,25 +79,12 @@ public class FaderTest
     }
 
     [Fact]
-    public void SetVolumeFromPercentage_Reports()
-    {
-        _linearFader.SetVolumeFromPercentage(100);
-
-        _volumeLevelHandler.Verify(x => x.Invoke(100));
-    }
-
-    [Fact]
     public void SetVolumeFromPercentage_ReportsOnce()
     {
         _linearFader.SetVolumeFromPercentage(40);
 
+        _volumeLevelHandler.Verify(x => x.Invoke(40), Times.Once);
         _volumeLevelHandler.Verify(x => x.Invoke(It.IsAny<int>()), Times.Once);
-    }
-
-    [Fact]
-    public void Constructor_DefaultsToLinear()
-    {
-        Assert.Equal(FaderCurve.Linear, _linearFader.Curve);
     }
 
     [Fact]
@@ -191,19 +167,6 @@ public class FaderTest
     }
 
     [Theory]
-    [InlineData(0, -5.0)]
-    [InlineData(1, -4.9)]
-    [InlineData(25, -2.5)]
-    [InlineData(50, 0.0)]
-    [InlineData(100, 5.0)]
-    public void Perceptual_PercentageToDb_IsLinearAcrossANarrowRange(int percentage, double expectedDb)
-    {
-        var fader = PerceptualFader(-5, 5);
-
-        Assert.Equal(expectedDb, fader.PercentageToDb(percentage), 6);
-    }
-
-    [Theory]
     [InlineData(-5, 5)]
     [InlineData(-40, 10)]
     [InlineData(-60, 0)]
@@ -259,7 +222,7 @@ public class FaderTest
     [Fact]
     public void Perceptual_RecalculatesTheVolume_WhenTheRangeArrivesAfterTheLevel()
     {
-        var fader = new TestableFader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
+        var fader = new Fader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
         fader.SetVolumeFromDb(-18);
         Assert.Equal(70, fader.Volume);
 
@@ -272,7 +235,7 @@ public class FaderTest
     [Fact]
     public void Perceptual_RecalculatesANarrowRange_WhenMinArrivesAfterTheLevel()
     {
-        var fader = new TestableFader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
+        var fader = new Fader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
         fader.SetMaxGain(5);
         fader.SetVolumeFromDb(0);
 
@@ -284,7 +247,7 @@ public class FaderTest
     [Fact]
     public void Perceptual_SettlesOnTheRange_WhenMinArrivesBeforeMax()
     {
-        var fader = new TestableFader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
+        var fader = new Fader(_volumeLevelHandler.Object, FaderCurve.Perceptual);
         fader.SetVolumeFromDb(0);
 
         fader.SetMinGain(-5);

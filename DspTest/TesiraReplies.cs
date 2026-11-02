@@ -21,4 +21,8 @@ public static class TesiraReplies
     public const string UnsupportedSessionAttribute = "-ERR 'detailedAliases' is not supported by TextSession::Attributes";
 
     public const string AttributeNotSupported = "-ERR ATTRIBUTE_NOT_SUPPORTED";
+
+    public const string AlreadySubscribed = "-ERR ALREADY_SUBSCRIBED";
+
+    public const string Ok = "+OK";
 }

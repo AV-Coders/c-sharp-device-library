@@ -6,15 +6,23 @@ public delegate void StringValueHandler(string value);
 
 public abstract class Dsp : DeviceBase
 {
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(1);
 
     protected readonly ThreadWorker PollWorker;
+    private protected readonly TimeProvider TimeProvider;
 
-    protected Dsp(string name, CommunicationClient client, int pollIntervalInMilliseconds) : base(name, client)
+    protected Dsp(string name, CommunicationClient client, int pollIntervalInMilliseconds)
+        : this(name, client, pollIntervalInMilliseconds, null)
     {
-        PollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollIntervalInMilliseconds), true);
+    }
+
+    internal Dsp(string name, CommunicationClient client, int pollIntervalInMilliseconds, TimeProvider? timeProvider) : base(name, client)
+    {
+        TimeProvider = timeProvider ?? TimeProvider.System;
+        PollWorker = new ThreadWorker(Poll, TimeSpan.FromMilliseconds(pollIntervalInMilliseconds), true, TimeProvider);
         Task.Run(async () =>
         {
-            await Task.Delay(1000);
+            await Task.Delay(StartupDelay, TimeProvider);
             PollWorker.Restart();
         });
     }

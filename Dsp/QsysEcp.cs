@@ -120,10 +120,10 @@ public class QsysEcp : Dsp
     public const string CoreManagerIssueKey = "core-manager";
 
     private const int EscalateAfterRepeats = 3;
-    private const int ChangeGroupSetupStepMs = 500;
+    private static readonly TimeSpan ChangeGroupSetupStep = TimeSpan.FromMilliseconds(500);
     private const uint ChangeGroupPollPeriodMs = 100;
     private const uint MeterPollPeriodMs = 1000;
-    private const int ControlGetGapMs = 100;
+    private static readonly TimeSpan ControlGetGap = TimeSpan.FromMilliseconds(100);
     private const int MaxControlStateAttempts = 3;
     private const int MeterNameToken = 1;
     private const string StatusRequest = "sg\n";
@@ -152,6 +152,7 @@ public class QsysEcp : Dsp
     private const string FirmwareLabel = "Firmware";
     private const string SerialLabel = "Serial";
     private const string HardwareIdLabel = "Hardware ID";
+    private static readonly string[] CoreManagerLabels = [FirmwareLabel, SerialLabel, HardwareIdLabel];
 
     private const string CoreInfoPath = "/api/v0/cores/self";
     private const string LogonPath = "/api/v0/logon";
@@ -186,7 +187,11 @@ public class QsysEcp : Dsp
 
     private readonly Dictionary<MuteState, string> _muteStateDictionary;
 
+    private enum CoreManagerToken { None, FromLogon, Accepted }
+
     private int _unansweredStatusRequests;
+    private int _blankControlNames;
+    private CoreManagerToken _coreManagerToken = CoreManagerToken.None;
     private string? _designId;
     private bool _changeGroupsBuiltThisPoll;
     private bool _changeGroupsRefused;
@@ -195,7 +200,13 @@ public class QsysEcp : Dsp
 
     public QsysEcp(TcpClient tcpClient, string name = "Qsys", int pollIntervalInMilliseconds = DefaultPollIntervalInMilliseconds,
         RestComms? coreManager = null, string? coreManagerUsername = null, string coreManagerPassword = "")
-        : base(name, tcpClient, pollIntervalInMilliseconds)
+        : this(tcpClient, name, pollIntervalInMilliseconds, coreManager, coreManagerUsername, coreManagerPassword, null)
+    {
+    }
+
+    internal QsysEcp(TcpClient tcpClient, string name, int pollIntervalInMilliseconds,
+        RestComms? coreManager, string? coreManagerUsername, string coreManagerPassword, TimeProvider? timeProvider)
+        : base(name, tcpClient, pollIntervalInMilliseconds, timeProvider)
     {
         _tcpClient = tcpClient;
         _coreManager = coreManager;
@@ -208,7 +219,7 @@ public class QsysEcp : Dsp
 
         string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]*)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
         _responseParser = new Regex(responsePattern, RegexOptions.None, TimeSpan.FromMilliseconds(30));
-        _badIdParser = new Regex("bad_id\\s\"([^\"]+)\"", RegexOptions.None, TimeSpan.FromMilliseconds(30));
+        _badIdParser = new Regex("bad_id\\s\"([^\"]*)\"", RegexOptions.None, TimeSpan.FromMilliseconds(30));
 
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -338,7 +349,20 @@ public class QsysEcp : Dsp
         }
 
         string controlName = badId.Groups[1].Value;
-        RaiseOngoingIssue($"{BadControlIssuePrefix}{controlName}", $"Invalid named control {controlName}: {line}");
+        ShowBadControl(controlName, $"{BadControlIssuePrefix}{controlName}", $"Invalid named control {controlName}: {line}");
+    }
+
+    private void ShowBlankControlName(string controlName, string controlType)
+    {
+        int order = Interlocked.Increment(ref _blankControlNames);
+        using (PushProperties("ShowBlankControlName"))
+            ShowBadControl(controlName, $"{BadControlIssuePrefix}\"{controlName}\" {controlType} {order}",
+                $"The {controlType} control name \"{controlName}\" is blank, so it is not sent to the Core (blank control {order})");
+    }
+
+    private void ShowBadControl(string controlName, string issueKey, string message)
+    {
+        RaiseOngoingIssue(issueKey, message);
         bool added;
         lock (_controlsLock)
             added = _missingControls.Add(controlName);
@@ -350,12 +374,15 @@ public class QsysEcp : Dsp
     {
         string missingControls;
         lock (_controlsLock)
-            missingControls = string.Join(", ", _missingControls.Order());
+            missingControls = string.Join(", ", _missingControls.Order().Select(ShownControlName));
         if (missingControls.Length == 0)
             RemoveDetail(MissingControlsLabel);
         else
             SetDetail(MissingControlsLabel, missingControls, DetailTone.Warning);
     }
+
+    private static string ShownControlName(string controlName) =>
+        string.IsNullOrWhiteSpace(controlName) ? $"\"{controlName}\"" : controlName;
 
     private void HandleBadChangeGroup(string line)
     {
@@ -479,8 +506,12 @@ public class QsysEcp : Dsp
         if (_coreManager == null)
             return;
 
-        _coreManager.RemoveDefaultHeader(AuthorizationHeader);
         _coreManager.AddDefaultHeader(AcceptHeader, JsonContentType);
+        if (_coreManagerUsername != null && _coreManagerToken == CoreManagerToken.None)
+        {
+            LogOnToCoreManager();
+            return;
+        }
         _ = _coreManager.Get(CoreInfoUri);
     }
 
@@ -509,6 +540,12 @@ public class QsysEcp : Dsp
             return;
         }
 
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            ShowCoreManagerNotSupported(DescribeReply(response, body));
+            return;
+        }
+
         if (!response.IsSuccessStatusCode)
         {
             RaiseOngoingIssue(CoreManagerIssueKey,
@@ -523,22 +560,24 @@ public class QsysEcp : Dsp
             return;
         }
 
+        if (_coreManagerToken == CoreManagerToken.FromLogon)
+            _coreManagerToken = CoreManagerToken.Accepted;
         ResolveIssue(CoreManagerIssueKey);
         ShowFirmware(reply, body);
         ShowSerial(reply, body);
         ShowHardwareId(reply, body);
     }
 
+    private void ShowCoreManagerNotSupported(string reply)
+    {
+        LogInformation("Core Manager does not support the firmware and serial number read: {Reply}", reply);
+        foreach (var label in CoreManagerLabels)
+            SetDetail(label, $"Not supported: {reply}", DetailTone.Normal);
+        ResolveIssue(CoreManagerIssueKey);
+    }
+
     private void HandleCoreInfoUnauthorised(HttpResponseMessage response, string body)
     {
-        if (response.RequestMessage!.Headers.Contains(AuthorizationHeader))
-        {
-            RaiseOngoingIssue(CoreManagerIssueKey,
-                $"Core Manager refused the token from the logon as {_coreManagerUsername}: {DescribeReply(response, body)}",
-                IssueSeverity.Minor);
-            return;
-        }
-
         if (_coreManagerUsername == null)
         {
             RaiseOngoingIssue(CoreManagerIssueKey,
@@ -547,14 +586,26 @@ public class QsysEcp : Dsp
             return;
         }
 
+        if (_coreManagerToken != CoreManagerToken.Accepted)
+        {
+            RaiseOngoingIssue(CoreManagerIssueKey,
+                $"Core Manager refused the token from the logon as {_coreManagerUsername}: {DescribeReply(response, body)}",
+                IssueSeverity.Minor);
+            return;
+        }
+
+        LogInformation("Core Manager refused the token it accepted before, logging on again as {Username}: {Reply}",
+            _coreManagerUsername, DescribeReply(response, body));
         LogOnToCoreManager();
     }
 
     private void LogOnToCoreManager()
     {
         LogInformation("Logging on to Core Manager as {Username}", _coreManagerUsername);
+        _coreManagerToken = CoreManagerToken.None;
+        _coreManager!.RemoveDefaultHeader(AuthorizationHeader);
         var credentials = JsonSerializer.Serialize(new { username = _coreManagerUsername, password = _coreManagerPassword });
-        _ = _coreManager!.Post(LogonUri, credentials, JsonContentType);
+        _ = _coreManager.Post(LogonUri, credentials, JsonContentType);
     }
 
     private void HandleLogon(HttpResponseMessage response)
@@ -577,6 +628,7 @@ public class QsysEcp : Dsp
         }
 
         _coreManager!.AddDefaultHeader(AuthorizationHeader, $"Bearer {token.GetString()}");
+        _coreManagerToken = CoreManagerToken.FromLogon;
         _ = _coreManager.Get(CoreInfoUri);
     }
 
@@ -654,28 +706,37 @@ public class QsysEcp : Dsp
     {
         _changeGroupsBuiltThisPoll = true;
         _changeGroupsRefused = false;
-        new Thread(_ =>
+        _ = Task.Run(SetUpChangeGroups);
+    }
+
+    private async Task SetUpChangeGroups()
+    {
+        try
         {
             CreateEmptyChangeGroup(ChangeGroupGains);
             CreateEmptyChangeGroup(ChangeGroupMutes);
             CreateEmptyChangeGroup(ChangeGroupStrings);
             CreateEmptyChangeGroup(ChangeGroupMeters);
-            Thread.Sleep(ChangeGroupSetupStepMs);
+            await Task.Delay(ChangeGroupSetupStep, TimeProvider);
 
             AddControlsToChangeGroup(ChangeGroupGains, ControlNames(_gains));
-            Thread.Sleep(ChangeGroupSetupStepMs);
+            await Task.Delay(ChangeGroupSetupStep, TimeProvider);
             AddControlsToChangeGroup(ChangeGroupMutes, ControlNames(_mutes));
-            Thread.Sleep(ChangeGroupSetupStepMs);
+            await Task.Delay(ChangeGroupSetupStep, TimeProvider);
             AddControlsToChangeGroup(ChangeGroupStrings, ControlNames(_strings));
-            Thread.Sleep(ChangeGroupSetupStepMs);
+            await Task.Delay(ChangeGroupSetupStep, TimeProvider);
             AddControlsToChangeGroup(ChangeGroupMeters, ControlNames(_meters));
-            Thread.Sleep(ChangeGroupSetupStepMs);
+            await Task.Delay(ChangeGroupSetupStep, TimeProvider);
 
             ScheduleChangeGroupPoll(ChangeGroupGains);
             ScheduleChangeGroupPoll(ChangeGroupMutes);
             ScheduleChangeGroupPoll(ChangeGroupStrings);
             ScheduleChangeGroupPoll(ChangeGroupMeters, MeterPollPeriodMs);
-        }).Start();
+        }
+        catch (Exception e)
+        {
+            LogException(e, "Building the change groups failed");
+        }
     }
 
     private void CreateEmptyChangeGroup(int changeGroupId)
@@ -734,10 +795,10 @@ public class QsysEcp : Dsp
 
     public void GetAllControlStates()
     {
-        new Thread(_ => GetAllControlStatesWithRetries()).Start();
+        _ = Task.Run(GetAllControlStatesWithRetries);
     }
 
-    private void GetAllControlStatesWithRetries()
+    private async Task GetAllControlStatesWithRetries()
     {
         using (PushProperties("GetAllControlStates"))
         {
@@ -745,7 +806,7 @@ public class QsysEcp : Dsp
             {
                 try
                 {
-                    GetEachControlState();
+                    await GetEachControlState();
                     return;
                 }
                 catch (Exception e)
@@ -757,12 +818,12 @@ public class QsysEcp : Dsp
                     LogError("Gave up getting the control states after {Attempts} attempts", attempt);
                     return;
                 }
-                Thread.Sleep(ControlStatesRetryDelay);
+                await Task.Delay(ControlStatesRetryDelay, TimeProvider);
             }
         }
     }
 
-    private void GetEachControlState()
+    private async Task GetEachControlState()
     {
         List<string> controlNames;
         lock (_controlsLock)
@@ -771,7 +832,7 @@ public class QsysEcp : Dsp
         foreach (string controlName in controlNames)
         {
             GetControl(controlName);
-            Thread.Sleep(ControlGetGapMs);
+            await Task.Delay(ControlGetGap, TimeProvider);
         }
     }
 
@@ -794,6 +855,12 @@ public class QsysEcp : Dsp
 
     public override void AddControl(VolumeLevelHandler volumeLevelHandler, string levelName)
     {
+        if (string.IsNullOrWhiteSpace(levelName))
+        {
+            ShowBlankControlName(levelName, "level");
+            return;
+        }
+
         QscGain? gain;
         lock (_controlsLock)
         {
@@ -815,6 +882,12 @@ public class QsysEcp : Dsp
 
     public override void AddControl(MuteStateHandler muteStateHandler, string muteName)
     {
+        if (string.IsNullOrWhiteSpace(muteName))
+        {
+            ShowBlankControlName(muteName, "mute");
+            return;
+        }
+
         QscMute? mute;
         lock (_controlsLock)
         {
@@ -836,6 +909,12 @@ public class QsysEcp : Dsp
 
     public override void AddControl(StringValueHandler stringValueHandler, string controlName)
     {
+        if (string.IsNullOrWhiteSpace(controlName))
+        {
+            ShowBlankControlName(controlName, "string");
+            return;
+        }
+
         QscInt? block;
         lock (_controlsLock)
         {
@@ -857,6 +936,12 @@ public class QsysEcp : Dsp
 
     public void AddMonitor(VolumeLevelHandler volumeLevelHandler, string levelName)
     {
+        if (string.IsNullOrWhiteSpace(levelName))
+        {
+            ShowBlankControlName(levelName, "meter");
+            return;
+        }
+
         QscGain? meter;
         lock (_controlsLock)
         {
@@ -882,6 +967,12 @@ public class QsysEcp : Dsp
 
     public override void SetLevel(string gainName, int percentage)
     {
+        if (string.IsNullOrWhiteSpace(gainName))
+        {
+            using (PushProperties("SetLevel"))
+                LogWarning("Not setting the blank level control name \"{ControlName}\" to {Percentage}", gainName, percentage);
+            return;
+        }
         CommunicationClient.Send($"csp \"{gainName}\" {Math.Round((double)percentage / 100, 2)}\n");
     }
 
@@ -923,6 +1014,12 @@ public class QsysEcp : Dsp
 
     public override void SetAudioMute(string muteName, MuteState state)
     {
+        if (string.IsNullOrWhiteSpace(muteName))
+        {
+            using (PushProperties("SetAudioMute"))
+                LogWarning("Not setting the blank mute control name \"{ControlName}\" to {State}", muteName, state);
+            return;
+        }
         CommunicationClient.Send($"css \"{muteName}\" {_muteStateDictionary[state]}\n");
     }
 
@@ -961,6 +1058,12 @@ public class QsysEcp : Dsp
 
     public override void SetValue(string stringName, string value)
     {
+        if (string.IsNullOrWhiteSpace(stringName))
+        {
+            using (PushProperties("SetValue"))
+                LogWarning("Not setting the blank string control name \"{ControlName}\" to {Value}", stringName, value);
+            return;
+        }
         CommunicationClient.Send($"css \"{stringName}\" {value}\n");
     }
 

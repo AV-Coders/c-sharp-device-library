@@ -69,8 +69,90 @@ public class CiscoRoomOs : Conference
     private const int ValueTokens = 4;
     private const int ItemValueTokens = 5;
     private const int PathValueTokens = 6;
+    private const int MaxMissedReplies = 3;
+    private const string StatusMarker = "*s ";
+    private const string ResultMarker = "*r ";
+    private const string ResultIdMarker = "** resultId:";
+    private const string ReplyEndMarker = "** end";
+    private const string PhonebookResultMarker = "*r PhonebookSearchResult";
+    private const string RejectedMarker = "(status=Error)";
+    private const string GhostMarker = "(ghost=True):";
+    private const string ReplySeparator = " | ";
+    private const string EmptyString = "\"\"";
+    private const string ProductIdRead = "product-id";
+    private const string SoftwareVersionRead = "software-version";
+    private const string SoftwareDisplayNameRead = "software-display-name";
+    private const string SerialNumberRead = "serial-number";
+    private const string UptimeRead = "uptime";
+    private const string MacAddressRead = "mac-address";
+    private const string EthernetSpeedRead = "ethernet-speed";
+    private const string IpAddressRead = "ip-address";
+    private const string SubnetMaskRead = "subnet-mask";
+    private const string GatewayRead = "gateway";
+    private const string TemperatureRead = "temperature";
+    private const string DiagnosticsRead = "diagnostics";
+    private const string SipRegistrationRead = "sip-registration";
+    private const string WebexRead = "webex";
+    private const string PeripheralsRead = "peripherals";
+    private const string ProductIdPath = "SystemUnit ProductId";
+    private const string SoftwareVersionPath = "SystemUnit Software Version";
+    private const string SoftwareDisplayNamePath = "SystemUnit Software DisplayName";
+    private const string SerialNumberPath = "SystemUnit Hardware Module SerialNumber";
+    private const string UptimePath = "SystemUnit Uptime";
+    private const string MacAddressPath = "Network 1 Ethernet MacAddress";
+    private const string EthernetSpeedPath = "Network 1 Ethernet Speed";
+    private const string IpAddressPath = "Network 1 IPv4 Address";
+    private const string SubnetMaskPath = "Network 1 IPv4 SubnetMask";
+    private const string GatewayPath = "Network 1 IPv4 Gateway";
+    private const string TemperaturePath = "SystemUnit Hardware Monitoring Temperature Status";
+    private const string WebexStatusPath = "Webex Status";
+    private const string ModelLabel = "Model";
+    private const string FirmwareLabel = "Firmware";
+    private const string SoftwareLabel = "Software";
+    private const string SerialLabel = "Serial";
+    private const string UptimeLabel = "Uptime";
+    private const string MacAddressLabel = "MAC Address";
+    private const string EthernetSpeedLabel = "Ethernet Speed";
+    private const string IpAddressLabel = "IP Address";
+    private const string SubnetMaskLabel = "Subnet Mask";
+    private const string GatewayLabel = "Gateway";
+    private const string TemperatureLabel = "Temperature";
+    private const string WebexLabel = "Webex";
+    private const string InfoDiagnosticsLabel = "Diagnostics (info)";
+    private const string DiagnosticsLabel = "Diagnostics";
+    private const string SipRegistrationLabel = "SIP Registration";
+    private const string PeripheralsLabel = "Peripherals";
+    private const string InfoLevel = "Info";
+    private const string SipRegistrationLabelPrefix = "SIP Registration ";
+    private const string PeripheralLabelPrefix = "Peripheral ";
+    private const string TemperatureIssueKey = "temperature";
+    private const string WebexIssueKey = "webex";
+    private const string SipRegistrationIssuePrefix = "sip-registration:";
+    private const string DiagnosticIssuePrefix = "diagnostic:";
+    private const string PeripheralIssuePrefix = "peripheral:";
+    private const string ControlSystemType = nameof(PeripheralType.ControlSystem);
     private static readonly char[] LineSeparators = ['\r', '\n'];
     private static readonly string[] FeedbackMarkers = ["*s ", "*r ", "*c ", "*e "];
+    private static readonly Dictionary<string, (string Path, string Label)> StatusReads = new()
+    {
+      [ProductIdRead] = (ProductIdPath, ModelLabel),
+      [SoftwareVersionRead] = (SoftwareVersionPath, FirmwareLabel),
+      [SoftwareDisplayNameRead] = (SoftwareDisplayNamePath, SoftwareLabel),
+      [SerialNumberRead] = (SerialNumberPath, SerialLabel),
+      [UptimeRead] = (UptimePath, UptimeLabel),
+      [MacAddressRead] = (MacAddressPath, MacAddressLabel),
+      [EthernetSpeedRead] = (EthernetSpeedPath, EthernetSpeedLabel),
+      [IpAddressRead] = (IpAddressPath, IpAddressLabel),
+      [SubnetMaskRead] = (SubnetMaskPath, SubnetMaskLabel),
+      [GatewayRead] = (GatewayPath, GatewayLabel),
+      [TemperatureRead] = (TemperaturePath, TemperatureLabel),
+      [DiagnosticsRead] = ("Diagnostics", DiagnosticsLabel),
+      [SipRegistrationRead] = ("SIP Registration", SipRegistrationLabel),
+      [WebexRead] = (WebexStatusPath, WebexLabel),
+      [PeripheralsRead] = ("Peripherals ConnectedDevice", PeripheralsLabel)
+    };
+    private static readonly Dictionary<string, string> ReadsByPath =
+      StatusReads.ToDictionary(status => status.Value.Path, status => status.Key);
     private static readonly CallStatus[] CallStatusPriority =
     [
       CallStatus.Ringing,
@@ -85,6 +167,12 @@ public class CiscoRoomOs : Conference
     private readonly CiscoRoomOsDeviceInfo _deviceInfo;
     private readonly string _moduleIdentifier;
     private readonly PeripheralType _peripheralType;
+    private readonly List<string> _replyLines = [];
+    private readonly Dictionary<string, DiagnosticsMessage> _diagnostics = new();
+    private readonly Dictionary<string, SipRegistration> _sipRegistrations = new();
+    private readonly Dictionary<string, ConnectedDevice> _connectedDevices = new();
+    private bool _uptimeRejected;
+    private int _missedUptimeReplies;
     private bool _forceDoNotDisturb = true;
     private PowerState _doNotDisturbState = PowerState.Unknown;
     private PowerState _desiredDoNotDisturbState = PowerState.Unknown;
@@ -148,14 +236,26 @@ public class CiscoRoomOs : Conference
           SendCommand("xFeedback register /Status/Audio/VolumeMute");
           SendCommand("xFeedback register /Status/Audio/Microphones/Mute");
           SendCommand("xFeedback Register Configuration/Conference/AutoAnswer/Mode");
+          SendCommand("xFeedback register /Status/SystemUnit/Hardware/Monitoring/Temperature/Status");
+          SendCommand("xFeedback register /Status/Diagnostics");
+          SendCommand("xFeedback register /Status/SIP/Registration");
+          SendCommand("xFeedback register /Status/Webex/Status");
+          SendCommand("xFeedback register /Status/Peripherals/ConnectedDevice");
           SendCommand("xStatus Standby");
           SendCommand("xStatus Conference DoNotDisturb");
           SendCommand("xStatus Call");
           SendCommand("xStatus Audio Volume");
           SendCommand("xStatus Audio VolumeMute");
           SendCommand("xStatus Audio Microphones Mute");
-          SendCommand("xStatus SIP Registration URI");
           SendCommand("xConfiguration Conference AutoAnswer Mode");
+          _replyLines.Clear();
+          _diagnostics.Clear();
+          _connectedDevices.Clear();
+          _sipRegistrations.Clear();
+          _uptimeRejected = false;
+          _missedUptimeReplies = 0;
+          foreach (var read in StatusReads.Keys)
+            SendRead(read);
         }
         catch (Exception e)
         {
@@ -179,6 +279,8 @@ public class CiscoRoomOs : Conference
         CommunicationState = CommunicationState.Error;
       }
     }
+
+    private void SendRead(string read) => SendCommand($"xStatus {StatusReads[read].Path} | resultId=\"{read}\"");
 
     private Task SendHeartbeat()
     {
@@ -213,7 +315,12 @@ public class CiscoRoomOs : Conference
 
     protected override void DoPowerOn() => SendCommand("xCommand Standby Deactivate");
 
-    protected override Task Poll(CancellationToken token) => SendHeartbeat();
+    protected override Task Poll(CancellationToken token)
+    {
+      if (!_uptimeRejected)
+        SendRead(UptimeRead);
+      return SendHeartbeat();
+    }
 
     public override void HangUp(Call? call)
     {
@@ -252,10 +359,23 @@ public class CiscoRoomOs : Conference
 
     private void ProcessResponse(string response)
     {
+      if (response.StartsWith(PhonebookResultMarker, StringComparison.Ordinal))
+        return;
       using (PushProperties("ProcessResponse"))
       {
+        if (response.StartsWith(ResultIdMarker))
+        {
+          HandleTaggedReply(response);
+          return;
+        }
+        if (response.StartsWith(ReplyEndMarker))
+        {
+          _replyLines.Clear();
+          return;
+        }
         if (!FeedbackMarkers.Any(marker => response.StartsWith(marker)))
           return;
+        _replyLines.Add(response);
 
         var responses = response.Split(' ');
         try
@@ -305,6 +425,18 @@ public class CiscoRoomOs : Conference
             case "SIP" when responses.Length >= PathValueTokens && responses[2] == "Registration" && responses[4] == "URI:":
               Uri = responses[5].Trim().Trim('"');
               return;
+            case "SIP" when responses.Length >= ItemValueTokens && responses[2] == "Registration":
+              UpdateSipRegistration(responses[3], responses[4], StatusValue(response), response);
+              return;
+            case "SystemUnit" or "Network" or "Webex":
+              ShowStatusValue(StatusPath(response), StatusValue(response), response);
+              return;
+            case "Diagnostics" when responses.Length >= ItemValueTokens && responses[2] == "Message":
+              UpdateDiagnosticsMessage(responses[3], responses[4], StatusValue(response), response);
+              return;
+            case "Peripherals" when responses.Length >= ItemValueTokens && responses[2] == "ConnectedDevice":
+              UpdateConnectedDevice(responses[3], responses[4], StatusValue(response), response);
+              return;
             case "Login" when responses.Length >= LoginTokens && responses[2].Trim()== "successful":
               Reinitialise();
               return;
@@ -324,6 +456,430 @@ public class CiscoRoomOs : Conference
       }
     }
     
+    private void HandleTaggedReply(string line)
+    {
+      string read = Unquote(StatusValue(line));
+      string reply = string.Join(ReplySeparator, _replyLines.Append(line));
+      if (!StatusReads.TryGetValue(read, out var status))
+      {
+        LogWarning("The codec tagged a reply {ResultId}, which this driver never asks for: {Reply}", read, reply);
+        return;
+      }
+
+      if (_replyLines.Any(replyLine => replyLine.StartsWith(ResultMarker) && replyLine.Contains(RejectedMarker)))
+      {
+        HandleRejectedRead(read, status.Path, status.Label, reply);
+        return;
+      }
+
+      switch (read)
+      {
+        case DiagnosticsRead:
+          RemoveDetail(DiagnosticsLabel);
+          ResolveIssue(ReadIssueKey(read));
+          ResolveClearedDiagnostics();
+          ShowInfoDiagnostics();
+          return;
+        case PeripheralsRead:
+          RemoveDetail(PeripheralsLabel);
+          ResolveIssue(ReadIssueKey(read));
+          RemoveUnlistedConnectedDevices();
+          return;
+        case SipRegistrationRead:
+          RemoveDetail(SipRegistrationLabel);
+          ResolveIssue(ReadIssueKey(read));
+          RemoveUnlistedSipRegistrations();
+          return;
+        default:
+          if (!_replyLines.Any(replyLine => replyLine.StartsWith(StatusMarker)))
+            ShowEmptyValue(read, reply);
+          return;
+      }
+    }
+
+    private void ShowEmptyValue(string read, string reply)
+    {
+      if (read == UptimeRead)
+        _missedUptimeReplies = 0;
+      SetDetail(StatusReads[read].Label, reply);
+      ResolveIssue(ReadIssueKey(read));
+    }
+
+    private void HandleRejectedRead(string read, string path, string label, string reply)
+    {
+      if (read == UptimeRead)
+        _uptimeRejected = true;
+      LogInformation("The codec does not support xStatus {Path}: {Reply}", path, reply);
+      SetDetail(label, $"Not supported: {reply}", DetailTone.Normal);
+      ResolveIssue(ReadIssueKey(read));
+    }
+
+    private void ShowStatusValue(string path, string value, string line)
+    {
+      if (value.Length == 0 && ReadsByPath.TryGetValue(path, out var emptyRead))
+      {
+        ShowEmptyValue(emptyRead, line);
+        return;
+      }
+      switch (path)
+      {
+        case ProductIdPath:
+          ShowIdentity(ProductIdRead, ModelLabel, value);
+          return;
+        case SoftwareVersionPath:
+          ShowIdentity(SoftwareVersionRead, FirmwareLabel, value);
+          return;
+        case SoftwareDisplayNamePath:
+          ShowIdentity(SoftwareDisplayNameRead, SoftwareLabel, value);
+          return;
+        case SerialNumberPath:
+          ShowIdentity(SerialNumberRead, SerialLabel, value);
+          return;
+        case MacAddressPath:
+          ShowIdentity(MacAddressRead, MacAddressLabel, value);
+          return;
+        case EthernetSpeedPath:
+          ShowIdentity(EthernetSpeedRead, EthernetSpeedLabel, value);
+          return;
+        case IpAddressPath:
+          ShowIdentity(IpAddressRead, IpAddressLabel, value);
+          return;
+        case SubnetMaskPath:
+          ShowIdentity(SubnetMaskRead, SubnetMaskLabel, value);
+          return;
+        case GatewayPath:
+          ShowIdentity(GatewayRead, GatewayLabel, value);
+          return;
+        case UptimePath:
+          ShowUptime(value, line);
+          return;
+        case TemperaturePath:
+          ShowTemperature(value);
+          return;
+        case WebexStatusPath:
+          ShowWebexStatus(value);
+          return;
+        default:
+          LogDebug("Unhandled feedback {Response}", line);
+          return;
+      }
+    }
+
+    private void ShowIdentity(string read, string label, string value)
+    {
+      SetDetail(label, Unquote(value));
+      ResolveIssue(ReadIssueKey(read));
+    }
+
+    private void ShowUptime(string value, string line)
+    {
+      if (!uint.TryParse(value, out uint seconds))
+      {
+        SetDetail(UptimeLabel, value, DetailTone.Warning);
+        CountMissedUptimeReply(line);
+        return;
+      }
+      _missedUptimeReplies = 0;
+      var uptime = TimeSpan.FromSeconds(seconds);
+      SetDetail(UptimeLabel, $"{(int)uptime.TotalDays} d {uptime.Hours} h {uptime.Minutes} min");
+      ResolveIssue(ReadIssueKey(UptimeRead));
+    }
+
+    private void CountMissedUptimeReply(string line)
+    {
+      var missed = ++_missedUptimeReplies;
+      if (missed < MaxMissedReplies)
+      {
+        LogInformation("The codec's uptime is not a number of seconds, reading it again at the next poll ({Missed} of {MaxMissedReplies}): {Reply}",
+          missed, MaxMissedReplies, line);
+        return;
+      }
+      RaiseOngoingIssue(ReadIssueKey(UptimeRead),
+        $"The codec's uptime was not a number of seconds {MaxMissedReplies} times in a row, the last was {line}", IssueSeverity.Minor);
+    }
+
+    private void ShowTemperature(string value)
+    {
+      switch (value)
+      {
+        case "Normal":
+          SetDetail(TemperatureLabel, value);
+          ResolveIssue(TemperatureIssueKey);
+          break;
+        case "Unknown":
+          SetDetail(TemperatureLabel, value, DetailTone.Warning);
+          break;
+        case "High":
+          SetDetail(TemperatureLabel, value, DetailTone.Warning);
+          RaiseOngoingIssue(TemperatureIssueKey, "The codec's temperature is High", IssueSeverity.Minor);
+          break;
+        case "Critical":
+          SetDetail(TemperatureLabel, value, DetailTone.Error);
+          RaiseOngoingIssue(TemperatureIssueKey, "The codec's temperature is Critical", IssueSeverity.Critical);
+          break;
+        default:
+          SetDetail(TemperatureLabel, value);
+          break;
+      }
+      ResolveIssue(ReadIssueKey(TemperatureRead));
+    }
+
+    private void ShowWebexStatus(string value)
+    {
+      switch (value)
+      {
+        case "Registered":
+        case "Disabled":
+          SetDetail(WebexLabel, value);
+          ResolveIssue(WebexIssueKey);
+          break;
+        case "Stopped":
+          SetDetail(WebexLabel, value, DetailTone.Warning);
+          ResolveIssue(WebexIssueKey);
+          break;
+        case "Registering":
+          SetDetail(WebexLabel, value, DetailTone.Warning);
+          break;
+        case "Error":
+          SetDetail(WebexLabel, value, DetailTone.Error);
+          RaiseOngoingIssue(WebexIssueKey, "The codec's Webex status is Error", IssueSeverity.Major);
+          break;
+        default:
+          SetDetail(WebexLabel, value);
+          break;
+      }
+      ResolveIssue(ReadIssueKey(WebexRead));
+    }
+
+    private void UpdateSipRegistration(string instance, string field, string value, string line)
+    {
+      var registration = _sipRegistrations.GetValueOrDefault(instance, new SipRegistration(null, null));
+      switch (field)
+      {
+        case GhostMarker:
+          _sipRegistrations.Remove(instance);
+          RemoveDetail($"{SipRegistrationLabelPrefix}{instance}");
+          ResolveIssue($"{SipRegistrationIssuePrefix}{instance}");
+          return;
+        case "Status:":
+          registration = registration with { Status = value };
+          break;
+        case "Reason:":
+          registration = registration with { Reason = value };
+          break;
+        default:
+          LogDebug("Unhandled feedback {Response}", line);
+          return;
+      }
+      _sipRegistrations[instance] = registration;
+      ShowSipRegistration(instance, registration);
+    }
+
+    private void ShowSipRegistration(string instance, SipRegistration registration)
+    {
+      if (registration.Status == null)
+        return;
+      string label = $"{SipRegistrationLabelPrefix}{instance}";
+      string issueKey = $"{SipRegistrationIssuePrefix}{instance}";
+      string text = registration.Reason is null or EmptyString
+        ? registration.Status
+        : $"{registration.Status}: {Unquote(registration.Reason)}";
+      switch (registration.Status)
+      {
+        case "Registered":
+        case "Inactive":
+          SetDetail(label, text);
+          ResolveIssue(issueKey);
+          break;
+        case "Registering":
+        case "Deregister":
+          SetDetail(label, text, DetailTone.Warning);
+          break;
+        case "Failed":
+          SetDetail(label, text, DetailTone.Error);
+          RaiseOngoingIssue(issueKey, $"SIP registration {instance} failed: {Unquote(registration.Reason)}", IssueSeverity.Major);
+          break;
+        default:
+          SetDetail(label, text, DetailTone.Warning);
+          RaiseOngoingIssue(issueKey, $"SIP registration {instance} reports a status this driver does not recognise: {registration.Status}", IssueSeverity.Minor);
+          break;
+      }
+    }
+
+    private void UpdateDiagnosticsMessage(string instance, string field, string value, string line)
+    {
+      var previous = _diagnostics.GetValueOrDefault(instance, new DiagnosticsMessage(null, null, null, null));
+      switch (field)
+      {
+        case GhostMarker:
+          _diagnostics.Remove(instance);
+          break;
+        case "Level:":
+          _diagnostics[instance] = previous with { Level = value };
+          break;
+        case "Type:":
+          _diagnostics[instance] = previous with { Type = value };
+          break;
+        case "Description:":
+          _diagnostics[instance] = previous with { Description = value };
+          break;
+        case "References:":
+          _diagnostics[instance] = previous with { References = value };
+          break;
+        default:
+          LogDebug("Unhandled feedback {Response}", line);
+          return;
+      }
+      ShowDiagnostic(previous.Type);
+      ShowDiagnostic(_diagnostics.GetValueOrDefault(instance)?.Type);
+      ShowInfoDiagnostics();
+    }
+
+    private void ShowDiagnostic(string? type)
+    {
+      if (type == null)
+        return;
+      var messages = _diagnostics.Values.Where(message => message.Type == type && message.Level != InfoLevel).ToList();
+      if (messages.Count == 0)
+      {
+        ResolveIssue($"{DiagnosticIssuePrefix}{type}");
+        return;
+      }
+      RaiseOngoingIssue($"{DiagnosticIssuePrefix}{type}", string.Join("; ", messages.Select(DiagnosticText)),
+        messages.Max(message => DiagnosticSeverity(message.Level)));
+    }
+
+    private static string DiagnosticText(DiagnosticsMessage message) =>
+      message.References is null or EmptyString
+        ? $"{message.Level} {message.Type}: {Unquote(message.Description)}"
+        : $"{message.Level} {message.Type}: {Unquote(message.Description)} ({Unquote(message.References)})";
+
+    private static IssueSeverity DiagnosticSeverity(string? level) => level switch
+    {
+      "Critical" => IssueSeverity.Critical,
+      "Error" => IssueSeverity.Major,
+      _ => IssueSeverity.Minor
+    };
+
+    private void ShowInfoDiagnostics()
+    {
+      var infoMessages = _diagnostics.Values.Where(message => message.Level == InfoLevel && message.Type != null).ToList();
+      if (infoMessages.Count == 0)
+        RemoveDetail(InfoDiagnosticsLabel);
+      else
+        SetDetail(InfoDiagnosticsLabel, string.Join("; ", infoMessages.Select(message => $"{message.Type}: {Unquote(message.Description)}")));
+    }
+
+    private void ResolveClearedDiagnostics()
+    {
+      var listedKeys = _diagnostics.Values.Where(message => message.Level != InfoLevel).Select(message => $"{DiagnosticIssuePrefix}{message.Type}").ToHashSet();
+      foreach (var cleared in GetOngoingIssues().Where(issue => issue.Key.StartsWith(DiagnosticIssuePrefix) && !listedKeys.Contains(issue.Key)))
+        ResolveIssue(cleared.Key);
+    }
+
+    private void UpdateConnectedDevice(string id, string field, string value, string line)
+    {
+      var device = _connectedDevices.GetValueOrDefault(id, new ConnectedDevice(null, null, null, null, null, null));
+      switch (field)
+      {
+        case GhostMarker:
+          _connectedDevices.Remove(id);
+          RemoveDetail($"{PeripheralLabelPrefix}{id}");
+          ResolveIssue($"{PeripheralIssuePrefix}{id}");
+          return;
+        case "ID:":
+          device = device with { Id = value };
+          break;
+        case "Name:":
+          device = device with { Name = value };
+          break;
+        case "Type:":
+          device = device with { Type = value };
+          break;
+        case "Status:":
+          device = device with { Status = value };
+          break;
+        case "SoftwareInfo:":
+          device = device with { SoftwareInfo = value };
+          break;
+        case "SerialNumber:":
+          device = device with { SerialNumber = value };
+          break;
+        default:
+          LogDebug("Unhandled feedback {Response}", line);
+          return;
+      }
+      _connectedDevices[id] = device;
+      ShowConnectedDevice(id, device);
+    }
+
+    private void ShowConnectedDevice(string id, ConnectedDevice device)
+    {
+      string label = $"{PeripheralLabelPrefix}{id}";
+      string issueKey = $"{PeripheralIssuePrefix}{id}";
+      string text = $"{Unquote(device.Name)}, {device.Type}, {device.Status}, software {Unquote(device.SoftwareInfo)}, serial {Unquote(device.SerialNumber)}";
+      if (device.Type == null)
+      {
+        SetDetail(label, text);
+        return;
+      }
+      if (device.Type == ControlSystemType && Unquote(device.Id) != _moduleIdentifier)
+      {
+        SetDetail(label, text, DetailTone.Normal);
+        ResolveIssue(issueKey);
+        return;
+      }
+      switch (device.Status)
+      {
+        case null:
+          SetDetail(label, text);
+          break;
+        case "Connected":
+          SetDetail(label, text);
+          ResolveIssue(issueKey);
+          break;
+        case "Unpairing":
+          SetDetail(label, text, DetailTone.Warning);
+          break;
+        case "LostConnection":
+        case "ResponseTimedOut":
+          SetDetail(label, text, DetailTone.Error);
+          RaiseOngoingIssue(issueKey, $"Peripheral {id}, {Unquote(device.Name)} ({device.Type}), is {device.Status}", IssueSeverity.Major);
+          break;
+        default:
+          SetDetail(label, text, DetailTone.Warning);
+          RaiseOngoingIssue(issueKey, $"Peripheral {id}, {Unquote(device.Name)} ({device.Type}), reports a status this driver does not recognise: {device.Status}", IssueSeverity.Minor);
+          break;
+      }
+    }
+
+    private void RemoveUnlistedConnectedDevices()
+    {
+      foreach (var detail in Details.Where(detail => detail.Label.StartsWith(PeripheralLabelPrefix) && !_connectedDevices.ContainsKey(detail.Label[PeripheralLabelPrefix.Length..])))
+        RemoveDetail(detail.Label);
+      foreach (var issue in GetOngoingIssues().Where(issue => issue.Key.StartsWith(PeripheralIssuePrefix) && !_connectedDevices.ContainsKey(issue.Key[PeripheralIssuePrefix.Length..])))
+        ResolveIssue(issue.Key);
+    }
+
+    private void RemoveUnlistedSipRegistrations()
+    {
+      foreach (var detail in Details.Where(detail => detail.Label.StartsWith(SipRegistrationLabelPrefix) && !_sipRegistrations.ContainsKey(detail.Label[SipRegistrationLabelPrefix.Length..])))
+        RemoveDetail(detail.Label);
+      foreach (var issue in GetOngoingIssues().Where(issue => issue.Key.StartsWith(SipRegistrationIssuePrefix) && !_sipRegistrations.ContainsKey(issue.Key[SipRegistrationIssuePrefix.Length..])))
+        ResolveIssue(issue.Key);
+    }
+
+    private static string ReadIssueKey(string read) => $"{read}-read";
+
+    private static string StatusPath(string response) => response.Split(':', 2) is [var path, _] ? path[StatusMarker.Length..] : response;
+
+    private static string StatusValue(string response) => response.Split(':', 2) is [_, var value] ? value.Trim() : string.Empty;
+
+    private static string Unquote(string? value) =>
+      value != null && value.Length > EmptyString.Length && value.StartsWith('"') && value.EndsWith('"')
+        ? value[1..^1]
+        : value ?? string.Empty;
+
     public void ForceDoNotDisturb(bool forceDoNotDisturb) => _forceDoNotDisturb = forceDoNotDisturb;
 
     private void ValidateDoNotDisturbState()
@@ -413,4 +969,10 @@ public class CiscoRoomOs : Conference
       SendCommand($"xCommand Conference DoNotDisturb {(state == PowerState.On ? "Activate": "Deactivate")}");
       DoNotDisturbState = state;
     }
+
+    private record DiagnosticsMessage(string? Level, string? Type, string? Description, string? References);
+
+    private record SipRegistration(string? Status, string? Reason);
+
+    private record ConnectedDevice(string? Id, string? Name, string? Type, string? Status, string? SoftwareInfo, string? SerialNumber);
   }

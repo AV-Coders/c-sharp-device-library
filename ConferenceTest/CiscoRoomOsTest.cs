@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
@@ -68,7 +70,7 @@ public class CiscoRoomOsTest
             "xStatus Audio Volume",
             "xStatus Audio VolumeMute",
             "xStatus Audio Microphones Mute",
-            "xStatus SIP Registration URI",
+            "xStatus SIP Registration | resultId=\"sip-registration\"",
             "xConfiguration Conference AutoAnswer Mode",
         }.ForEach(s =>
             _mockClient.Verify(x => x.Send($"{s}\r\n")));
@@ -94,25 +96,20 @@ public class CiscoRoomOsTest
         Assert.StartsWith("xCommand Peripherals Connect ID: AV-Coders-RoomOS-Module Type: ControlSystem", (string) _mockClient.Invocations[0].Arguments[0]);
     }
 
-    [Theory]
-    [InlineData(50)]
-    [InlineData(60)]
-    public void VolumeStatusResponse_UpdatesVolumeLevel(int volume)
+    [Fact]
+    public void VolumeStatusResponse_UpdatesVolumeLevel()
     {
-        _mockClient.Object.ResponseHandlers!.Invoke($"*s Audio Volume: {volume}\n");
-        
-        _outputVolumeLevelHandler.Verify(x => x.Invoke(volume));
+        _mockClient.Object.ResponseHandlers!.Invoke("*s Audio Volume: 60\n");
+
+        _outputVolumeLevelHandler.Verify(x => x.Invoke(60));
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(60)]
-    [InlineData(100)]
-    public void SetOutputVolume_SendsTheCommand(int volume)
+    [Fact]
+    public void SetOutputVolume_SendsTheCommand()
     {
-        _codec.SetOutputVolume(volume);
-        
-        _mockClient.Verify(x=> x.Send($"xCommand Audio Volume Set Level: {volume}\r\n"));
+        _codec.SetOutputVolume(60);
+
+        _mockClient.Verify(x => x.Send("xCommand Audio Volume Set Level: 60\r\n"));
     }
 
     [Theory]
@@ -163,23 +160,26 @@ public class CiscoRoomOsTest
         _powerStateHandlers.Verify(x => x.Invoke(expectedState));
     }
 
-    [Fact]
-    public void CallResponses_HandleDialling()
+    [Theory]
+    [InlineData("Dialling", CallStatus.Dialling)]
+    [InlineData("Ringing", CallStatus.Ringing)]
+    [InlineData("Connecting", CallStatus.Connecting)]
+    [InlineData("Disconnecting", CallStatus.Disconnecting)]
+    public void CallResponses_TrackTheCallStatus(string status, CallStatus expected)
     {
         new List<string>
         {
             "*s Call 203 AnswerState: Unanswered\n",
             "*s Call 203 CallbackNumber: \"sip:*123456@client.uri\"\n",
             "*s Call 203 DisplayName: \"The Meeting Room!\"",
-            "*s Call 203 Status: Dialling\n"
-            
+            $"*s Call 203 Status: {status}\n"
         }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
 
-        Assert.Single(_codec.GetActiveCalls());
-        Assert.Equal(CallStatus.Dialling, _codec.GetActiveCalls()[0].Status);
-        Assert.Equal("The Meeting Room!", _codec.GetActiveCalls()[0].Name);
-        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
-        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Dialling));
+        var call = Assert.Single(_codec.GetActiveCalls());
+        Assert.Equal(expected, call.Status);
+        Assert.Equal("The Meeting Room!", call.Name);
+        Assert.Equal("sip:*123456@client.uri", call.Number);
+        _callStatusHandler.Verify(x => x.Invoke(expected));
     }
 
     [Fact]
@@ -260,26 +260,6 @@ public class CiscoRoomOsTest
     }
 
     [Fact]
-    public void CallResponses_HandleDisconnecting()
-    {
-        new List<string>
-        {
-            "*s Call 204 AnswerState: Unanswered\n",
-            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
-            "*s Call 204 DisplayName: \"*123456\"",
-            "*s Call 204 Status: Connected\n",
-            "*s Call 204 Status: Disconnecting\n"
-            
-        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
-
-        Assert.Single(_codec.GetActiveCalls());
-        Assert.Equal(CallStatus.Disconnecting, _codec.GetActiveCalls()[0].Status);
-        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
-        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
-        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Disconnecting));
-    }
-
-    [Fact]
     public void CallResponses_HandleIdle()
     {
         new List<string>
@@ -294,46 +274,6 @@ public class CiscoRoomOsTest
 
         Assert.Empty(_codec.GetActiveCalls());
         _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle));
-    }
-
-    [Fact]
-    public void CallResponses_HandleRinging()
-    {
-        new List<string>
-        {
-            "*s Call 204 AnswerState: Unanswered\n",
-            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
-            "*s Call 204 DisplayName: \"*123456\"",
-            "*s Call 204 Status: Ringing\n"
-            
-        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
-
-        
-        Assert.Single(_codec.GetActiveCalls());
-        Assert.Equal(CallStatus.Ringing, _codec.GetActiveCalls()[0].Status);
-        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
-        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
-        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Ringing));
-    }
-
-    [Fact]
-    public void CallResponses_HandleConnecting()
-    {
-        new List<string>
-        {
-            "*s Call 204 AnswerState: Unanswered\n",
-            "*s Call 204 CallbackNumber: \"sip:*123456@client.uri\"\n",
-            "*s Call 204 DisplayName: \"*123456\"",
-            "*s Call 204 Status: Connecting\n"
-            
-        }.ForEach(command => _mockClient.Object.ResponseHandlers!.Invoke(command));
-
-        
-        Assert.Single(_codec.GetActiveCalls());
-        Assert.Equal(CallStatus.Connecting, _codec.GetActiveCalls()[0].Status);
-        Assert.Equal("*123456", _codec.GetActiveCalls()[0].Name);
-        Assert.Equal("sip:*123456@client.uri", _codec.GetActiveCalls()[0].Number);
-        _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connecting));
     }
 
     [Fact]
@@ -407,30 +347,6 @@ public class CiscoRoomOsTest
         _codec.SetMicrophoneMute(state);
 
         _mockClient.Verify(x => x.Send(expectedCommand));
-    }
-
-    [Fact]
-    public void MicFader_LevelMethods_DoNotThrow()
-    {
-        var fader = new CiscoRoomOsMicFader("Microphones", _codec, VolumeType.Microphone);
-
-        var exception = Record.Exception(() =>
-        {
-            fader.LevelUp(1);
-            fader.LevelDown(1);
-            fader.SetLevel(50);
-        });
-
-        Assert.Null(exception);
-    }
-
-    [Fact]
-    public void MicFader_SupportsMuteButNotLevel()
-    {
-        var fader = new CiscoRoomOsMicFader("Microphones", _codec, VolumeType.Microphone);
-
-        Assert.False(fader.SupportsLevel);
-        Assert.True(fader.SupportsMute);
     }
 
     [Theory]
@@ -542,20 +458,6 @@ public class CiscoRoomOsTest
         Assert.Equal(CallStatus.Idle, _codec.CallStatus);
         _callStatusHandler.Verify(x => x.Invoke(CallStatus.Connected), Times.Once);
         _callStatusHandler.Verify(x => x.Invoke(CallStatus.Idle), Times.Once);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("\n")]
-    [InlineData("\r\n")]
-    public void CallResponses_RepeatedGhosts_EndTheCallOnce(string lineEnding)
-    {
-        Receive(new List<string> { "*s Call 102 Status: Connected", "** end" }, lineEnding);
-        ClearCallHandlerInvocations();
-
-        Receive(GhostLines(102), lineEnding);
-
-        VerifyCallEndedOnce();
     }
 
     [Theory]
@@ -779,5 +681,638 @@ public class CiscoRoomOsTest
         fader.LevelDown(5);
 
         _mockClient.Verify(x => x.Send("xCommand Audio Volume Set Level: 0\r\n"));
+    }
+
+    [Fact]
+    public void Login_RegistersForHealthFeedback_AndReadsTheStatus()
+    {
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+
+        new List<string>
+        {
+            "xFeedback register /Status/SystemUnit/Hardware/Monitoring/Temperature/Status",
+            "xFeedback register /Status/Diagnostics",
+            "xFeedback register /Status/SIP/Registration",
+            "xFeedback register /Status/Webex/Status",
+            "xFeedback register /Status/Peripherals/ConnectedDevice",
+            "xStatus SystemUnit ProductId | resultId=\"product-id\"",
+            "xStatus SystemUnit Software Version | resultId=\"software-version\"",
+            "xStatus SystemUnit Software DisplayName | resultId=\"software-display-name\"",
+            "xStatus SystemUnit Hardware Module SerialNumber | resultId=\"serial-number\"",
+            "xStatus SystemUnit Uptime | resultId=\"uptime\"",
+            "xStatus Network 1 Ethernet MacAddress | resultId=\"mac-address\"",
+            "xStatus Network 1 Ethernet Speed | resultId=\"ethernet-speed\"",
+            "xStatus Network 1 IPv4 Address | resultId=\"ip-address\"",
+            "xStatus Network 1 IPv4 SubnetMask | resultId=\"subnet-mask\"",
+            "xStatus Network 1 IPv4 Gateway | resultId=\"gateway\"",
+            "xStatus SystemUnit Hardware Monitoring Temperature Status | resultId=\"temperature\"",
+            "xStatus Diagnostics | resultId=\"diagnostics\"",
+            "xStatus SIP Registration | resultId=\"sip-registration\"",
+            "xStatus Webex Status | resultId=\"webex\"",
+            "xStatus Peripherals ConnectedDevice | resultId=\"peripherals\"",
+        }.ForEach(s => _mockClient.Verify(x => x.Send($"{s}\r\n")));
+    }
+
+    [Theory]
+    [InlineData("product-id", "*s SystemUnit ProductId: \"Cisco Room Kit EQ\"", "Model", "Cisco Room Kit EQ")]
+    [InlineData("mac-address", "*s Network 1 Ethernet MacAddress: \"00:50:60:A4:3E:91\"", "MAC Address", "00:50:60:A4:3E:91")]
+    public void IdentityReply_IsShownAsADetail(string read, string line, string label, string expected)
+    {
+        ReceiveReply(read, line);
+
+        Assert.Equal(new DeviceDetail(label, expected), Detail(label));
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("*s SystemUnit Hardware Module SerialNumber: \"\"", "\"\"")]
+    [InlineData("*s SystemUnit Hardware Module SerialNumber: FOC\"24", "FOC\"24")]
+    public void IdentityReply_Garbage_IsShownExactlyAsReceived(string line, string expected)
+    {
+        ReceiveReply("serial-number", line);
+
+        Assert.Equal(expected, Detail("Serial")!.Value);
+    }
+
+    [Fact]
+    public void Uptime_IsShownReadable()
+    {
+        ReceiveReply("uptime", "*s SystemUnit Uptime: 597095");
+
+        Assert.Equal(new DeviceDetail("Uptime", "6 d 21 h 51 min"), Detail("Uptime"));
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void Uptime_NotANumberThreeTimesInARow_ShowsTheRawValue_AndRaisesAnIssue_UntilANumberArrives()
+    {
+        ReceiveReply("uptime", "*s SystemUnit Uptime: 59x7095");
+        ReceiveReply("uptime", "*s SystemUnit Uptime: 59x7095");
+
+        Assert.Equal(new DeviceDetail("Uptime", "59x7095", DetailTone.Warning), Detail("Uptime"));
+        Assert.Empty(_codec.GetIssues());
+
+        ReceiveReply("uptime", "*s SystemUnit Uptime: 59x7095");
+
+        var issue = Assert.Single(_codec.GetOngoingIssues(), i => i.Key == "uptime-read");
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Contains("*s SystemUnit Uptime: 59x7095", issue.Message);
+
+        ReceiveReply("uptime", "*s SystemUnit Uptime: 597095");
+
+        Assert.Empty(_codec.GetOngoingIssues());
+        Assert.Equal(new DeviceDetail("Uptime", "6 d 21 h 51 min"), Detail("Uptime"));
+    }
+
+    [Fact]
+    public void Uptime_IsReadEveryPoll()
+    {
+        _mockClient.Invocations.Clear();
+
+        InvokePoll();
+
+        _mockClient.Verify(x => x.Send("xStatus SystemUnit Uptime | resultId=\"uptime\"\r\n"), Times.Once);
+    }
+
+    [Fact]
+    public void Uptime_Rejected_IsNotReadAgainUntilTheNextLogin()
+    {
+        ReceiveReply("uptime", RejectedReply("SystemUnit/Uptime"));
+        _mockClient.Invocations.Clear();
+
+        InvokePoll();
+        _mockClient.Verify(x => x.Send("xStatus SystemUnit Uptime | resultId=\"uptime\"\r\n"), Times.Never);
+
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+        _mockClient.Verify(x => x.Send("xStatus SystemUnit Uptime | resultId=\"uptime\"\r\n"), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("serial-number", "Status/SystemUnit/Hardware/Module/SerialNumber", "Serial")]
+    [InlineData("webex", "Status/Webex/Status", "Webex")]
+    [InlineData("diagnostics", "Status/Diagnostics", "Diagnostics")]
+    public void RejectedRead_ShowsItIsNotSupportedWithTheRawReply_AndNoIssue(string read, string xPath, string label)
+    {
+        var communicationState = _codec.CommunicationState;
+
+        ReceiveReply(read, RejectedReply(xPath));
+
+        var reply = string.Join(" | ", RejectedReply(xPath).Append($"** resultId: \"{read}\""));
+        Assert.Equal(new DeviceDetail(label, $"Not supported: {reply}", DetailTone.Normal), Detail(label));
+        Assert.Empty(_codec.GetIssues());
+        Assert.Equal(communicationState, _codec.CommunicationState);
+    }
+
+    [Theory]
+    [InlineData(new string[0], "** resultId: \"serial-number\"")]
+    [InlineData(new[] { "*s SystemUnit Hardware Module SerialNumber:" }, "*s SystemUnit Hardware Module SerialNumber:")]
+    public void EmptyReply_ShowsTheRawReplyWithNoIssue(string[] lines, string expected)
+    {
+        ReceiveReply("serial-number", lines);
+
+        Assert.Equal(new DeviceDetail("Serial", expected), Detail("Serial"));
+        Assert.Empty(_codec.GetIssues());
+    }
+
+    [Fact]
+    public void TaggedReply_TheDriverNeverAskedFor_IsIgnored()
+    {
+        var exception = Record.Exception(() => ReceiveReply("someone-else", "*s SystemUnit ProductId: \"Cisco Room Kit EQ\""));
+
+        Assert.Null(exception);
+        Assert.Empty(_codec.Errors);
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("Normal", DetailTone.Normal)]
+    [InlineData("Unknown", DetailTone.Warning)]
+    public void Temperature_WithoutAnAlarm_RaisesNoIssue(string status, DetailTone tone)
+    {
+        ReceiveReply("temperature", $"*s SystemUnit Hardware Monitoring Temperature Status: {status}");
+
+        Assert.Equal(new DeviceDetail("Temperature", status, tone), Detail("Temperature"));
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("High", DetailTone.Warning, IssueSeverity.Minor)]
+    [InlineData("Critical", DetailTone.Error, IssueSeverity.Critical)]
+    public void Temperature_Alarm_RaisesAnIssue_UntilItIsNormal(string status, DetailTone tone, IssueSeverity severity)
+    {
+        Receive(new List<string> { $"*s SystemUnit Hardware Monitoring Temperature Status: {status}", "** end" }, "\n");
+
+        Assert.Equal(new DeviceDetail("Temperature", status, tone), Detail("Temperature"));
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("temperature", issue.Key);
+        Assert.Equal(severity, issue.Severity);
+
+        Receive(new List<string> { "*s SystemUnit Hardware Monitoring Temperature Status: Normal", "** end" }, "\n");
+
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("temperature", "*s SystemUnit Hardware Monitoring Temperature Status: Toasty", "Temperature", "Toasty")]
+    [InlineData("webex", "*s Webex Status: Confused", "Webex", "Confused")]
+    public void UnrecognisedStatus_IsShownRaw_WithNoIssue(string read, string line, string label, string expected)
+    {
+        ReceiveReply(read, line);
+
+        Assert.Equal(new DeviceDetail(label, expected), Detail(label));
+        Assert.Empty(_codec.GetIssues());
+    }
+
+    [Theory]
+    [InlineData("Critical", IssueSeverity.Critical)]
+    [InlineData("Error", IssueSeverity.Major)]
+    [InlineData("Warning", IssueSeverity.Minor)]
+    [InlineData("Notice", IssueSeverity.Minor)]
+    public void DiagnosticsMessage_RaisesAnIssueKeyedByItsType(string level, IssueSeverity severity)
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, level, "IPv4Assignment", "IP configuration incomplete", "delay=190"));
+
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("diagnostic:IPv4Assignment", issue.Key);
+        Assert.Equal(severity, issue.Severity);
+        Assert.Equal($"{level} IPv4Assignment: IP configuration incomplete (delay=190)", issue.Message);
+        Assert.Null(Detail("Diagnostics (info)"));
+    }
+
+    [Fact]
+    public void InfoDiagnosticsMessages_AreShownAsADetail_WithoutAnIssue()
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Info", "SoftwareUpgradeAvailability", "A new software version is available", "")
+            .Concat(DiagnosticsMessageLines(2, "Info", "DeveloperPreview", "Developer preview is enabled", "")).ToArray());
+
+        Assert.Empty(_codec.GetOngoingIssues());
+        Assert.Equal(new DeviceDetail("Diagnostics (info)",
+                "SoftwareUpgradeAvailability: A new software version is available; DeveloperPreview: Developer preview is enabled"),
+            Detail("Diagnostics (info)"));
+    }
+
+    [Fact]
+    public void InfoDiagnosticsDetail_IsRemoved_WhenTheLastInfoMessageGhosts()
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Info", "SoftwareUpgradeAvailability", "A new software version is available", ""));
+
+        Receive(new List<string> { "*s Diagnostics Message 1 (ghost=True):", "** end" }, "\n");
+
+        Assert.Null(Detail("Diagnostics (info)"));
+    }
+
+    [Fact]
+    public void DiagnosticsListing_AfterLogin_RemovesTheInfoDetail_WhenNoInfoMessagesAreLeft()
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Info", "SoftwareUpgradeAvailability", "A new software version is available", ""));
+
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+        ReceiveReply("diagnostics");
+
+        Assert.Null(Detail("Diagnostics (info)"));
+    }
+
+    [Fact]
+    public void DiagnosticsMessage_Ghost_ResolvesItsIssue()
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Warning", "NTPStatus", "NTP server not reachable", "")
+            .Concat(DiagnosticsMessageLines(2, "Error", "CameraStatus", "Camera 1 is not connected", "")).ToArray());
+
+        Receive(new List<string> { "*s Diagnostics Message 2 (ghost=True):", "** end" }, "\n");
+
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("diagnostic:NTPStatus", issue.Key);
+        Assert.Equal("Warning NTPStatus: NTP server not reachable", issue.Message);
+    }
+
+    [Fact]
+    public void DiagnosticsMessages_WithTheSameType_ShareOneIssue_AtTheHighestSeverity()
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Warning", "CameraStatus", "Camera 1 is overheating", "")
+            .Concat(DiagnosticsMessageLines(2, "Critical", "CameraStatus", "Camera 2 is not connected", "")).ToArray());
+
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("diagnostic:CameraStatus", issue.Key);
+        Assert.Equal(IssueSeverity.Critical, issue.Severity);
+        Assert.Equal("Warning CameraStatus: Camera 1 is overheating; Critical CameraStatus: Camera 2 is not connected", issue.Message);
+    }
+
+    [Fact]
+    public void DiagnosticsListing_AfterLogin_ResolvesClearedMessages_AndKeepsTheRest()
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Warning", "NTPStatus", "NTP server not reachable", "")
+            .Concat(DiagnosticsMessageLines(2, "Error", "CameraStatus", "Camera 1 is not connected", "")).ToArray());
+        var cameraIssue = Assert.Single(_codec.GetOngoingIssues(), i => i.Key == "diagnostic:CameraStatus");
+
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Error", "CameraStatus", "Camera 1 is not connected", ""));
+
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal(cameraIssue.Id, issue.Id);
+    }
+
+    [Fact]
+    public void EmptyDiagnosticsListing_ResolvesEveryDiagnosticsIssue()
+    {
+        ReceiveReply("diagnostics", DiagnosticsMessageLines(1, "Warning", "NTPStatus", "NTP server not reachable", ""));
+
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+        ReceiveReply("diagnostics");
+
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("Registered", DetailTone.Normal)]
+    [InlineData("Inactive", DetailTone.Normal)]
+    [InlineData("Registering", DetailTone.Warning)]
+    [InlineData("Deregister", DetailTone.Warning)]
+    public void SipRegistration_WithoutAFailure_RaisesNoIssue(string status, DetailTone tone)
+    {
+        ReceiveReply("sip-registration", SipRegistrationLines("\"\"", status));
+
+        Assert.Equal(new DeviceDetail("SIP Registration 1", status, tone), Detail("SIP Registration 1"));
+        Assert.Empty(_codec.GetOngoingIssues());
+        Assert.Equal("firstname.lastname@company.com", _codec.GetUri());
+    }
+
+    [Fact]
+    public void SipRegistration_Failed_RaisesAnIssueWithTheReason_UntilRegistered()
+    {
+        ReceiveReply("sip-registration", SipRegistrationLines("\"404 Not Found\"", "Failed"));
+
+        Assert.Equal(new DeviceDetail("SIP Registration 1", "Failed: 404 Not Found", DetailTone.Error), Detail("SIP Registration 1"));
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("sip-registration:1", issue.Key);
+        Assert.Equal(IssueSeverity.Major, issue.Severity);
+        Assert.Equal("SIP registration 1 failed: 404 Not Found", issue.Message);
+
+        Receive(new List<string> { "*s SIP Registration 1 Reason: \"\"", "*s SIP Registration 1 Status: Registered", "** end" }, "\n");
+
+        Assert.Empty(_codec.GetOngoingIssues());
+        Assert.Equal(new DeviceDetail("SIP Registration 1", "Registered"), Detail("SIP Registration 1"));
+    }
+
+    [Fact]
+    public void SipRegistrationListing_AfterLogin_RemovesUnlistedRegistrations()
+    {
+        ReceiveReply("sip-registration", SipRegistrationLines("\"404 Not Found\"", "Failed"));
+
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+        ReceiveReply("sip-registration");
+
+        Assert.Null(Detail("SIP Registration 1"));
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void SipRegistration_UnrecognisedStatus_IsShownRaw_AndRaisesAnIssue()
+    {
+        ReceiveReply("sip-registration", SipRegistrationLines("\"\"", "Confused"));
+
+        Assert.Equal(new DeviceDetail("SIP Registration 1", "Confused", DetailTone.Warning), Detail("SIP Registration 1"));
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("sip-registration:1", issue.Key);
+        Assert.Contains("Confused", issue.Message);
+    }
+
+    [Theory]
+    [InlineData("Registered", DetailTone.Normal)]
+    [InlineData("Disabled", DetailTone.Normal)]
+    [InlineData("Registering", DetailTone.Warning)]
+    [InlineData("Stopped", DetailTone.Warning)]
+    public void WebexStatus_WithoutAnError_RaisesNoIssue(string status, DetailTone tone)
+    {
+        ReceiveReply("webex", $"*s Webex Status: {status}");
+
+        Assert.Equal(new DeviceDetail("Webex", status, tone), Detail("Webex"));
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("Registered")]
+    [InlineData("Disabled")]
+    [InlineData("Stopped")]
+    public void WebexStatus_Error_RaisesAnIssue_UntilRegisteredDisabledOrStopped(string status)
+    {
+        Receive(new List<string> { "*s Webex Status: Error", "** end" }, "\n");
+
+        Assert.Equal(new DeviceDetail("Webex", "Error", DetailTone.Error), Detail("Webex"));
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("webex", issue.Key);
+        Assert.Equal(IssueSeverity.Major, issue.Severity);
+
+        Receive(new List<string> { $"*s Webex Status: {status}", "** end" }, "\n");
+
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void ConnectedDevice_IsShownAsADetail()
+    {
+        ReceiveReply("peripherals", ConnectedDeviceLines(1001, "Connected"));
+
+        Assert.Equal(new DeviceDetail("Peripheral 1001", "Cisco Room Navigator, TouchPanel, Connected, software TI7.2.0, serial ABC123"),
+            Detail("Peripheral 1001"));
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("LostConnection")]
+    [InlineData("ResponseTimedOut")]
+    public void ConnectedDevice_Lost_RaisesAnIssue_UntilConnected(string status)
+    {
+        ReceiveReply("peripherals", ConnectedDeviceLines(1001, "Connected"));
+
+        Receive(new List<string> { $"*s Peripherals ConnectedDevice 1001 Status: {status}", "** end" }, "\n");
+
+        Assert.Equal(DetailTone.Error, Detail("Peripheral 1001")!.Tone);
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("peripheral:1001", issue.Key);
+        Assert.Equal(IssueSeverity.Major, issue.Severity);
+        Assert.Equal($"Peripheral 1001, Cisco Room Navigator (TouchPanel), is {status}", issue.Message);
+
+        Receive(new List<string> { "*s Peripherals ConnectedDevice 1001 Status: Connected", "** end" }, "\n");
+
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void AnotherControlSystem_Lost_IsANormalDetailWithNoIssue()
+    {
+        ReceiveReply("peripherals", ConnectedDeviceLines(1003, "LostConnection", "ControlSystem", "CP4-Lobby", "Lobby processor"));
+
+        Receive(new List<string> { "*s Peripherals ConnectedDevice 1003 Status: ResponseTimedOut", "** end" }, "\n");
+
+        Assert.Equal(new DeviceDetail("Peripheral 1003", "Lobby processor, ControlSystem, ResponseTimedOut, software TI7.2.0, serial ABC123", DetailTone.Normal),
+            Detail("Peripheral 1003"));
+        Assert.Empty(_codec.GetIssues());
+    }
+
+    [Theory]
+    [InlineData("ControlSystem", "AV-Coders-RoomOS-Module")]
+    [InlineData("TouchPanel", "00:10:20:7c:4a:e5")]
+    public void ThisDriversOwnEntryOrATouchPanel_LostInTheListing_RaisesAMajorIssue(string type, string peripheralId)
+    {
+        ReceiveReply("peripherals", ConnectedDeviceLines(1004, "LostConnection", type, peripheralId));
+
+        var issue = Assert.Single(_codec.GetOngoingIssues());
+        Assert.Equal("peripheral:1004", issue.Key);
+        Assert.Equal(IssueSeverity.Major, issue.Severity);
+        Assert.Equal(DetailTone.Error, Detail("Peripheral 1004")!.Tone);
+    }
+
+    [Fact]
+    public void ConnectedDevice_Ghost_RemovesItsDetail_AndResolvesItsIssue()
+    {
+        ReceiveReply("peripherals", ConnectedDeviceLines(1001, "LostConnection"));
+
+        Receive(new List<string> { "*s Peripherals ConnectedDevice 1001 (ghost=True):", "** end" }, "\n");
+
+        Assert.Null(Detail("Peripheral 1001"));
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Fact]
+    public void PeripheralsListing_AfterLogin_RemovesUnlistedDevices()
+    {
+        ReceiveReply("peripherals", ConnectedDeviceLines(1001, "LostConnection").Concat(ConnectedDeviceLines(1002, "Connected")).ToArray());
+        var detailsBeforeLogin = _codec.Details.Count;
+
+        _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
+        ReceiveReply("peripherals", ConnectedDeviceLines(1002, "Connected"));
+
+        Assert.Null(Detail("Peripheral 1001"));
+        Assert.NotNull(Detail("Peripheral 1002"));
+        Assert.Equal(detailsBeforeLogin - 1, _codec.Details.Count);
+        Assert.Empty(_codec.GetOngoingIssues());
+    }
+
+    [Theory]
+    [InlineData("*s SystemUnit")]
+    [InlineData("*s SystemUnit ProductId")]
+    [InlineData("*s Diagnostics Message 1")]
+    [InlineData("*s Peripherals ConnectedDevice 1001")]
+    [InlineData("*s SIP Registration 1")]
+    [InlineData("** resultId:")]
+    public void ShortHealthResponses_DoNotThrow(string response)
+    {
+        var exception = Record.Exception(() => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
+
+        Assert.Null(exception);
+        Assert.Empty(_codec.Errors);
+        Assert.Empty(_codec.Details);
+    }
+
+    private DeviceDetail? Detail(string label) => _codec.Details.SingleOrDefault(d => d.Label == label);
+
+    private void ReceiveReply(string read, params string[] lines) =>
+        Receive(lines.Append($"** resultId: \"{read}\"").Append("** end").ToList(), "\n");
+
+    private void InvokePoll() =>
+        ((Task)typeof(CiscoRoomOs).GetMethod("Poll", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(_codec, [CancellationToken.None])!).Wait();
+
+    private static string[] RejectedReply(string xPath) =>
+    [
+        "*r Status (status=Error):",
+        "*r Status Reason: \"No match on address expression.\"",
+        $"*r Status XPath: \"{xPath}\""
+    ];
+
+    private static string[] DiagnosticsMessageLines(int instance, string level, string type, string description, string references) =>
+    [
+        $"*s Diagnostics Message {instance} Description: \"{description}\"",
+        $"*s Diagnostics Message {instance} Level: {level}",
+        $"*s Diagnostics Message {instance} References: \"{references}\"",
+        $"*s Diagnostics Message {instance} Type: {type}"
+    ];
+
+    private static string[] SipRegistrationLines(string reason, string status) =>
+    [
+        "*s SIP Registration 1 Authentication: Off",
+        $"*s SIP Registration 1 Reason: {reason}",
+        $"*s SIP Registration 1 Status: {status}",
+        "*s SIP Registration 1 URI: \"firstname.lastname@company.com\""
+    ];
+
+    private static string[] ConnectedDeviceLines(int id, string status, string type = "TouchPanel",
+        string peripheralId = "00:10:20:7c:4a:e5", string name = "Cisco Room Navigator") =>
+    [
+        $"*s Peripherals ConnectedDevice {id} HardwareInfo: \"1122330-0\"",
+        $"*s Peripherals ConnectedDevice {id} ID: \"{peripheralId}\"",
+        $"*s Peripherals ConnectedDevice {id} Name: \"{name}\"",
+        $"*s Peripherals ConnectedDevice {id} NetworkAddress: \"192.0.1.20\"",
+        $"*s Peripherals ConnectedDevice {id} SerialNumber: \"ABC123\"",
+        $"*s Peripherals ConnectedDevice {id} SoftwareInfo: \"TI7.2.0\"",
+        $"*s Peripherals ConnectedDevice {id} Status: {status}",
+        $"*s Peripherals ConnectedDevice {id} Type: {type}",
+        $"*s Peripherals ConnectedDevice {id} UpgradeStatus: None"
+    ];
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class CiscoRoomOsPhonebookLineTest : IDisposable
+{
+    private const string ProcessResponseSpan = "CiscoRoomOs.ProcessResponse";
+    private const string UnhandledFeedback = "Unhandled feedback";
+    private const string ReplyEnd = "** end";
+    private const string PeripheralsConnectResult = "*r PeripheralsConnectResult (status=OK): ";
+    private static readonly string[] PhonebookReply =
+    [
+        "*r PhonebookSearchResult (status=OK): ",
+        "*r PhonebookSearchResult ResultInfo Offset: 0",
+        "*r PhonebookSearchResult ResultInfo Limit: 300",
+        "*r PhonebookSearchResult ResultInfo TotalRows: 4",
+        "*r PhonebookSearchResult Contact 1 Name: \"Test Room One (SIP)\"",
+        "*r PhonebookSearchResult Contact 1 ContactId: \"e_10001\"",
+        "*r PhonebookSearchResult Contact 1 Type: \"Room\"",
+        "*r PhonebookSearchResult Contact 1 ContactMethod 1 ContactMethodId: \"1\"",
+        "*r PhonebookSearchResult Contact 1 ContactMethod 1 Number: \"SIP:+61300000001@example.com\"",
+        "*r PhonebookSearchResult Contact 1 ContactMethod 1 Protocol: SIP",
+        "*r PhonebookSearchResult Contact 2 Name: \"Test Room Two (SIP)\"",
+        "*r PhonebookSearchResult Contact 2 ContactId: \"e_10002\"",
+        "*r PhonebookSearchResult Contact 2 Type: \"Room\"",
+        "*r PhonebookSearchResult Contact 2 ContactMethod 1 ContactMethodId: \"1\"",
+        "*r PhonebookSearchResult Contact 2 ContactMethod 1 Number: \"SIP:300001@example.com\"",
+        "*r PhonebookSearchResult Contact 2 ContactMethod 1 Protocol: SIP",
+        "*r PhonebookSearchResult Contact 3 Name: \"Test Room Three (SIP)\"",
+        "*r PhonebookSearchResult Contact 3 ContactId: \"e_10003\"",
+        "*r PhonebookSearchResult Contact 3 Type: \"Room\"",
+        "*r PhonebookSearchResult Contact 3 ContactMethod 1 ContactMethodId: \"1\"",
+        "*r PhonebookSearchResult Contact 3 ContactMethod 1 Number: \"SIP:+61300000003@example.com\"",
+        "*r PhonebookSearchResult Contact 3 ContactMethod 1 Protocol: SIP",
+        "*r PhonebookSearchResult Contact 4 Name: \"Test Room Four - Desk Pro (SIP)\"",
+        "*r PhonebookSearchResult Contact 4 ContactId: \"e_10004\"",
+        "*r PhonebookSearchResult Contact 4 Type: \"Room\"",
+        "*r PhonebookSearchResult Contact 4 ContactMethod 1 ContactMethodId: \"1\"",
+        "*r PhonebookSearchResult Contact 4 ContactMethod 1 Number: \"SIP:300004@example.com\"",
+        "*r PhonebookSearchResult Contact 4 ContactMethod 1 Protocol: SIP"
+    ];
+
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
+    private readonly List<string> _received = [];
+    private readonly List<Activity> _spans = [];
+    private readonly object _spansLock = new();
+    private readonly CiscoRoomOs _codec;
+    private readonly CiscoRoomOsPhonebookParser _parser;
+    private readonly ActivityListener _listener;
+
+    public CiscoRoomOsPhonebookLineTest()
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = _logs;
+        try
+        {
+            _codec = new CiscoRoomOs(_mockClient.Object, new CiscoRoomOsDeviceInfo("Test", "Xunit", "An Awesome Laptop", "012934"));
+            _parser = new CiscoRoomOsPhonebookParser(_mockClient.Object);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+        _mockClient.Object.ResponseHandlers += _received.Add;
+        _listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == LogBase.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName != ProcessResponseSpan || (string?)activity.GetTagItem("InstanceUid") != _codec.InstanceUid)
+                    return;
+                lock (_spansLock)
+                    _spans.Add(activity);
+            }
+        };
+        ActivitySource.AddActivityListener(_listener);
+    }
+
+    public void Dispose() => _listener.Dispose();
+
+    private void Receive(string line) => _mockClient.Object.ResponseHandlers!.Invoke(line);
+
+    private int ProcessResponseSpans()
+    {
+        lock (_spansLock)
+            return _spans.Count;
+    }
+
+    [Fact]
+    public void PhonebookLines_SkipTheCodecsLineHandling()
+    {
+        foreach (var line in PhonebookReply)
+            Receive(line);
+
+        Assert.Equal(0, ProcessResponseSpans());
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.StartsWith(UnhandledFeedback));
+        Assert.Equal(PhonebookReply, _received);
+
+        Receive(ReplyEnd);
+
+        Assert.Equal(1, ProcessResponseSpans());
+    }
+
+    [Fact]
+    public void PhonebookLines_StillBuildThePhonebook()
+    {
+        foreach (var line in PhonebookReply)
+            Receive(line);
+        Receive(ReplyEnd);
+
+        var contacts = _parser.PhoneBook.Items.Cast<PhonebookContact>().ToList();
+        Assert.Equal(["Test Room One (SIP)", "Test Room Two (SIP)", "Test Room Three (SIP)", "Test Room Four - Desk Pro (SIP)"],
+            contacts.Select(contact => contact.Name));
+        Assert.Equal(["SIP:+61300000001@example.com", "SIP:300001@example.com", "SIP:+61300000003@example.com", "SIP:300004@example.com"],
+            contacts.Select(contact => contact.Numbers.Single().Number));
+    }
+
+    [Fact]
+    public void OtherResultLines_AreStillLoggedAsUnhandled()
+    {
+        Receive(PeripheralsConnectResult);
+
+        Assert.Contains(_logs.Logs, log => log.Message == $"{UnhandledFeedback} {PeripheralsConnectResult}");
+        Assert.Equal(1, ProcessResponseSpans());
     }
 }

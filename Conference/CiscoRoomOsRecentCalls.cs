@@ -1,6 +1,5 @@
 using System.Linq;
 using AVCoders.Core;
-using Microsoft.Extensions.Logging;
 
 namespace AVCoders.Conference;
 
@@ -8,8 +7,9 @@ public record RecentCall(string Number, string Name);
 
 public class CiscoRoomOsRecentCalls
 {
+    private const string NumberField = "CallbackNumber:";
+    private const string NameField = "DisplayName:";
     private static readonly char[] LineSeparators = ['\r', '\n'];
-    private static ILogger Logger => LogBase.LoggerFactory.CreateLogger<CiscoRoomOsRecentCalls>();
     private readonly CommunicationClient _client;
     private readonly int _limit;
     private readonly List<RecentCall> _recentCalls = [];
@@ -80,17 +80,13 @@ public class CiscoRoomOsRecentCalls
             _recentCalls.Add(new RecentCall(string.Empty, string.Empty));
         }
 
-        var isNumber = response.Contains("CallbackNumber:");
-        if (!isNumber && !response.Contains("DisplayName:"))
+        var isNumber = response.Contains(NumberField);
+        if (!isNumber && !response.Contains(NameField))
             return;
 
-        if (!response.Contains('"'))
-        {
-            Logger.LogWarning("Ignoring an unquoted call history value: {Response}", response);
-            return;
-        }
-
-        var value = response.Split('"')[1];
+        var field = isNumber ? NumberField : NameField;
+        var received = response[(response.IndexOf(field, StringComparison.Ordinal) + field.Length)..].TrimStart();
+        var value = received.StartsWith('"') ? received.Split('"')[1] : received;
         _recentCalls[index] = isNumber
             ? _recentCalls[index] with { Number = value }
             : _recentCalls[index] with { Name = value };

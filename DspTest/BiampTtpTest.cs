@@ -1,18 +1,15 @@
-﻿using System.Collections;
-using System.Collections.Concurrent;
-using System.Diagnostics;
+﻿using System.Collections.Concurrent;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
-using Xunit.Abstractions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Time.Testing;
 
 namespace AVCoders.Dsp.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class BiampTtpTest
 {
-    private readonly ITestOutputHelper _testOutputHelper;
+    private readonly FakeTimeProvider _time = new();
     private readonly BiampTtp _dsp;
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
     private readonly Mock<MuteStateHandler> _muteStateHandler = new();
@@ -31,9 +28,6 @@ public class BiampTtpTest
     private const string UnknownControl = "Nowhere";
     private const string DisconnectedPollEvent = "IP Comms disconnected, not polling";
     private const string FirstQueryAfterReinitialise = $"{GainName} get maxLevel 1\n";
-    private const int WaitTimeoutMs = 15000;
-    private const int WaitStepMs = 50;
-    private const int LongAgoSeconds = 60;
     private const string FirmwareQueryCommand = "DEVICE get version\n";
     private const string SerialQueryCommand = "DEVICE get serialNumber\n";
     private const string DeviceInfoQueryCommand = "DEVICE get deviceInfo\n";
@@ -43,7 +37,7 @@ public class BiampTtpTest
     private const string VersionReply = TesiraReplies.Version;
     private const string OlderVersionReply = "+OK \"value\":\"4.2.1.23\"";
     private const string SerialReply = TesiraReplies.SerialNumber;
-    private const string UnsupportedAttributeError = TesiraReplies.UnsupportedDeviceAttribute;
+    private const string GeneralFailureError = "-ERR GENERAL_FAILURE";
     private const string FirmwareIssueKey = "firmware-read";
     private const string SerialIssueKey = "serial-read";
     private const string DeviceInfoIssueKey = "device-info-read";
@@ -52,14 +46,21 @@ public class BiampTtpTest
     private const string FaultsIssueKey = "fault-list-read";
     private const string SlowRepliesIssueKey = "slow-replies";
     private const string FirmwareHealthIssueKey = "firmware-health";
-    private const int SlowReplyMs = 700;
-    private const int FlaggedWithinMs = 2000;
-    private const int WindowCheckMarginMs = 300;
     private const string FanFaultIssueKey = "fault:04351854:FAULT_FAN_MALFUNCTION";
     private const string FanFault = """{"id":FAULT_FAN_MALFUNCTION "name":"Cooling fan malfunction.  Check filter and fan."}""";
     private const string FanFaultReply = $$"""+OK "value":[{"id":INDICATOR_MINOR_IN_DEVICE "name":"Minor Fault in Device" "faults":[{{FanFault}}] "serialNumber":"04351854"}]""";
     private const string ExpanderFaultReply = $$"""+OK "value":[{"id":INDICATOR_MINOR_IN_DEVICE "name":"Minor Fault in Device" "faults":[{{FanFault}}] "serialNumber":"04351854"} {"id":INDICATOR_MAJOR_IN_DEVICE "name":"Major Fault in Device" "faults":[{"id":FAULT_DSP_CARD "name":"One or more DSP cards failed to boot"}] "serialNumber":"01882935"}]""";
     private const string NotAStringReply = "+OK \"value\":-12.000000";
+    private const string NoModelReply = """+OK "info":{"deviceRevision":"Rev. A" "serialNumber":"04351854"}""";
+    private const string RecMicLevel = "rec_mic_level";
+    private const string RecMicLevelSubscription = "rec_mic_level subscribe level 1 AvCodersLevel-rec_mic_level-1\n";
+    private const string NoInterfacesReply ="""+OK "value":{"schemaVersion":2 "hostname":"TesiraForte04351854" "dnsStatus":{"primaryDNSServer":"10.1.0.1" "secondaryDNSServer":"" "domainName":"millpark.acarbone.com"}}""";
+    private static readonly TimeSpan Step = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan KeepAliveReplyWindow = TimeSpan.FromMilliseconds(BiampTtp.KeepAliveReplyWindowMs);
+    private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan InterruptedReplyTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan SlowReply = TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan OneTick = TimeSpan.FromMilliseconds(1);
     private static readonly Query FirmwareQuery = new("DEVICE", BiampQuery.Firmware, FirmwareQueryCommand);
     private static readonly Query SerialQuery = new("DEVICE", BiampQuery.Serial, SerialQueryCommand);
     private static readonly Query DeviceInfoQuery = new("DEVICE", BiampQuery.DeviceInfo, DeviceInfoQueryCommand);
@@ -72,45 +73,33 @@ public class BiampTtpTest
         $"{MuteName} subscribe mute 1 AvCodersMute-{MuteName}-1\n"
     ];
 
-    public BiampTtpTest(ITestOutputHelper testOutputHelper)
+    public BiampTtpTest()
     {
-        _testOutputHelper = testOutputHelper;
-        _dsp = new BiampTtp(_mockClient.Object, "Test", 100);
-        
+        _dsp = new BiampTtp(_mockClient.Object, "Test", PollIntervalMs, FaderCurve.Linear, _time);
+
         _mockClient.Setup(x => x.Send($"{GainName} get maxLevel 1\n"))
             .Callback(() => _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":12.000000\n"));
         _mockClient.Setup(x => x.Send($"{GainName} get minLevel 1\n"))
             .Callback(() => _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":0.000000\n"));
         _mockClient.Setup(x => x.Send($"{GainName} get level 1\n"))
             .Callback(() => _mockClient.Object.ResponseHandlers?.Invoke("+OK \"value\":3.000000\n"));
-        
+
         _dsp.AddControl(_volumeLevelHandler.Object, GainName);
         _dsp.AddControl(_muteStateHandler.Object, MuteName);
         _dsp.AddControl(_stringValueHandler.Object, StringName);
     }
 
     [Fact]
-    public void AddControl_WhileConnected_SubscribesToTheLevelStraightAway()
+    public void AddControl_WhileConnected_SubscribesStraightAway()
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
 
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
-
-        Assert.Contains($"{GainName} subscribe level 1 AvCodersLevel-{GainName}-1\n", client.Sent);
-    }
-
-    [Fact]
-    public void AddControl_WhileConnected_SubscribesToTheMuteStraightAway()
-    {
-        var client = new TestTcpClient();
-        client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
-
         dsp.AddControl(_muteStateHandler.Object, MuteName);
 
-        Assert.Contains($"{MuteName} subscribe mute 1 AvCodersMute-{MuteName}-1\n", client.Sent);
+        Assert.Equal(Subscriptions, client.Sent.Where(IsSubscribe));
     }
 
     [Fact]
@@ -118,7 +107,7 @@ public class BiampTtpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
 
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
         dsp.AddControl(_muteStateHandler.Object, MuteName);
@@ -131,13 +120,13 @@ public class BiampTtpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
         dsp.AddControl(_muteStateHandler.Object, MuteName);
-        await WaitUntil(() => dsp.Events.Any(e => e.Info == DisconnectedPollEvent));
+        await Wait.UntilAsync(_time, Step, () => dsp.Events.Any(e => e.Info == DisconnectedPollEvent), "the poll worker never ran");
 
         client.SetConnectionState(ConnectionState.Connected);
-        await WaitUntil(() => client.Sent.Contains(FirstQueryAfterReinitialise));
+        await Wait.UntilAsync(_time, Step, () => client.Sent.Contains(FirstQueryAfterReinitialise), "the first query after reinitialising was never sent");
 
         Assert.Equal(Subscriptions.Order(), client.Sent.Where(IsSubscribe).Order());
     }
@@ -147,7 +136,7 @@ public class BiampTtpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
         dsp.AddControl(_muteStateHandler.Object, MuteName);
 
@@ -192,7 +181,7 @@ public class BiampTtpTest
     public void SetLevel_WithPerceptualCurve_SendsTheCorrectDB(int percentage, string expectedCommand)
     {
         var client = TestFactory.CreateTcpClient();
-        var dsp = new BiampTtp(client.Object, "Perceptual", 100, FaderCurve.Perceptual);
+        var dsp = new BiampTtp(client.Object, "Perceptual", PollIntervalMs, FaderCurve.Perceptual, _time);
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
 
         dsp.SetLevel(GainName, percentage);
@@ -204,7 +193,7 @@ public class BiampTtpTest
     public void HandleResponse_WithPerceptualCurve_StoresThePercentage()
     {
         var client = TestFactory.CreateTcpClient();
-        var dsp = new BiampTtp(client.Object, "Perceptual", 100, FaderCurve.Perceptual);
+        var dsp = new BiampTtp(client.Object, "Perceptual", PollIntervalMs, FaderCurve.Perceptual, _time);
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
 
         client.Object.ResponseHandlers?.Invoke("! \"publishToken\":\"AvCodersLevel-Gain-1\" \"value\":-30.000000\n");
@@ -230,8 +219,7 @@ public class BiampTtpTest
         _dsp.RecallPreset(presetName);
         _mockClient.Verify(x => x.Send(expectedCommand));
     }
-    
-    
+
     [Theory]
     [InlineData(true, 5, "mic_press set state 5 true\n")]
     [InlineData(false,3, "mic_press set state 3 false\n")]
@@ -271,27 +259,17 @@ public class BiampTtpTest
         _mockClient.Verify(x => x.Send("room_mic_level set mute 5 false\n"));
     }
 
-    [Theory]
-    [InlineData(MuteState.On, "true")]
-    [InlineData(MuteState.Off, "false")]
-    public void BiampVolumeControl_SetAudioMute_UsesTheConfiguredIndex(MuteState state, string expectedValue)
-    {
-        var vc = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, _dsp);
-
-        vc.SetAudioMute(state);
-
-        _mockClient.Verify(x => x.Send($"room_mic_level set mute 5 {expectedValue}\n"));
-    }
-
     [Fact]
-    public void BiampVolumeControl_ToggleAudioMute_UsesTheConfiguredIndex()
+    public void BiampVolumeControl_MuteCommands_UseTheConfiguredIndex()
     {
         var vc = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, _dsp);
-        _mockClient.Object.ResponseHandlers?.Invoke("! \"publishToken\":\"AvCodersMute-room_mic_level-5\" \"value\":false\n");
 
+        vc.SetAudioMute(MuteState.On);
+        _mockClient.Object.ResponseHandlers?.Invoke("! \"publishToken\":\"AvCodersMute-room_mic_level-5\" \"value\":true\n");
         vc.ToggleAudioMute();
 
         _mockClient.Verify(x => x.Send("room_mic_level set mute 5 true\n"));
+        _mockClient.Verify(x => x.Send("room_mic_level set mute 5 false\n"));
     }
 
     [Fact]
@@ -313,7 +291,7 @@ public class BiampTtpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
 
         _ = new BiampVolumeControl(new BiampAudioBlockInfo("Bar 1", "room_mic_level", 5), VolumeType.Microphone, dsp);
 
@@ -326,7 +304,7 @@ public class BiampTtpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
 
         client.Disconnect();
 
@@ -338,12 +316,12 @@ public class BiampTtpTest
     {
         var client = new ReplyingTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
         var handled = new ConcurrentQueue<(int Level, string? TriggerId)>();
         Trigger.Start();
         dsp.AddControl(level => handled.Enqueue((level, Trigger.Id)), GainName);
 
-        await WaitUntil(() => handled.Any(x => x.Level > 0));
+        await Wait.UntilAsync(_time, Step, () => handled.Any(x => x.Level > 0), "the level reply was never handled");
 
         var levelReply = handled.First(x => x.Level > 0);
         Assert.NotNull(levelReply.TriggerId);
@@ -357,49 +335,23 @@ public class BiampTtpTest
         const string unansweredName = "Unanswered";
         var client = new ReplyingTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new BiampTtp(client, "Test", PollIntervalMs);
+        var dsp = Create(client);
         var handled = new ConcurrentQueue<(int Level, string? TriggerId)>();
         dsp.AddControl(_volumeLevelHandler.Object, unansweredName);
-        await WaitUntil(() => client.Sent.Contains($"{unansweredName} get maxLevel 1\n"));
+        await Wait.UntilAsync(_time, Step, () => client.Sent.Contains($"{unansweredName} get maxLevel 1\n"), "the unanswered query was never sent");
 
         Assert.Null(Trigger.Id);
         dsp.AddControl(level => handled.Enqueue((level, Trigger.Id)), GainName);
 
-        await WaitUntil(() => handled.Any(x => x.Level > 0));
+        await Wait.UntilAsync(_time, Step, () => handled.Any(x => x.Level > 0), "the level reply was never handled");
         Assert.Equal(ReplyingTcpClient.ReceiveTriggerId, handled.First(x => x.Level > 0).TriggerId);
-    }
-
-    [Fact]
-    public async Task PolledQuery_LogsUnderTheQuerysTriggerId()
-    {
-        var client = new ReplyingTcpClient();
-        client.SetConnectionState(ConnectionState.Connected);
-        var logs = new ScopeCapturingLoggerFactory();
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        BiampTtp dsp;
-        try
-        {
-            dsp = new BiampTtp(client, "Test", PollIntervalMs);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-        var levelQuery = $"{GainName} get level 1\n";
-        Trigger.Start();
-        dsp.AddControl(_volumeLevelHandler.Object, GainName);
-
-        await WaitUntil(() => logs.Logs.Any(x => x.Message == $"Polling for {levelQuery}"));
-
-        Assert.Equal(client.SentUnder(levelQuery), logs.Logs.First(x => x.Message == $"Polling for {levelQuery}").TriggerId);
     }
 
     [Fact]
     public void HandleResponse_AfterTheFaultListReply_HandlesTheRestOfTheLines()
     {
         var (client, dsp) = CreateConnectedDsp();
-        _ = dsp.PollNow();
+        _ = dsp.StartPoll();
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
 
         client.ResponseHandlers?.Invoke($"{TesiraReplies.NoFaults}\n! \"publishToken\":\"AvCodersLevel-Gain-1\" \"value\":-2.000000\n");
@@ -475,27 +427,6 @@ public class BiampTtpTest
     }
 
     [Fact]
-    public async Task SetLevel_WhileAQueryIsInFlight_AsksTheNextQueryAfterTheInterruptedReplyTimeout()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = new TestTcpClient();
-        client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = CreateLogged(logs, client);
-        dsp.AddControl(_volumeLevelHandler.Object, GainName);
-        SetPrivateField<CommunicationClient>(client, "_connectionState", ConnectionState.Connected);
-        await dsp.PollNow();
-        dsp.SetLevel(GainName, 50);
-        await dsp.PollNow();
-        Assert.DoesNotContain(MinLevelQuery, client.Sent);
-
-        SetPrivateField<BiampTtp>(dsp, "_interruptedAt", Stopwatch.GetTimestamp() - LongAgoSeconds * Stopwatch.Frequency);
-        await dsp.PollNow();
-
-        Assert.Equal(MinLevelQuery, client.Sent[^1]);
-        Assert.Contains(logs.Logs, x => x.Message == $"The interrupted query {MaxLevelQuery} was not answered, polling the next query");
-    }
-
-    [Fact]
     public async Task HandleResponse_GivenAnErrorReply_RaisesAnIssueAndAsksTheNextQuery()
     {
         const string errorReply = "-ERR address not found:{\"deviceId\":0 \"classCode\":0 \"instanceNum\":0}";
@@ -527,7 +458,7 @@ public class BiampTtpTest
 
         Assert.Contains($"{GainName} set level 1 -80\n", client.Sent);
         var issue = Assert.Single(dsp.GetIssues(), i => i.Key == "error-reply");
-        Assert.Equal($"The Tesira returned an error to a command: {errorReply}", issue.Message);
+        Assert.Equal($"The Tesira returned {errorReply} to {GainName} set level 1 -50", issue.Message);
     }
 
     [Fact]
@@ -585,10 +516,37 @@ public class BiampTtpTest
     }
 
     [Fact]
+    public void HandleResponse_GivenAlreadySubscribedToASubscription_RaisesNoIssue()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+        dsp.AddControl(_volumeLevelHandler.Object, RecMicLevel, 1);
+        Assert.Contains(RecMicLevelSubscription, client.Sent);
+
+        client.ResponseHandlers?.Invoke(TesiraReplies.AlreadySubscribed);
+
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
+    }
+
+    [Fact]
+    public async Task HandleResponse_AfterAlreadySubscribed_GivesTheNextErrorToTheQuery()
+    {
+        const string errorReply = "-ERR address not found";
+        var (client, dsp) = CreatePollingDsp();
+        dsp.AddControl(_muteStateHandler.Object, MuteName);
+        client.ResponseHandlers?.Invoke(TesiraReplies.AlreadySubscribed);
+        await dsp.PollNow();
+
+        client.ResponseHandlers?.Invoke($"{errorReply}\r\n");
+
+        var issue = Assert.Single(dsp.GetIssues(), i => i.Key == "error-reply");
+        Assert.Equal($"The Tesira returned an error to {MaxLevelQuery.Trim()}: {errorReply}", issue.Message);
+    }
+
+    [Fact]
     public void HandleResponse_GivenTheVersionReply_ShowsTheFirmware()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, FirmwareQuery, VersionReply);
 
@@ -600,7 +558,7 @@ public class BiampTtpTest
     public void HandleResponse_GivenTheSerialNumberReply_ShowsTheSerial()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, SerialQuery, SerialReply);
 
@@ -609,62 +567,100 @@ public class BiampTtpTest
     }
 
     [Theory]
-    [InlineData(BiampQuery.Firmware, FirmwareQueryCommand, FirmwareIssueKey, TesiraReplies.UnsupportedDeviceAttribute)]
-    [InlineData(BiampQuery.Serial, SerialQueryCommand, SerialIssueKey, TesiraReplies.UnsupportedDeviceAttribute)]
-    [InlineData(BiampQuery.DeviceInfo, DeviceInfoQueryCommand, DeviceInfoIssueKey, TesiraReplies.AttributeNotSupported)]
-    [InlineData(BiampQuery.NetworkStatus, NetworkStatusQueryCommand, NetworkStatusIssueKey, TesiraReplies.AttributeNotSupported)]
-    [InlineData(BiampQuery.Aliases, AliasesQueryCommand, AliasesIssueKey, TesiraReplies.UnsupportedSessionAttribute)]
-    public void HandleResponse_GivenAnErrorToADeviceQuery_RaisesAnOngoingIssueWithTheRawLine(BiampQuery query, string command, string issueKey, string error)
+    [InlineData(BiampQuery.Firmware, FirmwareQueryCommand, TesiraReplies.UnsupportedDeviceAttribute, new[] { "Firmware" })]
+    [InlineData(BiampQuery.Serial, SerialQueryCommand, TesiraReplies.UnsupportedDeviceAttribute, new[] { "Serial" })]
+    [InlineData(BiampQuery.DeviceInfo, DeviceInfoQueryCommand, TesiraReplies.AttributeNotSupported, new[] { "Model", "Revision" })]
+    [InlineData(BiampQuery.NetworkStatus, NetworkStatusQueryCommand, TesiraReplies.AttributeNotSupported, new[] { "Hostname", "DNS" })]
+    [InlineData(BiampQuery.Aliases, AliasesQueryCommand, TesiraReplies.UnsupportedSessionAttribute, new[] { "Missing Controls" })]
+    public void HandleResponse_GivenANotSupportedErrorToADeviceQuery_ShowsItIsNotSupportedWithNoIssue(BiampQuery query, string command, string error, string[] labels)
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
+        var communicationState = dsp.CommunicationState;
 
         AnswerTheQuery(client, dsp, new Query("DEVICE", query, command), error);
 
-        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == issueKey);
-        Assert.Equal($"The Tesira returned an error to {command.Trim()}: {error}", issue.Message);
-        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
+        foreach (var label in labels)
+            Assert.Equal(new DeviceDetail(label, $"Not supported: {error}", DetailTone.Normal), Detail(dsp, label));
+        Assert.Empty(dsp.GetIssues());
+        Assert.Equal(communicationState, dsp.CommunicationState);
     }
 
-    [Fact]
-    public void HandleResponse_GivenAVersionReplyThatIsNotAString_RaisesAnOngoingIssueWithTheRawLine()
+    [Theory]
+    [InlineData("-ERR INVALID_PARAMETER")]
+    [InlineData("-ERR address not found:{\"deviceId\":0 \"classCode\":0 \"instanceNum\":0}")]
+    [InlineData("-ERR GENERAL_FAILURE")]
+    public void HandleResponse_GivenAnyOtherErrorToADeviceQuery_CountsAMissAndRaisesTheReadIssueOnTheThird(string error)
     {
-        const string levelReply = "+OK \"value\":-12.000000";
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
-        AnswerTheQuery(client, dsp, FirmwareQuery, levelReply);
+        AnswerTheQuery(client, dsp, FirmwareQuery, error);
+        AnswerTheQuery(client, dsp, FirmwareQuery, error);
+
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == FirmwareIssueKey);
+
+        AnswerTheQuery(client, dsp, FirmwareQuery, error);
 
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FirmwareIssueKey);
-        Assert.Equal($"The Tesira's reply to DEVICE get version is not a firmware version: {levelReply}", issue.Message);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Equal($"The Tesira did not give a real reply to {FirmwareQueryCommand.Trim()} 3 times in a row, the last was {error}", issue.Message);
         Assert.Null(Detail(dsp, "Firmware"));
     }
 
+    [Theory]
+    [InlineData(BiampQuery.Firmware, FirmwareQueryCommand, FirmwareIssueKey, NotAStringReply, VersionReply, "Firmware")]
+    [InlineData(BiampQuery.DeviceInfo, DeviceInfoQueryCommand, DeviceInfoIssueKey, NoModelReply, TesiraReplies.DeviceInfo, "Model")]
+    [InlineData(BiampQuery.NetworkStatus, NetworkStatusQueryCommand, NetworkStatusIssueKey, NoInterfacesReply, TesiraReplies.NetworkStatus, "Hostname")]
+    [InlineData(BiampQuery.Aliases, AliasesQueryCommand, AliasesIssueKey, NotAStringReply, TesiraReplies.Aliases, "Missing Controls")]
+    public void HandleResponse_GivenThreeUnreadableDeviceRepliesInARow_ShowsTheRawLineAndRaisesTheReadIssueOnTheThird(
+        BiampQuery query, string command, string issueKey, string unreadable, string goodReply, string label)
+    {
+        var client = new TestTcpClient();
+        var dsp = new TestableBiampTtp(client, _time);
+        var deviceQuery = new Query("DEVICE", query, command);
+
+        AnswerTheQuery(client, dsp, deviceQuery, unreadable);
+        AnswerTheQuery(client, dsp, deviceQuery, unreadable);
+
+        Assert.Equal(new DeviceDetail(label, unreadable, DetailTone.Warning), Detail(dsp, label));
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == issueKey);
+
+        AnswerTheQuery(client, dsp, deviceQuery, unreadable);
+
+        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == issueKey);
+        Assert.Equal(IssueSeverity.Minor, issue.Severity);
+        Assert.Equal($"The Tesira did not give a real reply to {command.Trim()} 3 times in a row, the last was {unreadable}", issue.Message);
+
+        AnswerTheQuery(client, dsp, deviceQuery, goodReply);
+
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == issueKey);
+    }
+
     [Fact]
-    public void HandleResponse_GivenAnEmptySerialNumber_RaisesAnOngoingIssueWithTheRawLine()
+    public void HandleResponse_GivenAnEmptySerialNumber_ShowsTheRawLineWithNoIssue()
     {
         const string emptyReply = "+OK \"value\":\"\"";
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, SerialQuery, emptyReply);
 
-        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == SerialIssueKey);
-        Assert.Equal($"The Tesira's reply to DEVICE get serialNumber is not a serial number: {emptyReply}", issue.Message);
-        Assert.Null(Detail(dsp, "Serial"));
+        Assert.Equal(new DeviceDetail("Serial", emptyReply), Detail(dsp, "Serial"));
+        Assert.Empty(dsp.GetIssues());
     }
 
     [Fact]
     public void HandleResponse_GivenAnErrorAfterTheSerial_KeepsTheLastSerial()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, SerialQuery, SerialReply);
-        AnswerTheQuery(client, dsp, SerialQuery, UnsupportedAttributeError);
+        AnswerTheQuery(client, dsp, SerialQuery, GeneralFailureError);
 
         Assert.Equal("04351854", Detail(dsp, "Serial")?.Value);
-        Assert.Contains(dsp.GetOngoingIssues(), i => i.Key == SerialIssueKey);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == SerialIssueKey);
     }
 
     [Theory]
@@ -676,9 +672,10 @@ public class BiampTtpTest
     public void HandleResponse_GivenAGoodReplyAfterAnError_ResolvesTheIssue(BiampQuery query, string command, string issueKey, string reply)
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
-        AnswerTheQuery(client, dsp, new Query("DEVICE", query, command), TesiraReplies.AttributeNotSupported);
+        for (int i = 0; i < 3; i++)
+            AnswerTheQuery(client, dsp, new Query("DEVICE", query, command), GeneralFailureError);
         AnswerTheQuery(client, dsp, new Query("DEVICE", query, command), reply);
 
         Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == issueKey);
@@ -689,9 +686,10 @@ public class BiampTtpTest
     public void HandleResponse_GivenTheSerialAfterAFirmwareError_KeepsTheFirmwareIssue()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
-        AnswerTheQuery(client, dsp, FirmwareQuery, UnsupportedAttributeError);
+        for (int i = 0; i < 3; i++)
+            AnswerTheQuery(client, dsp, FirmwareQuery, GeneralFailureError);
         AnswerTheQuery(client, dsp, SerialQuery, SerialReply);
 
         Assert.Contains(dsp.GetOngoingIssues(), i => i.Key == FirmwareIssueKey);
@@ -703,13 +701,13 @@ public class BiampTtpTest
         string[] deviceQueries = [FirmwareQueryCommand, SerialQueryCommand, DeviceInfoQueryCommand, NetworkStatusQueryCommand, AliasesQueryCommand];
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
         client.SetConnectionState(ConnectionState.Connected);
 
         await dsp.PollNow();
         await ReadTheDevice(client, dsp, VersionReply);
         Assert.Equal(deviceQueries, client.Sent);
-        await dsp.Reinitialise();
+        await Finish(dsp.Reinitialise());
         await ReadTheDevice(client, dsp, OlderVersionReply);
 
         Assert.Equal(deviceQueries.Concat(deviceQueries), client.Sent);
@@ -723,7 +721,7 @@ public class BiampTtpTest
     public void HandleResponse_GivenTheDeviceInfoReply_ShowsTheModelAndRevision()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, DeviceInfoQuery, TesiraReplies.DeviceInfo);
 
@@ -733,24 +731,10 @@ public class BiampTtpTest
     }
 
     [Fact]
-    public void HandleResponse_GivenADeviceInfoReplyWithNoModel_RaisesAnOngoingIssueWithTheRawLine()
-    {
-        const string noModelReply = """+OK "info":{"deviceRevision":"Rev. A" "serialNumber":"04351854"}""";
-        var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
-
-        AnswerTheQuery(client, dsp, DeviceInfoQuery, noModelReply);
-
-        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == DeviceInfoIssueKey);
-        Assert.Equal($"The Tesira's reply to DEVICE get deviceInfo has no deviceModel or deviceRevision: {noModelReply}", issue.Message);
-        Assert.Null(Detail(dsp, "Model"));
-    }
-
-    [Fact]
     public void HandleResponse_GivenTheNetworkStatusReply_ShowsTheHostnameInterfacesAndDns()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, NetworkStatusQuery, TesiraReplies.NetworkStatus);
 
@@ -762,25 +746,11 @@ public class BiampTtpTest
     }
 
     [Fact]
-    public void HandleResponse_GivenANetworkStatusReplyWithNoInterfaces_RaisesAnOngoingIssueWithTheRawLine()
-    {
-        const string noInterfacesReply = """+OK "value":{"schemaVersion":2 "hostname":"TesiraForte04351854" "dnsStatus":{"primaryDNSServer":"10.1.0.1" "secondaryDNSServer":"" "domainName":"millpark.acarbone.com"}}""";
-        var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
-
-        AnswerTheQuery(client, dsp, NetworkStatusQuery, noInterfacesReply);
-
-        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == NetworkStatusIssueKey);
-        Assert.Equal($"The Tesira's reply to DEVICE get networkStatus has no hostname, networkInterfaceStatusWithName or dnsStatus: {noInterfacesReply}", issue.Message);
-        Assert.Null(Detail(dsp, "Hostname"));
-    }
-
-    [Fact]
     public void HandleResponse_GivenAnInterfaceThisDriverDoesNotRecognise_ShowsItsRawText()
     {
         const string oddInterfaceReply = """+OK "value":{"hostname":"TesiraForte04351854" "networkInterfaceStatusWithName":[{"interfaceId":"control" "networkInterfaceStatus":{"ip":"10.1.3.105" "linkStatus":LINK_1_GB}}] "dnsStatus":{"primaryDNSServer":"10.1.0.1" "secondaryDNSServer":"" "domainName":"millpark.acarbone.com"}}""";
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, NetworkStatusQuery, oddInterfaceReply);
 
@@ -791,7 +761,7 @@ public class BiampTtpTest
     public void HandleResponse_GivenTheAliasesWithEveryInstanceTag_ShowsNoMissingControls()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
         _ = new BiampVolumeControl(new BiampAudioBlockInfo("Level 1", "InputLevels", 1), VolumeType.Speaker, dsp);
 
         AnswerTheQuery(client, dsp, AliasesQuery, TesiraReplies.Aliases);
@@ -804,7 +774,7 @@ public class BiampTtpTest
     public void HandleResponse_GivenTheAliasesWithoutAnInstanceTag_ShowsItAsMissing()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
         dsp.AddControl(_muteStateHandler.Object, MuteName);
         _ = new BiampVolumeControl(new BiampAudioBlockInfo("Level 1", "InputLevels", 1), VolumeType.Speaker, dsp);
@@ -823,7 +793,7 @@ public class BiampTtpTest
     {
         const string restoredAliases = $$"""+OK "list":["Aec1" "DEVICE" "{{GainName}}" "InputLevels" "{{MuteName}}"]""";
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
         dsp.AddControl(_muteStateHandler.Object, MuteName);
         AnswerTheQuery(client, dsp, AliasesQuery, TesiraReplies.Aliases);
@@ -833,29 +803,6 @@ public class BiampTtpTest
         Assert.Null(Detail(dsp, "Missing Controls"));
         Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key.StartsWith("bad-control:"));
         Assert.Contains(dsp.GetIssues(), i => i.Key == $"bad-control:{GainName}" && i.Status == IssueStatus.Resolved);
-    }
-
-    [Fact]
-    public void HandleResponse_GivenAnAliasesReplyThatIsNotAList_RaisesAnOngoingIssueWithTheRawLine()
-    {
-        var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
-
-        AnswerTheQuery(client, dsp, AliasesQuery, NotAStringReply);
-
-        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == AliasesIssueKey);
-        Assert.Equal($"The Tesira's reply to SESSION get aliases is not a list of instance tags: {NotAStringReply}", issue.Message);
-    }
-
-    [Fact]
-    public void KeepAlive_GivenNoFaults_RaisesNoFaultIssues()
-    {
-        var (client, dsp) = CreateConnectedDsp();
-
-        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
-
-        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key.StartsWith("fault"));
-        Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
     }
 
     [Fact]
@@ -910,25 +857,49 @@ public class BiampTtpTest
     }
 
     [Fact]
-    public void KeepAlive_GivenAFaultListThatIsNotAList_RaisesAnOngoingIssueWithTheRawLine()
+    public void KeepAlive_GivenAFaultListThatIsNotAListThreeTimesInARow_RaisesTheReadIssueAndStillCountsAsAlive()
     {
         var (client, dsp) = CreateConnectedDsp();
 
         AnswerTheKeepAlive(client, dsp, VersionReply);
+        AnswerTheKeepAlive(client, dsp, VersionReply);
+
+        Assert.Equal(new DeviceDetail("Active Faults", VersionReply, DetailTone.Warning), Detail(dsp, "Active Faults"));
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == FaultsIssueKey);
+
+        AnswerTheKeepAlive(client, dsp, VersionReply);
 
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FaultsIssueKey);
-        Assert.Equal($"The Tesira's reply to DEVICE get activeFaultList is not a fault list: {VersionReply}", issue.Message);
+        Assert.Equal($"The Tesira did not give a real reply to DEVICE get activeFaultList 3 times in a row, the last was {VersionReply}", issue.Message);
+        Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
     }
 
     [Fact]
-    public void KeepAlive_GivenAnError_RaisesAnOngoingIssueWithTheRawLine()
+    public void KeepAlive_GivenANotSupportedError_ShowsItIsNotSupportedWithNoIssueAndCountsAsAlive()
     {
         var (client, dsp) = CreateConnectedDsp();
 
         AnswerTheKeepAlive(client, dsp, TesiraReplies.AttributeNotSupported);
 
+        Assert.Equal(new DeviceDetail("Active Faults", $"Not supported: {TesiraReplies.AttributeNotSupported}", DetailTone.Normal),
+            Detail(dsp, "Active Faults"));
+        Assert.NotNull(Detail(dsp, "Reply Time"));
+        Assert.Empty(dsp.GetIssues());
+        Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
+    }
+
+    [Fact]
+    public void KeepAlive_GivenAnyOtherErrorThreeTimesInARow_RaisesTheReadIssueWithTheRawLine()
+    {
+        var (client, dsp) = CreateConnectedDsp();
+
+        AnswerTheKeepAlive(client, dsp, GeneralFailureError);
+        AnswerTheKeepAlive(client, dsp, GeneralFailureError);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == FaultsIssueKey);
+        AnswerTheKeepAlive(client, dsp, GeneralFailureError);
+
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == FaultsIssueKey);
-        Assert.Equal($"The Tesira returned an error to DEVICE get activeFaultList: {TesiraReplies.AttributeNotSupported}", issue.Message);
+        Assert.Equal($"The Tesira did not give a real reply to DEVICE get activeFaultList 3 times in a row, the last was {GeneralFailureError}", issue.Message);
         Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
     }
 
@@ -936,7 +907,8 @@ public class BiampTtpTest
     public void KeepAlive_GivenAFaultListAfterAnError_ResolvesTheIssue()
     {
         var (client, dsp) = CreateConnectedDsp();
-        AnswerTheKeepAlive(client, dsp, TesiraReplies.AttributeNotSupported);
+        for (int i = 0; i < 3; i++)
+            AnswerTheKeepAlive(client, dsp, GeneralFailureError);
 
         AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
 
@@ -954,6 +926,7 @@ public class BiampTtpTest
         Assert.Equal(FaultsQueryCommand, Assert.Single(client.Sent));
         Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
         Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "unanswered-query");
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key.StartsWith("fault"));
     }
 
     [Fact]
@@ -963,33 +936,28 @@ public class BiampTtpTest
 
         AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
 
-        var replyTime = Detail(dsp, "Reply Time");
-        Assert.NotNull(replyTime);
-        Assert.Matches("^[0-9]+ ms$", replyTime.Value);
-        Assert.InRange(int.Parse(replyTime.Value.Split(' ')[0]), 0, BiampTtp.SlowKeepAliveReplyMs);
-        Assert.Equal(DetailTone.Normal, replyTime.Tone);
+        Assert.Equal(new DeviceDetail("Reply Time", "0 ms", DetailTone.Normal), Detail(dsp, "Reply Time"));
         Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == SlowRepliesIssueKey);
     }
 
     [Fact]
-    public void KeepAlive_GivenASlowReply_RaisesAnIssueWithTheTimeAndFirmware()
+    public async Task KeepAlive_GivenASlowReply_RaisesAnIssueWithTheTimeAndFirmware()
     {
         var (client, dsp) = CreateConnectedDsp();
         AnswerTheQuery(client, dsp, FirmwareQuery, VersionReply);
 
-        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
 
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == SlowRepliesIssueKey);
-        Assert.Matches(@"^The Tesira took 7\d\d ms to answer DEVICE get activeFaultList, over the 500 ms limit\. Firmware: 5\.2\.0\.8$", issue.Message);
-        Assert.Matches(@"^7\d\d ms$", Detail(dsp, "Reply Time")?.Value);
-        Assert.Equal(DetailTone.Warning, Detail(dsp, "Reply Time")?.Tone);
+        Assert.Equal("The Tesira took 700 ms to answer DEVICE get activeFaultList, over the 500 ms limit. Firmware: 5.2.0.8", issue.Message);
+        Assert.Equal(new DeviceDetail("Reply Time", "700 ms", DetailTone.Warning), Detail(dsp, "Reply Time"));
     }
 
     [Fact]
-    public void KeepAlive_GivenAFastReplyAfterASlowOne_ResolvesTheSlowIssue()
+    public async Task KeepAlive_GivenAFastReplyAfterASlowOne_ResolvesTheSlowIssue()
     {
         var (client, dsp) = CreateConnectedDsp();
-        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
 
         AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
 
@@ -999,31 +967,17 @@ public class BiampTtpTest
     }
 
     [Fact]
-    public async Task KeepAlive_GivenSlowRepliesInARow_ReconnectsAndLogsTheTimes()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var (client, dsp) = CreateConnectedDsp(logs);
-
-        for (int i = 0; i < BiampTtp.MaxSlowKeepAlives; i++)
-            AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
-        Assert.Equal(0, client.Reconnects);
-
-        await WaitUntil(() => client.Reconnects == 1);
-        Assert.Contains(logs.Logs, x => Regex.IsMatch(x.Message,
-            @"^The Tesira answered 3 keep-alives in a row slower than 500 ms \(7\d\d ms, 7\d\d ms, 7\d\d ms\), reconnecting$"));
-        Assert.Contains(dsp.Events, e => e.Info.StartsWith("Reconnecting: 3 keep-alive replies in a row were slower than 500 ms (7"));
-    }
-
-    [Fact]
-    public async Task KeepAlive_GivenNoReply_IsFlaggedWithinTheWindow()
+    public async Task KeepAlive_GivenNoReply_IsFlaggedAtTheEndOfTheWindow()
     {
         var (client, dsp) = CreateConnectedDsp();
-        var sinceSent = Stopwatch.StartNew();
 
-        _ = dsp.PollNow();
-        await WaitUntil(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"));
+        var poll = dsp.StartPoll();
+        _time.Advance(KeepAliveReplyWindow - OneTick);
+        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "unanswered-query");
+        _time.Advance(OneTick);
+        await Wait.UntilAsync(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"), "the missed keep-alive was never flagged");
+        await FinishTheKeepAlive(_time, poll);
 
-        Assert.InRange(sinceSent.ElapsedMilliseconds, BiampTtp.KeepAliveReplyWindowMs, FlaggedWithinMs);
         var issue = Assert.Single(dsp.GetIssues(), i => i.Key == "unanswered-query");
         Assert.Equal("The query DEVICE get activeFaultList was not answered within 1000 ms", issue.Message);
         Assert.Equal(FaultsQueryCommand, Assert.Single(client.Sent));
@@ -1036,31 +990,10 @@ public class BiampTtpTest
         var (client, dsp) = CreateConnectedDsp();
         SetPrivateField<BiampTtp>(dsp, "_missedKeepAlives", BiampTtp.MaxMissedKeepAlives - 1);
 
-        _ = dsp.PollNow();
-        await WaitUntil(() => client.Reconnects == 1);
+        await FinishTheKeepAlive(_time, dsp.StartPoll());
 
+        Assert.Equal(1, client.Reconnects);
         Assert.Contains(dsp.Events, e => e.Info == "Reconnecting: 3 keep-alives in a row were not answered within 1000 ms");
-    }
-
-    [Fact]
-    public async Task KeepAlive_GivenALateReply_DoesNotGiveItToTheNextQuery()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var (client, dsp) = CreateConnectedDsp(logs);
-        _ = dsp.PollNow();
-        await WaitUntil(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"));
-
-        dsp.AddControl(_volumeLevelHandler.Object, GainName);
-        _ = dsp.PollNow();
-        Assert.Equal(FaultsQueryCommand, client.Sent[^1]);
-        Assert.DoesNotContain(MaxLevelQuery, client.Sent);
-
-        client.ResponseHandlers?.Invoke($"{TesiraReplies.NoFaults}\r\n+OK\r\n{TesiraReplies.NoFaults}\r\n");
-        await dsp.PollNow();
-
-        Assert.Equal(MaxLevelQuery, client.Sent[^1]);
-        Assert.Contains(logs.Logs, x => Regex.IsMatch(x.Message, @"^The DEVICE get activeFaultList reply took \d{4,} ms, so it was already counted as missed$"));
-        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
     }
 
     [Fact]
@@ -1068,11 +1001,11 @@ public class BiampTtpTest
     {
         var (client, dsp) = CreateConnectedDsp();
         SetPrivateField<BiampTtp>(dsp, "_missedKeepAlives", BiampTtp.MaxMissedKeepAlives - 1);
-        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, TimeSpan.Zero);
 
-        _ = dsp.PollNow();
-        await WaitUntil(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"));
+        await FinishTheKeepAlive(_time, dsp.StartPoll());
 
+        Assert.Contains(dsp.GetIssues(), i => i.Key == "unanswered-query");
         Assert.Equal(0, client.Reconnects);
     }
 
@@ -1080,13 +1013,12 @@ public class BiampTtpTest
     public async Task KeepAlive_GivenAFastReply_StartsTheSlowCountAgain()
     {
         var (client, dsp) = CreateConnectedDsp();
-        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
-        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
-        AnswerTheKeepAlive(client, dsp, TesiraReplies.NoFaults);
-        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
-        AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
 
-        await Task.Delay(BiampTtp.KeepAliveReplyWindowMs + WindowCheckMarginMs);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, TimeSpan.Zero);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
+        await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
 
         Assert.Equal(0, client.Reconnects);
     }
@@ -1096,12 +1028,11 @@ public class BiampTtpTest
     {
         var (client, dsp) = CreateConnectedDsp();
         for (int i = 0; i < BiampTtp.MaxSlowKeepAlives; i++)
-            AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
-        await WaitUntil(() => client.Reconnects == 1);
+            await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
+        Assert.Equal(1, client.Reconnects);
 
         for (int i = 1; i < BiampTtp.MaxSlowKeepAlives; i++)
-            AnswerTheKeepAliveAfter(client, dsp, SlowReplyMs);
-        await Task.Delay(BiampTtp.KeepAliveReplyWindowMs + WindowCheckMarginMs);
+            await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
 
         Assert.Equal(1, client.Reconnects);
     }
@@ -1116,7 +1047,7 @@ public class BiampTtpTest
     public void HandleResponse_GivenUnhealthyFirmware_RaisesAnIssue(string firmware, string message, IssueSeverity severity)
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, FirmwareQuery, $"+OK \"value\":\"{firmware}\"");
 
@@ -1134,7 +1065,7 @@ public class BiampTtpTest
     public void HandleResponse_GivenHealthyFirmware_RaisesNoIssue(string firmware)
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
 
         AnswerTheQuery(client, dsp, FirmwareQuery, $"+OK \"value\":\"{firmware}\"");
 
@@ -1145,7 +1076,7 @@ public class BiampTtpTest
     public void HandleResponse_GivenHealthyFirmwareAfterUnhealthy_ResolvesTheIssue()
     {
         var client = new TestTcpClient();
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
         AnswerTheQuery(client, dsp, FirmwareQuery, VersionReply);
 
         AnswerTheQuery(client, dsp, FirmwareQuery, "+OK \"value\":\"5.7.0\"");
@@ -1154,61 +1085,29 @@ public class BiampTtpTest
         Assert.Contains(dsp.GetIssues(), i => i.Key == FirmwareHealthIssueKey && i.Status == IssueStatus.Resolved);
     }
 
-    [Fact]
-    public void StringValues_AreNotSupported_AndSayWhy()
+    private BiampTtp Create(TcpClient client) => new(client, "Test", PollIntervalMs, FaderCurve.Linear, _time);
+
+    private async Task Finish(Task task)
     {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = new TestTcpClient();
-        var dsp = CreateLogged(logs, client);
-
-        dsp.AddControl(_stringValueHandler.Object, StringName);
-        dsp.SetValue(StringName, "5");
-        var value = dsp.GetValue(StringName);
-
-        Assert.Equal("", value);
-        Assert.Empty(client.Sent);
-        Assert.Contains(logs.Logs, x => x.Message == $"Test does not support string values, {StringName} will never be reported");
-        Assert.Contains(logs.Logs, x => x.Message == $"Test does not support string values, not setting {StringName} to 5");
-        Assert.Contains(logs.Logs, x => x.Message == $"Test does not support string values, returning an empty value for {StringName}");
-    }
-
-    [Fact]
-    public void Commands_GivenAnUnknownControl_SendNothingAndLogTheValues()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = new TestTcpClient();
-        var dsp = CreateLogged(logs, client);
-
-        dsp.SetLevel(UnknownControl, 40);
-        dsp.LevelUp(UnknownControl, 3);
-        dsp.LevelDown(UnknownControl, 2);
-        dsp.ToggleAudioMute(UnknownControl);
-
-        Assert.Empty(client.Sent);
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, not setting it to 40");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, not raising it by 3");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, not lowering it by 2");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl} at index 1, not toggling it");
-    }
-
-    [Fact]
-    public void Gets_GivenAnUnknownControl_ReturnTheDefaultAndLog()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var dsp = CreateLogged(logs, new TestTcpClient());
-
-        Assert.Equal(0, dsp.GetLevel(UnknownControl));
-        Assert.Equal(MuteState.Unknown, dsp.GetAudioMute(UnknownControl));
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, returning 0");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl} at index 1, returning Unknown");
+        await Wait.UntilAsync(_time, Step, () => task.IsCompleted, "the task never finished");
+        await task;
     }
 
     private (TestTcpClient Client, TestableBiampTtp Dsp) CreatePollingDsp()
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new TestableBiampTtp(client);
+        var dsp = new TestableBiampTtp(client, _time);
         dsp.AddControl(_volumeLevelHandler.Object, GainName);
+        SetPrivateField<CommunicationClient>(client, "_connectionState", ConnectionState.Connected);
+        return (client, dsp);
+    }
+
+    private (TestTcpClient Client, TestableBiampTtp Dsp) CreateConnectedDsp()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = new TestableBiampTtp(client, _time);
         SetPrivateField<CommunicationClient>(client, "_connectionState", ConnectionState.Connected);
         return (client, dsp);
     }
@@ -1239,60 +1138,50 @@ public class BiampTtpTest
         }
     }
 
-    private static (TestTcpClient Client, TestableBiampTtp Dsp) CreateConnectedDsp(ScopeCapturingLoggerFactory? logs = null)
-    {
-        var client = new TestTcpClient();
-        client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = CreateLogged(logs ?? new ScopeCapturingLoggerFactory(), client);
-        SetPrivateField<CommunicationClient>(client, "_connectionState", ConnectionState.Connected);
-        return (client, dsp);
-    }
-
     private static void AnswerTheKeepAlive(TestTcpClient client, TestableBiampTtp dsp, string reply)
     {
-        _ = dsp.PollNow();
+        _ = dsp.StartPoll();
         client.ResponseHandlers?.Invoke($"{reply}\r\n");
     }
 
-    private static void AnswerTheKeepAliveAfter(TestTcpClient client, TestableBiampTtp dsp, int replyMs)
+    private static async Task AnswerTheKeepAliveAfter(FakeTimeProvider time, TestTcpClient client, TestableBiampTtp dsp, TimeSpan replyTime)
     {
-        _ = dsp.PollNow();
-        BackdateTheKeepAlives(dsp, replyMs);
+        var poll = dsp.StartPoll();
+        time.Advance(replyTime);
         client.ResponseHandlers?.Invoke($"{TesiraReplies.NoFaults}\r\n");
+        await FinishTheKeepAlive(time, poll);
     }
 
-    private static void BackdateTheKeepAlives(BiampTtp dsp, int milliseconds)
+    private static async Task FinishTheKeepAlive(FakeTimeProvider time, Task poll)
     {
-        var keepAlives = (IEnumerable)typeof(BiampTtp).GetField("_keepAlives", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(dsp)!;
-        foreach (var keepAlive in keepAlives)
-        {
-            var sentAt = keepAlive.GetType().GetProperty("SentAt")!;
-            sentAt.SetValue(keepAlive, (long)sentAt.GetValue(keepAlive)! - milliseconds * Stopwatch.Frequency / 1000);
-        }
+        await Wait.UntilAsync(time, KeepAliveInterval, () => poll.IsCompleted, "the keep-alive poll never finished");
+        await poll;
     }
 
     private static DeviceDetail? Detail(BiampTtp dsp, string label) => dsp.Details.SingleOrDefault(d => d.Label == label);
 
-    private static TestableBiampTtp CreateLogged(ScopeCapturingLoggerFactory logs, TcpClient client)
-    {
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return new TestableBiampTtp(client);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
     private static void SetPrivateField<T>(T target, string fieldName, object value) =>
         typeof(T).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(target, value);
 
-    private class TestableBiampTtp(TcpClient client) : BiampTtp(client, "Test", NeverPollMs)
+    private static bool IsSubscribe(string message) => message.Contains(" subscribe ");
+
+    private class TestableBiampTtp : BiampTtp
     {
-        public Task PollNow() => Poll(CancellationToken.None);
+        private readonly FakeTimeProvider _time;
+
+        public TestableBiampTtp(TcpClient client, FakeTimeProvider time) : base(client, "Test", NeverPollMs, FaderCurve.Linear, time)
+        {
+            _time = time;
+        }
+
+        public Task StartPoll() => Poll(CancellationToken.None);
+
+        public async Task PollNow()
+        {
+            var poll = StartPoll();
+            await Wait.UntilAsync(_time, Step, () => poll.IsCompleted, "the poll never finished");
+            await poll;
+        }
     }
 
     private class ReplyingTcpClient : TestTcpClient
@@ -1325,13 +1214,189 @@ public class BiampTtpTest
         }
     }
 
-    private static bool IsSubscribe(string message) => message.Contains(" subscribe ");
-
-    private static async Task WaitUntil(Func<bool> condition)
+    [Collection(LoggerFactoryCollection.Name)]
+    public class LogTest
     {
-        var deadline = DateTime.UtcNow.AddMilliseconds(WaitTimeoutMs);
-        while (!condition() && DateTime.UtcNow < deadline)
-            await Task.Delay(WaitStepMs);
-        Assert.True(condition());
+        private readonly FakeTimeProvider _time = new();
+        private readonly ScopeCapturingLoggerFactory _logs = new();
+        private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
+        private readonly Mock<StringValueHandler> _stringValueHandler = new();
+
+        [Fact]
+        public async Task PolledQuery_LogsUnderTheQuerysTriggerId()
+        {
+            var client = new ReplyingTcpClient();
+            client.SetConnectionState(ConnectionState.Connected);
+            var dsp = Logged.Create(_logs, () => new BiampTtp(client, "Test", PollIntervalMs, FaderCurve.Linear, _time));
+            var levelQuery = $"{GainName} get level 1\n";
+            Trigger.Start();
+            dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+            await Wait.UntilAsync(_time, Step, () => _logs.Logs.Any(x => x.Message == $"Polling for {levelQuery}"), "the level query was never polled");
+
+            Assert.Equal(client.SentUnder(levelQuery), _logs.Logs.First(x => x.Message == $"Polling for {levelQuery}").TriggerId);
+        }
+
+        [Fact]
+        public async Task SetLevel_WhileAQueryIsInFlight_AsksTheNextQueryAfterTheInterruptedReplyTimeout()
+        {
+            var client = new TestTcpClient();
+            client.SetConnectionState(ConnectionState.Disconnected);
+            var dsp = Logged.Create(_logs, () => new TestableBiampTtp(client, _time));
+            dsp.AddControl(_volumeLevelHandler.Object, GainName);
+            SetPrivateField<CommunicationClient>(client, "_connectionState", ConnectionState.Connected);
+            await dsp.PollNow();
+            dsp.SetLevel(GainName, 50);
+            await dsp.PollNow();
+            Assert.DoesNotContain(MinLevelQuery, client.Sent);
+
+            _time.Advance(InterruptedReplyTimeout);
+            await dsp.PollNow();
+
+            Assert.Equal(MinLevelQuery, client.Sent[^1]);
+            Assert.Contains(_logs.Logs, x => x.Message == $"The interrupted query {MaxLevelQuery} was not answered, polling the next query");
+        }
+
+        [Fact]
+        public async Task KeepAlive_GivenSlowRepliesInARow_ReconnectsAndLogsTheTimes()
+        {
+            var (client, dsp) = CreateConnectedDsp();
+
+            for (int i = 1; i < BiampTtp.MaxSlowKeepAlives; i++)
+                await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
+            Assert.Equal(0, client.Reconnects);
+            await AnswerTheKeepAliveAfter(_time, client, dsp, SlowReply);
+
+            Assert.Equal(1, client.Reconnects);
+            Assert.Contains(_logs.Logs, x => x.Message == "The Tesira answered 3 keep-alives in a row slower than 500 ms (700 ms, 700 ms, 700 ms), reconnecting");
+            Assert.Contains(dsp.Events, e => e.Info == "Reconnecting: 3 keep-alive replies in a row were slower than 500 ms (700 ms, 700 ms, 700 ms)");
+        }
+
+        [Fact]
+        public async Task KeepAlive_GivenALateReply_DoesNotGiveItToTheNextQuery()
+        {
+            var (client, dsp) = CreateConnectedDsp();
+            _ = dsp.StartPoll();
+            _time.Advance(KeepAliveReplyWindow);
+            await Wait.UntilAsync(() => dsp.GetIssues().Any(i => i.Key == "unanswered-query"), "the keep-alive was never counted as missed");
+
+            dsp.AddControl(_volumeLevelHandler.Object, GainName);
+            _ = dsp.StartPoll();
+            Assert.Equal(FaultsQueryCommand, client.Sent[^1]);
+            Assert.DoesNotContain(MaxLevelQuery, client.Sent);
+
+            client.ResponseHandlers?.Invoke($"{TesiraReplies.NoFaults}\r\n+OK\r\n{TesiraReplies.NoFaults}\r\n");
+            _ = dsp.StartPoll();
+
+            Assert.Equal(MaxLevelQuery, client.Sent[^1]);
+            Assert.Contains(_logs.Logs, x => x.Message == "The DEVICE get activeFaultList reply took 1000 ms, so it was already counted as missed");
+            Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == "error-reply");
+        }
+
+        [Fact]
+        public void AlreadySubscribed_LogsAtVerboseUnderTheSubscriptionsTriggerId()
+        {
+            var (client, dsp) = CreateConnectedDsp();
+            var subscribeTrigger = Trigger.Start();
+            dsp.AddControl(_volumeLevelHandler.Object, RecMicLevel, 1);
+
+            using (Trigger.Resume(ReplyingTcpClient.ReceiveTriggerId))
+                client.ResponseHandlers?.Invoke(TesiraReplies.AlreadySubscribed);
+
+            var log = Assert.Single(_logs.Logs,
+                x => x.Message == $"The subscription {RecMicLevelSubscription.Trim()} is still in place: {TesiraReplies.AlreadySubscribed}");
+            Assert.Equal(LogLevel.Trace, log.Level);
+            Assert.Equal(subscribeTrigger, log.TriggerId);
+            Assert.DoesNotContain(_logs.Logs, x => x.Level >= LogLevel.Warning);
+        }
+
+        [Fact]
+        public void OkReply_LogsAtVerboseUnderTheCommandsTriggerId()
+        {
+            var (client, dsp) = CreateConnectedDsp();
+            var subscribeTrigger = Trigger.Start();
+            dsp.AddControl(_volumeLevelHandler.Object, RecMicLevel, 1);
+
+            using (Trigger.Resume(ReplyingTcpClient.ReceiveTriggerId))
+                client.ResponseHandlers?.Invoke(TesiraReplies.Ok);
+
+            var log = Assert.Single(_logs.Logs, x => x.Message == $"The Tesira answered {RecMicLevelSubscription.Trim()} with {TesiraReplies.Ok}");
+            Assert.Equal(LogLevel.Trace, log.Level);
+            Assert.Equal(subscribeTrigger, log.TriggerId);
+        }
+
+        [Fact]
+        public void ErrorReplyToACommand_LogsTheIssueUnderTheCommandsTriggerId()
+        {
+            const string errorReply = "-ERR INVALID_PARAMETER Value out of range: attr:level min:-100 max:12 val:20";
+            var (client, dsp) = CreateConnectedDsp();
+            dsp.AddControl(_volumeLevelHandler.Object, GainName);
+            client.ResponseHandlers?.Invoke(TesiraReplies.Ok);
+            var setTrigger = Trigger.Start();
+            dsp.SetLevel(GainName, 50);
+
+            using (Trigger.Resume(ReplyingTcpClient.ReceiveTriggerId))
+                client.ResponseHandlers?.Invoke(errorReply);
+
+            var log = Assert.Single(_logs.Logs, x => x.Message == $"The Tesira returned {errorReply} to {GainName} set level 1 -50");
+            Assert.Equal(LogLevel.Warning, log.Level);
+            Assert.Equal(setTrigger, log.TriggerId);
+            Assert.Single(dsp.GetIssues(), i => i.Key == "error-reply" && i.Status == IssueStatus.Momentary);
+        }
+
+        [Fact]
+        public void StringValues_AreNotSupported_AndSayWhy()
+        {
+            var client = new TestTcpClient();
+            var dsp = Logged.Create(_logs, () => new TestableBiampTtp(client, _time));
+
+            dsp.AddControl(_stringValueHandler.Object, StringName);
+            dsp.SetValue(StringName, "5");
+            var value = dsp.GetValue(StringName);
+
+            Assert.Equal("", value);
+            Assert.Empty(client.Sent);
+            Assert.Contains(_logs.Logs, x => x.Message == $"Test does not support string values, {StringName} will never be reported");
+            Assert.Contains(_logs.Logs, x => x.Message == $"Test does not support string values, not setting {StringName} to 5");
+            Assert.Contains(_logs.Logs, x => x.Message == $"Test does not support string values, returning an empty value for {StringName}");
+        }
+
+        [Fact]
+        public void Commands_GivenAnUnknownControl_SendNothingAndLogTheValues()
+        {
+            var client = new TestTcpClient();
+            var dsp = Logged.Create(_logs, () => new TestableBiampTtp(client, _time));
+
+            dsp.SetLevel(UnknownControl, 40);
+            dsp.LevelUp(UnknownControl, 3);
+            dsp.LevelDown(UnknownControl, 2);
+            dsp.ToggleAudioMute(UnknownControl);
+
+            Assert.Empty(client.Sent);
+            Assert.Contains(_logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, not setting it to 40");
+            Assert.Contains(_logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, not raising it by 3");
+            Assert.Contains(_logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, not lowering it by 2");
+            Assert.Contains(_logs.Logs, x => x.Message == $"Unknown mute {UnknownControl} at index 1, not toggling it");
+        }
+
+        [Fact]
+        public void Gets_GivenAnUnknownControl_ReturnTheDefaultAndLog()
+        {
+            var dsp = Logged.Create(_logs, () => new TestableBiampTtp(new TestTcpClient(), _time));
+
+            Assert.Equal(0, dsp.GetLevel(UnknownControl));
+            Assert.Equal(MuteState.Unknown, dsp.GetAudioMute(UnknownControl));
+            Assert.Contains(_logs.Logs, x => x.Message == $"Unknown level {UnknownControl} at index 1, returning 0");
+            Assert.Contains(_logs.Logs, x => x.Message == $"Unknown mute {UnknownControl} at index 1, returning Unknown");
+        }
+
+        private (TestTcpClient Client, TestableBiampTtp Dsp) CreateConnectedDsp()
+        {
+            var client = new TestTcpClient();
+            client.SetConnectionState(ConnectionState.Disconnected);
+            var dsp = Logged.Create(_logs, () => new TestableBiampTtp(client, _time));
+            SetPrivateField<CommunicationClient>(client, "_connectionState", ConnectionState.Connected);
+            return (client, dsp);
+        }
     }
 }

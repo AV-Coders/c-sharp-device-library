@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AVCoders.Core;
@@ -79,6 +78,7 @@ public class BiampTtp : Dsp
     public const int MaxMissedKeepAlives = 3;
     public const int MaxSlowKeepAlives = 3;
     private const int KeepAliveIntervalMs = 10000;
+    private const int MaxMissedReplies = 3;
     private const string UnansweredQueryIssueKey = "unanswered-query";
     private const string SlowRepliesIssueKey = "slow-replies";
     private const string FirmwareHealthIssueKey = "firmware-health";
@@ -99,6 +99,10 @@ public class BiampTtp : Dsp
     private const string DnsLabel = "DNS";
     private const string MissingControlsLabel = "Missing Controls";
     private const string ReplyTimeLabel = "Reply Time";
+    private const string ActiveFaultsLabel = "Active Faults";
+    private const string AttributeNotSupportedError = "ATTRIBUTE_NOT_SUPPORTED";
+    private const string AlreadySubscribedError = "ALREADY_SUBSCRIBED";
+    private const string NotSupportedByError = "is not supported by";
     private const string FirmwareCommand = "DEVICE get version";
     private const string SerialCommand = "DEVICE get serialNumber";
     private const string DeviceInfoCommand = "DEVICE get deviceInfo";
@@ -120,6 +124,13 @@ public class BiampTtp : Dsp
     private static readonly Query AliasesQuery = new("SESSION", BiampQuery.Aliases, $"{AliasesCommand}\n");
     private static readonly Regex QueryReplyParser = new($"^\\+OK \"\\w+\":(?<{ReplyValueGroup}>.*)$", RegexOptions.None, TimeSpan.FromMilliseconds(200));
     private static readonly TimeSpan InterruptedReplyTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DisconnectedPollWait = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan UnansweredQueryWait = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan QueryGap = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan SubscriptionGap = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan ReinitialiseSettleTime = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan KeepAliveReplyWindow = TimeSpan.FromMilliseconds(KeepAliveReplyWindowMs);
+    private static readonly TimeSpan KeepAliveRest = TimeSpan.FromMilliseconds(KeepAliveIntervalMs - KeepAliveReplyWindowMs);
     private static readonly Version MinimumV4Firmware = new(4, 11);
     private static readonly Version MinimumV5Firmware = new(5, 7);
     private readonly Dictionary<string, BiampGain> _gains = new();
@@ -143,13 +154,21 @@ public class BiampTtp : Dsp
     private readonly List<long> _slowReplyTimes = [];
     private readonly object _keepAlivesLock = new();
     private int _missedKeepAlives;
+    private readonly Dictionary<string, int> _missedReplies = new();
+    private readonly object _missedRepliesLock = new();
     private bool _clientHasReconnectedSinceLastPollLoop;
     private int _initialising;
-    private int _outstandingCommands;
+    private readonly Queue<OutstandingCommand> _outstandingCommands = new();
     private readonly object _outstandingCommandsLock = new();
     private readonly FaderCurve _faderCurve;
 
-    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200, FaderCurve faderCurve = FaderCurve.Linear) : base(name, commsClient, pollIntervalInMilliseconds)
+    public BiampTtp(CommunicationClient commsClient, string name = "Biamp", int pollIntervalInMilliseconds = 200, FaderCurve faderCurve = FaderCurve.Linear)
+        : this(commsClient, name, pollIntervalInMilliseconds, faderCurve, null)
+    {
+    }
+
+    internal BiampTtp(CommunicationClient commsClient, string name, int pollIntervalInMilliseconds, FaderCurve faderCurve, TimeProvider? timeProvider)
+        : base(name, commsClient, pollIntervalInMilliseconds, timeProvider)
     {
         _faderCurve = faderCurve;
         CommunicationClient.ResponseHandlers += HandleResponse;
@@ -176,7 +195,9 @@ public class BiampTtp : Dsp
             if (connectionState == ConnectionState.Connected)
             {
                 lock (_outstandingCommandsLock)
-                    _outstandingCommands = 0;
+                    _outstandingCommands.Clear();
+                lock (_missedRepliesLock)
+                    _missedReplies.Clear();
                 ForgetTheKeepAlives();
                 _clientHasReconnectedSinceLastPollLoop = true;
                 PollWorker.Restart();
@@ -196,32 +217,27 @@ public class BiampTtp : Dsp
             lock (_interruptedQueryLock)
             {
                 _interruptedQuery = interrupted;
-                _interruptedAt = Stopwatch.GetTimestamp();
+                _interruptedAt = TimeProvider.GetTimestamp();
             }
             _pendingQueries.Enqueue(interrupted);
         }
         _currentQuery = null;
         lock (_outstandingCommandsLock)
-            _outstandingCommands++;
+            _outstandingCommands.Enqueue(new OutstandingCommand(command, Trigger.Id));
         CommunicationClient.Send(command);
     }
 
     private void SendSubscription(string subscription)
     {
         lock (_outstandingCommandsLock)
-            _outstandingCommands++;
+            _outstandingCommands.Enqueue(new OutstandingCommand(subscription, Trigger.Id));
         CommunicationClient.Send(subscription);
     }
 
-    private bool TakeOutstandingCommand()
+    private OutstandingCommand? TakeOutstandingCommand()
     {
         lock (_outstandingCommandsLock)
-        {
-            if (_outstandingCommands == 0)
-                return false;
-            _outstandingCommands--;
-            return true;
-        }
+            return _outstandingCommands.TryDequeue(out var command) ? command : null;
     }
 
     private Query? TakeInterruptedQuery()
@@ -242,7 +258,7 @@ public class BiampTtp : Dsp
             interrupted = _interruptedQuery;
             if (interrupted == null)
                 return false;
-            if (Stopwatch.GetElapsedTime(_interruptedAt) < InterruptedReplyTimeout)
+            if (TimeProvider.GetElapsedTime(_interruptedAt) < InterruptedReplyTimeout)
                 return true;
             _interruptedQuery = null;
         }
@@ -259,7 +275,7 @@ public class BiampTtp : Dsp
             if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             {
                 AddEvent(EventType.Other, "IP Comms disconnected, not polling");
-                await Task.Delay(TimeSpan.FromSeconds(10), token);
+                await Task.Delay(DisconnectedPollWait, TimeProvider, token);
                 return;
             }
 
@@ -282,7 +298,7 @@ public class BiampTtp : Dsp
                     LogWarning("The query {query} was not answered, momentarily slowing down", current.DspCommand);
                 }
                 _pendingQueries.Enqueue(current);
-                await Task.Delay(TimeSpan.FromSeconds(1), token);
+                await Task.Delay(UnansweredQueryWait, TimeProvider, token);
                 _currentQuery = null;
                 return;
             }
@@ -299,7 +315,7 @@ public class BiampTtp : Dsp
                     _currentQuery = query;
                     CommunicationClient.Send(query.DspCommand);
                 }
-                await Task.Delay(TimeSpan.FromMilliseconds(100), token);
+                await Task.Delay(QueryGap, TimeProvider, token);
             }
             else
             {
@@ -333,10 +349,10 @@ public class BiampTtp : Dsp
                 foreach (var subscriptionCommand in subscriptions)
                 {
                     SendSubscription(subscriptionCommand);
-                    await Task.Delay(TimeSpan.FromMilliseconds(100), token);
+                    await Task.Delay(SubscriptionGap, TimeProvider, token);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(4), token);
+                await Task.Delay(ReinitialiseSettleTime, TimeProvider, token);
 
                 lock (_moduleQueriesLock)
                 {
@@ -372,18 +388,18 @@ public class BiampTtp : Dsp
 
     private async Task SendTheKeepAlive(CancellationToken token)
     {
-        var keepAlive = new KeepAlive(Stopwatch.GetTimestamp(), Trigger.Id);
+        var keepAlive = new KeepAlive(TimeProvider.GetTimestamp(), Trigger.Id);
         lock (_keepAlivesLock)
             _keepAlives.Enqueue(keepAlive);
         CommunicationClient.Send(KeepAliveRequest);
 
-        await Task.Delay(KeepAliveReplyWindowMs, token);
+        await Task.Delay(KeepAliveReplyWindow, TimeProvider, token);
         if (TryMarkMissed(keepAlive))
             HandleMissedKeepAlive(keepAlive);
         else if (TakeTooManySlowReplyTimes() is { } slowReplyTimes)
             ReconnectAfterSlowKeepAlives(slowReplyTimes);
 
-        await Task.Delay(KeepAliveIntervalMs - KeepAliveReplyWindowMs, token);
+        await Task.Delay(KeepAliveRest, TimeProvider, token);
     }
 
     private bool KeepAliveIsOwed()
@@ -489,13 +505,13 @@ public class BiampTtp : Dsp
         using (PushProperties("HandleKeepAliveError"))
         {
             TimeTheKeepAlive(keepAlive);
-            RaiseOngoingIssue(FaultsIssueKey, $"The Tesira returned an error to {FaultsCommand}: {line}", IssueSeverity.Minor);
+            HandleReadError(FaultsIssueKey, FaultsCommand, line, ActiveFaultsLabel);
         }
     }
 
     private void TimeTheKeepAlive(KeepAlive keepAlive)
     {
-        long replyMs = (long)Stopwatch.GetElapsedTime(keepAlive.SentAt).TotalMilliseconds;
+        long replyMs = (long)TimeProvider.GetElapsedTime(keepAlive.SentAt).TotalMilliseconds;
         CommunicationState = CommunicationState.Okay;
         SetDetail(ReplyTimeLabel, $"{replyMs} ms", replyMs > SlowKeepAliveReplyMs ? DetailTone.Warning : DetailTone.Normal);
         if (keepAlive.Missed)
@@ -551,7 +567,8 @@ public class BiampTtp : Dsp
                 }
                 else if (line.StartsWith(PlainReplyPrefix))
                 {
-                    TakeOutstandingCommand();
+                    if (TakeOutstandingCommand() is { } command)
+                        HandleCommandReply(command, line);
                 }
                 else if (line.StartsWith(ErrorReplyPrefix))
                 {
@@ -586,12 +603,30 @@ public class BiampTtp : Dsp
         }
     }
 
+    private void HandleCommandReply(OutstandingCommand command, string line)
+    {
+        using (Trigger.Resume(command.TriggerId))
+        using (PushProperties("HandleCommandReply"))
+            LogVerbose("The Tesira answered {Command} with {Reply}", command.Command.Trim(), line);
+    }
+
+    private void HandleCommandError(OutstandingCommand command, string line)
+    {
+        using (Trigger.Resume(command.TriggerId))
+        using (PushProperties("HandleCommandError"))
+        {
+            if (line.Contains(AlreadySubscribedError))
+                LogVerbose("The subscription {Command} is still in place: {Reply}", command.Command.Trim(), line);
+            else
+                RaiseMomentaryIssue($"The Tesira returned {line} to {command.Command.Trim()}", ErrorReplyIssueKey);
+        }
+    }
+
     private void HandleErrorReply(string line)
     {
-        if (TakeOutstandingCommand())
+        if (TakeOutstandingCommand() is { } command)
         {
-            using (PushProperties("HandleErrorReply"))
-                RaiseMomentaryIssue($"The Tesira returned an error to a command: {line}", ErrorReplyIssueKey);
+            HandleCommandError(command, line);
             return;
         }
         if (TakeKeepAlive() is { } keepAlive)
@@ -608,19 +643,19 @@ public class BiampTtp : Dsp
             switch (current?.BiampQuery)
             {
                 case BiampQuery.Firmware:
-                    RaiseOngoingIssue(FirmwareIssueKey, $"The Tesira returned an error to {FirmwareCommand}: {line}", IssueSeverity.Minor);
+                    HandleReadError(FirmwareIssueKey, FirmwareCommand, line, FirmwareLabel);
                     break;
                 case BiampQuery.Serial:
-                    RaiseOngoingIssue(SerialIssueKey, $"The Tesira returned an error to {SerialCommand}: {line}", IssueSeverity.Minor);
+                    HandleReadError(SerialIssueKey, SerialCommand, line, SerialLabel);
                     break;
                 case BiampQuery.DeviceInfo:
-                    RaiseOngoingIssue(DeviceInfoIssueKey, $"The Tesira returned an error to {DeviceInfoCommand}: {line}", IssueSeverity.Minor);
+                    HandleReadError(DeviceInfoIssueKey, DeviceInfoCommand, line, ModelLabel, RevisionLabel);
                     break;
                 case BiampQuery.NetworkStatus:
-                    RaiseOngoingIssue(NetworkStatusIssueKey, $"The Tesira returned an error to {NetworkStatusCommand}: {line}", IssueSeverity.Minor);
+                    HandleReadError(NetworkStatusIssueKey, NetworkStatusCommand, line, HostnameLabel, DnsLabel);
                     break;
                 case BiampQuery.Aliases:
-                    RaiseOngoingIssue(AliasesIssueKey, $"The Tesira returned an error to {AliasesCommand}: {line}", IssueSeverity.Minor);
+                    HandleReadError(AliasesIssueKey, AliasesCommand, line, MissingControlsLabel);
                     break;
                 default:
                     RaiseMomentaryIssue(current == null
@@ -630,6 +665,61 @@ public class BiampTtp : Dsp
                     break;
             }
         }
+    }
+
+    private void HandleReadError(string issueKey, string command, string line, params string[] labels)
+    {
+        if (!line.Contains(AttributeNotSupportedError) && !line.Contains(NotSupportedByError))
+        {
+            CountMissedReply(issueKey, command, line);
+            return;
+        }
+        string notSupported = $"Not supported: {line}";
+        if (labels.Any(label => !Details.Contains(new DeviceDetail(label, notSupported))))
+            LogInformation("The Tesira does not support {Command}: {Reply}", command, line);
+        foreach (var label in labels)
+            SetDetail(label, notSupported, DetailTone.Normal);
+        ReadAnswered(issueKey);
+    }
+
+    private void CountGarbledReply(string issueKey, string command, string line, params string[] labels)
+    {
+        foreach (var label in labels)
+            SetDetail(label, line, DetailTone.Warning);
+        CountMissedReply(issueKey, command, line);
+    }
+
+    private void CountMissedReply(string issueKey, string command, string line)
+    {
+        int missed;
+        lock (_missedRepliesLock)
+        {
+            missed = _missedReplies.GetValueOrDefault(issueKey) + 1;
+            _missedReplies[issueKey] = missed;
+        }
+        if (missed < MaxMissedReplies)
+        {
+            LogInformation("The Tesira gave {Reply} to {Command}, asking again at the next read ({Missed} of {MaxMissedReplies})",
+                line, command, missed, MaxMissedReplies);
+            return;
+        }
+        RaiseOngoingIssue(issueKey,
+            $"The Tesira did not give a real reply to {command} {MaxMissedReplies} times in a row, the last was {line}",
+            IssueSeverity.Minor);
+    }
+
+    private void ShowEmptyValue(string issueKey, string line, params string[] labels)
+    {
+        foreach (var label in labels)
+            SetDetail(label, line, DetailTone.Normal);
+        ReadAnswered(issueKey);
+    }
+
+    private void ReadAnswered(string issueKey)
+    {
+        lock (_missedRepliesLock)
+            _missedReplies.Remove(issueKey);
+        ResolveIssue(issueKey);
     }
 
     private void AllocateValueToBlock(string value, string line)
@@ -703,13 +793,18 @@ public class BiampTtp : Dsp
 
     private void ShowFirmware(string value, string line)
     {
+        if (value == EmptyTtpString)
+        {
+            ShowEmptyValue(FirmwareIssueKey, line, FirmwareLabel);
+            return;
+        }
         if (!IsNonEmptyTtpString(value))
         {
-            RaiseOngoingIssue(FirmwareIssueKey, $"The Tesira's reply to {FirmwareCommand} is not a firmware version: {line}", IssueSeverity.Minor);
+            CountGarbledReply(FirmwareIssueKey, FirmwareCommand, line, FirmwareLabel);
             return;
         }
         SetDetail(FirmwareLabel, value[1..^1]);
-        ResolveIssue(FirmwareIssueKey);
+        ReadAnswered(FirmwareIssueKey);
         CheckTheFirmwareIsHealthy(value[1..^1]);
     }
 
@@ -728,13 +823,18 @@ public class BiampTtp : Dsp
 
     private void ShowSerial(string value, string line)
     {
+        if (value == EmptyTtpString)
+        {
+            ShowEmptyValue(SerialIssueKey, line, SerialLabel);
+            return;
+        }
         if (!IsNonEmptyTtpString(value))
         {
-            RaiseOngoingIssue(SerialIssueKey, $"The Tesira's reply to {SerialCommand} is not a serial number: {line}", IssueSeverity.Minor);
+            CountGarbledReply(SerialIssueKey, SerialCommand, line, SerialLabel);
             return;
         }
         SetDetail(SerialLabel, value[1..^1]);
-        ResolveIssue(SerialIssueKey);
+        ReadAnswered(SerialIssueKey);
     }
 
     private static bool IsNonEmptyTtpString(string value) =>
@@ -747,12 +847,12 @@ public class BiampTtp : Dsp
         string? revision = StringProperty(info, "deviceRevision");
         if (model == null || revision == null)
         {
-            RaiseOngoingIssue(DeviceInfoIssueKey, $"The Tesira's reply to {DeviceInfoCommand} has no deviceModel or deviceRevision: {line}", IssueSeverity.Minor);
+            CountGarbledReply(DeviceInfoIssueKey, DeviceInfoCommand, line, ModelLabel, RevisionLabel);
             return;
         }
         SetDetail(ModelLabel, model);
         SetDetail(RevisionLabel, revision);
-        ResolveIssue(DeviceInfoIssueKey);
+        ReadAnswered(DeviceInfoIssueKey);
     }
 
     private void ShowNetworkStatus(string value, string line)
@@ -763,14 +863,14 @@ public class BiampTtp : Dsp
         var dns = Property(status, "dnsStatus", JsonValueKind.Object);
         if (hostname == null || interfaces == null || dns == null)
         {
-            RaiseOngoingIssue(NetworkStatusIssueKey, $"The Tesira's reply to {NetworkStatusCommand} has no hostname, networkInterfaceStatusWithName or dnsStatus: {line}", IssueSeverity.Minor);
+            CountGarbledReply(NetworkStatusIssueKey, NetworkStatusCommand, line, HostnameLabel, DnsLabel);
             return;
         }
         SetDetail(HostnameLabel, hostname);
         foreach (var networkInterface in interfaces.Value.EnumerateArray())
             SetDetail(StringProperty(networkInterface, "interfaceId") ?? networkInterface.GetRawText(), InterfaceText(networkInterface));
         SetDetail(DnsLabel, DnsText(dns.Value));
-        ResolveIssue(NetworkStatusIssueKey);
+        ReadAnswered(NetworkStatusIssueKey);
     }
 
     private static string InterfaceText(JsonElement networkInterface)
@@ -803,10 +903,10 @@ public class BiampTtp : Dsp
         if (aliases is not { ValueKind: JsonValueKind.Array } aliasList
             || aliasList.EnumerateArray().Any(alias => alias.ValueKind != JsonValueKind.String))
         {
-            RaiseOngoingIssue(AliasesIssueKey, $"The Tesira's reply to {AliasesCommand} is not a list of instance tags: {line}", IssueSeverity.Minor);
+            CountGarbledReply(AliasesIssueKey, AliasesCommand, line, MissingControlsLabel);
             return;
         }
-        ResolveIssue(AliasesIssueKey);
+        ReadAnswered(AliasesIssueKey);
 
         var configured = aliasList.EnumerateArray().Select(alias => alias.GetString()!).ToHashSet();
         var registered = RegisteredInstanceTags();
@@ -837,10 +937,11 @@ public class BiampTtp : Dsp
         var entries = ParseTtp(value);
         if (entries is not { ValueKind: JsonValueKind.Array } faultList)
         {
-            RaiseOngoingIssue(FaultsIssueKey, $"The Tesira's reply to {FaultsCommand} is not a fault list: {line}", IssueSeverity.Minor);
+            CountGarbledReply(FaultsIssueKey, FaultsCommand, line, ActiveFaultsLabel);
             return;
         }
-        ResolveIssue(FaultsIssueKey);
+        ReadAnswered(FaultsIssueKey);
+        RemoveDetail(ActiveFaultsLabel);
 
         var faults = faultList.EnumerateArray()
             .SelectMany(ReadFaults)
@@ -911,6 +1012,8 @@ public class BiampTtp : Dsp
     {
         public bool Missed { get; set; }
     }
+
+    private record OutstandingCommand(string Command, string? TriggerId);
 
     private void DropValueWithNoCurrentQuery(string value)
     {

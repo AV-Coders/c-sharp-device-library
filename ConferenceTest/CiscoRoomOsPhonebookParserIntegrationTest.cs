@@ -1,4 +1,3 @@
-﻿using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
@@ -6,89 +5,57 @@ namespace AVCoders.Conference.Tests;
 
 public class CiscoRoomOsPhonebookParserIntegrationTest
 {
-    [Fact(Skip = "Only to run locally")]
-    public async Task Recursive_FolderDiscovery_And_Pagination_Test()
+    private static readonly Dictionary<string, string> CapturedReplies = new()
     {
-        // 1. Setup
+        { "xCommand Phonebook Search PhonebookType: Corporate Offset:0 Limit: 300", "Root.txt" },
+        { "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_123 Limit: 300", "Folder1.txt" },
+        { "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_124 Limit: 300", "Folder2.txt" },
+        { "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_104 Limit: 300", "Folder3.txt" },
+        { "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_446 Limit: 300", "Folder4.txt" },
+        { "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_950 Limit: 300", "Folder5.txt" },
+    };
+
+    [Fact]
+    public async Task LoginSuccessful_LoadsEveryFolderFromTheCapturedReplies()
+    {
         var mockClient = TestFactory.CreateTcpClient();
-        var mockPhonebookUpdated = new Mock<PhonebookUpdated>();
+        var phonebookUpdated = new Mock<PhonebookUpdated>();
         var parser = new CiscoRoomOsPhonebookParser(mockClient.Object);
-        parser.PhonebookUpdated = mockPhonebookUpdated.Object;
-        
-        // Setup the Mock to respond to specific commands sent by the parser
+        parser.PhonebookUpdated = phonebookUpdated.Object;
         mockClient.Setup(c => c.Send(It.IsAny<string>()))
-                  .Callback<string>(cmd =>
-                  {
-                      var command = cmd.Trim();
-                      string? fileName = command switch
-                      {
-                          "xCommand Phonebook Search PhonebookType: Corporate Offset:0 Limit: 300" => "Root.txt",
-                          "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_123 Limit: 300" => "Folder1.txt",
-                          "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_124 Limit: 300" => "Folder2.txt",
-                          "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_104 Limit: 300" => "Folder3.txt",
-                          "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_446 Limit: 300" => "Folder4.txt",
-                          "xCommand Phonebook Search PhonebookType: Corporate Offset:0 FolderId: c_950 Limit: 300" => "Folder5.txt",
-                          _ => null
-                      };
+            .Callback<string>(command =>
+            {
+                if (!CapturedReplies.TryGetValue(command.Trim(), out var fileName))
+                    throw new InvalidOperationException($"Unrecognised command: '{command.Trim()}'");
+                foreach (var line in File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "TestData", fileName)))
+                    mockClient.Object.ResponseHandlers?.Invoke($"{line}\n");
+            });
 
-                      if (fileName != null)
-                      {
-                          var filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", fileName);
-                          var responses = File.ReadAllLines(filePath);
-                          foreach (var line in responses) mockClient.Object.ResponseHandlers?.Invoke($"{line}\n");
-                      }
-                      else
-                      {
-                          System.Console.WriteLine($"[DEBUG_LOG] Unrecognized command: '{command}'");
-                          throw new InvalidOperationException($"[FATAL] Unrecognized command: '{command}'");
-                      }
-                  });
-
-        // 2. Trigger a new codec CLI session
         mockClient.Object.ResponseHandlers?.Invoke("*r Login successful\n");
 
-        // Wait for the full chain of automated requests/responses to complete
-        await Task.Delay(500);
-
-        // 3. Verification
+        await Wait.UntilAsync(() => phonebookUpdated.Invocations.Count > 0, "The phonebook was never updated");
         var rootFolder = (CiscoRoomOsPhonebookFolder)parser.PhoneBook;
-        var folder1 = (CiscoRoomOsPhonebookFolder) rootFolder.Items.First();
-        var folder2 = (CiscoRoomOsPhonebookFolder) rootFolder.Items[1];
-        var folder3 = (CiscoRoomOsPhonebookFolder) rootFolder.Items[2];
-        var folder4 = (CiscoRoomOsPhonebookFolder) rootFolder.Items[3];
-        var folder5 = (CiscoRoomOsPhonebookFolder) rootFolder.Items[4];
+        var folder1 = (CiscoRoomOsPhonebookFolder)rootFolder.Items[0];
+        var folder2 = (CiscoRoomOsPhonebookFolder)rootFolder.Items[1];
+        var folder3 = (CiscoRoomOsPhonebookFolder)rootFolder.Items[2];
+        var folder4 = (CiscoRoomOsPhonebookFolder)rootFolder.Items[3];
+        var folder5 = (CiscoRoomOsPhonebookFolder)rootFolder.Items[4];
 
-        // Folder 1
-        Assert.NotNull(folder1);
         Assert.Equal(153, folder1.Items.Count);
         Assert.Equal("Delhi Studio", folder1.Items.First().Name);
         Assert.Equal("Male Conference Room", folder1.Items.Last().Name);
-        
-        // Folder 2
-        Assert.NotNull(folder2);
         Assert.Equal(208, folder2.Items.Count);
         Assert.Equal("Tirana Botanical Garden", folder2.Items.First().Name);
         Assert.Equal("Zurich Wildlife Sanctuary", folder2.Items.Last().Name);
-        
-        // Folder 3
-        Assert.NotNull(folder3);
         Assert.Equal(75, folder3.Items.Count);
         Assert.Equal("Dynamic Forest", folder3.Items.First().Name);
         Assert.Equal("Proud Bridge", folder3.Items.Last().Name);
-        
-        // Folder 4
-        Assert.NotNull(folder4);
         Assert.Equal(20, folder4.Items.Count);
         Assert.Equal("Magic Kingdom", folder4.Items.First().Name);
         Assert.Equal("De Efteling", folder4.Items.Last().Name);
-        
-        // Folder 5
-        Assert.NotNull(folder5);
         Assert.Equal(4, folder5.Items.Count);
         Assert.Equal("Lake Superior", folder5.Items.First().Name);
         Assert.Equal("Lake Michigan", folder5.Items.Last().Name);
-        
-        mockPhonebookUpdated.Verify(x => x.Invoke(It.IsAny<PhonebookFolder>()), Times.Once);
-        
+        phonebookUpdated.Verify(x => x.Invoke(It.IsAny<PhonebookFolder>()), Times.Once);
     }
 }

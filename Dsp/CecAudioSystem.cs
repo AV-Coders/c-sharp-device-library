@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using AVCoders.Core;
 
@@ -56,6 +55,7 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
     private static readonly TimeSpan QueryReplySpacing = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan DiscoveryReplySpacing = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan ReplyTimeout = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(1);
 
     public CommunicationStateHandler? CommunicationStateHandlers;
     public PowerStateHandler? PowerStateHandlers;
@@ -74,9 +74,11 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
     private readonly char _responseHeader;
     private readonly char _deviceBroadcastHeader;
     private readonly string? _logicalAddressError;
+    private readonly TimeProvider _timeProvider;
     private readonly ThreadWorker? _pollWorker;
-    private Timer? _statusReadTimer;
+    private ITimer? _statusReadTimer;
     private readonly object _statusReadTimerLock = new();
+    private readonly SemaphoreSlim _spacingLock = new(1, 1);
     private readonly object _sendLock = new();
     private readonly object _statusLock = new();
     private readonly object _walkLock = new();
@@ -84,14 +86,14 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
     private readonly object _muteLock = new();
     private readonly object _queuedSendsLock = new();
     private Task _queuedSends = Task.CompletedTask;
-    private long _lastSendTimestamp = Stopwatch.GetTimestamp() - Stopwatch.Frequency;
+    private long _lastSendTimestamp;
     private TimeSpan _spacingAfterLastSend = TimeSpan.Zero;
 
     private bool _disposed;
     private MuteState _mute = MuteState.Unknown;
     private bool _discovered;
     private int _unansweredPolls;
-    private int _audioStatusReports;
+    private TaskCompletionSource _nextAudioStatus = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _targetLevel = -1;
     private Task? _walkTask;
     private int _volumeStep = DefaultVolumeStep;
@@ -119,8 +121,16 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
     /// <summary>pollTime 0 or less disables polling and the discovery that runs with the first poll.</summary>
     public CecAudioSystem(SerialClient cecStream, string name, byte audioSystemLogicalAddress = LogicalAddressAudioSystem,
         byte ownLogicalAddress = LogicalAddressPlayback1, int pollTime = 10)
+        : this(cecStream, name, audioSystemLogicalAddress, ownLogicalAddress, pollTime, null)
+    {
+    }
+
+    internal CecAudioSystem(SerialClient cecStream, string name, byte audioSystemLogicalAddress, byte ownLogicalAddress, int pollTime,
+        TimeProvider? timeProvider)
         : base(name, VolumeType.Speaker)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _lastSendTimestamp = _timeProvider.GetTimestamp() - _timeProvider.TimestampFrequency;
         _cecStream = cecStream;
         CommunicationClient = cecStream;
         if (audioSystemLogicalAddress > MaxLogicalAddress || ownLogicalAddress > MaxLogicalAddress)
@@ -138,12 +148,14 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
         CommunicationState = CommunicationState.NotAttempted;
         if (pollTime <= 0 || _logicalAddressError != null)
             return;
-        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime));
-        new Thread(_ =>
-        {
-            Thread.Sleep(1000);
-            RestartPolling();
-        }) { IsBackground = true }.Start();
+        _pollWorker = new ThreadWorker(Poll, TimeSpan.FromSeconds(pollTime), false, _timeProvider);
+        _ = Task.Run(RestartPollingAfterStartup);
+    }
+
+    private async Task RestartPollingAfterStartup()
+    {
+        await Task.Delay(StartupDelay, _timeProvider);
+        RestartPolling();
     }
 
     public PowerState PowerState
@@ -227,19 +239,18 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
                 LogDebug("Not polling, the CEC stream is {ConnectionState}", connectionState);
             return Task.CompletedTask;
         }
-        SendPoll();
-        return Task.CompletedTask;
+        return Task.Run(SendPoll);
     }
 
     /// <summary>One poll cycle: discovery if not yet done, then Give Audio Status.</summary>
     public void PollAudioStatus() => QueueSend(SendPoll, "Polling the audio status failed");
 
-    private void SendPoll()
+    private async Task SendPoll()
     {
         using (PushProperties("PollAudioStatus"))
         {
             if (!_discovered)
-                SendDiscovery();
+                await SendDiscovery();
             int unansweredPolls;
             lock (_pollsLock)
                 unansweredPolls = _unansweredPolls++;
@@ -254,34 +265,34 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
                 IsLevelKnown = false;
                 _discovered = false;
             }
-            RequestAudioStatus();
+            await RequestAudioStatus();
         }
     }
 
     /// <summary>Queries the physical address, name, vendor, CEC version, system audio mode and power into <see cref="LogBase.Details"/>.</summary>
     public void Discover() => QueueSend(SendDiscovery, "Sending the discovery requests failed");
 
-    private void SendDiscovery()
+    private async Task SendDiscovery()
     {
         using (PushProperties("Discover"))
         {
             LogDebug("Sending CEC discovery requests");
-            SendFrame([_commandHeader, GivePhysicalAddress], DiscoveryReplySpacing);
-            SendFrame([_commandHeader, GiveOsdName], DiscoveryReplySpacing);
-            SendFrame([_commandHeader, GiveDeviceVendorId], DiscoveryReplySpacing);
-            SendFrame([_commandHeader, GetCecVersion], DiscoveryReplySpacing);
-            SendFrame([_commandHeader, GiveSystemAudioModeStatus], DiscoveryReplySpacing);
-            SendFrame([_commandHeader, GiveDevicePowerStatus], DiscoveryReplySpacing);
+            await SendFrame([_commandHeader, GivePhysicalAddress], DiscoveryReplySpacing);
+            await SendFrame([_commandHeader, GiveOsdName], DiscoveryReplySpacing);
+            await SendFrame([_commandHeader, GiveDeviceVendorId], DiscoveryReplySpacing);
+            await SendFrame([_commandHeader, GetCecVersion], DiscoveryReplySpacing);
+            await SendFrame([_commandHeader, GiveSystemAudioModeStatus], DiscoveryReplySpacing);
+            await SendFrame([_commandHeader, GiveDevicePowerStatus], DiscoveryReplySpacing);
         }
     }
 
-    private void RequestAudioStatus() => SendFrame([_commandHeader, GiveAudioStatus], QueryReplySpacing);
+    private Task RequestAudioStatus() => SendFrame([_commandHeader, GiveAudioStatus], QueryReplySpacing);
 
-    private void ReadStatusNow()
+    private async Task ReadStatusNow()
     {
         try
         {
-            RequestAudioStatus();
+            await RequestAudioStatus();
         }
         catch (Exception e)
         {
@@ -364,11 +375,13 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
             Volume = Math.Min(level, 100);
             IsLevelKnown = true;
         }
+        TaskCompletionSource reported;
         lock (_statusLock)
         {
-            _audioStatusReports++;
-            Monitor.PulseAll(_statusLock);
+            reported = _nextAudioStatus;
+            _nextAudioStatus = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         }
+        reported.SetResult();
     }
 
     private void HandleFeatureAbort(char opcode, char reason)
@@ -395,24 +408,16 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
         }
     }
 
-    private bool WaitForAudioStatus()
+    private async Task<bool> WaitForAudioStatus()
     {
-        int seen;
+        Task reported;
         lock (_statusLock)
-            seen = _audioStatusReports;
-        RequestAudioStatus();
-        var sent = Stopwatch.GetTimestamp();
-        lock (_statusLock)
-        {
-            while (_audioStatusReports == seen)
-            {
-                var remaining = ReplyTimeout - Stopwatch.GetElapsedTime(sent);
-                if (remaining <= TimeSpan.Zero)
-                    return false;
-                Monitor.Wait(_statusLock, remaining);
-            }
-            return true;
-        }
+            reported = _nextAudioStatus.Task;
+        await RequestAudioStatus();
+        using var replyTimeout = new CancellationTokenSource();
+        var first = await Task.WhenAny(reported, Task.Delay(ReplyTimeout, _timeProvider, replyTimeout.Token));
+        replyTimeout.Cancel();
+        return first == reported;
     }
 
     private char[] StripRepeatedHeader(string incoming)
@@ -457,7 +462,34 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
         return sb.ToString();
     }
 
-    private void SendFrame(char[] frame, TimeSpan? spacingAfter = null)
+    private async Task SendFrame(char[] frame, TimeSpan? spacingAfter = null)
+    {
+        await _spacingLock.WaitAsync();
+        try
+        {
+            await SendSpacedFrame(frame, spacingAfter);
+        }
+        finally
+        {
+            _spacingLock.Release();
+        }
+    }
+
+    private async Task SendKey(char code)
+    {
+        await _spacingLock.WaitAsync();
+        try
+        {
+            await SendSpacedFrame([_commandHeader, UserControlPressed, code], KeyHold);
+            await SendSpacedFrame([_commandHeader, UserControlReleased], null);
+        }
+        finally
+        {
+            _spacingLock.Release();
+        }
+    }
+
+    private async Task SendSpacedFrame(char[] frame, TimeSpan? spacingAfter)
     {
         if (_logicalAddressError != null)
         {
@@ -465,42 +497,33 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
                 LogWarning("Not sending {Frame}: {LogicalAddressError}", Describe(frame), _logicalAddressError);
             return;
         }
+        var wait = _spacingAfterLastSend - _timeProvider.GetElapsedTime(_lastSendTimestamp);
+        if (wait > TimeSpan.Zero)
+            await Task.Delay(wait, _timeProvider);
         lock (_sendLock)
         {
             if (_disposed)
                 return;
-            var wait = _spacingAfterLastSend - Stopwatch.GetElapsedTime(_lastSendTimestamp);
-            if (wait > TimeSpan.Zero)
-                Thread.Sleep(wait);
             _cecStream.Send(frame);
-            _lastSendTimestamp = Stopwatch.GetTimestamp();
+            _lastSendTimestamp = _timeProvider.GetTimestamp();
             _spacingAfterLastSend = spacingAfter ?? MinimumFrameSpacing;
         }
     }
 
-    private void SendKey(char code)
-    {
-        lock (_sendLock)
-        {
-            SendFrame([_commandHeader, UserControlPressed, code], KeyHold);
-            SendFrame([_commandHeader, UserControlReleased]);
-        }
-    }
-
-    private Task QueueSend(Action send, string failure)
+    private Task QueueSend(Func<Task> send, string failure)
     {
         lock (_queuedSendsLock)
         {
-            _queuedSends = _queuedSends.ContinueWith(_ => SendLoggingFailure(send, failure), TaskScheduler.Default);
+            _queuedSends = _queuedSends.ContinueWith(_ => SendLoggingFailure(send, failure), TaskScheduler.Default).Unwrap();
             return _queuedSends;
         }
     }
 
-    private void SendLoggingFailure(Action send, string failure)
+    private async Task SendLoggingFailure(Func<Task> send, string failure)
     {
         try
         {
-            send();
+            await send();
         }
         catch (Exception e)
         {
@@ -511,10 +534,10 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
     private Task QueueKeyPresses(char key, int presses) =>
         QueueSend(() => SendKeyPresses(key, presses), $"Sending {presses} presses of key 0x{(int)key:X2} failed");
 
-    private void SendKeyPresses(char key, int presses)
+    private async Task SendKeyPresses(char key, int presses)
     {
         for (var i = 0; i < presses; i++)
-            SendKey(key);
+            await SendKey(key);
         ReadStatusAfterKey();
     }
 
@@ -525,7 +548,7 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
             if (_disposed)
                 return;
             _statusReadTimer?.Dispose();
-            _statusReadTimer = new Timer(_ => ReadStatusNow(), null, StatusReadDelayAfterKey, Timeout.InfiniteTimeSpan);
+            _statusReadTimer = _timeProvider.CreateTimer(_ => Task.Run(ReadStatusNow), null, StatusReadDelayAfterKey, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -580,7 +603,7 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
         }
     }
 
-    private void WalkLevel()
+    private async Task WalkLevel()
     {
         using (PushProperties("SetLevel"))
         {
@@ -608,7 +631,7 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
 
                 try
                 {
-                    if (!WaitForAudioStatus())
+                    if (!await WaitForAudioStatus())
                     {
                         LogWarning("No Report Audio Status within {Timeout} ms, giving up on level {Target}", ReplyTimeout.TotalMilliseconds, target);
                         AddEvent(EventType.Error, $"No audio status reply, giving up on level {target}");
@@ -647,9 +670,9 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
                     LogDebug("Level is {Volume}, sending {Presses} Volume {Direction} presses for {Target}",
                         Volume, presses, difference > 0 ? "Up" : "Down", target);
                     for (var i = 0; i < presses && TargetIs(target); i++)
-                        SendKey(difference > 0 ? VolumeUpKey : VolumeDownKey);
+                        await SendKey(difference > 0 ? VolumeUpKey : VolumeDownKey);
                     passes++;
-                    Thread.Sleep(StatusReadDelayAfterKey);
+                    await Task.Delay(StatusReadDelayAfterKey, _timeProvider);
                 }
                 catch (Exception e)
                 {
@@ -694,7 +717,7 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
             {
                 using (PushProperties("SetAudioMute"))
                 {
-                    if (WaitForAudioStatus())
+                    if (await WaitForAudioStatus())
                     {
                         await ApplyMute(state);
                         return;

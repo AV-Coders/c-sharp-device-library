@@ -83,13 +83,13 @@ public class CiscoRoomOsRecentCallsTest
     }
 
     [Theory]
-    [InlineData("*r CallHistoryGetResult Entry 0 CallbackNumber: sip:+61355500193@local.domain")]
-    [InlineData("*r CallHistoryGetResult Entry 0 DisplayName: External")]
-    public void ResponseHandler_UnquotedValues_AreIgnored(string response)
+    [InlineData("*r CallHistoryGetResult Entry 0 CallbackNumber: sip:+61355500193@local.domain", "sip:+61355500193@local.domain", "")]
+    [InlineData("*r CallHistoryGetResult Entry 0 DisplayName: External Room 54", "", "External Room 54")]
+    public void ResponseHandler_UnquotedValues_AreKeptAsReceived(string response, string number, string name)
     {
         var exception = Record.Exception(() => _mockClient.Object.ResponseHandlers!.Invoke(response));
 
         Assert.Null(exception);
-        Assert.Equal(new RecentCall(string.Empty, string.Empty), Assert.Single(_recentCallManager.RecentCalls));
+        Assert.Equal(new RecentCall(number, name), Assert.Single(_recentCallManager.RecentCalls));
     }
 }

@@ -2,14 +2,13 @@ using System.Net;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Microsoft.Extensions.Logging;
-
-#pragma warning disable CS8602 // Dereference of a possibly null reference.
+using Microsoft.Extensions.Time.Testing;
 
 namespace AVCoders.Dsp.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class QsysEcpTest
 {
+    private readonly FakeTimeProvider _time = new();
     private readonly QsysEcp _dsp;
     private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
     private readonly Mock<VolumeLevelHandler> _monitorHandler = new();
@@ -34,11 +33,19 @@ public class QsysEcpTest
     private const string CoreLabel = "Core";
     private const string MissingControlsLabel = "Missing Controls";
     private const int NeverPollMs = 3_600_000;
-    private const int WaitTimeoutMs = 5000;
-    private const int WaitStepMs = 50;
     private const int ControlStateAttempts = 3;
     private const string UnknownControl = "Nowhere";
+    private const string BlankControlName = "";
+    private const string BlankBadControlKey = "bad-control:";
+    private const string ShownBlankControlName = "\"\"";
+    private const string TipstaffMute = "master_tipstaff_mute";
+    private const string AssociateMute = "master_associate_mute";
+    private const string BlankNameBadIds =
+        "bad_id \"\"\r\nbad_id \"\"\r\ncv \"master_tipstaff_mute\" \"muted\" 1 1\r\nbad_id \"\"\r\ncv \"master_associate_mute\" \"muted\" 1 1\r\n";
     private static readonly int[] ChangeGroupIds = [1, 2, 3, 4];
+    private static readonly TimeSpan ChangeGroupSetupStep = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan ControlGetGap = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan ControlStatesRetryDelay = TimeSpan.FromSeconds(5);
 
     private const string CoreManagerHost = "core";
     private const string CoreInfoPath = "/api/v0/cores/self";
@@ -68,7 +75,7 @@ public class QsysEcpTest
 
     public QsysEcpTest()
     {
-        _dsp = new QsysEcp(_mockClient.Object, "Test", 100);
+        _dsp = Create(_mockClient.Object);
 
         _dsp.AddControl(_volumeLevelHandler.Object, GainName);
         _dsp.AddControl(_muteStateHandler.Object, MuteName);
@@ -85,26 +92,25 @@ public class QsysEcpTest
         _dsp.AddControl(_volumeLevelHandler.Object, gainName);
         _dsp.AddControl(_muteStateHandler.Object, muteName);
         _dsp.AddControl(_stringValueHandler.Object, stringName);
-        
+
         _dsp.SetLevel(gainName, 50);
         _mockClient.Verify(x => x.Send($"csp \"{gainName}\" 0.5\n"));
-        
+
         _dsp.SetAudioMute(muteName, MuteState.On);
         _mockClient.Verify(x => x.Send($"css \"{muteName}\" muted\n"));
-        
+
         _dsp.SetValue(stringName, "hello");
         _mockClient.Verify(x => x.Send($"css \"{stringName}\" hello\n"));
-        
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{gainName}\" \"-6.40dB\" -6.4 0.989744");
+
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{gainName}\" \"-6.40dB\" -6.4 0.989744");
         _volumeLevelHandler.Verify(x => x.Invoke(98));
         Assert.Equal(98, _dsp.GetLevel(gainName));
-        
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{muteName}\" \"unmuted\" 1 1");
+
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{muteName}\" \"unmuted\" 1 1");
         _muteStateHandler.Verify(x => x.Invoke(MuteState.Off));
         Assert.Equal(MuteState.Off, _dsp.GetAudioMute(muteName));
-        
-        
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{stringName}\" \"This is a string\" 5 0.571429");
+
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{stringName}\" \"This is a string\" 5 0.571429");
 
         Assert.Equal("This is a string", _dsp.GetValue(stringName));
     }
@@ -120,53 +126,47 @@ public class QsysEcpTest
     [Fact]
     public void LevelUp_IncrementsTheLevel()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
-        
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
+
         _dsp.LevelUp(GainName);
-        
+
         _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.92\n"));
     }
 
     [Fact]
     public void LevelUp_ObservesTheSpecifiedAmount()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
-        
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
+
         _dsp.LevelUp(GainName, 2);
-        
+
         _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.93\n"));
     }
 
     [Fact]
     public void LevelDown_DecrementsTheLevel()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
-        
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
+
         _dsp.LevelDown(GainName);
-        
+
         _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.9\n"));
     }
 
     [Fact]
     public void LevelDown_ObservesTheSpecifiedAmount()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
-        
-        _dsp.LevelDown(GainName, 3);
-        
-        _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.88\n"));
-    }
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
 
-    [Fact]
-    public void GetLevel_IgnoresUnknownControlNames()
-    {
-        Assert.Equal(0, _dsp.GetLevel("foo"));
+        _dsp.LevelDown(GainName, 3);
+
+        _mockClient.Verify(x => x.Send($"csp \"{GainName}\" 0.88\n"));
     }
 
     [Fact]
     public void GetLevel_ReturnsTheVolumePercentage()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.919744");
         Assert.Equal(91, _dsp.GetLevel(GainName));
     }
 
@@ -178,15 +178,9 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void GetAudioMute_IgnoresUnknownControlNames()
-    {
-        Assert.Equal(MuteState.Unknown, _dsp.GetAudioMute("foo"));
-    }
-
-    [Fact]
     public void GetAudioMute_ReturnsTheMuteState()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"muted\" 1 1");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{MuteName}\" \"muted\" 1 1");
 
         Assert.Equal(MuteState.On, _dsp.GetAudioMute(MuteName));
     }
@@ -194,7 +188,7 @@ public class QsysEcpTest
     [Fact]
     public void ToggleAudioMute_SendsTheCommand()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"unmuted\" 1 1");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{MuteName}\" \"unmuted\" 1 1");
 
         _dsp.ToggleAudioMute(MuteName);
 
@@ -209,77 +203,42 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void GetValue_IgnoresUnknownControlNames()
-    {
-        Assert.Equal("", _dsp.GetValue("foo"));
-    }
-
-    [Fact]
     public void GetValue_ReturnsTheValue()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"5\" 5 0.571429");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{StringName}\" \"5\" 5 0.571429");
 
         Assert.Equal("5", _dsp.GetValue(StringName));
     }
 
     [Fact]
-    public void HandleResponse_GivenAFaderValue_UpdatesTheFaderLevel()
+    public void HandleResponse_GivenAFaderValue_UpdatesTheFaderLevelAndCallsTheDelegate()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744");
 
         Assert.Equal(98, _dsp.GetLevel(GainName));
-    }
-
-    [Fact]
-    public void HandleResponse_GivenAFaderValue_CallsTheDelegate()
-    {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744");
-
         _volumeLevelHandler.Verify(x => x.Invoke(98));
     }
 
     [Theory]
-    [InlineData("unmuted")]
-    [InlineData("false")]
-    public void HandleResponse_GivenAMuteValue_UpdatesTheMuteState(string muteState)
+    [InlineData("unmuted", MuteState.Off)]
+    [InlineData("false", MuteState.Off)]
+    [InlineData("muted", MuteState.On)]
+    [InlineData("true", MuteState.On)]
+    public void HandleResponse_GivenAMuteValue_UpdatesTheMuteStateAndCallsTheDelegate(string muteState, MuteState expected)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"{muteState}\" 1 1");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{MuteName}\" \"{muteState}\" 1 1");
 
-        Assert.Equal(MuteState.Off, _dsp.GetAudioMute(MuteName));
-    }
-    
-    [Theory]
-    [InlineData("muted")]
-    [InlineData("true")]
-    public void HandleResponse_GivenAMuteValue_UpdatesTheMuteStateForMuted(string muteState)
-    {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"{muteState}\" 1 1");
-
-        Assert.Equal(MuteState.On, _dsp.GetAudioMute(MuteName));
+        Assert.Equal(expected, _dsp.GetAudioMute(MuteName));
+        _muteStateHandler.Verify(x => x.Invoke(expected));
     }
 
     [Fact]
-    public void HandleResponse_GivenAMuteValue_CallsTheDelegate()
+    public void HandleResponse_GivenAStringValue_UpdatesTheValueAndCallsTheDelegate()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{MuteName}\" \"unmuted\" 1 1");
-
-        _muteStateHandler.Verify(x => x.Invoke(MuteState.Off));
-    }
-
-    [Fact]
-    public void HandleResponse_GivenAStringValue_UpdatesTheValue()
-    {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"This is a string\" 5 0.571429");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{StringName}\" \"This is a string\" 5 0.571429");
 
         Assert.Equal("This is a string", _dsp.GetValue(StringName));
-    }
-
-    [Fact]
-    public void HandleResponse_GivenAStringValue_CallsTheDelegate()
-    {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"5\" 5 0.571429");
-
-        _stringValueHandler.Verify(x => x.Invoke("5"));
+        _stringValueHandler.Verify(x => x.Invoke("This is a string"));
     }
 
     [Theory]
@@ -290,8 +249,8 @@ public class QsysEcpTest
     public void HandleResponse_GivenAMeterResponse_UpdatesTheLevel(string response, int expectedLevel)
     {
         _dsp.AddMonitor(_monitorHandler.Object, "rec_meter");
-        _mockClient.Object.ResponseHandlers.Invoke(response);
-        
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+
         _monitorHandler.Verify(x => x.Invoke(expectedLevel));
     }
 
@@ -301,38 +260,17 @@ public class QsysEcpTest
     public void HandleResponse_GivenAMeterResponse_FindsThePositionByItsCounts(string response, string meterName, int expectedLevel)
     {
         _dsp.AddMonitor(_monitorHandler.Object, meterName);
-        _mockClient.Object.ResponseHandlers.Invoke(response);
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
 
         _monitorHandler.Verify(x => x.Invoke(expectedLevel));
-    }
-
-    [Fact]
-    public void HandleResponse_GivenAnInvalidResponse_DoesNothing()
-    {
-        _mockClient.Object.ResponseHandlers.Invoke("cv \"gai ");
-    }
-
-    [Fact]
-    public void HandleResponse_GivenAnUnparsedControlValue_LogsItAndHandlesTheNextLine()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = new TestTcpClient();
-        var dsp = CreateLogged(logs, () => new QsysEcp(client, "Test", NeverPollMs));
-        dsp.AddControl(_volumeLevelHandler.Object, GainName);
-
-        client.ResponseHandlers.Invoke($"cv \"gai \ncv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\n");
-
-        Assert.Equal(98, dsp.GetLevel(GainName));
-        Assert.Contains(logs.Logs, x => x.Message == "Unparsed control value: cv \"gai ");
-        Assert.Empty(dsp.Errors);
     }
 
     [Fact]
     public void AddControl_ToAnExistingControl_CallsTheNewHandlerWithTheCurrentValue()
     {
         _dsp.AddMonitor(_monitorHandler.Object, MeterName);
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\ncv \"{MuteName}\" \"muted\" 1 1\ncv \"{StringName}\" \"5\" 5 0.571429\n");
-        _mockClient.Object.ResponseHandlers.Invoke($"cvv \"{MeterName}\" 2 \"-45.3dB\" \"-11.8dB\" 2 -45.2769 -11.759 2 0.0736156 0.764821");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\ncv \"{MuteName}\" \"muted\" 1 1\ncv \"{StringName}\" \"5\" 5 0.571429\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cvv \"{MeterName}\" 2 \"-45.3dB\" \"-11.8dB\" 2 -45.2769 -11.759 2 0.0736156 0.764821");
         var volumeLevelHandler = new Mock<VolumeLevelHandler>();
         var muteStateHandler = new Mock<MuteStateHandler>();
         var stringValueHandler = new Mock<StringValueHandler>();
@@ -350,74 +288,27 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void Commands_GivenAnUnknownControl_SendNothingAndLogTheValues()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = new TestTcpClient();
-        var dsp = CreateLogged(logs, () => new QsysEcp(client, "Test", NeverPollMs));
-
-        dsp.LevelUp(UnknownControl, 3);
-        dsp.LevelDown(UnknownControl, 2);
-        dsp.ToggleAudioMute(UnknownControl);
-
-        Assert.Empty(client.Sent);
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, not raising it by 3");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, not lowering it by 2");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl}, not toggling it");
-    }
-
-    [Fact]
-    public void Gets_GivenAnUnknownControl_ReturnTheDefaultAndLog()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var dsp = CreateLogged(logs, () => new QsysEcp(new TestTcpClient(), "Test", NeverPollMs));
-
-        Assert.Equal(0, dsp.GetLevel(UnknownControl));
-        Assert.Equal(MuteState.Unknown, dsp.GetAudioMute(UnknownControl));
-        Assert.Equal("", dsp.GetValue(UnknownControl));
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, returning 0");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl}, returning Unknown");
-        Assert.Contains(logs.Logs, x => x.Message == $"Unknown string {UnknownControl}, returning an empty value");
-    }
-
-    [Fact]
     public async Task GetAllControlStates_WhileAControlIsAdded_GetsTheControlsItStartedWith()
     {
         var client = new TestTcpClient();
-        var dsp = new QsysEcp(client, "Test", NeverPollMs);
+        var dsp = Create(client);
         dsp.AddControl(_volumeLevelHandler.Object, "Gain 1");
         dsp.AddControl(_volumeLevelHandler.Object, "Gain 2");
         dsp.AddControl(_volumeLevelHandler.Object, "Gain 3");
 
         dsp.GetAllControlStates();
-        Assert.True(SpinWait.SpinUntil(() => client.Sent.Contains("cg \"Gain 1\"\n"), WaitTimeoutMs));
+        await Wait.UntilAsync(() => client.Sent.Contains("cg \"Gain 1\"\n"), "the first control was never read");
         dsp.AddControl(_volumeLevelHandler.Object, "Gain 4");
-        await WaitUntil(() => client.Sent.Contains("cg \"Gain 3\"\n"));
+        await Wait.UntilAsync(_time, ControlGetGap, () => client.Sent.Contains("cg \"Gain 3\"\n"), "the last control was never read");
 
         Assert.Empty(dsp.Errors);
     }
 
     [Fact]
-    public async Task GetAllControlStates_GivenAFailingSend_GivesUpAfterThreeAttempts()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = new GetFailingTcpClient();
-        var dsp = CreateLogged(logs, () => new QsysEcp(client, "Test", NeverPollMs));
-        dsp.ControlStatesRetryDelay = TimeSpan.FromMilliseconds(10);
-        dsp.AddControl(_volumeLevelHandler.Object, GainName);
-
-        dsp.GetAllControlStates();
-        await WaitUntil(() => logs.Logs.Any(x => x.Message == $"Gave up getting the control states after {ControlStateAttempts} attempts"));
-
-        Assert.Equal(ControlStateAttempts, Count(client, $"cg \"{GainName}\"\n"));
-        Assert.Equal(ControlStateAttempts, dsp.Errors.Count);
-    }
-
-    [Fact]
     public void HandleResponse_GivenABadId_DoesNotReportACommunicationError()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\"");
-        _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
+        _mockClient.Object.ResponseHandlers!.Invoke("cv \"Zone33BGMMute\"");
+        _mockClient.Object.ResponseHandlers!.Invoke("bad_id \"Zone33BGMMute\"");
 
         Assert.NotEqual(CommunicationState.Error, _dsp.CommunicationState);
         _communicationStateHandler.Verify(x => x.Invoke(CommunicationState.Error), Times.Never);
@@ -427,33 +318,105 @@ public class QsysEcpTest
     [Fact]
     public void HandleResponse_GivenBadIds_ListsTheMissingControlsUntilEachResponds()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone2\"\r\nbad_id \"Zone1\"\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("bad_id \"Zone2\"\r\nbad_id \"Zone1\"\r\n");
 
         Assert.Equal(new DeviceDetail(MissingControlsLabel, "Zone1, Zone2", DetailTone.Warning), Detail(_dsp, MissingControlsLabel));
 
-        _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone1\" \"unmuted\" 1 1\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("cv \"Zone1\" \"unmuted\" 1 1\r\n");
         Assert.Equal(new DeviceDetail(MissingControlsLabel, "Zone2", DetailTone.Warning), Detail(_dsp, MissingControlsLabel));
 
-        _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone2\" \"unmuted\" 1 1\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("cv \"Zone2\" \"unmuted\" 1 1\r\n");
         Assert.Null(Detail(_dsp, MissingControlsLabel));
     }
 
     [Fact]
-    public void HandleResponse_GivenABadId_RaisesAnIssueCarryingTheRawLine()
+    public void HandleResponse_GivenBadIdsForABlankName_ShowsTheBadControlAndHandlesTheRestOfTheReply()
     {
-        const string reply = "bad_id \"Zone33BGMMute\"";
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n");
+        var tipstaff = new Mock<MuteStateHandler>();
+        var associate = new Mock<MuteStateHandler>();
+        _dsp.AddControl(tipstaff.Object, TipstaffMute);
+        _dsp.AddControl(associate.Object, AssociateMute);
 
-        var issue = Assert.Single(_dsp.GetOngoingIssues(), i => i.Key == $"{QsysEcp.BadControlIssuePrefix}Zone33BGMMute");
-        Assert.Equal(IssueSeverity.Major, issue.Severity);
-        Assert.Contains(reply, issue.Message);
+        _mockClient.Object.ResponseHandlers!.Invoke(BlankNameBadIds);
+
+        var issue = Assert.Single(_dsp.GetIssues(), i => i.Key == BlankBadControlKey);
+        Assert.Equal(IssueStatus.Ongoing, issue.Status);
+        Assert.Contains("bad_id \"\"", issue.Message);
+        Assert.DoesNotContain(_dsp.GetIssues(), i => i.Status == IssueStatus.Momentary);
+        Assert.Equal(new DeviceDetail(MissingControlsLabel, ShownBlankControlName, DetailTone.Warning), Detail(_dsp, MissingControlsLabel));
+        tipstaff.Verify(x => x.Invoke(MuteState.On));
+        associate.Verify(x => x.Invoke(MuteState.On));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void AddControl_GivenABlankName_SendsNoChangeGroupAddOrGetAndShowsABadControl(string blankName)
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = Create(client);
+
+        dsp.AddControl(_volumeLevelHandler.Object, blankName);
+        dsp.AddControl(_muteStateHandler.Object, blankName);
+        dsp.AddControl(_stringValueHandler.Object, blankName);
+        dsp.AddMonitor(_monitorHandler.Object, blankName);
+
+        Assert.DoesNotContain(client.Sent, IsChangeGroupAddOrGet);
+        Assert.Equal(
+            new[]
+            {
+                ($"{BlankBadControlKey}\"{blankName}\" level 1", $"The level control name \"{blankName}\" is blank, so it is not sent to the Core (blank control 1)"),
+                ($"{BlankBadControlKey}\"{blankName}\" mute 2", $"The mute control name \"{blankName}\" is blank, so it is not sent to the Core (blank control 2)"),
+                ($"{BlankBadControlKey}\"{blankName}\" string 3", $"The string control name \"{blankName}\" is blank, so it is not sent to the Core (blank control 3)"),
+                ($"{BlankBadControlKey}\"{blankName}\" meter 4", $"The meter control name \"{blankName}\" is blank, so it is not sent to the Core (blank control 4)")
+            },
+            dsp.GetOngoingIssues().Select(i => (i.Key, i.Message)));
+        Assert.Equal(new DeviceDetail(MissingControlsLabel, $"\"{blankName}\"", DetailTone.Warning), Detail(dsp, MissingControlsLabel));
+    }
+
+    [Fact]
+    public void QsysVolumeControl_GivenABlankLevelName_AddsAndGetsOnlyTheMute()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = Create(client);
+
+        _ = new QsysVolumeControl(new QscAudioBlockInfo("Tipstaff", BlankControlName, TipstaffMute), VolumeType.Microphone, dsp);
+        _ = new QsysVolumeControl(new QscAudioBlockInfo("Associate", BlankControlName, AssociateMute), VolumeType.Microphone, dsp);
+
+        Assert.All(new[] { $"cga 2 \"{TipstaffMute}\"\n", $"cg \"{TipstaffMute}\"\n", $"cga 2 \"{AssociateMute}\"\n", $"cg \"{AssociateMute}\"\n" },
+            message => Assert.Contains(message, client.Sent));
+        Assert.DoesNotContain(client.Sent, message => message.Contains(ShownBlankControlName));
+        Assert.Equal(new[] { $"{BlankBadControlKey}\"\" level 1", $"{BlankBadControlKey}\"\" level 2" },
+            dsp.GetOngoingIssues().Select(i => i.Key));
+        Assert.Equal(new DeviceDetail(MissingControlsLabel, ShownBlankControlName, DetailTone.Warning), Detail(dsp, MissingControlsLabel));
+    }
+
+    [Fact]
+    public async Task Connecting_GivenABlankControlName_AddsAndGetsOnlyTheNamedControls()
+    {
+        var client = new TestTcpClient();
+        client.SetConnectionState(ConnectionState.Disconnected);
+        var dsp = Create(client);
+        dsp.AddControl(_volumeLevelHandler.Object, BlankControlName);
+        dsp.AddControl(_muteStateHandler.Object, BlankControlName);
+        dsp.AddControl(_stringValueHandler.Object, BlankControlName);
+        dsp.AddMonitor(_monitorHandler.Object, BlankControlName);
+        RegisterOneOfEachControl(dsp);
+
+        client.SetConnectionState(ConnectionState.Connected);
+        await Wait.UntilAsync(_time, ChangeGroupSetupStep, () => client.Sent.Contains(LastConnectSend) && RegistrationSends.All(client.Sent.Contains),
+            "the controls were never added and read after connecting");
+
+        Assert.Equal(RegistrationSends.Order(), client.Sent.Where(IsChangeGroupAddOrGet).Order());
     }
 
     [Fact]
     public void HandleResponse_GivenAnEmptyString_PassesItOn()
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"abc\" 0 0\r\n");
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{StringName}\" \"\" 0 0\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{StringName}\" \"abc\" 0 0\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{StringName}\" \"\" 0 0\r\n");
 
         _stringValueHandler.Verify(x => x.Invoke(""));
         Assert.Equal("", _dsp.GetValue(StringName));
@@ -462,7 +425,7 @@ public class QsysEcpTest
     [Fact]
     public void HandleResponse_GivenAStatusReply_ShowsTheDesignAndCore()
     {
-        _mockClient.Object.ResponseHandlers.Invoke(Status(DesignId));
+        _mockClient.Object.ResponseHandlers!.Invoke(Status(DesignId));
 
         Assert.Equal(new DeviceDetail(DesignLabel, DesignName), Detail(_dsp, DesignLabel));
         Assert.Equal(new DeviceDetail(DesignIdLabel, DesignId), Detail(_dsp, DesignIdLabel));
@@ -474,14 +437,14 @@ public class QsysEcpTest
     public void HandleResponse_GivenAStandbyStatus_RaisesAStandbyIssueUntilTheCoreIsActive()
     {
         string standby = Status(DesignId, isPrimary: 0, isActive: 0);
-        _mockClient.Object.ResponseHandlers.Invoke(standby);
+        _mockClient.Object.ResponseHandlers!.Invoke(standby);
 
         Assert.Equal(new DeviceDetail(CoreLabel, "Backup, standby", DetailTone.Error), Detail(_dsp, CoreLabel));
         var issue = Assert.Single(_dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreStandbyIssueKey);
         Assert.Equal(IssueSeverity.Critical, issue.Severity);
         Assert.Contains(standby.TrimEnd(), issue.Message);
 
-        _mockClient.Object.ResponseHandlers.Invoke(Status(DesignId));
+        _mockClient.Object.ResponseHandlers!.Invoke(Status(DesignId));
 
         Assert.DoesNotContain(_dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreStandbyIssueKey);
         Assert.Equal(new DeviceDetail(CoreLabel, "Primary, active"), Detail(_dsp, CoreLabel));
@@ -491,7 +454,7 @@ public class QsysEcpTest
     public void HandleResponse_GivenAnUnrecognisedStatus_RaisesAMomentaryIssueWithTheRawLine()
     {
         const string reply = "sr Mecca 1 1";
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"{reply}\r\n");
 
         var issue = Assert.Single(_dsp.GetIssues(), i => i.Key == QsysEcp.StatusParseIssueKey);
         Assert.Equal(IssueStatus.Momentary, issue.Status);
@@ -506,7 +469,7 @@ public class QsysEcpTest
     [InlineData("login_failed", QsysEcp.LoginIssueKey, IssueSeverity.Critical)]
     public void HandleResponse_GivenAnErrorReply_RaisesAnOngoingIssueWithTheRawLine(string reply, string key, IssueSeverity severity)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"{reply}\r\n");
 
         var issue = Assert.Single(_dsp.GetOngoingIssues(), i => i.Key == key);
         Assert.Equal(severity, issue.Severity);
@@ -521,7 +484,7 @@ public class QsysEcpTest
     [InlineData("rc", QsysEcp.ConnectionClosedIssueKey, IssueSeverity.Major)]
     public void HandleResponse_GivenAnIncidentReply_RaisesAMomentaryIssueWithTheRawLine(string reply, string key, IssueSeverity severity)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"{reply}\r\n");
 
         var issue = Assert.Single(_dsp.GetIssues(), i => i.Key == key);
         Assert.Equal(IssueStatus.Momentary, issue.Status);
@@ -533,7 +496,7 @@ public class QsysEcpTest
     [Fact]
     public void HandleResponse_GivenRc_AddsAConnectionEvent()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("rc\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("rc\r\n");
 
         Assert.Contains(_dsp.Events, e => e.Type == EventType.Connection && e.Info.Contains("rc"));
     }
@@ -543,11 +506,11 @@ public class QsysEcpTest
     [InlineData("login_failed")]
     public void HandleResponse_GivenALoginReply_ReportsAnErrorUntilTheCoreAnswersAStatus(string reply)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"{reply}\r\n");
 
         Assert.Equal(CommunicationState.Error, _dsp.CommunicationState);
 
-        _mockClient.Object.ResponseHandlers.Invoke(Status(DesignId));
+        _mockClient.Object.ResponseHandlers!.Invoke(Status(DesignId));
 
         Assert.Equal(CommunicationState.Okay, _dsp.CommunicationState);
         Assert.DoesNotContain(_dsp.GetOngoingIssues(), i => i.Key == QsysEcp.LoginIssueKey);
@@ -556,7 +519,7 @@ public class QsysEcpTest
     [Fact]
     public void HandleResponse_GivenLoginSuccess_ReportsOkay()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("login_success\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("login_success\r\n");
 
         Assert.Equal(CommunicationState.Okay, _dsp.CommunicationState);
     }
@@ -564,7 +527,7 @@ public class QsysEcpTest
     [Fact]
     public void HandleResponse_GivenAnUnknownReply_RaisesNothing()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("cgpa\r\nsomething else\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke("cgpa\r\nsomething else\r\n");
 
         Assert.Empty(_dsp.GetIssues());
         Assert.Equal(CommunicationState.Unknown, _dsp.CommunicationState);
@@ -575,12 +538,12 @@ public class QsysEcpTest
     [InlineData("control_read_only \"Gain\"", QsysEcp.ReadOnlyIssueKey)]
     public void HandleResponse_GivenARejectionThreeTimesInARow_EscalatesUntilAControlValueArrives(string reply, string key)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n{reply}\r\n{reply}\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"{reply}\r\n{reply}\r\n{reply}\r\n");
 
         var issue = Assert.Single(_dsp.GetOngoingIssues(), i => i.Key == key);
         Assert.Equal(IssueSeverity.Major, issue.Severity);
 
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\r\n");
 
         Assert.DoesNotContain(_dsp.GetOngoingIssues(), i => i.Key == key);
     }
@@ -590,9 +553,9 @@ public class QsysEcpTest
     [InlineData("control_read_only \"Gain\"", QsysEcp.ReadOnlyIssueKey)]
     public void HandleResponse_GivenAControlValueBetweenRejections_DoesNotEscalate(string reply, string key)
     {
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n{reply}\r\n");
-        _mockClient.Object.ResponseHandlers.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\r\n");
-        _mockClient.Object.ResponseHandlers.Invoke($"{reply}\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"{reply}\r\n{reply}\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"cv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\r\n");
+        _mockClient.Object.ResponseHandlers!.Invoke($"{reply}\r\n");
 
         Assert.DoesNotContain(_dsp.GetOngoingIssues(), i => i.Key == key);
     }
@@ -601,7 +564,7 @@ public class QsysEcpTest
     public void Constructor_BeforeTheFirstConnect_ReportsUnknownNotError()
     {
         var client = new TestTcpClient();
-        var dsp = new QsysEcp(client, "Test");
+        var dsp = Create(client);
 
         client.SetConnectionState(ConnectionState.Disconnected);
 
@@ -614,8 +577,8 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new QsysEcp(client, "Test");
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        var dsp = Create(client);
+        client.ResponseHandlers!.Invoke(Status(DesignId));
         Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
 
         client.SetConnectionState(ConnectionState.Disconnected);
@@ -628,7 +591,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new TestableQsysEcp(client);
+        var dsp = new TestableQsysEcp(client, _time);
 
         await dsp.PollNow();
         Assert.Equal(1, Count(client, StatusRequest));
@@ -647,12 +610,12 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new TestableQsysEcp(client);
+        var dsp = new TestableQsysEcp(client, _time);
 
         for (int i = 0; i < QsysEcp.MaxUnansweredStatusRequests + 1; i++)
         {
             await dsp.PollNow();
-            client.ResponseHandlers.Invoke(Status(DesignId));
+            client.ResponseHandlers!.Invoke(Status(DesignId));
         }
 
         Assert.Equal(QsysEcp.MaxUnansweredStatusRequests + 1, Count(client, StatusRequest));
@@ -665,7 +628,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new TestableQsysEcp(client);
+        var dsp = new TestableQsysEcp(client, _time);
 
         for (int i = 0; i < QsysEcp.MaxUnansweredStatusRequests; i++)
             await dsp.PollNow();
@@ -680,7 +643,7 @@ public class QsysEcpTest
         Assert.Equal(IssueSeverity.Major, issue.Severity);
 
         await dsp.PollNow();
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke(Status(DesignId));
 
         Assert.Equal(CommunicationState.Okay, dsp.CommunicationState);
         Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.UnansweredStatusIssueKey);
@@ -692,12 +655,12 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new TestableQsysEcp(client);
+        var dsp = new TestableQsysEcp(client, _time);
 
         for (int i = 0; i < QsysEcp.MaxUnansweredStatusRequests + 1; i++)
         {
             await dsp.PollNow();
-            client.ResponseHandlers.Invoke("login_required\r\n");
+            client.ResponseHandlers!.Invoke("login_required\r\n");
         }
 
         Assert.Equal(0, client.Reconnects);
@@ -709,14 +672,14 @@ public class QsysEcpTest
     {
         var (client, dsp) = await CreateConnectedDsp();
         await dsp.PollNow();
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke(Status(DesignId));
         await dsp.PollNow();
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke(Status(DesignId));
         Assert.Equal(1, Count(client, "cgc 1\n"));
 
         await dsp.PollNow();
-        client.ResponseHandlers.Invoke(Status(RedeployedDesignId));
-        await WaitUntil(() => Count(client, LastConnectSend) == 2);
+        client.ResponseHandlers!.Invoke(Status(RedeployedDesignId));
+        await UntilTheChangeGroupsAreBuiltTwice(client);
 
         Assert.Contains(dsp.Events, e => e.Info == $"Design redeployed: {DesignName} ({RedeployedDesignId})");
         Assert.All(ChangeGroupIds, id => Assert.Equal(2, Count(client, $"cgc {id}\n")));
@@ -729,13 +692,13 @@ public class QsysEcpTest
     public async Task HandleConnectionState_GivenAReconnect_DoesNotTreatTheNextDesignIdAsARedeploy()
     {
         var (client, dsp) = await CreateConnectedDsp();
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke(Status(DesignId));
 
         client.SetConnectionState(ConnectionState.Disconnected);
         client.SetConnectionState(ConnectionState.Connected);
-        await WaitUntil(() => Count(client, LastConnectSend) == 2);
+        await UntilTheChangeGroupsAreBuiltTwice(client);
         await dsp.PollNow();
-        client.ResponseHandlers.Invoke(Status(RedeployedDesignId));
+        client.ResponseHandlers!.Invoke(Status(RedeployedDesignId));
 
         Assert.DoesNotContain(dsp.Events, e => e.Info.StartsWith("Design redeployed"));
         Assert.Equal(new DeviceDetail(DesignIdLabel, RedeployedDesignId), Detail(dsp, DesignIdLabel));
@@ -746,12 +709,12 @@ public class QsysEcpTest
     {
         var (client, dsp) = await CreateConnectedDsp();
 
-        client.ResponseHandlers.Invoke("bad_change_group_handle 2\r\n");
+        client.ResponseHandlers!.Invoke("bad_change_group_handle 2\r\n");
         Assert.Equal(1, Count(client, "cgc 1\n"));
 
         await dsp.PollNow();
-        client.ResponseHandlers.Invoke("bad_change_group_handle 2\r\nbad_change_group_handle 3\r\n");
-        await WaitUntil(() => Count(client, LastConnectSend) == 2);
+        client.ResponseHandlers!.Invoke("bad_change_group_handle 2\r\nbad_change_group_handle 3\r\n");
+        await UntilTheChangeGroupsAreBuiltTwice(client);
 
         Assert.Equal(2, Count(client, "cgc 1\n"));
         Assert.DoesNotContain(client.Sent, s => s.StartsWith("cgd "));
@@ -761,28 +724,31 @@ public class QsysEcpTest
     public async Task HandleResponse_GivenTooManyChangeGroups_KeepsTheIssueUntilAStatusFollowsASuccessfulBuild()
     {
         var (client, dsp) = await CreateConnectedDsp();
-        client.ResponseHandlers.Invoke("too_many_change_groups\r\n");
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke("too_many_change_groups\r\n");
+        client.ResponseHandlers!.Invoke(Status(DesignId));
 
         Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.ChangeGroupsIssueKey);
 
         client.SetConnectionState(ConnectionState.Disconnected);
         client.SetConnectionState(ConnectionState.Connected);
-        await WaitUntil(() => Count(client, LastConnectSend) == 2);
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        await UntilTheChangeGroupsAreBuiltTwice(client);
+        client.ResponseHandlers!.Invoke(Status(DesignId));
 
         Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.ChangeGroupsIssueKey);
     }
 
     [Fact]
-    public void HandleResponse_GivenABadId_RaisesAnOngoingIssue_ResolvedWhenTheControlResponds()
+    public void HandleResponse_GivenABadId_RaisesAnOngoingIssueCarryingTheRawLine_ResolvedWhenTheControlResponds()
     {
-        _mockClient.Object.ResponseHandlers.Invoke("bad_id \"Zone33BGMMute\"");
+        const string reply = "bad_id \"Zone33BGMMute\"";
+        _mockClient.Object.ResponseHandlers!.Invoke(reply);
 
         var issue = Assert.Single(_dsp.GetOngoingIssues(), i => i.Key == "bad-control:Zone33BGMMute");
         Assert.Equal(IssueStatus.Ongoing, issue.Status);
+        Assert.Equal(IssueSeverity.Major, issue.Severity);
+        Assert.Contains(reply, issue.Message);
 
-        _mockClient.Object.ResponseHandlers.Invoke("cv \"Zone33BGMMute\" \"unmuted\" 1 1");
+        _mockClient.Object.ResponseHandlers!.Invoke("cv \"Zone33BGMMute\" \"unmuted\" 1 1");
 
         Assert.DoesNotContain(_dsp.GetOngoingIssues(), i => i.Key == "bad-control:Zone33BGMMute");
         Assert.Contains(_dsp.GetIssues(),
@@ -823,8 +789,8 @@ public class QsysEcpTest
         _dsp.AddControl(_stringValueHandler.Object, "Zone31BGMSelect");
         var response =
             "cv \"Zone30BGMSelect\" \"7\" 7 0.857143\ncv \"Zone10BGMSelect\" \"3\" 3 0.285714\ncv \"Zone17BGMSelect\" \"4\" 4 0.428571\ncv \"Zone18BGMSelect\" \"1\" 1 0\ncv \"Zone1BGMSelect\" \"1\" 1 0\ncv \"Zone2BGMSelect\" \"2\" 2 0.142857\ncv \"Zone3BGMSelect\" \"3\" 3 0.285714\ncv \"Zone4BGMSelect\" \"4\" 4 0.428571\ncv \"Zone5BGMSelect\" \"6\" 6 0.714286\ncv \"Zone6BGMSelect\" \"4\" 4 0.428571\ncv \"Zone7BGMSelect\" \"4\" 4 0.428571\ncv \"Zone9BGMSelect\" \"2\" 2 0.142857\ncv \"Zone11BGMSelect\" \"1\" 1 0\ncv \"Zone12BGMSelect\" \"2\" 2 0.142857\ncv \"Zone13BGMSelect\" \"1\" 1 0\ncv \"Zone14BGMSelect\" \"2\" 2 0.142857\ncv \"Zone15BGMSelect\" \"3\" 3 0.285714\ncv \"Zone19BGMSelect\" \"6\" 6 0.714286\ncv \"Zone20BGMSelect\" \"4\" 4 0.428571\ncv \"Zone21BGMSelect\" \"3\" 3 0.285714\ncv \"Zone22BGMSelect\" \"2\" 2 0.142857\ncv \"Zone23BGMSelect\" \"1\" 1 0\ncv \"Zone24BGMSelect\" \"6\" 6 0.714286\ncv \"Zone25BGMSelect\" \"4\" 4 0.428571\ncv \"Zone26BGMSelect\" \"4\" 4 0.428571\ncv \"Zone27BGMSelect\" \"4\" 4 0.428571\ncv \"Zone28BGMSelect\" \"4\" 4 0.428571\ncv \"Zone29BGMSelect\" \"4\" 4 0.428571\ncv \"Zone31BGMSelect\" \"6\" 6 0.71428\n";
-        _mockClient.Object.ResponseHandlers.Invoke(response);
-        
+        _mockClient.Object.ResponseHandlers!.Invoke(response);
+
         _stringValueHandler.Verify(x => x.Invoke("7"), Times.Once);
         _stringValueHandler.Verify(x => x.Invoke("3"), Times.Exactly(4));
         _stringValueHandler.Verify(x => x.Invoke("1"), Times.Exactly(5));
@@ -835,7 +801,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new QsysEcp(client, "Test");
+        var dsp = Create(client);
 
         RegisterOneOfEachControl(dsp);
 
@@ -847,11 +813,12 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new QsysEcp(client, "Test");
+        var dsp = Create(client);
         RegisterOneOfEachControl(dsp);
 
         client.SetConnectionState(ConnectionState.Connected);
-        await WaitUntil(() => client.Sent.Contains(LastConnectSend) && RegistrationSends.All(client.Sent.Contains));
+        await Wait.UntilAsync(_time, ChangeGroupSetupStep, () => client.Sent.Contains(LastConnectSend) && RegistrationSends.All(client.Sent.Contains),
+            "the controls were never added and read after connecting");
 
         Assert.Equal(RegistrationSends.Order(), client.Sent.Where(IsChangeGroupAddOrGet).Order());
     }
@@ -861,7 +828,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new QsysEcp(client, "Test");
+        var dsp = Create(client);
 
         RegisterOneOfEachControl(dsp);
 
@@ -873,7 +840,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new QsysEcp(client, "Test");
+        var dsp = Create(client);
 
         _ = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, dsp);
 
@@ -886,9 +853,9 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, new QsysEcp(client, "Test"));
+        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, Create(client));
 
-        client.ResponseHandlers.Invoke($"cv \"{LevelOnlyName}\" \"-6.40dB\" -6.4 0.989744");
+        client.ResponseHandlers!.Invoke($"cv \"{LevelOnlyName}\" \"-6.40dB\" -6.4 0.989744");
 
         Assert.Equal(98, control.Volume);
     }
@@ -898,7 +865,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, new QsysEcp(client, "Test"));
+        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, Create(client));
 
         control.SetLevel(34);
 
@@ -910,7 +877,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, new QsysEcp(client, "Test"));
+        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, Create(client));
 
         control.SetAudioMute(MuteState.On);
         control.ToggleAudioMute();
@@ -919,20 +886,11 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void QsysVolumeOnlyControl_SupportsLevelButNotMute()
-    {
-        var control = new QsysVolumeOnlyControl("Program", LevelOnlyName, VolumeType.Speaker, _dsp);
-
-        Assert.True(control.SupportsLevel);
-        Assert.False(control.SupportsMute);
-    }
-
-    [Fact]
     public void QsysMuteOnlyControl_AddsOnlyTheMuteToAChangeGroup()
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Connected);
-        var dsp = new QsysEcp(client, "Test");
+        var dsp = Create(client);
 
         _ = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, dsp);
 
@@ -945,9 +903,9 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, new QsysEcp(client, "Test"));
+        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, Create(client));
 
-        client.ResponseHandlers.Invoke($"cv \"{MuteOnlyName}\" \"muted\" 1 1");
+        client.ResponseHandlers!.Invoke($"cv \"{MuteOnlyName}\" \"muted\" 1 1");
 
         Assert.Equal(MuteState.On, control.MuteState);
     }
@@ -957,7 +915,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, new QsysEcp(client, "Test"));
+        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, Create(client));
 
         control.SetAudioMute(MuteState.On);
 
@@ -969,7 +927,7 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, new QsysEcp(client, "Test"));
+        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, Create(client));
 
         control.LevelUp(1);
         control.LevelDown(1);
@@ -982,7 +940,7 @@ public class QsysEcpTest
     public void ClientDisconnectedOnRequest_ReportsNotAttempted_AndKeepsTheBadControlIssue()
     {
         var client = new TestTcpClient();
-        var dsp = new QsysEcp(client, "Test");
+        var dsp = Create(client);
         client.ResponseHandlers?.Invoke("bad_id \"Zone33BGMMute\"");
 
         client.Disconnect();
@@ -993,37 +951,12 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void QsysMuteOnlyControl_SupportsMuteButNotLevel()
-    {
-        var control = new QsysMuteOnlyControl("Privacy", MuteOnlyName, VolumeType.Microphone, _dsp);
-
-        Assert.True(control.SupportsMute);
-        Assert.False(control.SupportsLevel);
-    }
-
-    [Fact]
-    public void CoreManager_Given9xStringFirmware_ShowsItAsReceived()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var coreManager = new TestRestClient();
-        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core9Reply);
-
-        var dsp = CreateLogged(logs, () => ConnectWithCoreManager(coreManager));
-
-        Assert.Equal(new DeviceDetail(FirmwareLabel, "9.0.1-2104.002"), Detail(dsp, FirmwareLabel));
-        Assert.Equal(new DeviceDetail(HardwareIdLabel, HardwareId), Detail(dsp, HardwareIdLabel));
-        Assert.Null(Detail(dsp, SerialLabel));
-        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no serialNo: {Core9Reply}");
-        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
-    }
-
-    [Fact]
     public void CoreManager_Given10xObjectFirmware_ShowsTheNameAndBuild()
     {
         var coreManager = new TestRestClient();
         coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
 
-        var dsp = ConnectWithCoreManager(coreManager);
+        var dsp = ConnectWithCoreManager(_time, coreManager);
 
         Assert.Equal(new DeviceDetail(FirmwareLabel, "10.4.0-2501.005"), Detail(dsp, FirmwareLabel));
         Assert.Equal(new DeviceDetail(SerialLabel, SerialNo), Detail(dsp, SerialLabel));
@@ -1031,12 +964,12 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void CoreManager_InOpenMode_ReadsTheCoreWithoutALogon()
+    public void CoreManager_WithoutAUsername_ReadsTheCoreWithoutALogon()
     {
         var coreManager = new TestRestClient();
         coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
 
-        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+        var dsp = ConnectWithCoreManager(_time, coreManager);
 
         var request = Assert.Single(coreManager.Requests);
         Assert.Equal(("GET", CoreInfoPath), (request.Method, request.Path));
@@ -1045,40 +978,92 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void CoreManager_GivenA401WithCredentials_LogsOnAndRetriesWithTheToken()
+    public void CoreManager_WithCredentials_LogsOnFirstThenReadsWithTheToken()
     {
         var coreManager = new TestRestClient();
-        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
         coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
         coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
 
-        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+        var dsp = ConnectWithCoreManager(_time, coreManager, Username, Password);
 
-        Assert.Equal([("GET", CoreInfoPath), ("POST", LogonPath), ("GET", CoreInfoPath)],
+        Assert.Equal([("POST", LogonPath), ("GET", CoreInfoPath)],
             coreManager.Requests.Select(r => (r.Method, r.Path)));
-        Assert.Equal($$"""{"username":"{{Username}}","password":"{{Password}}"}""", coreManager.Requests[1].Body);
-        Assert.Equal("application/json", coreManager.Requests[1].Headers["Accept"]);
-        Assert.Equal($"Bearer {Token}", coreManager.Requests[2].Headers["Authorization"]);
+        Assert.Equal($$"""{"username":"{{Username}}","password":"{{Password}}"}""", coreManager.Requests[0].Body);
+        Assert.Equal("application/json", coreManager.Requests[0].Headers["Accept"]);
+        Assert.False(coreManager.Requests[0].Headers.ContainsKey("Authorization"));
+        Assert.Equal($"Bearer {Token}", coreManager.Requests[1].Headers["Authorization"]);
         Assert.Equal(new DeviceDetail(SerialLabel, SerialNo), Detail(dsp, SerialLabel));
         Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
     }
 
     [Fact]
-    public void CoreManager_OnTheNextConnect_StartsWithoutTheOldToken()
+    public void CoreManager_WithCredentials_ConnectsWithNoConnectionIssueOnTheRestClient()
+    {
+        var coreManager = new TestRestClient { RequiresAToken = true };
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+
+        _ = ConnectWithCoreManager(_time, coreManager, Username, Password);
+
+        Assert.Empty(coreManager.GetIssues());
+        Assert.Null(coreManager.ConnectionReason);
+    }
+
+    [Fact]
+    public void CoreManager_GivenAWrongPassword_RaisesTheCredentialsRejectedConnectionIssue()
+    {
+        const string rejection = "{\"error\":\"invalid credentials\"}";
+        var coreManager = new TestRestClient();
+        coreManager.Reply(LogonPath, HttpStatusCode.Unauthorized, rejection);
+
+        var dsp = ConnectWithCoreManager(_time, coreManager, Username, Password);
+
+        Assert.Equal(ConnectionReasonCategory.CredentialsRejected, coreManager.ConnectionReason?.Category);
+        Assert.Contains(coreManager.GetIssues(), i => i.Key == CommunicationClient.ConnectionIssueKey);
+        Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+    }
+
+    [Fact]
+    public void CoreManager_OnTheNextConnect_ReadsWithTheSameToken()
     {
         var client = new TestTcpClient();
         var coreManager = new TestRestClient();
-        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
         coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
         coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
-        _ = new QsysEcp(client, "Test", NeverPollMs, coreManager, Username, Password);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+        _ = new QsysEcp(client, "Test", NeverPollMs, coreManager, Username, Password, _time);
         client.SetConnectionState(ConnectionState.Connected);
 
         client.SetConnectionState(ConnectionState.Disconnected);
         client.SetConnectionState(ConnectionState.Connected);
 
-        Assert.Equal(4, coreManager.Requests.Count);
+        Assert.Equal([("POST", LogonPath), ("GET", CoreInfoPath), ("GET", CoreInfoPath)],
+            coreManager.Requests.Select(r => (r.Method, r.Path)));
+        Assert.Equal($"Bearer {Token}", coreManager.Requests[2].Headers["Authorization"]);
+    }
+
+    [Fact]
+    public void CoreManager_GivenTheKeptTokenRefused_LogsOnAgainAndReadsWithTheNewToken()
+    {
+        const string newToken = "token-def456";
+        var client = new TestTcpClient();
+        var coreManager = new TestRestClient();
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
+        coreManager.Reply(LogonPath, HttpStatusCode.OK, $$"""{"token":"{{newToken}}"}""");
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
+        var dsp = new QsysEcp(client, "Test", NeverPollMs, coreManager, Username, Password, _time);
+        client.SetConnectionState(ConnectionState.Connected);
+
+        client.SetConnectionState(ConnectionState.Disconnected);
+        client.SetConnectionState(ConnectionState.Connected);
+
+        Assert.Equal([("POST", LogonPath), ("GET", CoreInfoPath), ("GET", CoreInfoPath), ("POST", LogonPath), ("GET", CoreInfoPath)],
+            coreManager.Requests.Select(r => (r.Method, r.Path)));
         Assert.False(coreManager.Requests[3].Headers.ContainsKey("Authorization"));
+        Assert.Equal($"Bearer {newToken}", coreManager.Requests[4].Headers["Authorization"]);
+        Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
     }
 
     [Fact]
@@ -1087,7 +1072,7 @@ public class QsysEcpTest
         var coreManager = new TestRestClient();
         coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
 
-        var dsp = ConnectWithCoreManager(coreManager);
+        var dsp = ConnectWithCoreManager(_time, coreManager);
 
         Assert.Single(coreManager.Requests);
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
@@ -1098,39 +1083,34 @@ public class QsysEcpTest
     }
 
     [Fact]
-    public void CoreManager_GivenARejectedLogon_RaisesAnIssueWithTheUsernameButNotThePassword()
+    public void CoreManager_GivenA404_ShowsItIsNotSupportedWithNoIssue()
     {
-        const string rejection = "{\"error\":\"invalid credentials\"}";
-        var logs = new ScopeCapturingLoggerFactory();
+        const string body = "<html>Not Found</html>";
         var coreManager = new TestRestClient();
-        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
-        coreManager.Reply(LogonPath, HttpStatusCode.Unauthorized, rejection);
+        coreManager.Reply(CoreInfoPath, HttpStatusCode.NotFound, body);
 
-        var dsp = CreateLogged(logs, () => ConnectWithCoreManager(coreManager, Username, Password));
+        var dsp = ConnectWithCoreManager(_time, coreManager);
 
-        Assert.Equal([("GET", CoreInfoPath), ("POST", LogonPath)], coreManager.Requests.Select(r => (r.Method, r.Path)));
-        var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
-        Assert.Equal(
-            $"Core Manager rejected the logon as {Username}: POST https://{CoreManagerHost}{LogonPath} answered HTTP 401 Unauthorized, body: {rejection}",
-            issue.Message);
-        Assert.Contains(logs.Logs, x => x.Message == issue.Message);
-        Assert.DoesNotContain(logs.Logs, x => x.Message.Contains(Password));
-        Assert.DoesNotContain(Password, issue.Message);
+        var notSupported = $"Not supported: GET https://{CoreManagerHost}{CoreInfoPath} answered HTTP 404 Not Found, body: {body}";
+        Assert.Equal(new DeviceDetail(FirmwareLabel, notSupported, DetailTone.Normal), Detail(dsp, FirmwareLabel));
+        Assert.Equal(new DeviceDetail(SerialLabel, notSupported, DetailTone.Normal), Detail(dsp, SerialLabel));
+        Assert.Equal(new DeviceDetail(HardwareIdLabel, notSupported, DetailTone.Normal), Detail(dsp, HardwareIdLabel));
+        Assert.Empty(dsp.GetIssues());
+        Assert.NotEqual(CommunicationState.Error, dsp.CommunicationState);
     }
 
     [Fact]
     public void CoreManager_GivenA401AfterTheLogon_RaisesAnIssueAndStops()
     {
         var coreManager = new TestRestClient();
-        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
         coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
         coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
         coreManager.Reply(LogonPath, HttpStatusCode.OK, TokenReply);
         coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
 
-        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+        var dsp = ConnectWithCoreManager(_time, coreManager, Username, Password);
 
-        Assert.Equal([("GET", CoreInfoPath), ("POST", LogonPath), ("GET", CoreInfoPath)],
+        Assert.Equal([("POST", LogonPath), ("GET", CoreInfoPath)],
             coreManager.Requests.Select(r => (r.Method, r.Path)));
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
         Assert.Equal(
@@ -1143,12 +1123,11 @@ public class QsysEcpTest
     {
         const string reply = "{\"result\":\"ok\"}";
         var coreManager = new TestRestClient();
-        coreManager.Reply(CoreInfoPath, HttpStatusCode.Unauthorized, UnauthorisedBody);
         coreManager.Reply(LogonPath, HttpStatusCode.OK, reply);
 
-        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+        var dsp = ConnectWithCoreManager(_time, coreManager, Username, Password);
 
-        Assert.Equal(2, coreManager.Requests.Count);
+        Assert.Single(coreManager.Requests);
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
         Assert.Contains($"as {Username} has no token", issue.Message);
         Assert.Contains($"HTTP 200 OK, body: {reply}", issue.Message);
@@ -1161,7 +1140,7 @@ public class QsysEcpTest
         var coreManager = new TestRestClient();
         coreManager.Reply(CoreInfoPath, HttpStatusCode.InternalServerError, body);
 
-        var dsp = ConnectWithCoreManager(coreManager, Username, Password);
+        var dsp = ConnectWithCoreManager(_time, coreManager);
 
         Assert.Single(coreManager.Requests);
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
@@ -1180,7 +1159,7 @@ public class QsysEcpTest
         var coreManager = new TestRestClient();
         coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, body);
 
-        var dsp = ConnectWithCoreManager(coreManager);
+        var dsp = ConnectWithCoreManager(_time, coreManager);
 
         var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
         Assert.Equal(
@@ -1200,30 +1179,11 @@ public class QsysEcpTest
         var coreManager = new TestRestClient();
         coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, $$"""{"firmware":{{firmware}},"serialNo":12345,"serial":"{{HardwareId}}"}""");
 
-        var dsp = ConnectWithCoreManager(coreManager);
+        var dsp = ConnectWithCoreManager(_time, coreManager);
 
         Assert.Equal(new DeviceDetail(FirmwareLabel, expected), Detail(dsp, FirmwareLabel));
         Assert.Equal(new DeviceDetail(SerialLabel, "12345"), Detail(dsp, SerialLabel));
         Assert.Equal(new DeviceDetail(HardwareIdLabel, HardwareId), Detail(dsp, HardwareIdLabel));
-    }
-
-    [Fact]
-    public void CoreManager_GivenAReplyWithNoKnownFields_WarnsWithTheRawBodyAndShowsNothing()
-    {
-        const string body = "{\"status\":{\"name\":\"OK\"}}";
-        var logs = new ScopeCapturingLoggerFactory();
-        var coreManager = new TestRestClient();
-        coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, body);
-
-        var dsp = CreateLogged(logs, () => ConnectWithCoreManager(coreManager));
-
-        Assert.Null(Detail(dsp, FirmwareLabel));
-        Assert.Null(Detail(dsp, SerialLabel));
-        Assert.Null(Detail(dsp, HardwareIdLabel));
-        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no firmware: {body}");
-        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no serialNo: {body}");
-        Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no hardwareId or serial: {body}");
-        Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
     }
 
     [Fact]
@@ -1232,15 +1192,15 @@ public class QsysEcpTest
         var coreManager = new TestRestClient();
         coreManager.Reply(CoreInfoPath, HttpStatusCode.ServiceUnavailable, "starting");
         var client = new TestTcpClient();
-        var dsp = new QsysEcp(client, "Test", NeverPollMs, coreManager);
+        var dsp = new QsysEcp(client, "Test", NeverPollMs, coreManager, null, "", _time);
         client.SetConnectionState(ConnectionState.Connected);
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke(Status(DesignId));
         Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
 
         coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core10Reply);
-        client.ResponseHandlers.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke(Status(DesignId));
         Assert.Single(coreManager.Requests);
-        client.ResponseHandlers.Invoke(Status(RedeployedDesignId));
+        client.ResponseHandlers!.Invoke(Status(RedeployedDesignId));
 
         Assert.Equal(2, coreManager.Requests.Count);
         Assert.DoesNotContain(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
@@ -1252,11 +1212,11 @@ public class QsysEcpTest
     public void CoreManager_WithoutARestClient_RaisesNothingAndShowsNothing()
     {
         var client = new TestTcpClient();
-        var dsp = new QsysEcp(client, "Test", NeverPollMs);
+        var dsp = Create(client);
 
         client.SetConnectionState(ConnectionState.Connected);
-        client.ResponseHandlers.Invoke(Status(DesignId));
-        client.ResponseHandlers.Invoke(Status(RedeployedDesignId));
+        client.ResponseHandlers!.Invoke(Status(DesignId));
+        client.ResponseHandlers!.Invoke(Status(RedeployedDesignId));
 
         Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
         Assert.Null(Detail(dsp, FirmwareLabel));
@@ -1265,10 +1225,12 @@ public class QsysEcpTest
         Assert.Empty(dsp.Errors);
     }
 
-    private static QsysEcp ConnectWithCoreManager(TestRestClient coreManager, string? username = null, string password = "")
+    private QsysEcp Create(TcpClient client) => new(client, "Test", NeverPollMs, null, null, "", _time);
+
+    private static QsysEcp ConnectWithCoreManager(TimeProvider time, TestRestClient coreManager, string? username = null, string password = "")
     {
         var client = new TestTcpClient();
-        var dsp = new QsysEcp(client, "Test", NeverPollMs, coreManager, username, password);
+        var dsp = new QsysEcp(client, "Test", NeverPollMs, coreManager, username, password, time);
         client.SetConnectionState(ConnectionState.Connected);
         return dsp;
     }
@@ -1281,6 +1243,7 @@ public class QsysEcpTest
         private readonly Dictionary<string, string> _headers = new();
         private readonly Dictionary<string, Queue<(HttpStatusCode Status, string Body)>> _replies = new();
         public readonly List<RestRequest> Requests = [];
+        public bool RequiresAToken { get; init; }
 
         public void Reply(string path, HttpStatusCode status, string body)
         {
@@ -1306,10 +1269,22 @@ public class QsysEcpTest
             foreach (var (key, value) in _headers)
                 request.Headers.TryAddWithoutValidation(key, value);
             Requests.Add(new RestRequest(method.Method, endpoint.OriginalString, payload, new Dictionary<string, string>(_headers)));
+            if (RequiresAToken && endpoint.OriginalString == CoreInfoPath && !_headers.ContainsKey("Authorization"))
+                return Answer(request, endpoint, HttpStatusCode.Unauthorized, UnauthorisedBody);
             if (!_replies.TryGetValue(endpoint.OriginalString, out var replies) || replies.Count == 0)
                 return Task.CompletedTask;
 
             var (status, body) = replies.Dequeue();
+            return Answer(request, endpoint, status, body);
+        }
+
+        private Task Answer(HttpRequestMessage request, Uri endpoint, HttpStatusCode status, string body)
+        {
+            if (status is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                ReportConnectionFailure(ConnectionReasonCategory.CredentialsRejected,
+                    $"{CoreManagerHost} rejected the credentials for {endpoint.OriginalString}: {(int)status}");
+            else if ((int)status is >= 200 and < 300)
+                ClearConnectionFailures();
             HttpResponseHandlers?.Invoke(new HttpResponseMessage(status) { RequestMessage = request, Content = new StringContent(body) });
             return Task.CompletedTask;
         }
@@ -1327,14 +1302,17 @@ public class QsysEcpTest
     {
         var client = new TestTcpClient();
         client.SetConnectionState(ConnectionState.Disconnected);
-        var dsp = new TestableQsysEcp(client);
+        var dsp = new TestableQsysEcp(client, _time);
         RegisterOneOfEachControl(dsp);
         client.SetConnectionState(ConnectionState.Connected);
-        await WaitUntil(() => client.Sent.Contains(LastConnectSend));
+        await Wait.UntilAsync(_time, ChangeGroupSetupStep, () => client.Sent.Contains(LastConnectSend), "the change groups were never built");
         return (client, dsp);
     }
 
-    private class TestableQsysEcp(TcpClient client) : QsysEcp(client, "Test", NeverPollMs)
+    private Task UntilTheChangeGroupsAreBuiltTwice(TestTcpClient client) =>
+        Wait.UntilAsync(_time, ChangeGroupSetupStep, () => Count(client, LastConnectSend) == 2, "the change groups were never rebuilt");
+
+    private class TestableQsysEcp(TcpClient client, TimeProvider time) : QsysEcp(client, "Test", NeverPollMs, null, null, "", time)
     {
         public Task PollNow() => Poll(CancellationToken.None);
     }
@@ -1348,20 +1326,6 @@ public class QsysEcpTest
 
     private static bool IsChangeGroupAddOrGet(string message) => message.StartsWith("cga ") || message.StartsWith("cg ");
 
-    private static T CreateLogged<T>(ScopeCapturingLoggerFactory logs, Func<T> create)
-    {
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return create();
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
     private class GetFailingTcpClient : TestTcpClient
     {
         public override void Send(string message)
@@ -1372,11 +1336,160 @@ public class QsysEcpTest
         }
     }
 
-    private static async Task WaitUntil(Func<bool> condition, int timeoutMs = WaitTimeoutMs)
+    [Collection(LoggerFactoryCollection.Name)]
+    public class LogTest
     {
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        while (!condition() && DateTime.UtcNow < deadline)
-            await Task.Delay(WaitStepMs);
-        Assert.True(condition());
+        private readonly FakeTimeProvider _time = new();
+        private readonly Mock<VolumeLevelHandler> _volumeLevelHandler = new();
+
+        [Fact]
+        public void HandleResponse_GivenAnUnparsedControlValue_LogsItAndHandlesTheNextLine()
+        {
+            var logs = new ScopeCapturingLoggerFactory();
+            var client = new TestTcpClient();
+            var dsp = Logged.Create(logs, () => new QsysEcp(client, "Test", NeverPollMs, null, null, "", _time));
+            dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+            client.ResponseHandlers!.Invoke($"cv \"gai \ncv \"{GainName}\" \"-6.40dB\" -6.4 0.989744\n");
+
+            Assert.Equal(98, dsp.GetLevel(GainName));
+            Assert.Contains(logs.Logs, x => x.Message == "Unparsed control value: cv \"gai ");
+            Assert.Empty(dsp.Errors);
+        }
+
+        [Fact]
+        public void Commands_GivenAnUnknownControl_SendNothingAndLogTheValues()
+        {
+            var logs = new ScopeCapturingLoggerFactory();
+            var client = new TestTcpClient();
+            var dsp = Logged.Create(logs, () => new QsysEcp(client, "Test", NeverPollMs, null, null, "", _time));
+
+            dsp.LevelUp(UnknownControl, 3);
+            dsp.LevelDown(UnknownControl, 2);
+            dsp.ToggleAudioMute(UnknownControl);
+
+            Assert.Empty(client.Sent);
+            Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, not raising it by 3");
+            Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, not lowering it by 2");
+            Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl}, not toggling it");
+        }
+
+        [Fact]
+        public void AddControl_GivenABlankName_LogsTheRawName()
+        {
+            var logs = new ScopeCapturingLoggerFactory();
+            var dsp = Logged.Create(logs, () => new QsysEcp(new TestTcpClient(), "Test", NeverPollMs, null, null, "", _time));
+
+            dsp.AddControl(_volumeLevelHandler.Object, BlankControlName);
+
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning
+                                            && x.Message == "The level control name \"\" is blank, so it is not sent to the Core (blank control 1)");
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(" ")]
+        public void Sets_GivenABlankName_SendNothingAndLogTheRawName(string blankName)
+        {
+            var logs = new ScopeCapturingLoggerFactory();
+            var client = new TestTcpClient();
+            var dsp = Logged.Create(logs, () => new QsysEcp(client, "Test", NeverPollMs, null, null, "", _time));
+
+            dsp.SetLevel(blankName, 40);
+            dsp.SetAudioMute(blankName, MuteState.On);
+            dsp.SetValue(blankName, "3");
+
+            Assert.Empty(client.Sent);
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Not setting the blank level control name \"{blankName}\" to 40");
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Not setting the blank mute control name \"{blankName}\" to On");
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Not setting the blank string control name \"{blankName}\" to 3");
+            Assert.Empty(dsp.GetIssues());
+        }
+
+        [Fact]
+        public void Gets_GivenAnUnknownControl_ReturnTheDefaultAndLog()
+        {
+            var logs = new ScopeCapturingLoggerFactory();
+            var dsp = Logged.Create(logs, () => new QsysEcp(new TestTcpClient(), "Test", NeverPollMs, null, null, "", _time));
+
+            Assert.Equal(0, dsp.GetLevel(UnknownControl));
+            Assert.Equal(MuteState.Unknown, dsp.GetAudioMute(UnknownControl));
+            Assert.Equal("", dsp.GetValue(UnknownControl));
+            Assert.Contains(logs.Logs, x => x.Message == $"Unknown level {UnknownControl}, returning 0");
+            Assert.Contains(logs.Logs, x => x.Message == $"Unknown mute {UnknownControl}, returning Unknown");
+            Assert.Contains(logs.Logs, x => x.Message == $"Unknown string {UnknownControl}, returning an empty value");
+        }
+
+        [Fact]
+        public async Task GetAllControlStates_GivenAFailingSend_GivesUpAfterThreeAttempts()
+        {
+            var logs = new ScopeCapturingLoggerFactory();
+            var client = new GetFailingTcpClient();
+            var dsp = Logged.Create(logs, () => new QsysEcp(client, "Test", NeverPollMs, null, null, "", _time));
+            dsp.AddControl(_volumeLevelHandler.Object, GainName);
+
+            dsp.GetAllControlStates();
+            await Wait.UntilAsync(_time, ControlStatesRetryDelay,
+                () => logs.Logs.Any(x => x.Message == $"Gave up getting the control states after {ControlStateAttempts} attempts"),
+                "the control state reads never gave up");
+
+            Assert.Equal(ControlStateAttempts, Count(client, $"cg \"{GainName}\"\n"));
+            Assert.Equal(ControlStateAttempts, dsp.Errors.Count);
+        }
+
+        [Fact]
+        public void CoreManager_Given9xStringFirmware_ShowsItAsReceived()
+        {
+            var logs = new ScopeCapturingLoggerFactory();
+            var coreManager = new TestRestClient();
+            coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, Core9Reply);
+
+            var dsp = Logged.Create(logs, () => ConnectWithCoreManager(_time, coreManager));
+
+            Assert.Equal(new DeviceDetail(FirmwareLabel, "9.0.1-2104.002"), Detail(dsp, FirmwareLabel));
+            Assert.Equal(new DeviceDetail(HardwareIdLabel, HardwareId), Detail(dsp, HardwareIdLabel));
+            Assert.Null(Detail(dsp, SerialLabel));
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no serialNo: {Core9Reply}");
+            Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        }
+
+        [Fact]
+        public void CoreManager_GivenARejectedLogon_RaisesAnIssueWithTheUsernameButNotThePassword()
+        {
+            const string rejection = "{\"error\":\"invalid credentials\"}";
+            var logs = new ScopeCapturingLoggerFactory();
+            var coreManager = new TestRestClient();
+            coreManager.Reply(LogonPath, HttpStatusCode.Unauthorized, rejection);
+
+            var dsp = Logged.Create(logs, () => ConnectWithCoreManager(_time, coreManager, Username, Password));
+
+            Assert.Equal([("POST", LogonPath)], coreManager.Requests.Select(r => (r.Method, r.Path)));
+            var issue = Assert.Single(dsp.GetOngoingIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+            Assert.Equal(
+                $"Core Manager rejected the logon as {Username}: POST https://{CoreManagerHost}{LogonPath} answered HTTP 401 Unauthorized, body: {rejection}",
+                issue.Message);
+            Assert.Contains(logs.Logs, x => x.Message == issue.Message);
+            Assert.DoesNotContain(logs.Logs, x => x.Message.Contains(Password));
+            Assert.DoesNotContain(Password, issue.Message);
+        }
+
+        [Fact]
+        public void CoreManager_GivenAReplyWithNoKnownFields_WarnsWithTheRawBodyAndShowsNothing()
+        {
+            const string body = "{\"status\":{\"name\":\"OK\"}}";
+            var logs = new ScopeCapturingLoggerFactory();
+            var coreManager = new TestRestClient();
+            coreManager.Reply(CoreInfoPath, HttpStatusCode.OK, body);
+
+            var dsp = Logged.Create(logs, () => ConnectWithCoreManager(_time, coreManager));
+
+            Assert.Null(Detail(dsp, FirmwareLabel));
+            Assert.Null(Detail(dsp, SerialLabel));
+            Assert.Null(Detail(dsp, HardwareIdLabel));
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no firmware: {body}");
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no serialNo: {body}");
+            Assert.Contains(logs.Logs, x => x.Level == LogLevel.Warning && x.Message == $"Core Manager's reply has no hardwareId or serial: {body}");
+            Assert.DoesNotContain(dsp.GetIssues(), i => i.Key == QsysEcp.CoreManagerIssueKey);
+        }
     }
 }

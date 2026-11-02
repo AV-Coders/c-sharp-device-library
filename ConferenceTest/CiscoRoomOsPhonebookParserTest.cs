@@ -1,20 +1,13 @@
-using System.Reflection;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Moq;
 
 namespace AVCoders.Conference.Tests;
 
-[Collection(LoggerFactoryCollection.Name)]
 public class CiscoRoomOsPhonebookParserTest
 {
     private const string ResultHeader = "*r PhonebookSearchResult (status=OK):";
-    private const string ErrorHeader = "*r PhonebookSearchResult (status=Error):";
-    private const string ErrorReason = "*r PhonebookSearchResult Reason: \"No phonebook server\"";
-    private const string RootSearch = "xCommand Phonebook Search PhonebookType: Corporate Offset:0 Limit: 300\n";
-    private const int WaitTimeoutMs = 2000;
-    private const int WaitStepMs = 10;
-    private static readonly TimeSpan ShortSearchTimeout = TimeSpan.FromMilliseconds(50);
+    internal const string RootSearch = "xCommand Phonebook Search PhonebookType: Corporate Offset:0 Limit: 300\n";
     private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(2);
     private readonly CiscoRoomOsPhonebookParser _parser;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient();
@@ -36,7 +29,7 @@ public class CiscoRoomOsPhonebookParserTest
         "*r PhonebookSearchResult Folder 3 Name: \"More folders\"",
         "** end"
     };
-    private readonly List<string> _contactReply = new()
+    internal static readonly List<string> ContactReply = new()
     {
         "*r PhonebookSearchResult (status=OK):",
         "*r PhonebookSearchResult ResultInfo Offset: 0",
@@ -58,30 +51,8 @@ public class CiscoRoomOsPhonebookParserTest
     private void Receive(List<string> lines, string lineEnding = "\n") =>
         lines.ForEach(line => _mockClient.Object.ResponseHandlers!.Invoke(line + lineEnding));
 
-    private static CiscoRoomOsPhonebookParser CreateLoggedParser(ScopeCapturingLoggerFactory logs, Mock<TcpClient> client)
-    {
-        var originalLoggerFactory = LogBase.LoggerFactory;
-        LogBase.LoggerFactory = logs;
-        try
-        {
-            return new CiscoRoomOsPhonebookParser(client.Object);
-        }
-        finally
-        {
-            LogBase.LoggerFactory = originalLoggerFactory;
-        }
-    }
-
-    private static int Sends(Mock<TcpClient> client, string command) =>
+    internal static int Sends(Mock<TcpClient> client, string command) =>
         client.Invocations.Count(invocation => invocation.Method.Name == nameof(TcpClient.Send) && Equals(invocation.Arguments[0], command));
-
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow.AddMilliseconds(WaitTimeoutMs);
-        while (!condition() && DateTime.UtcNow < deadline)
-            await Task.Delay(WaitStepMs);
-        Assert.True(condition());
-    }
 
     [Fact]
     public void Parser_RequestsThePhonebook_OnANewCodecSession()
@@ -89,37 +60,6 @@ public class CiscoRoomOsPhonebookParserTest
         _mockClient.Object.ResponseHandlers!.Invoke("*r Login successful\n");
 
         _mockClient.Verify(x => x.Send("xCommand Phonebook Search PhonebookType: Corporate Offset:0 Limit: 300\n"));
-    }
-
-    [Fact]
-    public void PhonebookFolders_AreParsedCorrectly()
-    {
-        new List<string>
-        {
-            "*r PhonebookSearchResult (status=OK):", 
-            "*r PhonebookSearchResult ResultInfo Offset: 0",
-            "*r PhonebookSearchResult ResultInfo Limit: 300",
-            "*r PhonebookSearchResult ResultInfo TotalRows: 3",
-            "*r PhonebookSearchResult Folder 1 LocalId: \"c_61\"",
-            "*r PhonebookSearchResult Folder 1 FolderId: \"c_61\"",
-            "*r PhonebookSearchResult Folder 1 Name: \"AV Coders\"",
-            "*r PhonebookSearchResult Folder 2 LocalId: \"c_35\"",
-            "*r PhonebookSearchResult Folder 2 FolderId: \"c_35\"",
-            "*r PhonebookSearchResult Folder 2 Name: \"A new folder with spaces\"",
-            "*r PhonebookSearchResult Folder 3 LocalId: \"c_63\"",
-            "*r PhonebookSearchResult Folder 3 FolderId: \"c_63\"",
-            "*r PhonebookSearchResult Folder 3 Name: \"More folders\"",
-            "** end"
-        }.ForEach(response => _mockClient.Object.ResponseHandlers!.Invoke($"{response}\n"));
-
-        CiscoRoomOsPhonebookFolder firstFolder = (CiscoRoomOsPhonebookFolder)_parser.PhoneBook.Items[0];
-        
-        Assert.Equal(3, _parser.PhoneBook.Items.Count);
-        Assert.Equal("AV Coders", firstFolder.Name);
-        Assert.Equal("c_61", firstFolder.LocalId);
-        Assert.Equal("c_61", firstFolder.FolderId);
-        Assert.Equal("A new folder with spaces", _parser.PhoneBook.Items[1].Name);
-        Assert.Equal("More folders", _parser.PhoneBook.Items[2].Name);
     }
 
     [Fact]
@@ -282,7 +222,7 @@ public class CiscoRoomOsPhonebookParserTest
     [Fact]
     public void StrayEnds_AfterASearch_DoNotRaisePhonebookUpdatedAgain()
     {
-        Receive(_contactReply);
+        Receive(ContactReply);
 
         Receive(new List<string> { "*s Call 102 Status: Connected", "** end", "** end" });
 
@@ -347,7 +287,7 @@ public class CiscoRoomOsPhonebookParserTest
         _mockClient.Verify(x => x.Send(RootSearch), Times.Exactly(2));
         Assert.Empty(_parser.PhoneBook.Items);
 
-        Receive(_contactReply);
+        Receive(ContactReply);
 
         Assert.Equal(new[] { "Contact One", "Contact Two" }, _parser.PhoneBook.Items.Select(item => item.Name));
         _mockClient.Verify(x => x.Send(It.Is<string>(command => command.Contains("FolderId"))), Times.Never);
@@ -367,52 +307,10 @@ public class CiscoRoomOsPhonebookParserTest
         _parser.RequestPhonebook();
 
         Trigger.Start();
-        Receive(_contactReply);
+        Receive(ContactReply);
 
         Assert.Equal(new[] { RootSearch, RootSearch }, sends.Select(send => send.Wire));
         Assert.Equal(latest, sends[1].TriggerId);
-    }
-
-    [Fact]
-    public async Task HeldRequest_IsSentAfterTheSearchTimeout()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = TestFactory.CreateTcpClient();
-        var parser = CreateLoggedParser(logs, client);
-        parser.SearchTimeout = ShortSearchTimeout;
-        parser.RequestPhonebook();
-        parser.RequestPhonebook();
-
-        await WaitUntil(() => Sends(client, RootSearch) == 2);
-
-        Assert.Contains(logs.Logs, log => log.Message.StartsWith($"No complete reply to {RootSearch.TrimEnd()} within "));
-
-        _contactReply.ForEach(line => client.Object.ResponseHandlers!.Invoke(line + "\n"));
-
-        Assert.Equal(new[] { "Contact One", "Contact Two" }, parser.PhoneBook.Items.Select(item => item.Name));
-    }
-
-    [Fact]
-    public void AnErrorReply_EndsTheSearch_AndReleasesTheHeldRequest()
-    {
-        var logs = new ScopeCapturingLoggerFactory();
-        var client = TestFactory.CreateTcpClient();
-        var parser = CreateLoggedParser(logs, client);
-        var phonebookUpdated = new Mock<PhonebookUpdated>();
-        parser.PhonebookUpdated = phonebookUpdated.Object;
-        parser.RequestPhonebook();
-        parser.RequestPhonebook();
-
-        new List<string> { ErrorHeader, ErrorReason, "** end" }
-            .ForEach(line => client.Object.ResponseHandlers!.Invoke(line + "\n"));
-
-        Assert.Equal(2, Sends(client, RootSearch));
-        var messages = logs.Logs.Select(log => log.Message).ToList();
-        Assert.Contains($"Phonebook search failed: {ErrorHeader}", messages);
-        Assert.Contains($"Phonebook search failed: {ErrorReason}", messages);
-        Assert.Equal(CommunicationState.Error, parser.CommunicationState);
-        Assert.Empty(parser.PhoneBook.Items);
-        phonebookUpdated.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -426,7 +324,7 @@ public class CiscoRoomOsPhonebookParserTest
 
         _mockClient.Verify(x => x.Send(RootSearch), Times.Exactly(2));
 
-        Receive(_contactReply);
+        Receive(ContactReply);
 
         _mockClient.Verify(x => x.Send(RootSearch), Times.Exactly(2));
         Assert.Equal(new[] { "Contact One", "Contact Two" }, _parser.PhoneBook.Items.Select(item => item.Name));
@@ -444,7 +342,7 @@ public class CiscoRoomOsPhonebookParserTest
         };
         _parser.RequestPhonebook();
 
-        Receive(_contactReply);
+        Receive(ContactReply);
 
         Assert.True(joined);
         _mockClient.Verify(x => x.Send(RootSearch), Times.Exactly(2));
@@ -488,16 +386,6 @@ public class CiscoRoomOsPhonebookParserTest
         Receive(reply);
 
         _mockClient.Verify(x => x.Send("xCommand Phonebook Search PhonebookType: Corporate Offset:300 Limit: 300\n"), Times.Once);
-    }
-
-    [Fact]
-    public void PhonebookContacts_AreMarkedLoaded()
-    {
-        Receive(_contactReply);
-
-        var loadedRows = (HashSet<int>)typeof(CiscoRoomOsPhonebookParser)
-            .GetField("_loadedRows", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_parser)!;
-        Assert.Equal(new[] { 1, 2 }, loadedRows.Order());
     }
 
     [Fact]
@@ -580,5 +468,71 @@ public class CiscoRoomOsPhonebookParserTest
 
         Assert.Null(exception);
         Assert.Empty(_parser.PhoneBook.Items);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class CiscoRoomOsPhonebookParserLogTest
+{
+    private const string ErrorHeader = "*r PhonebookSearchResult (status=Error):";
+    private const string ErrorReason = "*r PhonebookSearchResult Reason: \"No phonebook server\"";
+    private static readonly TimeSpan ShortSearchTimeout = TimeSpan.FromMilliseconds(50);
+
+    private static CiscoRoomOsPhonebookParser CreateLoggedParser(ScopeCapturingLoggerFactory logs, Mock<TcpClient> client)
+    {
+        var originalLoggerFactory = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = logs;
+        try
+        {
+            return new CiscoRoomOsPhonebookParser(client.Object);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = originalLoggerFactory;
+        }
+    }
+
+    [Fact]
+    public async Task HeldRequest_IsSentAfterTheSearchTimeout()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = TestFactory.CreateTcpClient();
+        var parser = CreateLoggedParser(logs, client);
+        parser.SearchTimeout = ShortSearchTimeout;
+        parser.RequestPhonebook();
+        parser.RequestPhonebook();
+
+        await Wait.UntilAsync(() => CiscoRoomOsPhonebookParserTest.Sends(client, CiscoRoomOsPhonebookParserTest.RootSearch) == 2,
+            "The held request was never sent");
+
+        Assert.Contains(logs.Logs, log =>
+            log.Message.StartsWith($"No complete reply to {CiscoRoomOsPhonebookParserTest.RootSearch.TrimEnd()} within "));
+
+        CiscoRoomOsPhonebookParserTest.ContactReply.ForEach(line => client.Object.ResponseHandlers!.Invoke(line + "\n"));
+
+        Assert.Equal(new[] { "Contact One", "Contact Two" }, parser.PhoneBook.Items.Select(item => item.Name));
+    }
+
+    [Fact]
+    public void AnErrorReply_EndsTheSearch_AndReleasesTheHeldRequest()
+    {
+        var logs = new ScopeCapturingLoggerFactory();
+        var client = TestFactory.CreateTcpClient();
+        var parser = CreateLoggedParser(logs, client);
+        var phonebookUpdated = new Mock<PhonebookUpdated>();
+        parser.PhonebookUpdated = phonebookUpdated.Object;
+        parser.RequestPhonebook();
+        parser.RequestPhonebook();
+
+        new List<string> { ErrorHeader, ErrorReason, "** end" }
+            .ForEach(line => client.Object.ResponseHandlers!.Invoke(line + "\n"));
+
+        Assert.Equal(2, CiscoRoomOsPhonebookParserTest.Sends(client, CiscoRoomOsPhonebookParserTest.RootSearch));
+        var messages = logs.Logs.Select(log => log.Message).ToList();
+        Assert.Contains($"Phonebook search failed: {ErrorHeader}", messages);
+        Assert.Contains($"Phonebook search failed: {ErrorReason}", messages);
+        Assert.Equal(CommunicationState.Error, parser.CommunicationState);
+        Assert.Empty(parser.PhoneBook.Items);
+        phonebookUpdated.VerifyNoOtherCalls();
     }
 }
