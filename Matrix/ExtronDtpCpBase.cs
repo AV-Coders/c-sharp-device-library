@@ -4,7 +4,7 @@ namespace AVCoders.Matrix;
 
 /// <summary>
 /// Shared plumbing for the Extron DTP CrossPoint family: SIS framing, single-tie routing,
-/// HDCP status decoding, verbose-mode setup on connect and the keepalive poll. Model-specific
+/// HdcpI / HdcpO reply splitting, verbose-mode setup on connect and the keepalive poll. Model-specific
 /// discovery, naming, hotplug and signal-presence handling live in the concrete drivers.
 /// </summary>
 public abstract class ExtronDtpCpBase : ExtronSisMatrix
@@ -102,12 +102,6 @@ public abstract class ExtronDtpCpBase : ExtronSisMatrix
         value = parts[1];
         return true;
     }
-
-    /// <summary>Decodes an input HDCP value; the tables are shared with the other Extron SIS drivers.</summary>
-    protected static (ConnectionState Connection, HdcpStatus Hdcp) DecodeInputHdcp(string value) => ExtronSisHdcp.DecodeInput(value);
-
-    /// <summary>Decodes an output HDCP value; the tables are shared with the other Extron SIS drivers.</summary>
-    protected static (ConnectionState Connection, HdcpStatus Hdcp) DecodeOutputHdcp(string value) => ExtronSisHdcp.DecodeOutput(value);
 
     public override void RouteAV(int input, int output)
     {

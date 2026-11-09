@@ -5,6 +5,21 @@ namespace AVCoders.Matrix;
 
 public partial class ExtronIn18Xx : ExtronSisMatrix
 {
+    public enum ScreenSaverMode { Black = 1, BlueWithOsdText = 2, UserImage = 3 }
+
+    public enum HdcpNotificationMode { Black = 0, GreenWithOsd = 1, UserImage = 2 }
+
+    public enum AutoSwitchMode { Off = 0, UserPriority = 1, LastConnected = 2 }
+
+    public enum HdcpOutputMode
+    {
+        DisableAuthentication = 0,
+        FollowInput = 1,
+        AlwaysEncryptOutput = 2,
+        FollowInputContinuousTrials = 3,
+        AlwaysEncryptOutputContinuousTrials = 4
+    }
+
     private readonly int _numberOfInputs;
     public static readonly SerialSpec DefaultSerialSpec =
         new (SerialBaud.Rate9600, SerialParity.None, SerialDataBits.DataBits8, SerialStopBits.Bits1, SerialProtocol.Rs232);
@@ -25,8 +40,6 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
     private const string ModelLabel = "Model";
     private const string ModelIssueKey = "model";
     private const int TieOutput = 1;
-    private const string SyncTimeoutReplyStart = "Ssav";
-    private const string VideoMuteReplyStart = "Vmt";
     private const string InputHdcpReplyStart = "HdcpI";
     private const string OutputHdcpReplyStart = "HdcpO";
     private static readonly char[] LineSeparators = ['\r', '\n'];
@@ -43,8 +56,39 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
         new($"{EscapeHeader}CH\r", "Iph ", "MAC", "mac-read")
     ];
     private static readonly ExtronSisQuery TemperatureQuery = new($"{EscapeHeader}20STAT\r", "20Stat ", "Temperature", "temperature-read");
-    private readonly object _spacedSendsLock = new();
-    private Task _spacedSends = Task.CompletedTask;
+    private const string Unmuted = "0";
+    private const string VideoAndSyncMuted = "2";
+    private const string AutoSwitchPriorityTag = "AuswP";
+    private const string AutoSwitchTimeoutTag = "AuswT";
+    private static readonly ExtronSisSetting ScreenSaver = new(
+        new($"{EscapeHeader}M1SSAV\r", "SsavM1*", "Screen Saver", "screen-saver-read"),
+        mode => $"{EscapeHeader}M1*{mode}SSAV\r", ExtronSisSetting.Named<ScreenSaverMode>);
+    private static readonly ExtronSisSetting SyncTimeout = new(
+        new($"{EscapeHeader}T1SSAV\r", "SsavT1*", "Sync Timeout", "sync-timeout-read"),
+        seconds => $"{EscapeHeader}T1*{seconds}SSAV\r", ExtronSisSetting.SyncTimeoutText);
+    private static readonly ExtronSisSetting HdcpNotification = new(
+        new($"{EscapeHeader}N1HDCP\r", "HdcpN1*", "HDCP Notification", "hdcp-notification-read"),
+        mode => $"{EscapeHeader}N1*{mode}HDCP\r", ExtronSisSetting.Named<HdcpNotificationMode>);
+    private static readonly ExtronSisSetting AutoSwitch = new(
+        new($"{EscapeHeader}AUSW\r", "Ausw", "Auto Switch", "auto-switch-read"),
+        mode => $"{EscapeHeader}{mode}AUSW\r", ExtronSisSetting.Named<AutoSwitchMode>);
+    private static readonly ExtronSisSetting[] VideoMutes =
+    [
+        new(new("1*B", "Vmt1*", "Video Mute 1A", "video-mute-1a-read"), code => $"1*{code}B", ExtronSisSetting.VideoMuteText),
+        new(new("2*B", "Vmt2*", "Video Mute 1B", "video-mute-1b-read"), code => $"2*{code}B", ExtronSisSetting.VideoMuteText),
+        new(new("3*B", "Vmt3*", "Video Mute Loop", "video-mute-loop-read"), code => $"3*{code}B", ExtronSisSetting.VideoMuteText)
+    ];
+    private static readonly ExtronSisSetting[] HdcpModes =
+    [
+        new(new($"{EscapeHeader}S1HDCP\r", "HdcpS1*", "HDCP Mode 1A", "hdcp-mode-1a-read"),
+            mode => $"{EscapeHeader}S1*{mode}HDCP\r", ExtronSisSetting.Named<HdcpOutputMode>),
+        new(new($"{EscapeHeader}S2HDCP\r", "HdcpS2*", "HDCP Mode 1B", "hdcp-mode-1b-read"),
+            mode => $"{EscapeHeader}S2*{mode}HDCP\r", ExtronSisSetting.Named<HdcpOutputMode>),
+        new(new($"{EscapeHeader}S3HDCP\r", "HdcpS3*", "HDCP Mode Loop", "hdcp-mode-loop-read"),
+            mode => $"{EscapeHeader}S3*{mode}HDCP\r", ExtronSisSetting.Named<HdcpOutputMode>)
+    ];
+    private static readonly ExtronSisSetting[] Settings = [ScreenSaver, SyncTimeout, HdcpNotification, AutoSwitch, ..VideoMutes, ..HdcpModes];
+    private readonly SettingsTracker _settings;
 
     public ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name)
         : this(communicationClient, numberOfInputs, name, null)
@@ -54,6 +98,7 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
     internal ExtronIn18Xx(CommunicationClient communicationClient, int numberOfInputs, string name, TimeProvider? timeProvider)
         : base(1, communicationClient, name, timeProvider)
     {
+        _settings = new SettingsTracker(this);
         _numberOfInputs = numberOfInputs;
         ComposedOutputs[0].Primary.SetName("Output 1A");
         ComposedOutputs[0].Secondary.SetName("Output 1B");
@@ -66,8 +111,24 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
         HandleConnectionState(communicationClient.ConnectionState);
     }
 
+    public ScreenSaverMode? DesiredScreenSaver => (ScreenSaverMode?)_settings.DesiredNumber(ScreenSaver);
+    public int? DesiredSyncTimeout => _settings.DesiredNumber(SyncTimeout);
+    public HdcpNotificationMode? DesiredHdcpNotification => (HdcpNotificationMode?)_settings.DesiredNumber(HdcpNotification);
+    public AutoSwitchMode? DesiredAutoSwitch => (AutoSwitchMode?)_settings.DesiredNumber(AutoSwitch);
+    public HdcpOutputMode? DesiredHdcpMode => (HdcpOutputMode?)_settings.DesiredNumber(HdcpModes[0]);
+
+    public MuteState DesiredVideoMute => _settings.Desired(VideoMutes[0]) switch
+    {
+        VideoAndSyncMuted => MuteState.On,
+        Unmuted => MuteState.Off,
+        _ => MuteState.Unknown
+    };
+
     [GeneratedRegex(@"^(?:Inf01\*)?(IN180([468])(?:\s.*)?)$")]
     private static partial Regex ModelRegex();
+
+    [GeneratedRegex(@"^Vmt([^*]*)$")]
+    private static partial Regex AllOutputsVideoMuteRegex();
 
     private void HandleResponse(string response)
     {
@@ -100,6 +161,13 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
             HandleOutputHotplug(line[5..]);
         else if (line.StartsWith("VnamI"))
             HandleInputName(line[5..]);
+        else if (line.StartsWith(AutoSwitchPriorityTag) || line.StartsWith(AutoSwitchTimeoutTag))
+            LogDebug("Ignoring {Line}: only the auto switch mode is tracked", line);
+        else if (Settings.FirstOrDefault(candidate => candidate.Read.IsAnsweredBy(line)) is { } setting)
+            _settings.Handle(setting, line, line[setting.Read.ReplyTag.Length..].Trim());
+        else if (AllOutputsVideoMuteRegex().Match(line) is { Success: true } allOutputsMute)
+            foreach (var videoMute in VideoMutes)
+                _settings.Handle(videoMute, line, allOutputsMute.Groups[1].Value);
         else if (IsError(line))
             HandleError(line);
     }
@@ -111,6 +179,7 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
         SetInputCount(inputCount);
         QueryStatus();
         Read(IdentityQueries);
+        QuerySettings();
     }
 
     private void HandleUnknownModel(string line)
@@ -206,21 +275,13 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
             ClearStatus();
             return;
         }
-        lock (_spacedSendsLock)
-            _spacedSends = _spacedSends.ContinueWith(async _ =>
-            {
-                try
-                {
-                    await Task.Delay(ConnectStepGap, TimeProvider);
-                    Send(VerboseMode);
-                    await Task.Delay(ConnectStepGap, TimeProvider);
-                    Send(ModelQuery);
-                }
-                catch (Exception e)
-                {
-                    LogException(e, "The connection sequence failed");
-                }
-            }, TaskScheduler.Default).Unwrap();
+        SendSpaced(async () =>
+        {
+            await Task.Delay(ConnectStepGap, TimeProvider);
+            Send(VerboseMode);
+            await Task.Delay(ConnectStepGap, TimeProvider);
+            Send(ModelQuery);
+        }, "The connection sequence failed");
     }
 
     private void ClearStatus()
@@ -245,9 +306,16 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
         if (Inputs.Count == 0)
             Send(ModelQuery);
         QueryStatus();
+        QuerySettings();
         ReadUnlessNotSupported(TemperatureQuery);
         ReadAgainIfUnanswered(IdentityQueries);
         return Task.CompletedTask;
+    }
+
+    private void QuerySettings()
+    {
+        foreach (var setting in Settings)
+            ReadUnlessNotSupported(setting.Read);
     }
 
     private void QueryStatus()
@@ -319,39 +387,53 @@ public partial class ExtronIn18Xx : ExtronSisMatrix
         }
     }
 
-    public void SetSyncTimeout(int seconds)
+    public void SetScreenSaver(ScreenSaverMode? mode) => _settings.SetDesired(ScreenSaver, mode is { } value ? $"{(int)value}" : null);
+
+    public void SetSyncTimeout(int? seconds)
     {
-        if (seconds <= MaximumSyncTimeout)
-        {
-            Send(new ExtronSisCommand($"{EscapeHeader}T1*{seconds}SSAV\r", SyncTimeoutReplyStart));
-            AddEvent(EventType.VideoMute, $"Set sync timeout to {seconds} seconds");
-        }
-        else
+        if (seconds > MaximumSyncTimeout)
         {
             AddEvent(EventType.Error, $"The sync timeout can't be longer than {MaximumSyncTimeout} seconds");
             using (PushProperties("SetSyncTimeout"))
                 LogWarning("The sync timeout can't be longer than {MaximumSyncTimeout} seconds", MaximumSyncTimeout);
+            return;
         }
+        _settings.SetDesired(SyncTimeout, seconds?.ToString());
+        if (seconds != null)
+            AddEvent(EventType.VideoMute, $"Set sync timeout to {seconds} seconds");
+    }
+
+    public void SetHdcpNotification(HdcpNotificationMode? mode) =>
+        _settings.SetDesired(HdcpNotification, mode is { } value ? $"{(int)value}" : null);
+
+    public void SetAutoSwitch(AutoSwitchMode? mode) => _settings.SetDesired(AutoSwitch, mode is { } value ? $"{(int)value}" : null);
+
+    public void SetHdcpMode(HdcpOutputMode? mode)
+    {
+        foreach (var hdcpMode in HdcpModes)
+            _settings.SetDesired(hdcpMode, mode is { } value ? $"{(int)value}" : null);
     }
 
     public void SetVideoMute(MuteState state)
     {
-        lock (_spacedSendsLock)
-            _spacedSends = _spacedSends.ContinueWith(async _ =>
-            {
-                try
-                {
-                    Send(new ExtronSisCommand(state == MuteState.On ? "1*2B" : "1*0B", VideoMuteReplyStart));
-                    await Task.Delay(VideoMuteStepGap, TimeProvider);
-                    Send(new ExtronSisCommand(state == MuteState.On ? "2*2B" : "2*0B", VideoMuteReplyStart));
-                    await Task.Delay(VideoMuteStepGap, TimeProvider);
-                    Send(new ExtronSisCommand(state == MuteState.On ? "3*2B" : "3*0B", VideoMuteReplyStart));
-                }
-                catch (Exception e)
-                {
-                    LogException(e, "The video mute sends failed");
-                }
-            }, TaskScheduler.Default).Unwrap();
+        var code = state switch
+        {
+            MuteState.On => VideoAndSyncMuted,
+            MuteState.Off => Unmuted,
+            _ => null
+        };
+        foreach (var videoMute in VideoMutes)
+            _settings.StoreDesired(videoMute, code);
+        if (code == null)
+            return;
+        SendSpaced(async () =>
+        {
+            _settings.Send(VideoMutes[0], code);
+            await Task.Delay(VideoMuteStepGap, TimeProvider);
+            _settings.Send(VideoMutes[1], code);
+            await Task.Delay(VideoMuteStepGap, TimeProvider);
+            _settings.Send(VideoMutes[2], code);
+        }, "The video mute sends failed");
         AddEvent(EventType.VideoMute, $"Switched video mute to {state}");
     }
 }

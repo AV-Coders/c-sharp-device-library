@@ -173,7 +173,7 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
             return;
         if (!int.TryParse(endpoint, out var number) || !TryGetInput(number, out var input))
             return;
-        var (connection, hdcp) = DecodeInputHdcp(value);
+        var (connection, hdcp) = ExtronSisHdcp.DecodeInput(value);
         LogVerbose("Setting input {InputNumber} as {Status}", number, connection.ToString());
         input.SetInputStatus(connection);
         input.SetInputHdcpStatus(hdcp);
@@ -185,7 +185,7 @@ public partial class ExtronDtp2Cp82 : ExtronDtpCpBase
             return;
         if (!int.TryParse(endpoint, out var number) || !TryGetOutput(number, out var output))
             return;
-        var (connection, hdcp) = DecodeOutputHdcp(value);
+        var (connection, hdcp) = ExtronSisHdcp.DecodeOutput(value);
         LogVerbose("Setting output {OutputNumber} as {Status}", number, connection.ToString());
         output.SetOutputStatus(connection);
         output.SetOutputHdcpStatus(hdcp);

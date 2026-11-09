@@ -7,9 +7,10 @@ internal sealed partial record ExtronSisTie(int? Input, int Output, string Plane
     public const string VideoAndAudio = "All";
     public const string Video = "Vid";
     public const string Audio = "Aud";
+    public const string Rgb = "RGB";
     public const int AllOutputs = 0;
 
-    [GeneratedRegex(@"^(?:Out\s*(?<output>\d+)\s+In\s*(?<input>\d+)\s+(?<plane>All|Vid|Aud)|In\s*(?<input>\d+)(?:\*(?<output>\d+))?\s+(?:(?<plane>All|Vid|Aud)|Ausw.*))$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?:Out\s*(?<output>\d+)\s+In\s*(?<input>\d+)\s+(?<plane>All|Vid|Aud)|In\s*(?<input>\d+)(?:\*(?<output>\d+))?\s+(?:(?<plane>All|Vid|Aud|RGB)|Ausw.*))$", RegexOptions.IgnoreCase)]
     private static partial Regex TieReplyRegex();
 
     public static ExtronSisTie? Parse(string line)

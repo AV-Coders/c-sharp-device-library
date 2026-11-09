@@ -15,6 +15,8 @@ public abstract partial class ExtronSisMatrix : VideoMatrix
     private readonly HashSet<ExtronSisQuery> _unread = [];
     private readonly HashSet<ExtronSisQuery> _notSupported = [];
     private readonly Dictionary<ExtronSisQuery, int> _missedReplies = new();
+    private readonly object _spacedSendsLock = new();
+    private Task _spacedSends = Task.CompletedTask;
 
     private protected ExtronSisMatrix(int numberOfOutputs, CommunicationClient communicationClient, string name, TimeProvider? timeProvider)
         : base(numberOfOutputs, communicationClient, name)
@@ -46,6 +48,22 @@ public abstract partial class ExtronSisMatrix : VideoMatrix
             LogException(e);
             CommunicationState = CommunicationState.Error;
         }
+    }
+
+    private protected void SendSpaced(Func<Task> sends, string failure)
+    {
+        lock (_spacedSendsLock)
+            _spacedSends = _spacedSends.ContinueWith(async _ =>
+            {
+                try
+                {
+                    await sends();
+                }
+                catch (Exception e)
+                {
+                    LogException(e, failure);
+                }
+            }, TaskScheduler.Default).Unwrap();
     }
 
     private protected IDisposable TakeReply(string line)
@@ -82,14 +100,19 @@ public abstract partial class ExtronSisMatrix : VideoMatrix
 
     private protected void ShowRead(ExtronSisQuery query, string reply)
     {
+        MarkRead(query);
+        var value = reply.Length > query.ReplyTag.Length ? reply[query.ReplyTag.Length..].Trim() : string.Empty;
+        SetDetail(query.Label, value.Length > 0 ? value : reply);
+    }
+
+    private protected void MarkRead(ExtronSisQuery query)
+    {
         lock (_readsLock)
         {
             _unread.Remove(query);
             _notSupported.Remove(query);
             _missedReplies.Remove(query);
         }
-        var value = reply.Length > query.ReplyTag.Length ? reply[query.ReplyTag.Length..] : string.Empty;
-        SetDetail(query.Label, value.Length > 0 ? value : reply);
         ResolveIssue(query.IssueKey);
     }
 

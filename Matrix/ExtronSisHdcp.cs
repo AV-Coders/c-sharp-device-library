@@ -2,10 +2,8 @@ using AVCoders.Core;
 
 namespace AVCoders.Matrix;
 
-/// <summary>
-/// Decodes the status values Extron's SIS <c>HdcpI</c> / <c>HdcpO</c> responses carry. The meaning is the
-/// same across the SIS devices in this package, so the drivers share these tables.
-/// </summary>
+// HdcpI / HdcpO codes as the IN1806/1808, Annotator 401 and DTP2 CrossPoint 82 report them (1 = no HDCP, 2 = HDCP).
+// IN16xx, SW HD 4K PLUS and first-generation DTP CrossPoint use the opposite codes and keep their own tables.
 internal static class ExtronSisHdcp
 {
     public static (ConnectionState Connection, HdcpStatus Hdcp) DecodeInput(string value) => value switch

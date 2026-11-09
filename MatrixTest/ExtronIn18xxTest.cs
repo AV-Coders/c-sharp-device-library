@@ -15,8 +15,16 @@ public class ExtronIn18XxTest
     private static readonly TimeSpan ConnectStepGap = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan VideoMuteStepGap = TimeSpan.FromMilliseconds(300);
     private static readonly TimeSpan QueryReplyTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ReconcileGap = TimeSpan.FromMilliseconds(300);
     private static readonly string[] IdentityQueries = ["*Q", "N", "\u001bCN\r", "\u001bCH\r"];
     private const string TemperatureQuery = "\u001b20STAT\r";
+    private static readonly string[] SettingsQueries =
+    [
+        "\u001bM1SSAV\r", "\u001bT1SSAV\r", "\u001bN1HDCP\r", "\u001bAUSW\r", "1*B", "2*B", "3*B",
+        "\u001bS1HDCP\r", "\u001bS2HDCP\r", "\u001bS3HDCP\r"
+    ];
+    internal static readonly string[] SettingsReplies =
+        ["SsavM1*1", "SsavT1*501", "HdcpN1*1", "Ausw0", "Vmt1*0", "Vmt2*0", "Vmt3*0", "HdcpS1*1", "HdcpS2*1", "HdcpS3*1"];
     private readonly FakeTimeProvider _time = new();
     private readonly ExtronIn18Xx _switcher;
     private readonly Mock<CommunicationClient> _mockClient = TestFactory.CreateCommunicationClient();
@@ -40,6 +48,12 @@ public class ExtronIn18XxTest
 
     private DeviceDetail? Detail(string label) => _switcher.Details.SingleOrDefault(detail => detail.Label == label);
 
+    private void RespondToTheSettings()
+    {
+        foreach (var reply in SettingsReplies)
+            Respond(reply);
+    }
+
     private async Task ConnectAsTheBenchIn1808()
     {
         SetConnection(ConnectionState.Connected);
@@ -50,6 +64,7 @@ public class ExtronIn18XxTest
             Respond(reply);
         foreach (var reply in ExtronBenchCaptures.In1808IdentityReplies)
             Respond(reply);
+        RespondToTheSettings();
     }
 
     private ConcurrentQueue<string> RecordSends(string heldCommand, ManualResetEventSlim release)
@@ -607,7 +622,7 @@ public class ExtronIn18XxTest
         Respond("Inf01*IN1808\r\n");
 
         Assert.Equal("\u001b0LS\r", sent[0]);
-        Assert.Equal(["\u001bO2HDCP\r", ..IdentityQueries], sent.TakeLast(5));
+        Assert.Equal(["\u001bO2HDCP\r", ..IdentityQueries, ..SettingsQueries], sent.SkipWhile(command => command != "\u001bO2HDCP\r"));
     }
 
     [Fact]
@@ -708,7 +723,9 @@ public class ExtronIn18XxTest
         SetConnection(ConnectionState.Connected);
         await Poll();
 
-        Respond("Inf01*IN1808\r\nIn00 0*1*0*1*0*0*0*0\r\nHdcpO1*0\r\nHdcpO2*0\r\nE10\r\n");
+        Respond("Inf01*IN1808\r\nIn00 0*1*0*1*0*0*0*0\r\nHdcpO1*0\r\nHdcpO2*0\r\n");
+        RespondToTheSettings();
+        Respond("E10\r\n");
 
         Assert.Equal(new DeviceDetail("Temperature", "Not supported: E10", DetailTone.Normal), Detail("Temperature"));
         Assert.Empty(_switcher.GetIssues());
@@ -731,10 +748,12 @@ public class ExtronIn18XxTest
         await Poll();
         foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
             Respond(reply);
+        RespondToTheSettings();
         Respond("E22\r\n");
         await Poll();
         foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
             Respond(reply);
+        RespondToTheSettings();
         Respond("E22\r\n");
 
         Assert.Empty(_switcher.GetIssues());
@@ -743,6 +762,7 @@ public class ExtronIn18XxTest
         await Poll();
         foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
             Respond(reply);
+        RespondToTheSettings();
         Respond("E22\r\n");
 
         var issue = Assert.Single(_switcher.GetOngoingIssues());
@@ -759,10 +779,13 @@ public class ExtronIn18XxTest
         SetConnection(ConnectionState.Connected);
         _mockClient.Invocations.Clear();
         await Poll();
+        RespondToTheSettings();
         _time.Advance(QueryReplyTimeout);
         await Poll();
+        RespondToTheSettings();
         _time.Advance(QueryReplyTimeout);
         await Poll();
+        RespondToTheSettings();
 
         Assert.Empty(_switcher.GetIssues());
 
@@ -777,6 +800,211 @@ public class ExtronIn18XxTest
         Respond("20Stat 36\r\n");
         Assert.Empty(_switcher.GetOngoingIssues());
         Assert.Equal("36", Detail("Temperature")?.Value);
+    }
+
+    [Fact]
+    public async Task Heartbeat_ReadsEverySettingBetweenTheStatusAndTheTemperature()
+    {
+        SetConnection(ConnectionState.Connected);
+        Respond("Inf01*IN1808\r\n");
+        var sent = RecordSends();
+
+        await Poll();
+
+        Assert.Equal([..SettingsQueries, TemperatureQuery], sent.SkipWhile(command => command != "\u001bO2HDCP\r").Skip(1));
+    }
+
+    [Theory]
+    [InlineData("SsavM1*1", "Screen Saver", "Black")]
+    [InlineData("SsavM1*2", "Screen Saver", "BlueWithOsdText")]
+    [InlineData("SsavM1*3", "Screen Saver", "UserImage")]
+    [InlineData("SsavT1*501", "Sync Timeout", "Never")]
+    [InlineData("SsavT1*30", "Sync Timeout", "30 s")]
+    [InlineData("SsavT1*0", "Sync Timeout", "0 s")]
+    [InlineData("HdcpN1*0", "HDCP Notification", "Black")]
+    [InlineData("HdcpN1*1", "HDCP Notification", "GreenWithOsd")]
+    [InlineData("HdcpN1*2", "HDCP Notification", "UserImage")]
+    [InlineData("Ausw0", "Auto Switch", "Off")]
+    [InlineData("Ausw1", "Auto Switch", "UserPriority")]
+    [InlineData("Ausw2", "Auto Switch", "LastConnected")]
+    [InlineData("Vmt1*0", "Video Mute 1A", "Unmuted")]
+    [InlineData("Vmt2*1", "Video Mute 1B", "Video muted")]
+    [InlineData("Vmt3*2", "Video Mute Loop", "Video and sync muted")]
+    [InlineData("HdcpS1*0", "HDCP Mode 1A", "DisableAuthentication")]
+    [InlineData("HdcpS2*1", "HDCP Mode 1B", "FollowInput")]
+    [InlineData("HdcpS3*4", "HDCP Mode Loop", "AlwaysEncryptOutputContinuousTrials")]
+    public void SettingReply_IsShownAsADetail(string reply, string label, string expected)
+    {
+        Respond($"{reply}\r\n");
+
+        Assert.Equal(new DeviceDetail(label, expected), Detail(label));
+    }
+
+    [Fact]
+    public void AllOutputsVideoMuteReply_SetsEveryOutput()
+    {
+        Respond("Vmt2\r\n");
+
+        Assert.All(new[] { "Video Mute 1A", "Video Mute 1B", "Video Mute Loop" },
+            label => Assert.Equal("Video and sync muted", Detail(label)?.Value));
+    }
+
+    [Fact]
+    public void AutoSwitchTimeoutAndPriorityReplies_LeaveTheModeAlone()
+    {
+        Respond("Ausw1\r\nAuswT5\r\nAuswP8 7 6 5 4 3 2 1\r\n");
+
+        Assert.Equal(new DeviceDetail("Auto Switch", "UserPriority"), Detail("Auto Switch"));
+    }
+
+    [Fact]
+    public void UnrecognisedSettingReply_IsShownRaw()
+    {
+        Respond("SsavM1*7\r\n");
+
+        Assert.Equal(new DeviceDetail("Screen Saver", "SsavM1*7", DetailTone.Warning), Detail("Screen Saver"));
+    }
+
+    [Fact]
+    public async Task RejectedSettingQuery_ShowsItIsNotSupportedAndIsNotAskedAgain()
+    {
+        SetConnection(ConnectionState.Connected);
+        Respond("Inf01*IN1808\r\n");
+        foreach (var reply in ExtronBenchCaptures.In1808StatusReplies)
+            Respond(reply);
+        foreach (var reply in ExtronBenchCaptures.In1808IdentityReplies)
+            Respond(reply);
+
+        Respond("E10\r\n");
+
+        Assert.Equal(new DeviceDetail("Screen Saver", "Not supported: E10"), Detail("Screen Saver"));
+        Assert.Empty(_switcher.GetIssues());
+        _mockClient.Invocations.Clear();
+        await Poll();
+        _mockClient.Verify(client => client.Send("\u001bM1SSAV\r"), Times.Never);
+        _mockClient.Verify(client => client.Send("\u001bT1SSAV\r"), Times.Once);
+    }
+
+    [Fact]
+    public async Task UnsetDesiredValues_NeverSendTheSettings()
+    {
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends("", release);
+
+        Respond("SsavM1*3\r\nSsavT1*0\r\nHdcpN1*0\r\nAusw2\r\nVmt2*2\r\nHdcpS1*4\r\n");
+        _switcher.SetVideoMute(MuteState.Off);
+
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 3, "The video mute never reached output 3");
+        Assert.Equal(["1*0B", "2*0B", "3*0B"], sent);
+        Assert.Null(_switcher.DesiredScreenSaver);
+        Assert.Null(_switcher.DesiredSyncTimeout);
+        Assert.Null(_switcher.DesiredHdcpNotification);
+        Assert.Null(_switcher.DesiredAutoSwitch);
+        Assert.Null(_switcher.DesiredHdcpMode);
+    }
+
+    [Fact]
+    public void Setters_SendTheDesiredValueAndKeepIt()
+    {
+        var sent = RecordSends();
+
+        _switcher.SetScreenSaver(ExtronIn18Xx.ScreenSaverMode.UserImage);
+        _switcher.SetSyncTimeout(30);
+        _switcher.SetHdcpNotification(ExtronIn18Xx.HdcpNotificationMode.Black);
+        _switcher.SetAutoSwitch(ExtronIn18Xx.AutoSwitchMode.LastConnected);
+        _switcher.SetHdcpMode(ExtronIn18Xx.HdcpOutputMode.AlwaysEncryptOutput);
+
+        Assert.Equal(
+            [
+                "\u001bM1*3SSAV\r", "\u001bT1*30SSAV\r", "\u001bN1*0HDCP\r", "\u001b2AUSW\r",
+                "\u001bS1*2HDCP\r", "\u001bS2*2HDCP\r", "\u001bS3*2HDCP\r"
+            ],
+            sent);
+        Assert.Equal(ExtronIn18Xx.ScreenSaverMode.UserImage, _switcher.DesiredScreenSaver);
+        Assert.Equal(30, _switcher.DesiredSyncTimeout);
+        Assert.Equal(ExtronIn18Xx.HdcpNotificationMode.Black, _switcher.DesiredHdcpNotification);
+        Assert.Equal(ExtronIn18Xx.AutoSwitchMode.LastConnected, _switcher.DesiredAutoSwitch);
+        Assert.Equal(ExtronIn18Xx.HdcpOutputMode.AlwaysEncryptOutput, _switcher.DesiredHdcpMode);
+    }
+
+    [Fact]
+    public void DesiredValue_IsShownNextToTheReportedValue()
+    {
+        _switcher.SetAutoSwitch(ExtronIn18Xx.AutoSwitchMode.Off);
+
+        Assert.Equal(new DeviceDetail("Auto Switch", "Not read yet, desired Off", DetailTone.Warning), Detail("Auto Switch"));
+
+        Respond("Ausw0\r\n");
+
+        Assert.Equal(new DeviceDetail("Auto Switch", "Off, desired Off"), Detail("Auto Switch"));
+    }
+
+    [Theory]
+    [InlineData("SsavM1*1", "\u001bM1*2SSAV\r", "Screen Saver", "Black, desired BlueWithOsdText")]
+    [InlineData("SsavT1*501", "\u001bT1*30SSAV\r", "Sync Timeout", "Never, desired 30 s")]
+    [InlineData("HdcpS2*1", "\u001bS2*0HDCP\r", "HDCP Mode 1B", "FollowInput, desired DisableAuthentication")]
+    public async Task MismatchedReply_SendsTheDesiredValue(string reply, string expectedCommand, string label, string expectedDetail)
+    {
+        _switcher.SetScreenSaver(ExtronIn18Xx.ScreenSaverMode.BlueWithOsdText);
+        _switcher.SetSyncTimeout(30);
+        _switcher.SetHdcpMode(ExtronIn18Xx.HdcpOutputMode.DisableAuthentication);
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends("", release);
+
+        Respond($"{reply}\r\n");
+
+        await Wait.UntilAsync(_time, ReconcileGap, () => sent.Count == 1, "The desired value was never sent");
+        Assert.Equal([expectedCommand], sent);
+        Assert.Equal(new DeviceDetail(label, expectedDetail, DetailTone.Warning), Detail(label));
+        Assert.Contains(_switcher.Events, e => e.Type == EventType.DriverState && e.Info.StartsWith($"Reconciling {label}"));
+    }
+
+    [Fact]
+    public async Task MismatchedVideoMute_IsSentToThatOutputOnly()
+    {
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends("", release);
+        _switcher.SetVideoMute(MuteState.On);
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 3, "The video mute never reached output 3");
+
+        Respond("Vmt1*2\r\nVmt2*0\r\nVmt3*2\r\n");
+
+        await Wait.UntilAsync(_time, ReconcileGap, () => sent.Count == 4, "The desired mute was never sent to output 2");
+        Assert.Equal(["1*2B", "2*2B", "3*2B", "2*2B"], sent);
+        Assert.Equal(MuteState.On, _switcher.DesiredVideoMute);
+    }
+
+    [Fact]
+    public async Task MatchingReply_SendsNothing()
+    {
+        _switcher.SetHdcpNotification(ExtronIn18Xx.HdcpNotificationMode.UserImage);
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends("", release);
+
+        Respond("HdcpN1*2\r\n");
+        _switcher.SetVideoMute(MuteState.Off);
+
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 3, "The video mute never reached output 3");
+        Assert.Equal(["1*0B", "2*0B", "3*0B"], sent);
+        Assert.Equal(new DeviceDetail("HDCP Notification", "UserImage, desired UserImage"), Detail("HDCP Notification"));
+    }
+
+    [Fact]
+    public async Task ClearedDesiredValue_StopsReconcilingAndSendsNothing()
+    {
+        _switcher.SetAutoSwitch(ExtronIn18Xx.AutoSwitchMode.LastConnected);
+        using var release = new ManualResetEventSlim(true);
+        var sent = RecordSends("", release);
+
+        _switcher.SetAutoSwitch(null);
+        _switcher.SetVideoMute(MuteState.Unknown);
+        Respond("Ausw0\r\nVmt1*2\r\n");
+        _switcher.SetVideoMute(MuteState.Off);
+
+        await Wait.UntilAsync(_time, VideoMuteStepGap, () => sent.Count == 3, "The video mute never reached output 3");
+        Assert.Equal(["1*0B", "2*0B", "3*0B"], sent);
+        Assert.Null(_switcher.DesiredAutoSwitch);
+        Assert.Equal(new DeviceDetail("Auto Switch", "Off"), Detail("Auto Switch"));
     }
 }
 
@@ -855,6 +1083,45 @@ public class ExtronIn18XxLogTest
         Assert.Contains(_logs.Logs, log => log.Message.Contains($"HDCP status {response[5..]} "));
         Assert.All(_switcher.GetInputs(), input => Assert.Equal(HdcpStatus.Unknown, input.InputHdcpStatus));
     }
+
+    [Fact]
+    public void UnrecognisedSettingReply_IsLoggedRawOnceInTheDriversScope()
+    {
+        Respond("SsavM1*7\r\n");
+        Respond("SsavM1*7\r\n");
+
+        var log = Assert.Single(_logs.Logs, log => log.Message.Contains("SsavM1*7"));
+        Assert.Equal(LogLevel.Warning, log.Level);
+        Assert.Equal(nameof(ExtronIn18Xx), log.Scope["Class"]);
+    }
+
+    [Fact]
+    public async Task MismatchedReply_IsLoggedWithTheSettingTheReplyAndTheDesiredValue()
+    {
+        _switcher.SetScreenSaver(ExtronIn18Xx.ScreenSaverMode.BlueWithOsdText);
+        _client.Invocations.Clear();
+
+        Respond("SsavM1*1\r\n");
+
+        var log = Assert.Single(_logs.Logs, log => log.Message.StartsWith("Reconciling"));
+        Assert.Equal(LogLevel.Warning, log.Level);
+        Assert.Contains("Screen Saver", log.Message);
+        Assert.Contains("SsavM1*1", log.Message);
+        Assert.Contains("BlueWithOsdText", log.Message);
+        Assert.Equal(nameof(ExtronIn18Xx), log.Scope["Class"]);
+        await Wait.UntilAsync(() => _client.Invocations.Any(invocation => Equals(invocation.Arguments[0], "\u001bM1*2SSAV\r")),
+            "The desired screen saver was never sent");
+    }
+
+    [Fact]
+    public void MatchingReply_IsNotLogged()
+    {
+        _switcher.SetScreenSaver(ExtronIn18Xx.ScreenSaverMode.Black);
+
+        Respond("SsavM1*1\r\n");
+
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.Contains("Screen Saver"));
+    }
 }
 
 [Collection(LoggerFactoryCollection.Name)]
@@ -894,7 +1161,7 @@ public class ExtronIn18XxBenchTest
             .SetValue(_client.Object, ConnectionState.Connected);
         await Wait.UntilAsync(_time, ConnectStepGap,
             () => _client.Invocations.Any(invocation => Equals(invocation.Arguments[0], "1I")), "The model was never asked for");
-        Respond([..ExtronBenchCaptures.In1808ConnectReplies, ..ExtronBenchCaptures.In1808StatusReplies]);
+        Respond([..ExtronBenchCaptures.In1808ConnectReplies, ..ExtronBenchCaptures.In1808StatusReplies, ..ExtronIn18XxTest.SettingsReplies]);
     }
 
     private Task Poll() => (Task)typeof(ExtronIn18Xx)
@@ -909,7 +1176,7 @@ public class ExtronIn18XxBenchTest
         await Connect();
         Respond(ExtronBenchCaptures.In1808IdentityReplies);
         await Poll();
-        Respond([..ExtronBenchCaptures.In1808StatusReplies, ExtronBenchCaptures.In1808TemperatureReply]);
+        Respond([..ExtronBenchCaptures.In1808StatusReplies, ..ExtronIn18XxTest.SettingsReplies, ExtronBenchCaptures.In1808TemperatureReply]);
         _time.Advance(ReplyTimeout);
 
         await Poll();
