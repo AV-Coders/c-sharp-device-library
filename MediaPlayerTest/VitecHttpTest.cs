@@ -2,6 +2,7 @@
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -16,6 +17,7 @@ public class VitecHttpTest
     private const string DeviceStateOn = "{ \"devicestate\": \"on\" }";
     private static readonly TimeSpan AnySpacing = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan UnansweredRequestTimeout = TimeSpan.FromMilliseconds(200);
+    private static readonly FieldInfo SendsField = typeof(VitecHttp).GetField("_sends", BindingFlags.Instance | BindingFlags.NonPublic)!;
     private readonly FakeTimeProvider _time = new();
     private readonly VitecHttp _vitecHttp = new("foo", "bar", "Name");
     private static readonly RemoteButton[] _excludedButtons =
@@ -80,6 +82,8 @@ public class VitecHttpTest
 
     private Task BodiesArrive(TlsBodyCapturingServer server, int count) =>
         Wait.UntilAsync(_time, AnySpacing, () => server.Bodies.Count >= count, $"Fewer than {count} requests arrived");
+
+    private static bool SendsFinished(VitecHttp vitec) => ((Task)SendsField.GetValue(vitec)!).IsCompleted;
 
     [Fact]
     public async Task SetChannel_ReturnsBeforeItsDigitsAreSent()
@@ -157,7 +161,7 @@ public class VitecHttpTest
         vitec.RequestTimeout = UnansweredRequestTimeout;
 
         vitec.PowerOn();
-        await Wait.UntilAsync(() => vitec.Errors.Count == 1, "The unanswered send was never logged");
+        await Wait.UntilAsync(() => SendsFinished(vitec), "The unanswered send never finished");
         vitec.SendIRCode(RemoteButton.Enter);
         await BodiesArrive(server, 1);
 
