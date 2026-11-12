@@ -206,12 +206,13 @@ public class AvCodersTcpClient : Core_TcpClient
             {
                 // Drop stale items
                 var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
-                if (Math.Abs(age) >= QueueTimeout)
+                var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
+                if (Math.Abs(age) >= timeout)
                 {
                     using (PushProperties("ProcessSendQueue"))
                         LogWarning(
                             "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
-                            age, QueueTimeout);
+                            age, timeout);
                     continue;
                 }
 
@@ -271,7 +272,8 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             if (DesiredConnectionState == ConnectionState.Disconnected)
             {
-                LogDebug("Not sending, the client was disconnected on request");
+                if (!ReconnectForSend(() => EnqueueWithCap(bytes, message)))
+                    LogDebug("Not sending, the client was disconnected on request");
                 return;
             }
 
@@ -309,7 +311,7 @@ public class AvCodersTcpClient : Core_TcpClient
                 dropped = oldest.Value;
                 _sendQueue.RemoveFirst();
             }
-            _sendQueue.AddLast(new QueuedPayload<(byte[] Bytes, string? Message)>(TimeProvider.GetUtcNow(), (bytes, message), Trigger.Id));
+            _sendQueue.AddLast(new QueuedPayload<(byte[] Bytes, string? Message)>(TimeProvider.GetUtcNow(), (bytes, message), Trigger.Id, WaitsForTheReconnect()));
         }
 
         if (dropped == null)
@@ -321,14 +323,19 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Connect()
     {
-        DesiredConnectionState = ConnectionState.Connected;
-        AddEvent(EventType.Connection, "Connect requested");
-        lock (_sendQueue)
-            _sendQueue.Clear();
-        _reconnectBackoffMs = InitialBackoffMs;
-        ConnectionStateWorker.Restart();
-        ReceiveThreadWorker.Restart();
-        SendQueueWorker.Restart();
+        lock (ConnectionRequestLock)
+        {
+            RecordRequestedConnect();
+            if (!ReconnectingForSend)
+                lock (_sendQueue)
+                    _sendQueue.Clear();
+            DesiredConnectionState = ConnectionState.Connected;
+            AddEvent(EventType.Connection, "Connect requested");
+            _reconnectBackoffMs = InitialBackoffMs;
+            ConnectionStateWorker.Restart();
+            ReceiveThreadWorker.Restart();
+            SendQueueWorker.Restart();
+        }
     }
 
     public override void Reconnect()
@@ -389,17 +396,21 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Disconnect()
     {
-        DesiredConnectionState = ConnectionState.Disconnected;
-        AddEvent(EventType.Connection, "Disconnect requested");
-        ConnectionStateWorker.Stop();
-        ReceiveThreadWorker.Stop();
-        SendQueueWorker.Stop();
-        ConnectionState = ConnectionState.Disconnecting;
-        DestroyClientSafely();
-        lock (_sendQueue)
-            _sendQueue.Clear();
-        ClearConnectionFailures();
-        ConnectionState = ConnectionState.Disconnected;
+        lock (ConnectionRequestLock)
+        {
+            RecordRequestedDisconnect();
+            DesiredConnectionState = ConnectionState.Disconnected;
+            AddEvent(EventType.Connection, "Disconnect requested");
+            ConnectionStateWorker.Stop();
+            ReceiveThreadWorker.Stop();
+            SendQueueWorker.Stop();
+            ConnectionState = ConnectionState.Disconnecting;
+            DestroyClientSafely();
+            lock (_sendQueue)
+                _sendQueue.Clear();
+            ClearConnectionFailures();
+            ConnectionState = ConnectionState.Disconnected;
+        }
     }
 
     private void ConfigureKeepAlive(TcpClient client)

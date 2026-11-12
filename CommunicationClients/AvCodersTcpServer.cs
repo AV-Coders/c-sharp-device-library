@@ -96,6 +96,13 @@ public class AvCodersTcpServer : Core_TcpClient
     {
         using (PushProperties("Send"))
         {
+            if (DesiredConnectionState == ConnectionState.Disconnected)
+            {
+                if (!ReconnectForSend(() => LogInformation("Not sending, the server was disconnected on request; it is listening again for its peers to reconnect")))
+                    LogDebug("Not sending, the server was disconnected on request");
+                return;
+            }
+
             var written = false;
             foreach (var kvp in _clients)
             {
@@ -319,11 +326,15 @@ public class AvCodersTcpServer : Core_TcpClient
 
     public override void Connect()
     {
-        DesiredConnectionState = ConnectionState.Connected;
-        AddEvent(EventType.Connection, "Connect requested");
-        _bindBackoffMs = InitialBindBackoffMs;
-        ConnectionStateWorker.Restart();
-        ReceiveThreadWorker.Restart();
+        lock (ConnectionRequestLock)
+        {
+            RecordRequestedConnect();
+            DesiredConnectionState = ConnectionState.Connected;
+            AddEvent(EventType.Connection, "Connect requested");
+            _bindBackoffMs = InitialBindBackoffMs;
+            ConnectionStateWorker.Restart();
+            ReceiveThreadWorker.Restart();
+        }
     }
 
     public override void Reconnect()
@@ -339,14 +350,18 @@ public class AvCodersTcpServer : Core_TcpClient
 
     public override void Disconnect()
     {
-        DesiredConnectionState = ConnectionState.Disconnected;
-        AddEvent(EventType.Connection, "Disconnect requested");
-        ConnectionStateWorker.Stop();
-        ReceiveThreadWorker.Stop();
-        ConnectionState = ConnectionState.Disconnecting;
-        CloseListener();
-        DropClients();
-        ClearConnectionFailures();
-        ConnectionState = ConnectionState.Disconnected;
+        lock (ConnectionRequestLock)
+        {
+            RecordRequestedDisconnect();
+            DesiredConnectionState = ConnectionState.Disconnected;
+            AddEvent(EventType.Connection, "Disconnect requested");
+            ConnectionStateWorker.Stop();
+            ReceiveThreadWorker.Stop();
+            ConnectionState = ConnectionState.Disconnecting;
+            CloseListener();
+            DropClients();
+            ClearConnectionFailures();
+            ConnectionState = ConnectionState.Disconnected;
+        }
     }
 }

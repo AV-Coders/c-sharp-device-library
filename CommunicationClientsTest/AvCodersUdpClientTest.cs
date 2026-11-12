@@ -402,6 +402,78 @@ public class AvCodersUdpClientTest : IDisposable
         Assert.Equal(ConnectionState.Connected, client.ConnectionState);
     }
 
+    private AvCodersUdpClient CreateClientDisconnectedByAPerson()
+    {
+        var client = CreateClient();
+        AsAPerson.Run(client.Disconnect);
+        return client;
+    }
+
+    [Fact]
+    public void Disconnect_ByAPerson_TurnsReconnectOnSendOn()
+    {
+        var client = CreateClientDisconnectedByAPerson();
+
+        Assert.True(client.ReconnectOnSend);
+        Assert.Equal(AsAPerson.Browser, client.DisconnectedBy);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonAfterAPersonDisconnected_ReconnectsAndDeliversIt()
+    {
+        var client = CreateClientDisconnectedByAPerson();
+
+        AsAPerson.Run(() => client.Send("power on"));
+
+        Assert.Equal("power on", await ReceiveTextAsync());
+        Assert.Equal(ConnectionState.Connected, client.DesiredConnectionState);
+        Assert.Equal(ConnectionState.Connected, client.ConnectionState);
+        Assert.False(client.ReconnectingForSend);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonWhenTheSocketCannotOpen_WaitsUpToFifteenSeconds_WhileAPollKeepsTheQueueTimeout()
+    {
+        var client = CreateFakeResolvedClient(_port);
+        AsAPerson.Run(client.Disconnect);
+
+        AsAPerson.Run(() => client.Send("power on"));
+        client.Send("poll");
+        Assert.Equal(2, TestNetwork.SendQueueCount(client));
+        await TestNetwork.Advance(_time, SocketRetryInterval + AgeMargin);
+        _resolvesTo = [IPAddress.Loopback];
+
+        Assert.Equal("power on", await ReceiveTextAsync());
+        client.Send("end");
+        Assert.Equal("end", await ReceiveTextAsync());
+    }
+
+    [Fact]
+    public void Send_WithNoPersonAfterAPersonDisconnected_IsDropped()
+    {
+        var client = CreateClientDisconnectedByAPerson();
+
+        client.Send("poll");
+
+        Assert.Equal(ConnectionState.Disconnected, client.DesiredConnectionState);
+        Assert.Equal(ConnectionState.Disconnected, client.ConnectionState);
+        Assert.Equal(0, TestNetwork.SendQueueCount(client));
+        Assert.True(client.ReconnectOnSend);
+    }
+
+    [Fact]
+    public void Send_ByAPersonWithReconnectOnSendOff_IsDropped()
+    {
+        var client = CreateClientDisconnectedByAPerson();
+        client.SetReconnectOnSend(false);
+
+        AsAPerson.Run(() => client.Send("power on"));
+
+        Assert.Equal(ConnectionState.Disconnected, client.DesiredConnectionState);
+        Assert.Equal(ConnectionState.Disconnected, client.ConnectionState);
+        Assert.Equal(0, TestNetwork.SendQueueCount(client));
+    }
+
     [Fact]
     public async Task Receive_HostGivenAsAName_InvokesResponseHandlers()
     {

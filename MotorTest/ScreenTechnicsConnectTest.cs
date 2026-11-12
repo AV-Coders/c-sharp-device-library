@@ -9,6 +9,7 @@ public class ScreenTechnicsConnectTest
 {
     private const int MoveSeconds = 2;
     private static readonly TimeSpan ConnectedSettleTime = TimeSpan.FromMilliseconds(500);
+    private static readonly Actor Presser = new(ActorKind.Panel, "192.0.2.40", "ScreenTechnicsConnectTest", "LECTERN-PANEL", "connection-1");
     private readonly FakeTimeProvider _time = new();
     private readonly ScreenTechnicsConnect _motor;
     private readonly Mock<TcpClient> _mockClient = TestFactory.CreateTcpClient(ScreenTechnicsConnect.DefaultPort);
@@ -92,6 +93,22 @@ public class ScreenTechnicsConnectTest
         await Wait.UntilAsync(_time, TimeSpan.FromSeconds(MoveSeconds), () => Disconnects() == 2,
             "The client was never disconnected after the move");
         _mockClient.Verify(x => x.Disconnect(), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task Client_DisconnectAfterAPersonsMove_IsMadeWithNoPerson()
+    {
+        var connectedBy = new List<Actor?>();
+        var disconnectedBy = new List<Actor?>();
+        _mockClient.Setup(x => x.Connect()).Callback(() => connectedBy.Add(Actor.Current));
+        _mockClient.Setup(x => x.Disconnect()).Callback(() => disconnectedBy.Add(Actor.Current));
+
+        AsAPerson.Run(Presser, _motor.Lower);
+
+        await Wait.UntilAsync(_time, TimeSpan.FromSeconds(MoveSeconds), () => disconnectedBy.Count == 1,
+            "The client was never disconnected after the move");
+        Assert.Equal([Presser], connectedBy);
+        Assert.Equal([null], disconnectedBy);
     }
 
     [Fact]

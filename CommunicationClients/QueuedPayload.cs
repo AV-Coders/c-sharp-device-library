@@ -1,3 +1,3 @@
 namespace AVCoders.CommunicationClients;
 
-public record QueuedPayload<T>(DateTimeOffset Timestamp, T Payload, string? TriggerId);
+public record QueuedPayload<T>(DateTimeOffset Timestamp, T Payload, string? TriggerId, bool WaitsForTheReconnect);

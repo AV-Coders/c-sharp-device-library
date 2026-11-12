@@ -64,6 +64,20 @@ Every client has `ConnectionReason` beside `ConnectionState` (see the `AVCoders.
 - `AvCodersModbusRtuClient` mirrors its transport's reason.
 - The TCP, SSH and UDP clients set `DesiredConnectionState` to Connected in their constructors, where they start connecting, so it no longer reads Unknown. `Connect()` isn't called, so the send queue and the workers are left as they are.
 
+## Reconnect on the next send a person makes
+
+- The TCP, SSH and UDP clients' and `AvCodersTcpServer`'s `Disconnect()` records `Actor.Current` as `DisconnectedBy` and turns `ReconnectOnSend` on when there is one (a browser, MCP or a panel) and off when there isn't (a driver or the program). Both are set before `DesiredConnectionState` changes, so the state and reason handlers already see them.
+- A `Disconnect()` while the client is already disconnected on request keeps `DisconnectedBy` and `ReconnectOnSend` as they are.
+- While the client is disconnected on request with `ReconnectOnSend` on, a send made under an `Actor`, directly or through its driver, calls `Connect()` and then goes out. `ReconnectingForSend` is true from then until the client is connected, or disconnected again.
+- Each send made under an `Actor` while `ReconnectingForSend` is true is queued until the client connects, and is sent if that's within 15 s, or within the queue timeout when that is longer. Every other queued send, polls included, keeps the queue timeout (5 s by default, `SetQueueTimeout`).
+- The UDP client opens its socket inside `Connect()`, so the send goes out at once when the socket opens. When it doesn't, the send is queued as above and the socket is retried every 5 s.
+- A `Connect()` while `ReconnectingForSend` is true keeps the send queue. Any other `Connect()` clears it, as before.
+- A send with no `Actor` (a poll or any other `ThreadWorker` pass, a command a driver sends from a reply or a timer) is dropped with a Debug log, as is every send while `ReconnectOnSend` is off.
+- `Connect()`, `Disconnect()`, `SetReconnectOnSend` and a person's send while disconnected on request run one at a time on each client. A second caller waits until the first has finished; a TCP or UDP disconnect takes milliseconds, an SSH disconnect can take a second or two while SSH.NET waits for the server to close the channel, and a UDP connect to a host name waits for DNS. Sends while connected and polls never wait.
+- `SetReconnectOnSend(bool)` changes it. `Connect()` turns it off and clears `DisconnectedBy`, and the next `Disconnect()` sets both again. Each change of `ReconnectOnSend` is logged at Information and added to `Events`. `ReconnectOnSendHandlers` is raised on each change of `ReconnectOnSend` or `DisconnectedBy`. The reconnect is logged at Information with the sender's actor and `DisconnectedBy`.
+- `AvCodersTcpServer` has no peers to send to while it's disconnected, so that send calls `Connect()`, which starts it listening again for its peers to reconnect, and is dropped with an Information log.
+- `AvCodersMulticastClient` never sets it.
+
 ## Usage
 
 A driver is decoupled from *how* it is connected — you construct a transport and hand it to the driver:

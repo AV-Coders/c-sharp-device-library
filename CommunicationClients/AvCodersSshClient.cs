@@ -194,11 +194,12 @@ public class AvCodersSshClient : SshClientBase
             using (PushProperties("ProcessSendQueue"))
             {
                 var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
-                if (age >= QueueTimeout)
+                var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
+                if (age >= timeout)
                 {
                     LogWarning(
                         "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
-                        age, QueueTimeout, item.Payload.Text);
+                        age, timeout, item.Payload.Text);
                     continue;
                 }
 
@@ -334,7 +335,8 @@ public class AvCodersSshClient : SshClientBase
         {
             if (DesiredConnectionState == ConnectionState.Disconnected)
             {
-                LogDebug("Not sending, the client was disconnected on request");
+                if (!ReconnectForSend(() => EnqueueWithCap(message, bytes)))
+                    LogDebug("Not sending, the client was disconnected on request");
                 return;
             }
 
@@ -420,20 +422,25 @@ public class AvCodersSshClient : SshClientBase
                 using (PushProperties("EnqueueWithCap"))
                     LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
             }
-            _sendQueue.AddLast(new QueuedPayload<(string Text, byte[]? Bytes)>(TimeProvider.GetUtcNow(), (message, bytes), Trigger.Id));
+            _sendQueue.AddLast(new QueuedPayload<(string Text, byte[]? Bytes)>(TimeProvider.GetUtcNow(), (message, bytes), Trigger.Id, WaitsForTheReconnect()));
         }
     }
 
     public override void Connect()
     {
-        DesiredConnectionState = ConnectionState.Connected;
-        AddEvent(EventType.Connection, "Connect requested");
-        lock (_sendQueue)
-            _sendQueue.Clear();
-        _consecutiveShortSessions = 0;
-        ConnectionStateWorker.Restart();
-        ReceiveThreadWorker.Restart();
-        SendQueueWorker.Restart();
+        lock (ConnectionRequestLock)
+        {
+            RecordRequestedConnect();
+            if (!ReconnectingForSend)
+                lock (_sendQueue)
+                    _sendQueue.Clear();
+            DesiredConnectionState = ConnectionState.Connected;
+            AddEvent(EventType.Connection, "Connect requested");
+            _consecutiveShortSessions = 0;
+            ConnectionStateWorker.Restart();
+            ReceiveThreadWorker.Restart();
+            SendQueueWorker.Restart();
+        }
     }
 
     public override void Reconnect()
@@ -484,30 +491,34 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Disconnect()
     {
-        DesiredConnectionState = ConnectionState.Disconnected;
-        AddEvent(EventType.Connection, "Disconnect requested");
-        lock (_sessionLock)
+        lock (ConnectionRequestLock)
         {
-            ConnectionStateWorker.Stop();
-            ReceiveThreadWorker.Stop();
-        }
-        SendQueueWorker.Stop();
-        ConnectionState = ConnectionState.Disconnecting;
-        _sessionStartedAt = null;
+            RecordRequestedDisconnect();
+            DesiredConnectionState = ConnectionState.Disconnected;
+            AddEvent(EventType.Connection, "Disconnect requested");
+            lock (_sessionLock)
+            {
+                ConnectionStateWorker.Stop();
+                ReceiveThreadWorker.Stop();
+            }
+            SendQueueWorker.Stop();
+            ConnectionState = ConnectionState.Disconnecting;
+            _sessionStartedAt = null;
 
-        var stream = _stream;
-        _stream = null;
-        if (stream != null)
-        {
-            Unsubscribe(stream);
-            stream.Dispose();
-        }
+            var stream = _stream;
+            _stream = null;
+            if (stream != null)
+            {
+                Unsubscribe(stream);
+                stream.Dispose();
+            }
 
-        if (IsClientConnected())
-            _client.Disconnect();
-        lock (_sendQueue)
-            _sendQueue.Clear();
-        ClearConnectionFailures();
-        ConnectionState = ConnectionState.Disconnected;
+            if (IsClientConnected())
+                _client.Disconnect();
+            lock (_sendQueue)
+                _sendQueue.Clear();
+            ClearConnectionFailures();
+            ConnectionState = ConnectionState.Disconnected;
+        }
     }
 }

@@ -19,6 +19,11 @@ public class AvCodersTcpClientResilienceTest : IDisposable
     private static readonly TimeSpan RefusalStep = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ConnectedCheckInterval = TimeSpan.FromSeconds(1);
     private const int AcceptWithinSeconds = 10;
+    private static readonly TimeSpan PollInterval = TimeSpan.FromHours(1);
+    private static readonly TimeSpan DefaultQueueTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ReconnectingSendQueueTimeout = TimeSpan.FromSeconds(15);
+    private const int Races = 100;
+    private static readonly Actor Panel = new(ActorKind.Panel, "192.0.2.40", "AvCodersTcpClientResilienceTest", "LECTERN-PANEL", "connection-2");
     private readonly ConnectTimeoutClock _time = new();
     private AvCodersTcpClient? _client;
 
@@ -653,6 +658,391 @@ public class AvCodersTcpClientResilienceTest : IDisposable
 
         Assert.Equal(ConnectionReasonCategory.Requested, _client.ConnectionReason!.Category);
         Assert.Equal("Disconnected on request", _client.ConnectionReason.Description);
+    }
+
+    [Fact]
+    public void Disconnect_ByAPerson_TurnsReconnectOnSendOn()
+    {
+        CreateClientThatCannotConnect(out _, "PersonDisconnectTestClient");
+        var raised = new ConcurrentQueue<bool>();
+        _client!.ReconnectOnSendHandlers += raised.Enqueue;
+
+        AsAPerson.Run(_client.Disconnect);
+
+        Assert.True(_client.ReconnectOnSend);
+        Assert.Equal(AsAPerson.Browser, _client.DisconnectedBy);
+        Assert.Equal([true], raised);
+    }
+
+    [Fact]
+    public async Task Disconnect_ByAPerson_RecordsWhoBeforeTheStateAndReasonHandlersRun()
+    {
+        CreateClientThatCannotConnect(out _, "DisconnectOrderTestClient");
+        await UntilTheFirstAttemptFailed();
+        var seen = new ConcurrentQueue<(Actor? DisconnectedBy, bool ReconnectOnSend)>();
+        _client!.ConnectionStateHandlers += _ => seen.Enqueue((_client.DisconnectedBy, _client.ReconnectOnSend));
+        _client.ConnectionReasonHandlers += _ => seen.Enqueue((_client.DisconnectedBy, _client.ReconnectOnSend));
+
+        AsAPerson.Run(_client.Disconnect);
+
+        Assert.NotEmpty(seen);
+        Assert.All(seen, handled => Assert.Equal((AsAPerson.Browser, true), handled));
+    }
+
+    [Fact]
+    public void Disconnect_WithNoPerson_LeavesReconnectOnSendOff()
+    {
+        CreateClientThatCannotConnect(out _, "ProgramDisconnectTestClient");
+
+        _client!.Disconnect();
+
+        Assert.False(_client.ReconnectOnSend);
+        Assert.Null(_client.DisconnectedBy);
+    }
+
+    [Fact]
+    public void Disconnect_ByTheProgramAfterAPerson_KeepsWhoDisconnectedItAndReconnectOnSend()
+    {
+        CreateClientThatCannotConnect(out _, "ProgramAfterPersonTestClient");
+        AsAPerson.Run(_client!.Disconnect);
+
+        _client.Disconnect();
+
+        Assert.Equal(AsAPerson.Browser, _client.DisconnectedBy);
+        Assert.True(_client.ReconnectOnSend);
+    }
+
+    [Fact]
+    public void Disconnect_ByASecondPerson_KeepsTheFirst()
+    {
+        CreateClientThatCannotConnect(out _, "SecondPersonTestClient");
+        AsAPerson.Run(_client!.Disconnect);
+
+        AsAPerson.Run(Panel, _client.Disconnect);
+
+        Assert.Equal(AsAPerson.Browser, _client.DisconnectedBy);
+        Assert.True(_client.ReconnectOnSend);
+    }
+
+    [Fact]
+    public void Disconnect_ByAPersonAfterStayDisconnected_KeepsReconnectOnSendOff()
+    {
+        CreateClientThatCannotConnect(out _, "StayDisconnectedThenPersonTestClient");
+        AsAPerson.Run(_client!.Disconnect);
+        _client.SetReconnectOnSend(false);
+
+        AsAPerson.Run(Panel, _client.Disconnect);
+
+        Assert.Equal(AsAPerson.Browser, _client.DisconnectedBy);
+        Assert.False(_client.ReconnectOnSend);
+    }
+
+    [Fact]
+    public void Disconnect_ByAPersonAfterAConnect_TurnsReconnectOnSendOnAgain()
+    {
+        CreateClientThatCannotConnect(out _, "SecondDisconnectTestClient");
+        AsAPerson.Run(_client!.Disconnect);
+        _client.SetReconnectOnSend(false);
+        _client.Connect();
+
+        AsAPerson.Run(Panel, _client.Disconnect);
+
+        Assert.True(_client.ReconnectOnSend);
+        Assert.Equal(Panel, _client.DisconnectedBy);
+    }
+
+    [Fact]
+    public void Connect_AfterStayDisconnected_RaisesTheChangeOfWhoDisconnectedIt()
+    {
+        CreateClientThatCannotConnect(out _, "WhoChangedTestClient");
+        AsAPerson.Run(_client!.Disconnect);
+        _client.SetReconnectOnSend(false);
+        var raised = new ConcurrentQueue<(bool ReconnectOnSend, Actor? DisconnectedBy)>();
+        _client.ReconnectOnSendHandlers += reconnectOnSend => raised.Enqueue((reconnectOnSend, _client.DisconnectedBy));
+
+        _client.Connect();
+
+        Assert.Equal([(false, null)], raised);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonAfterAPersonDisconnected_ReconnectsAndDeliversIt()
+    {
+        var listener = StartListener(out var port);
+        CreateClient(port, "ReconnectOnSendTestClient");
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, _time);
+            await UntilConnected("client never connected");
+            AsAPerson.Run(_client!.Disconnect);
+
+            AsAPerson.Run(() => _client.Send("power on"));
+
+            using var secondConnection = await TestNetwork.AcceptAsync(listener, _time);
+            Assert.Equal("power on", await TestNetwork.ReadStringAsync(secondConnection, _time));
+            Assert.Equal(ConnectionState.Connected, _client.DesiredConnectionState);
+            Assert.False(_client.ReconnectOnSend);
+            Assert.Null(_client.DisconnectedBy);
+            Assert.False(_client.ReconnectingForSend);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_FromAPollAfterAPersonDisconnected_StaysDisconnected()
+    {
+        var listener = StartListener(out var port);
+        CreateClient(port, "PollWhileDisconnectedTestClient");
+        var polled = false;
+        var poll = new ThreadWorker(_ =>
+        {
+            _client!.Send("poll");
+            polled = true;
+            return Task.CompletedTask;
+        }, PollInterval);
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, _time);
+            await UntilConnected("client never connected");
+            AsAPerson.Run(_client!.Disconnect);
+
+            await AsAPerson.RunAsync(poll.Restart);
+            await Wait.UntilAsync(() => polled, "the poll never ran");
+            await TestNetwork.Advance(_time, EstablishedFor);
+
+            Assert.False(listener.Pending(), "a poll reconnected the client");
+            Assert.Equal(ConnectionState.Disconnected, _client.DesiredConnectionState);
+            Assert.Equal(0, TestNetwork.SendQueueCount(_client));
+            Assert.True(_client.ReconnectOnSend);
+        }
+        finally
+        {
+            await poll.Stop();
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonWithReconnectOnSendOff_StaysDisconnected()
+    {
+        var listener = StartListener(out var port);
+        CreateClient(port, "StayDisconnectedTestClient");
+        try
+        {
+            using var firstConnection = await TestNetwork.AcceptAsync(listener, _time);
+            await UntilConnected("client never connected");
+            AsAPerson.Run(_client!.Disconnect);
+            _client.SetReconnectOnSend(false);
+
+            AsAPerson.Run(() => _client.Send("power on"));
+            await TestNetwork.Advance(_time, EstablishedFor);
+
+            Assert.False(listener.Pending(), "the client reconnected with reconnect on send off");
+            Assert.Equal(ConnectionState.Disconnected, _client.DesiredConnectionState);
+            Assert.Equal(0, TestNetwork.SendQueueCount(_client));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Disconnect_RacingAPersonsSend_LeavesTheWorkersMatchingTheDesiredState()
+    {
+        CreateClientThatCannotConnect(out _, "DisconnectRaceTestClient");
+        await UntilTheFirstAttemptFailed();
+
+        for (var race = 0; race < Races; race++)
+        {
+            _client!.Connect();
+            AsAPerson.Run(_client.Disconnect);
+            using var start = new Barrier(2);
+
+            await Task.WhenAll(
+                Task.Run(() =>
+                {
+                    start.SignalAndWait();
+                    AsAPerson.Run(() => _client.Send("power on"));
+                }),
+                Task.Run(() =>
+                {
+                    start.SignalAndWait();
+                    _client.Disconnect();
+                }));
+
+            var connected = _client.DesiredConnectionState == ConnectionState.Connected;
+            await Wait.UntilAsync(() => TestNetwork.Workers(_client).All(worker => worker.IsRunning == connected),
+                $"race {race}: the workers don't match the desired state {_client.DesiredConnectionState}");
+        }
+    }
+
+    [Fact]
+    public async Task Connect_RacingAPersonsSend_KeepsTheSend()
+    {
+        CreateClientThatCannotConnect(out _, "ConnectRaceTestClient");
+        await UntilTheFirstAttemptFailed();
+
+        for (var race = 0; race < Races; race++)
+        {
+            _client!.Connect();
+            AsAPerson.Run(_client.Disconnect);
+            using var start = new Barrier(2);
+
+            await Task.WhenAll(
+                Task.Run(() =>
+                {
+                    start.SignalAndWait();
+                    AsAPerson.Run(() => _client.Send("power on"));
+                }),
+                Task.Run(() =>
+                {
+                    start.SignalAndWait();
+                    _client.Connect();
+                }));
+
+            Assert.Equal(1, TestNetwork.SendQueueCount(_client));
+        }
+    }
+
+    [Fact]
+    public async Task Connect_AfterAPersonsSendStartedTheReconnect_DeliversTheSend()
+    {
+        CreateClientThatCannotConnect(out var port, "ConnectAfterSendTestClient");
+        await UntilTheFirstAttemptFailed();
+        AsAPerson.Run(_client!.Disconnect);
+        AsAPerson.Run(() => _client.Send("power on|"));
+
+        _client.Connect();
+
+        var listener = TestNetwork.ListenOn(_time, port);
+        try
+        {
+            using var connection = await TestNetwork.AcceptAsync(listener, _time);
+            await UntilConnected("the client never connected");
+            _client.Send(Sentinel);
+            Assert.Equal("power on|" + Sentinel, await TestNetwork.ReadUntilAsync(connection, _time, Sentinel));
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Send_ByTwoPeopleAtOnceAfterAPersonDisconnected_ReconnectsOnceAndDeliversBoth()
+    {
+        CreateClientThatCannotConnect(out var port, "TwoSendersTestClient");
+        await UntilTheFirstAttemptFailed();
+        AsAPerson.Run(_client!.Disconnect);
+        _client.ClearEvents();
+        using var start = new Barrier(2);
+
+        await Task.WhenAll(
+            Task.Run(() =>
+            {
+                start.SignalAndWait();
+                AsAPerson.Run(() => _client.Send("power on|"));
+            }),
+            Task.Run(() =>
+            {
+                start.SignalAndWait();
+                AsAPerson.Run(Panel, () => _client.Send("input 2|"));
+            }));
+
+        Assert.Single(_client.Events, e => e.Info == "Connect requested");
+        var listener = TestNetwork.ListenOn(_time, port);
+        try
+        {
+            using var connection = await TestNetwork.AcceptAsync(listener, _time);
+            await UntilConnected("the client never connected");
+            _client.Send(Sentinel);
+            var received = await TestNetwork.ReadUntilAsync(connection, _time, Sentinel);
+            Assert.Contains(received, new[] { "power on|input 2|" + Sentinel, "input 2|power on|" + Sentinel });
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private async Task<string> ReceivedAfterWaiting(TimeSpan wait, Action queue)
+    {
+        await UntilTheFirstAttemptFailed();
+        var sendQueueWorker = TestNetwork.SendQueueWorker(_client!);
+        queue();
+        await sendQueueWorker.Stop();
+        var queuedAt = _time.GetUtcNow();
+
+        var listener = TestNetwork.ListenOn(_time, _client!.Port);
+        try
+        {
+            using var connection = await TestNetwork.AcceptAsync(listener, _time);
+            await UntilConnected("the client never connected");
+            await TestNetwork.Advance(_time, queuedAt + wait - _time.GetUtcNow());
+            _client.Send(Sentinel);
+            await sendQueueWorker.Restart();
+            return await TestNetwork.ReadUntilAsync(connection, _time, Sentinel);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    private void APressOfTwoCommandsAndAPollDuringTheReconnect()
+    {
+        AsAPerson.Run(() =>
+        {
+            _client!.Disconnect();
+            _client.Send("power on|");
+            _client.Send("input 2|");
+        });
+        _client!.Send("poll|");
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonDuringTheReconnect_WaitsUpToFifteenSeconds_WhileAPollKeepsTheQueueTimeout()
+    {
+        CreateClientThatCannotConnect(out _, "ReconnectingSendWaitTestClient");
+
+        var received = await ReceivedAfterWaiting(ReconnectingSendQueueTimeout - AgeMargin, APressOfTwoCommandsAndAPollDuringTheReconnect);
+
+        Assert.Equal("power on|input 2|" + Sentinel, received);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonDuringTheReconnect_IsDroppedAfterFifteenSeconds()
+    {
+        CreateClientThatCannotConnect(out _, "ReconnectingSendDroppedTestClient");
+
+        var received = await ReceivedAfterWaiting(ReconnectingSendQueueTimeout + AgeMargin, APressOfTwoCommandsAndAPollDuringTheReconnect);
+
+        Assert.Equal(Sentinel, received);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonDuringTheReconnect_KeepsALongerQueueTimeout()
+    {
+        CreateClientThatCannotConnect(out _, "ReconnectingSendLongerTimeoutTestClient");
+        _client!.SetQueueTimeout(60);
+
+        var received = await ReceivedAfterWaiting(ReconnectingSendQueueTimeout + AgeMargin, APressOfTwoCommandsAndAPollDuringTheReconnect);
+
+        Assert.Equal("power on|input 2|poll|" + Sentinel, received);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonWhileOfflineWithNoReconnectForSend_KeepsTheQueueTimeout()
+    {
+        CreateClientThatCannotConnect(out _, "OfflinePersonSendTestClient");
+
+        var received = await ReceivedAfterWaiting(DefaultQueueTimeout + AgeMargin, () => AsAPerson.Run(() => _client!.Send("power on|")));
+
+        Assert.Equal(Sentinel, received);
     }
 }
 

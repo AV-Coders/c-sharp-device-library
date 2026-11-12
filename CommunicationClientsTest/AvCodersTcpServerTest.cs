@@ -3,6 +3,8 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using TcpClient = System.Net.Sockets.TcpClient;
 
 namespace AVCoders.CommunicationClients.Tests;
@@ -279,6 +281,94 @@ public class AvCodersTcpServerTest : IDisposable
         await UntilAsync(() => responses.Contains("after connect"), "the accepted client's data never arrived");
     }
 
+    private async Task<ConcurrentQueue<string>> DisconnectByAPersonWithAPeerStillListed()
+    {
+        await ConnectClientAsync();
+        await UntilConnected();
+        AsAPerson.Run(_server.Disconnect);
+        await ListAConnectedPeer();
+        var tx = new ConcurrentQueue<string>();
+        _server.RequestHandlers += tx.Enqueue;
+        return tx;
+    }
+
+    private async Task ListAConnectedPeer()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var remote = new TcpClient();
+        _testClients.Add(remote);
+        await remote.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        var peer = await listener.AcceptTcpClientAsync();
+        _testClients.Add(peer);
+        listener.Stop();
+        ((ConcurrentDictionary<Guid, TcpClient>)ClientsField.GetValue(_server)!).TryAdd(Guid.NewGuid(), peer);
+    }
+
+    private async Task AssertNotListening()
+    {
+        using var refused = TestNetwork.RefusedAtOnce();
+        await Assert.ThrowsAnyAsync<SocketException>(() => refused.ConnectAsync("127.0.0.1", _port));
+    }
+
+    [Fact]
+    public async Task Disconnect_ByAPerson_TurnsReconnectOnSendOn()
+    {
+        await DisconnectByAPersonWithAPeerStillListed();
+
+        Assert.True(_server.ReconnectOnSend);
+        Assert.Equal(AsAPerson.Browser, _server.DisconnectedBy);
+    }
+
+    [Fact]
+    public void Disconnect_WithNoPerson_LeavesReconnectOnSendOff()
+    {
+        _server.Disconnect();
+
+        Assert.False(_server.ReconnectOnSend);
+        Assert.Null(_server.DisconnectedBy);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonAfterAPersonDisconnected_ListensAgainAndDropsTheSend()
+    {
+        var tx = await DisconnectByAPersonWithAPeerStillListed();
+
+        AsAPerson.Run(() => _server.Send("power on"));
+
+        Assert.Empty(tx);
+        Assert.Equal(ConnectionState.Connected, _server.DesiredConnectionState);
+        Assert.False(_server.ReconnectOnSend);
+        Assert.Null(_server.DisconnectedBy);
+        await ConnectClientAsync();
+    }
+
+    [Fact]
+    public async Task Send_WithNoPersonAfterAPersonDisconnected_IsDroppedAndStaysDisconnected()
+    {
+        var tx = await DisconnectByAPersonWithAPeerStillListed();
+
+        _server.Send("poll");
+
+        Assert.Empty(tx);
+        Assert.Equal(ConnectionState.Disconnected, _server.DesiredConnectionState);
+        Assert.True(_server.ReconnectOnSend);
+        await AssertNotListening();
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonWithReconnectOnSendOff_IsDroppedAndStaysDisconnected()
+    {
+        var tx = await DisconnectByAPersonWithAPeerStillListed();
+        _server.SetReconnectOnSend(false);
+
+        AsAPerson.Run(() => _server.Send("power on"));
+
+        Assert.Empty(tx);
+        Assert.Equal(ConnectionState.Disconnected, _server.DesiredConnectionState);
+        await AssertNotListening();
+    }
+
     [Fact]
     public async Task ConnectionStateSubscriber_CanWaitForADisconnectOnAnotherThread()
     {
@@ -417,5 +507,39 @@ public class AvCodersTcpServerResilienceTest
             server.Disconnect();
             blocker.Stop();
         }
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class AvCodersTcpServerLogTest : IDisposable
+{
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly AvCodersTcpServer _server;
+
+    public AvCodersTcpServerLogTest()
+    {
+        LogBase.LoggerFactory = _logs;
+        _server = new AvCodersTcpServer(TestNetwork.GetFreePort(), "LogTestServer", CommandStringFormat.Ascii, new FakeTimeProvider());
+    }
+
+    public void Dispose()
+    {
+        try { _server.Disconnect(); } catch { }
+        LogBase.LoggerFactory = NullLoggerFactory.Instance;
+    }
+
+    [Fact]
+    public void Send_ThatStartsItListeningAgain_IsLoggedAsDroppedAtInformation()
+    {
+        AsAPerson.Run(() =>
+        {
+            _server.Disconnect();
+            _server.Send("power on");
+        });
+
+        var dropped = Assert.Single(_logs.Logs, log => Equals(log.Scope.GetValueOrDefault("InstanceName"), _server.Name)
+            && log.Message.StartsWith("Not sending"));
+        Assert.Equal("Not sending, the server was disconnected on request; it is listening again for its peers to reconnect", dropped.Message);
+        Assert.Equal(LogLevel.Information, dropped.Level);
     }
 }

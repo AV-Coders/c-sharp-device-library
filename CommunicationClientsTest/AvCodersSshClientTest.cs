@@ -20,6 +20,7 @@ public class AvCodersSshClientTest : IDisposable
     private const int MessageLength = 3 * ShellBufferSize;
     private static readonly TimeSpan AgeMargin = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan SessionRebuild = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ReconnectingSendQueueTimeout = TimeSpan.FromSeconds(15);
     private const string AbortedByTheServer = "Renci.SshNet.Common.SshConnectionException: An established connection was aborted by the server.";
     private static readonly byte[] ServerIdentification = "SSH-2.0-OpenSSH_9.6\r\n"u8.ToArray();
     private readonly FakeTimeProvider _time = new();
@@ -210,6 +211,133 @@ public class AvCodersSshClientTest : IDisposable
         await DisconnectAfterTheFirstFailedAttempt();
 
         Assert.Equal(ConnectionReasonCategory.Requested, _client.ConnectionReason!.Category);
+    }
+
+    private async Task DisconnectByAPersonAfterTheFirstFailedAttempt()
+    {
+        await UntilTheFirstAttemptFailed();
+        AsAPerson.Run(_client.Disconnect);
+    }
+
+    [Fact]
+    public async Task Disconnect_ByAPerson_TurnsReconnectOnSendOn()
+    {
+        await DisconnectByAPersonAfterTheFirstFailedAttempt();
+
+        Assert.True(_client.ReconnectOnSend);
+        Assert.Equal(AsAPerson.Browser, _client.DisconnectedBy);
+    }
+
+    [Fact]
+    public async Task Disconnect_ByAPerson_RecordsWhoBeforeTheStateAndReasonHandlersRun()
+    {
+        await UntilTheFirstAttemptFailed();
+        var seen = new ConcurrentQueue<(Actor? DisconnectedBy, bool ReconnectOnSend)>();
+        _client.ConnectionStateHandlers += _ => seen.Enqueue((_client.DisconnectedBy, _client.ReconnectOnSend));
+        _client.ConnectionReasonHandlers += _ => seen.Enqueue((_client.DisconnectedBy, _client.ReconnectOnSend));
+
+        AsAPerson.Run(_client.Disconnect);
+
+        Assert.NotEmpty(seen);
+        Assert.All(seen, handled => Assert.Equal((AsAPerson.Browser, true), handled));
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonAfterAPersonDisconnected_ReconnectsAndWritesIt()
+    {
+        await DisconnectByAPersonAfterTheFirstFailedAttempt();
+        var states = new ConcurrentQueue<ConnectionState>();
+        _client.ConnectionStateHandlers += states.Enqueue;
+        var sent = new ConcurrentQueue<string>();
+        _client.RequestHandlers += sent.Enqueue;
+
+        AsAPerson.Run(() => _client.Send("power on"));
+        await Wait.UntilAsync(() => states.Contains(ConnectionState.Connecting), "the send never started a connection attempt");
+        await StopWorkers();
+        UseSession(ShellStreamWithoutAServer());
+        await ProcessSendQueue();
+
+        Assert.Equal(ConnectionState.Connected, _client.DesiredConnectionState);
+        Assert.Equal(["power on"], sent);
+        Assert.False(_client.ReconnectingForSend);
+    }
+
+    [Fact]
+    public async Task Send_WithNoPersonAfterAPersonDisconnected_StaysDisconnected()
+    {
+        await DisconnectByAPersonAfterTheFirstFailedAttempt();
+        var states = new ConcurrentQueue<ConnectionState>();
+        _client.ConnectionStateHandlers += states.Enqueue;
+
+        _client.Send("poll");
+
+        Assert.Equal(ConnectionState.Disconnected, _client.DesiredConnectionState);
+        Assert.Equal(0, TestNetwork.SendQueueCount(_client));
+        Assert.Empty(states);
+        Assert.True(_client.ReconnectOnSend);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonWithReconnectOnSendOff_StaysDisconnected()
+    {
+        await DisconnectByAPersonAfterTheFirstFailedAttempt();
+        _client.SetReconnectOnSend(false);
+        var states = new ConcurrentQueue<ConnectionState>();
+        _client.ConnectionStateHandlers += states.Enqueue;
+
+        AsAPerson.Run(() => _client.Send("power on"));
+
+        Assert.Equal(ConnectionState.Disconnected, _client.DesiredConnectionState);
+        Assert.Equal(0, TestNetwork.SendQueueCount(_client));
+        Assert.Empty(states);
+    }
+
+    private async Task<List<string>> WrittenAfterAPressOfTwoCommandsAndAPollWaited(TimeSpan wait)
+    {
+        await DisconnectByAPersonAfterTheFirstFailedAttempt();
+        var states = new ConcurrentQueue<ConnectionState>();
+        _client.ConnectionStateHandlers += states.Enqueue;
+        var sent = new ConcurrentQueue<string>();
+        _client.RequestHandlers += sent.Enqueue;
+        AsAPerson.Run(() =>
+        {
+            _client.Send("power on");
+            _client.Send("input 2");
+        });
+        _client.Send("poll");
+        await Wait.UntilAsync(() => states.Contains(ConnectionState.Connecting), "the send never started a connection attempt");
+        await StopWorkers();
+
+        await TestNetwork.Advance(_time, wait);
+        UseSession(ShellStreamWithoutAServer());
+        await ProcessSendQueue();
+        return sent.ToList();
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonDuringTheReconnect_WaitsUpToFifteenSeconds_WhileAPollKeepsTheQueueTimeout()
+    {
+        var written = await WrittenAfterAPressOfTwoCommandsAndAPollWaited(ReconnectingSendQueueTimeout - AgeMargin);
+
+        Assert.Equal(["power on", "input 2"], written);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonDuringTheReconnect_IsDroppedAfterFifteenSeconds()
+    {
+        var written = await WrittenAfterAPressOfTwoCommandsAndAPollWaited(ReconnectingSendQueueTimeout + AgeMargin);
+
+        Assert.Empty(written);
+    }
+
+    [Fact]
+    public async Task Send_ByAPersonDuringTheReconnect_KeepsALongerQueueTimeout()
+    {
+        _client.SetQueueTimeout(60);
+
+        var written = await WrittenAfterAPressOfTwoCommandsAndAPollWaited(ReconnectingSendQueueTimeout + AgeMargin);
+
+        Assert.Equal(["power on", "input 2", "poll"], written);
     }
 
     private async Task<(SshConnectionException Exception, ConnectionReason Reason, ushort Port)> HangUpAfterTheBanner()

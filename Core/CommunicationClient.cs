@@ -55,6 +55,8 @@ public abstract class CommunicationClient(string name, string host, ushort port,
 
     public ConnectionReason? ConnectionReason { get; private set; }
 
+    public bool ReconnectingForSend { get; private protected set; }
+
     public ConnectionState ConnectionState
     {
         get => _connectionState;
@@ -64,7 +66,10 @@ public abstract class CommunicationClient(string name, string host, ushort port,
                 return;
             _connectionState = value;
             if (value == ConnectionState.Connected)
+            {
+                ReconnectingForSend = false;
                 ClearConnectionFailures();
+            }
             try
             {
                 ConnectionStateHandlers?.Invoke(value);
@@ -359,11 +364,19 @@ public abstract class RestComms(string host, ushort port, string name)
 public abstract class IpComms : CommunicationClient
 {
     protected int QueueTimeout = 5;
+    protected const int ReconnectingSendQueueTimeout = 15;
     protected int MaxQueueSize = 100;
 
     protected readonly ThreadWorker ReceiveThreadWorker;
     protected readonly ThreadWorker ConnectionStateWorker;
     protected readonly ThreadWorker SendQueueWorker;
+
+    protected readonly object ConnectionRequestLock = new();
+    public BoolHandler? ReconnectOnSendHandlers;
+
+    public Actor? DisconnectedBy { get; private set; }
+
+    public bool ReconnectOnSend { get; private set; }
 
     protected IpComms(string host, ushort port, string name, CommandStringFormat commandStringFormat)
         : this(host, port, name, commandStringFormat, TimeProvider.System)
@@ -393,11 +406,80 @@ public abstract class IpComms : CommunicationClient
 
     public void SetQueueTimeout(int seconds) => QueueTimeout = seconds;
 
+    protected int QueueTimeoutFor(bool waitsForTheReconnect) =>
+        waitsForTheReconnect ? Math.Max(QueueTimeout, ReconnectingSendQueueTimeout) : QueueTimeout;
+
+    protected bool WaitsForTheReconnect() => ReconnectingForSend && Actor.Current != null;
+
     public abstract void Connect();
 
     public abstract void Reconnect();
 
     public abstract void Disconnect();
+
+    public void SetReconnectOnSend(bool reconnectOnSend)
+    {
+        lock (ConnectionRequestLock)
+            SetDisconnectedBy(DisconnectedBy, reconnectOnSend);
+    }
+
+    protected void RecordRequestedDisconnect()
+    {
+        ReconnectingForSend = false;
+        if (DesiredConnectionState == ConnectionState.Disconnected)
+            return;
+        var person = Actor.Current;
+        SetDisconnectedBy(person, person != null);
+    }
+
+    protected void RecordRequestedConnect() => SetDisconnectedBy(null, false);
+
+    private void SetDisconnectedBy(Actor? disconnectedBy, bool reconnectOnSend)
+    {
+        var reconnectOnSendChanged = ReconnectOnSend != reconnectOnSend;
+        if (!reconnectOnSendChanged && Equals(DisconnectedBy, disconnectedBy))
+            return;
+        DisconnectedBy = disconnectedBy;
+        ReconnectOnSend = reconnectOnSend;
+        using (PushProperties("SetDisconnectedBy"))
+        {
+            if (reconnectOnSendChanged)
+            {
+                var setting = reconnectOnSend ? "on" : "off";
+                LogInformation("Reconnect on the next send a person makes is {ReconnectOnSend}", setting);
+                AddEvent(EventType.Connection, $"Reconnect on the next send a person makes: {setting}");
+            }
+            try
+            {
+                ReconnectOnSendHandlers?.Invoke(reconnectOnSend);
+            }
+            catch (Exception e)
+            {
+                LogException(e, "A ReconnectOnSend handler threw an exception");
+            }
+        }
+    }
+
+    protected bool ReconnectForSend(Action send)
+    {
+        if (Actor.Current is not { } sender)
+            return false;
+        lock (ConnectionRequestLock)
+        {
+            if (DesiredConnectionState == ConnectionState.Disconnected)
+            {
+                if (!ReconnectOnSend)
+                    return false;
+                using (PushProperties("ReconnectForSend"))
+                    LogInformation("Reconnecting for a send by {Sender}, the client was disconnected on request by {DisconnectedBy}",
+                        sender.ToString(), DisconnectedBy?.ToString());
+                ReconnectingForSend = true;
+                Connect();
+            }
+            send();
+            return true;
+        }
+    }
 
     protected static string ConvertByteArrayToString(byte[] byteArray)
     {
