@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using AVCoders.Camera;
 using AVCoders.Core;
-using Microsoft.AspNetCore.SignalR;
+using AVCoders.SignalR.Connections;
 using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Camera;
@@ -9,56 +9,69 @@ namespace AVCoders.SignalR.Camera;
 // SignalR only dispatches public instance methods, so hub methods must stay instance
 // methods even when they touch no instance state - making them static breaks client calls.
 #pragma warning disable S2325 // Methods should be static
-public class CameraHub : Hub<ICameraHub>
+public class CameraHub() : GroupHub<ICameraHub>(Connections)
 {
     private static readonly ConcurrentDictionary<string, CameraManager> CameraManagers = new();
+
+    public static HubConnections Connections { get; } = new(nameof(CameraHub));
 
     // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
     // startup, regardless of when this type is first touched. CreateLogger caches per category.
     private static ILogger Logger => LogBase.LoggerFactory.CreateLogger<CameraHub>();
-    
+
     public static void RegisterCameraManager(string groupName, CameraManager cameraManager)
     {
         CameraManagers[groupName] = cameraManager;
+        Connections.Register(groupName);
     }
 
     public List<string> GetGroups() => CameraManagers.Keys.ToList();
 
     public async Task JoinGroup(string groupName)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-        if (CameraManagers.TryGetValue(groupName, out var cameraManager))
+        await AddToGroup(groupName);
+        if (!CameraManagers.TryGetValue(groupName, out var cameraManager))
         {
-            await Clients.Caller.OnPowerStateChanged(cameraManager.PowerState);
-            await Clients.Caller.OnPresetDefinitionChanged(cameraManager.PresetDefinitions());
-            if (cameraManager.LastRecalledPreset == -1)
-                await Clients.Caller.OnPresetCleared();
-            else
-                await Clients.Caller.OnPresetRecalled(cameraManager.LastRecalledPreset);
-            await Clients.Caller.OnTrackingCapabilityChanged(cameraManager.SupportsTracking);
-            if (cameraManager.SupportsTracking)
-                await Clients.Caller.OnTrackingModeChanged(cameraManager.TrackingMode);
+            ReportUnknownGroup(groupName);
+            return;
         }
+        await Clients.Caller.OnPowerStateChanged(cameraManager.PowerState);
+        await Clients.Caller.OnPresetDefinitionChanged(cameraManager.PresetDefinitions());
+        if (cameraManager.LastRecalledPreset == -1)
+            await Clients.Caller.OnPresetCleared();
+        else
+            await Clients.Caller.OnPresetRecalled(cameraManager.LastRecalledPreset);
+        await Clients.Caller.OnTrackingCapabilityChanged(cameraManager.SupportsTracking);
+        if (cameraManager.SupportsTracking)
+            await Clients.Caller.OnTrackingModeChanged(cameraManager.TrackingMode);
     }
 
     public void RecallPreset(string groupName, int index)
     {
-        if (CameraManagers.TryGetValue(groupName, out var cameraManager))
-            Dispatch(groupName, "RecallPreset", () =>
-            {
-                Logger.LogTrace("Recalling preset {Index} on camera {Group}", index, groupName);
-                cameraManager.RecallPreset(index);
-            });
+        if (!CameraManagers.TryGetValue(groupName, out var cameraManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, "RecallPreset", () =>
+        {
+            Logger.LogTrace("Recalling preset {Index} on camera {Group}", index, groupName);
+            cameraManager.RecallPreset(index);
+        });
     }
 
     public void SavePreset(string groupName, int index)
     {
-        if (CameraManagers.TryGetValue(groupName, out var cameraManager))
-            Dispatch(groupName, "SavePreset", () =>
-            {
-                Logger.LogTrace("Saving preset {Index} on camera {Group}", index, groupName);
-                cameraManager.SavePreset(index);
-            });
+        if (!CameraManagers.TryGetValue(groupName, out var cameraManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, "SavePreset", () =>
+        {
+            Logger.LogTrace("Saving preset {Index} on camera {Group}", index, groupName);
+            cameraManager.SavePreset(index);
+        });
     }
 
     public void ZoomStop(string groupName) => InvokeCameraAction(groupName, "ZoomStop", c => c.ZoomStop());
@@ -72,14 +85,18 @@ public class CameraHub : Hub<ICameraHub>
     public void SetAutoFocus(string groupName, PowerState state) => InvokeCameraAction(groupName, "SetAutoFocus", c => c.SetAutoFocus(state));
     public void SetTracking(string groupName, CameraTrackingMode mode) => InvokeCameraAction(groupName, "SetTracking", c => c.SetTracking(mode));
 
-    private static void InvokeCameraAction(string groupName, string methodName, Action<CameraManager> action)
+    private void InvokeCameraAction(string groupName, string methodName, Action<CameraManager> action)
     {
-        if (CameraManagers.TryGetValue(groupName, out var cameraManager))
-            Dispatch(groupName, methodName, () =>
-            {
-                Logger.LogTrace("{MethodName} on camera {Group}", methodName, groupName);
-                action(cameraManager);
-            });
+        if (!CameraManagers.TryGetValue(groupName, out var cameraManager))
+        {
+            ReportUnknownGroup(groupName, methodName);
+            return;
+        }
+        Dispatch(groupName, methodName, () =>
+        {
+            Logger.LogTrace("{MethodName} on camera {Group}", methodName, groupName);
+            action(cameraManager);
+        });
     }
 
     // Commands are fire-and-forget: the hub method returns immediately so the client

@@ -1,3 +1,4 @@
+using AVCoders.SignalR.Connections;
 using System.Collections.Concurrent;
 using AVCoders.Core;
 using Microsoft.Extensions.Logging;
@@ -230,5 +231,96 @@ public class RoomHubTest
     private static void WaitFor(Func<bool> condition, string failureMessage)
     {
         Assert.True(SpinWait.SpinUntil(condition, WaitTimeoutMs), failureMessage);
+    }
+
+    [Fact]
+    public async Task JoinGroup_CountsTheConnectionInTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        Assert.Equal(1, RoomHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public async Task OnDisconnectedAsync_RemovesTheConnectionFromTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        await _harness.Hub.OnDisconnectedAsync(null);
+
+        Assert.Equal(0, RoomHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public void RegisterRoomManager_ListsTheGroupInConnections()
+    {
+        Assert.Contains(new GroupConnections(_groupName, true, 0), RoomHub.Connections.GetSnapshot().Groups);
+    }
+
+    [Fact]
+    public async Task JoinGroup_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+        await _harness.Hub.OnConnectedAsync();
+
+        await _harness.Hub.JoinGroup(unknown);
+
+        var request = Assert.Single(RoomHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown);
+        Assert.Equal(("RoomHub", "JoinGroup", _harness.ContextMock.Object.ConnectionId), (request.Hub, request.Method, request.ConnectionId));
+        var issue = Assert.Single(RoomHub.Connections.GetOngoingIssues(), i => i.Key == HubConnections.UnknownGroupIssuePrefix + unknown);
+        Assert.StartsWith($"JoinGroup from connection {request.ConnectionId} asked for group '{unknown}', which has nothing registered.", issue.Message);
+        Assert.Equal(1, RoomHub.Connections.Count(unknown));
+    }
+
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_UnknownGroup_IsReportedUnderItsName(string command, Action<RoomHub, string> send, Func<TestDevice, bool> _)
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+
+        send(_harness.Hub, unknown);
+
+        Assert.Equal(command.Split(' ')[0], Assert.Single(RoomHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
+    }
+
+    public static TheoryData<string, Action<RoomHub, string>> ArgsCommands => new()
+    {
+        { nameof(RoomHub.PowerOnWithArgs), (hub, group) => hub.PowerOnWithArgs(group, new Dictionary<string, string>()) },
+        { nameof(RoomHub.PowerOffWithArgs), (hub, group) => hub.PowerOffWithArgs(group, new Dictionary<string, string>()) },
+    };
+
+    [Theory]
+    [MemberData(nameof(ArgsCommands))]
+    public void ArgsCommand_UnknownGroup_IsReportedUnderItsName(string command, Action<RoomHub, string> send)
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+
+        send(_harness.Hub, unknown);
+
+        Assert.Equal(command, Assert.Single(RoomHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
+    }
+
+    [Fact]
+    public async Task Connections_Changed_LetsHandlersReadTheCurrentCount()
+    {
+        var counts = new ConcurrentQueue<int>();
+        EventHandler record = (_, _) => counts.Enqueue(RoomHub.Connections.Count(_groupName));
+        RoomHub.Connections.Changed += record;
+        try
+        {
+            await _harness.Hub.OnConnectedAsync();
+            await _harness.Hub.JoinGroup(_groupName);
+            Assert.Contains(1, counts);
+
+            counts.Clear();
+            await _harness.Hub.OnDisconnectedAsync(null);
+            Assert.Contains(0, counts);
+        }
+        finally
+        {
+            RoomHub.Connections.Changed -= record;
+        }
     }
 }

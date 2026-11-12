@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
 using AVCoders.MediaPlayer;
-using Microsoft.AspNetCore.SignalR;
+using AVCoders.SignalR.Connections;
 using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.SetTopBox;
@@ -9,9 +9,11 @@ namespace AVCoders.SignalR.SetTopBox;
 // SignalR only dispatches public instance methods, so hub methods must stay instance
 // methods even when they touch no instance state - making them static breaks client calls.
 #pragma warning disable S2325 // Methods should be static
-public class SetTopBoxHub : Hub<ISetTopBoxHub>
+public class SetTopBoxHub() : GroupHub<ISetTopBoxHub>(Connections)
 {
     private static readonly ConcurrentDictionary<string, SetTopBoxManager> SetTopBoxManagers = new();
+
+    public static HubConnections Connections { get; } = new(nameof(SetTopBoxHub));
 
     // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
     // startup, regardless of when this type is first touched. CreateLogger caches per category.
@@ -20,17 +22,20 @@ public class SetTopBoxHub : Hub<ISetTopBoxHub>
     public static void RegisterSetTopBoxManager(string groupName, SetTopBoxManager setTopBoxManager)
     {
         SetTopBoxManagers[groupName] = setTopBoxManager;
+        Connections.Register(groupName);
     }
 
     public List<string> GetGroups() => SetTopBoxManagers.Keys.ToList();
 
     public async Task JoinGroup(string groupName)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-        if (SetTopBoxManagers.TryGetValue(groupName, out var setTopBoxManager))
+        await AddToGroup(groupName);
+        if (!SetTopBoxManagers.TryGetValue(groupName, out var setTopBoxManager))
         {
-            await Clients.Caller.UpdateSetTopBox(setTopBoxManager.State);
+            ReportUnknownGroup(groupName);
+            return;
         }
+        await Clients.Caller.UpdateSetTopBox(setTopBoxManager.State);
     }
 
     public Task<SetTopBoxState?> GetState(string groupName)
@@ -93,12 +98,13 @@ public class SetTopBoxHub : Hub<ISetTopBoxHub>
         return Task.CompletedTask;
     }
 
-    private static bool TryGetManager(string groupName, string methodName, out SetTopBoxManager setTopBoxManager)
+    private bool TryGetManager(string groupName, string methodName, out SetTopBoxManager setTopBoxManager)
     {
         if (SetTopBoxManagers.TryGetValue(groupName, out setTopBoxManager!))
             return true;
         using (BeginLogScope(methodName))
             Logger.LogWarning("{Method} ignored: no set-top box registered for group {Group}", methodName, groupName);
+        ReportUnknownGroup(groupName, methodName);
         return false;
     }
 

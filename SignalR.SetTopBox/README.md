@@ -31,6 +31,8 @@ Client to server (`SetTopBoxHub`):
 | `GetState(string group)` | Returns the current `SetTopBoxState`, or `null` for an unknown group. |
 | `GetGroups()` | Registered group names. |
 
+A call for an unknown group is dropped as before, and is also reported as an ongoing `unknown-group:<group>` issue on `SetTopBoxHub.Connections`: see the `AVCoders.SignalR.Connections` README.
+
 Server to client (`ISetTopBoxHub`):
 
 | Method | Notes |

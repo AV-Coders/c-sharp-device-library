@@ -1,3 +1,4 @@
+using AVCoders.SignalR.Connections;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using AVCoders.Display;
@@ -82,5 +83,57 @@ public class DisplayHubTest
         _harness.Hub.PowerOn($"missing-{Guid.NewGuid()}");
 
         Assert.Equal(0, _display.DoPowerOnCallCount);
+    }
+
+    [Fact]
+    public async Task JoinGroup_CountsTheConnectionInTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        Assert.Equal(1, DisplayHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public async Task OnDisconnectedAsync_RemovesTheConnectionFromTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        await _harness.Hub.OnDisconnectedAsync(null);
+
+        Assert.Equal(0, DisplayHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public void RegisterDisplayManager_ListsTheGroupInConnections()
+    {
+        Assert.Contains(new GroupConnections(_groupName, true, 0), DisplayHub.Connections.GetSnapshot().Groups);
+    }
+
+    [Fact]
+    public async Task JoinGroup_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+        await _harness.Hub.OnConnectedAsync();
+
+        await _harness.Hub.JoinGroup(unknown);
+
+        var request = Assert.Single(DisplayHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown);
+        Assert.Equal(("DisplayHub", "JoinGroup", _harness.ContextMock.Object.ConnectionId), (request.Hub, request.Method, request.ConnectionId));
+        var issue = Assert.Single(DisplayHub.Connections.GetOngoingIssues(), i => i.Key == HubConnections.UnknownGroupIssuePrefix + unknown);
+        Assert.StartsWith($"JoinGroup from connection {request.ConnectionId} asked for group '{unknown}', which has nothing registered.", issue.Message);
+        Assert.Equal(1, DisplayHub.Connections.Count(unknown));
+    }
+
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_UnknownGroup_IsReportedUnderItsName(string command, Action<DisplayHub, string> send, Func<TestDisplay, bool> _)
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+
+        send(_harness.Hub, unknown);
+
+        Assert.Equal(command.Split(' ')[0], Assert.Single(DisplayHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
     }
 }

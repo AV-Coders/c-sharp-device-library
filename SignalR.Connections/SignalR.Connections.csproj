@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <Description>Connection tracking and unknown-group reporting shared by the AV Coders SignalR hubs: open connections per group, a logged and reported error for a group nothing is registered for, and a snapshot for health pages.</Description>
+        <PackageId>AVCoders.SignalR.Connections</PackageId>
+        <AssemblyName>AVCoders.SignalR.Connections</AssemblyName>
+        <RootNamespace>AVCoders.SignalR.Connections</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Core\Core.csproj" />
+      <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+</Project>

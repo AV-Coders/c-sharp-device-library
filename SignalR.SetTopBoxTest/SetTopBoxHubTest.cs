@@ -1,3 +1,4 @@
+using AVCoders.SignalR.Connections;
 using AVCoders.Core;
 using AVCoders.Core.Tests;
 using AVCoders.MediaPlayer;
@@ -175,5 +176,101 @@ public class SetTopBoxHubTest
     {
         Assert.False(SpinWait.SpinUntil(() => _device.SentButtons.Count > 0, 200));
         Assert.Empty(_device.SentButtons);
+    }
+
+    [Fact]
+    public async Task JoinGroup_CountsTheConnectionInTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        Assert.Equal(1, SetTopBoxHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public async Task OnDisconnectedAsync_RemovesTheConnectionFromTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        await _harness.Hub.OnDisconnectedAsync(null);
+
+        Assert.Equal(0, SetTopBoxHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public void RegisterSetTopBoxManager_ListsTheGroupInConnections()
+    {
+        Assert.Contains(new GroupConnections(_groupName, true, 0), SetTopBoxHub.Connections.GetSnapshot().Groups);
+    }
+
+    [Fact]
+    public async Task JoinGroup_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+        await _harness.Hub.OnConnectedAsync();
+
+        await _harness.Hub.JoinGroup(unknown);
+
+        var request = Assert.Single(SetTopBoxHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown);
+        Assert.Equal(("SetTopBoxHub", "JoinGroup", _harness.ContextMock.Object.ConnectionId), (request.Hub, request.Method, request.ConnectionId));
+        var issue = Assert.Single(SetTopBoxHub.Connections.GetOngoingIssues(), i => i.Key == HubConnections.UnknownGroupIssuePrefix + unknown);
+        Assert.StartsWith($"JoinGroup from connection {request.ConnectionId} asked for group '{unknown}', which has nothing registered.", issue.Message);
+        Assert.Equal(1, SetTopBoxHub.Connections.Count(unknown));
+    }
+
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public async Task Command_UnknownGroup_IsReportedUnderItsName(string command, Func<SetTopBoxHub, string, Task> send, Func<TestSetTopBox, bool> _)
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+
+        await send(_harness.Hub, unknown);
+
+        Assert.Equal(0, _device.PowerOnCallCount + _device.PowerOffCallCount);
+        Assert.Equal(command, Assert.Single(SetTopBoxHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
+    }
+
+    [Fact]
+    public async Task SendRemoteButton_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+
+        await _harness.Hub.SendRemoteButton(unknown, "Up");
+
+        Assert.Equal(nameof(SetTopBoxHub.SendRemoteButton), Assert.Single(SetTopBoxHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
+    }
+
+    [Fact]
+    public async Task GetState_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+        await _harness.Hub.OnConnectedAsync();
+
+        await _harness.Hub.GetState(unknown);
+
+        Assert.Equal(nameof(SetTopBoxHub.GetState), Assert.Single(SetTopBoxHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
+        Assert.Contains(SetTopBoxHub.Connections.GetOngoingIssues(), i => i.Key == HubConnections.UnknownGroupIssuePrefix + unknown);
+    }
+
+    [Fact]
+    public async Task PowerOn_UnknownGroup_StillLogsTheIgnoredWarning()
+    {
+        var loggerFactory = new ScopeCapturingLoggerFactory();
+        var original = LogBase.LoggerFactory;
+        LogBase.LoggerFactory = loggerFactory;
+        try
+        {
+            var unknown = $"missing-{Guid.NewGuid()}";
+
+            await _harness.Hub.PowerOn(unknown);
+
+            var log = Assert.Single(loggerFactory.Logs, l => l.Message == $"PowerOn ignored: no set-top box registered for group {unknown}");
+            Assert.Equal(nameof(SetTopBoxHub.PowerOn), log.Scope[LogBase.MethodProperty]);
+        }
+        finally
+        {
+            LogBase.LoggerFactory = original;
+        }
     }
 }

@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
-using Microsoft.AspNetCore.SignalR;
+using AVCoders.SignalR.Connections;
 using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Destination;
@@ -8,9 +8,11 @@ namespace AVCoders.SignalR.Destination;
 // SignalR only dispatches public instance methods, so hub methods must stay instance
 // methods even when they touch no instance state - making them static breaks client calls.
 #pragma warning disable S2325 // Methods should be static
-public class DestinationHub : Hub<IDestinationHub>
+public class DestinationHub() : GroupHub<IDestinationHub>(Connections)
 {
     private static readonly ConcurrentDictionary<string, DestinationManager> DestinationManagers = new();
+
+    public static HubConnections Connections { get; } = new(nameof(DestinationHub));
 
     // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
     // startup, regardless of when this type is first touched. CreateLogger caches per category.
@@ -19,37 +21,48 @@ public class DestinationHub : Hub<IDestinationHub>
     public static void RegisterDestinationManager(string groupName, DestinationManager destinationManager)
     {
         DestinationManagers[groupName] = destinationManager;
+        Connections.Register(groupName);
     }
 
     public List<string> GetGroups() => DestinationManagers.Keys.ToList();
 
     public async Task JoinGroup(string groupName)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-        if (DestinationManagers.TryGetValue(groupName, out var destinationManager))
+        await AddToGroup(groupName);
+        if (!DestinationManagers.TryGetValue(groupName, out var destinationManager))
         {
-            await Clients.Caller.OnDestinationChanged(destinationManager.Snapshot);
+            ReportUnknownGroup(groupName);
+            return;
         }
+        await Clients.Caller.OnDestinationChanged(destinationManager.Snapshot);
     }
 
     public void RouteSource(string groupName, string sourceId)
     {
-        if (DestinationManagers.TryGetValue(groupName, out var destinationManager))
-            Dispatch(groupName, "RouteSource", () =>
-            {
-                Logger.LogTrace("Routing source {SourceId} to destination {Group}", sourceId, groupName);
-                destinationManager.RouteSource(sourceId);
-            });
+        if (!DestinationManagers.TryGetValue(groupName, out var destinationManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, "RouteSource", () =>
+        {
+            Logger.LogTrace("Routing source {SourceId} to destination {Group}", sourceId, groupName);
+            destinationManager.RouteSource(sourceId);
+        });
     }
 
     public void SetVideoMute(string groupName, bool muted)
     {
-        if (DestinationManagers.TryGetValue(groupName, out var destinationManager))
-            Dispatch(groupName, "SetVideoMute", () =>
-            {
-                Logger.LogTrace("Setting video mute on destination {Group} to {Muted}", groupName, muted);
-                destinationManager.SetVideoMute(muted);
-            });
+        if (!DestinationManagers.TryGetValue(groupName, out var destinationManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, "SetVideoMute", () =>
+        {
+            Logger.LogTrace("Setting video mute on destination {Group} to {Muted}", groupName, muted);
+            destinationManager.SetVideoMute(muted);
+        });
     }
 
     // Commands are fire-and-forget: the hub method returns immediately so the client

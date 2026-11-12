@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
-using Microsoft.AspNetCore.SignalR;
+using AVCoders.SignalR.Connections;
 using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Volume;
@@ -8,9 +8,11 @@ namespace AVCoders.SignalR.Volume;
 // SignalR only dispatches public instance methods, so hub methods must stay instance
 // methods even when they touch no instance state - making them static breaks client calls.
 #pragma warning disable S2325 // Methods should be static
-public class VolumeHub : Hub<IVolumeHub>
+public class VolumeHub() : GroupHub<IVolumeHub>(Connections)
 {
     private static readonly ConcurrentDictionary<string, VolumeManager> VolumeManagers = new();
+
+    public static HubConnections Connections { get; } = new(nameof(VolumeHub));
 
     // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
     // startup, regardless of when this type is first touched. CreateLogger caches per category.
@@ -19,37 +21,48 @@ public class VolumeHub : Hub<IVolumeHub>
     public static void RegisterVolumeManager(string groupName, VolumeManager volumeManager)
     {
         VolumeManagers[groupName] = volumeManager;
+        Connections.Register(groupName);
     }
 
     public List<string> GetGroups() => VolumeManagers.Keys.ToList();
 
     public async Task JoinGroup(string groupName)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-        if (VolumeManagers.TryGetValue(groupName, out var volumeManager))
+        await AddToGroup(groupName);
+        if (!VolumeManagers.TryGetValue(groupName, out var volumeManager))
         {
-            await Clients.Caller.OnVolumeControlsChanged(volumeManager.VolumeControls);
+            ReportUnknownGroup(groupName);
+            return;
         }
+        await Clients.Caller.OnVolumeControlsChanged(volumeManager.VolumeControls);
     }
 
     public void SetVolumeLevel(string groupName, int index, ushort level)
     {
-        if (VolumeManagers.TryGetValue(groupName, out var volumeManager))
-            Dispatch(groupName, "SetVolumeLevel", () =>
-            {
-                Logger.LogInformation("Setting volume level for {Group}[{Index}] to {Level}", groupName, index, level);
-                volumeManager.SetVolumeLevel(index, level);
-            });
+        if (!VolumeManagers.TryGetValue(groupName, out var volumeManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, "SetVolumeLevel", () =>
+        {
+            Logger.LogInformation("Setting volume level for {Group}[{Index}] to {Level}", groupName, index, level);
+            volumeManager.SetVolumeLevel(index, level);
+        });
     }
 
     public void SetVolumeMute(string groupName, int index, MuteState mute)
     {
-        if (VolumeManagers.TryGetValue(groupName, out var volumeManager))
-            Dispatch(groupName, "SetVolumeMute", () =>
-            {
-                Logger.LogInformation("Setting volume mute for {Group}[{Index}] to {Mute}", groupName, index, mute);
-                volumeManager.SetVolumeMute(index, mute);
-            });
+        if (!VolumeManagers.TryGetValue(groupName, out var volumeManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, "SetVolumeMute", () =>
+        {
+            Logger.LogInformation("Setting volume mute for {Group}[{Index}] to {Mute}", groupName, index, mute);
+            volumeManager.SetVolumeMute(index, mute);
+        });
     }
 
     // Commands are fire-and-forget: the hub method returns immediately so the client

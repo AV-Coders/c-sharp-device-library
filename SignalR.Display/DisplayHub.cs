@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
 using AVCoders.Display;
-using Microsoft.AspNetCore.SignalR;
+using AVCoders.SignalR.Connections;
 using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Display;
@@ -9,9 +9,11 @@ namespace AVCoders.SignalR.Display;
 // SignalR only dispatches public instance methods, so hub methods must stay instance
 // methods even when they touch no instance state - making them static breaks client calls.
 #pragma warning disable S2325 // Methods should be static
-public class DisplayHub : Hub<IDisplayHub>
+public class DisplayHub() : GroupHub<IDisplayHub>(Connections)
 {
     private static readonly ConcurrentDictionary<string, DisplayManager> DisplayManagers = new();
+
+    public static HubConnections Connections { get; } = new(nameof(DisplayHub));
 
     // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
     // startup, regardless of when this type is first touched. CreateLogger caches per category.
@@ -20,21 +22,24 @@ public class DisplayHub : Hub<IDisplayHub>
     public static void RegisterDisplayManager(string groupName, DisplayManager displayManager)
     {
         DisplayManagers[groupName] = displayManager;
+        Connections.Register(groupName);
     }
 
     public List<string> GetGroups() => DisplayManagers.Keys.ToList();
 
     public async Task JoinGroup(string groupName)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-        if (DisplayManagers.TryGetValue(groupName, out var displayManager))
+        await AddToGroup(groupName);
+        if (!DisplayManagers.TryGetValue(groupName, out var displayManager))
         {
-            await Clients.Caller.OnPowerStateChanged(displayManager.PowerState);
-            await Clients.Caller.OnSupportedInputsChanged(displayManager.SupportedInputs);
-            await Clients.Caller.OnInputChanged(displayManager.Input);
-            await Clients.Caller.OnVolumeChanged(displayManager.Volume);
-            await Clients.Caller.OnAudioMuteChanged(displayManager.AudioMute);
+            ReportUnknownGroup(groupName);
+            return;
         }
+        await Clients.Caller.OnPowerStateChanged(displayManager.PowerState);
+        await Clients.Caller.OnSupportedInputsChanged(displayManager.SupportedInputs);
+        await Clients.Caller.OnInputChanged(displayManager.Input);
+        await Clients.Caller.OnVolumeChanged(displayManager.Volume);
+        await Clients.Caller.OnAudioMuteChanged(displayManager.AudioMute);
     }
 
     public void PowerOn(string groupName) => InvokeDisplayAction(groupName, "PowerOn", d => d.PowerOn());
@@ -51,10 +56,13 @@ public class DisplayHub : Hub<IDisplayHub>
     // gets a fast ack, the device work runs off the SignalR dispatch thread, and the
     // resulting state is pushed back via the IDisplayHub callbacks. Any exception is
     // logged here rather than lost on an unobserved Task.
-    private static void InvokeDisplayAction(string groupName, string methodName, Action<DisplayManager> action)
+    private void InvokeDisplayAction(string groupName, string methodName, Action<DisplayManager> action)
     {
         if (!DisplayManagers.TryGetValue(groupName, out var displayManager))
+        {
+            ReportUnknownGroup(groupName, methodName);
             return;
+        }
 
         _ = Task.Run(() =>
         {

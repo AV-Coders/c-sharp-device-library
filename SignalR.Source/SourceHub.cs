@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using AVCoders.Core;
-using Microsoft.AspNetCore.SignalR;
+using AVCoders.SignalR.Connections;
 using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Source;
@@ -8,9 +8,11 @@ namespace AVCoders.SignalR.Source;
 // SignalR only dispatches public instance methods, so hub methods must stay instance
 // methods even when they touch no instance state - making them static breaks client calls.
 #pragma warning disable S2325 // Methods should be static
-public class SourceHub : Hub<ISourceHub>
+public class SourceHub() : GroupHub<ISourceHub>(Connections)
 {
     private static readonly ConcurrentDictionary<string, SourceManager> SourceManagers = new();
+
+    public static HubConnections Connections { get; } = new(nameof(SourceHub));
 
     // Resolved per use so the hub honours whatever LogBase.LoggerFactory consumers set at
     // startup, regardless of when this type is first touched. CreateLogger caches per category.
@@ -19,30 +21,37 @@ public class SourceHub : Hub<ISourceHub>
     public static void RegisterSourceManager(string groupName, SourceManager sourceManager)
     {
         SourceManagers[groupName] = sourceManager;
+        Connections.Register(groupName);
     }
 
     public async Task JoinGroup(string groupName)
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-        if (SourceManagers.TryGetValue(groupName, out var sourceManager))
+        await AddToGroup(groupName);
+        if (!SourceManagers.TryGetValue(groupName, out var sourceManager))
         {
-            await Clients.Caller.UpdateSourceList(sourceManager.Sources);
-            var index = sourceManager.Sources.FindIndex(s => s.SourceId == sourceManager.CurrentSource);
-            if (index != -1)
-            {
-                await Clients.Caller.UpdateSourceIndex(index);
-            }
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        await Clients.Caller.UpdateSourceList(sourceManager.Sources);
+        var index = sourceManager.Sources.FindIndex(s => s.SourceId == sourceManager.CurrentSource);
+        if (index != -1)
+        {
+            await Clients.Caller.UpdateSourceIndex(index);
         }
     }
 
     public void SelectSource(string groupName, int sourceIndex)
     {
-        if (SourceManagers.TryGetValue(groupName, out var sourceManager))
-            Dispatch(groupName, "SelectSource", () =>
-            {
-                Logger.LogTrace("Selecting source {Index} for group {Group}", sourceIndex, groupName);
-                sourceManager.SetCurrentSource(sourceIndex);
-            });
+        if (!SourceManagers.TryGetValue(groupName, out var sourceManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, "SelectSource", () =>
+        {
+            Logger.LogTrace("Selecting source {Index} for group {Group}", sourceIndex, groupName);
+            sourceManager.SetCurrentSource(sourceIndex);
+        });
     }
 
     public List<string> GetGroups() => SourceManagers.Keys.ToList();

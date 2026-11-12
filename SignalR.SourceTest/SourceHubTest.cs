@@ -1,3 +1,4 @@
+using AVCoders.SignalR.Connections;
 using static AVCoders.SignalR.Source.Tests.TestSources;
 
 namespace AVCoders.SignalR.Source.Tests;
@@ -106,5 +107,59 @@ public class SourceHubTest
     {
         Assert.True(SpinWait.SpinUntil(predicate, timeoutMs),
             $"Condition not met within {timeoutMs}ms");
+    }
+
+    [Fact]
+    public async Task JoinGroup_CountsTheConnectionInTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        Assert.Equal(1, SourceHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public async Task OnDisconnectedAsync_RemovesTheConnectionFromTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        await _harness.Hub.OnDisconnectedAsync(null);
+
+        Assert.Equal(0, SourceHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public void RegisterSourceManager_ListsTheGroupInConnections()
+    {
+        Assert.Contains(new GroupConnections(_groupName, true, 0), SourceHub.Connections.GetSnapshot().Groups);
+    }
+
+    [Fact]
+    public async Task JoinGroup_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+        await _harness.Hub.OnConnectedAsync();
+
+        await _harness.Hub.JoinGroup(unknown);
+
+        var request = Assert.Single(SourceHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown);
+        Assert.Equal(("SourceHub", "JoinGroup", _harness.ContextMock.Object.ConnectionId), (request.Hub, request.Method, request.ConnectionId));
+        var issue = Assert.Single(SourceHub.Connections.GetOngoingIssues(), i => i.Key == HubConnections.UnknownGroupIssuePrefix + unknown);
+        Assert.StartsWith($"JoinGroup from connection {request.ConnectionId} asked for group '{unknown}', which has nothing registered.", issue.Message);
+        Assert.Equal(1, SourceHub.Connections.Count(unknown));
+    }
+
+    [Fact]
+    public async Task SelectSource_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+        await _harness.Hub.OnConnectedAsync();
+
+        _harness.Hub.SelectSource(unknown, 1);
+
+        Assert.Equal("None", _manager.CurrentSource);
+        Assert.Equal(nameof(SourceHub.SelectSource), Assert.Single(SourceHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
+        Assert.Contains(SourceHub.Connections.GetOngoingIssues(), i => i.Key == HubConnections.UnknownGroupIssuePrefix + unknown);
     }
 }

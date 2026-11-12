@@ -13,6 +13,7 @@
     <ItemGroup>
       <ProjectReference Include="..\MediaPlayer\MediaPlayer.csproj" />
       <ProjectReference Include="..\Core\Core.csproj" />
+      <ProjectReference Include="..\SignalR.Connections\SignalR.Connections.csproj" />
       <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 

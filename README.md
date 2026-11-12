@@ -57,7 +57,7 @@ display.PowerOn();
 | `AVCoders.Annotator` | Annotation devices | `ExtronAnnotator401` |
 | `AVCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2` |
 | `AVCoders.WirelessPresenter` | Wireless presentation | `ExtronSharelinkPro` |
-| `AVCoders.SignalR.*` (Camera, Destination, Display, Room, SetTopBox, Source, Volume, Audit) | SignalR hubs bridging room state to web / touch-panel UIs; `Audit` is a global hub filter that records each state-changing hub call | `<X>Hub`, `<X>Manager`, `<X>UiSignalR`; `HubAuditFilter` |
+| `AVCoders.SignalR.*` (Camera, Destination, Display, Room, SetTopBox, Source, Volume, Audit, Connections) | SignalR hubs bridging room state to web / touch-panel UIs; `Audit` is a global hub filter that records each state-changing hub call; `Connections` tracks each hub's open connections per group and reports unknown groups | `<X>Hub`, `<X>Manager`, `<X>UiSignalR`; `HubAuditFilter`; `HubConnections`, `GroupHub<T>` |
 
 `Climate/` (`TemperzoneUc8`, Modbus RTU HVAC) exists in the solution but is **not** currently
 published as a package.

@@ -1,3 +1,4 @@
+using AVCoders.SignalR.Connections;
 using AVCoders.Core;
 
 namespace AVCoders.SignalR.Volume.Tests;
@@ -98,5 +99,57 @@ public class VolumeHubTest
     private static void WaitFor(Func<bool> condition, string failureMessage)
     {
         Assert.True(SpinWait.SpinUntil(condition, WaitTimeoutMs), failureMessage);
+    }
+
+    [Fact]
+    public async Task JoinGroup_CountsTheConnectionInTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        Assert.Equal(1, VolumeHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public async Task OnDisconnectedAsync_RemovesTheConnectionFromTheGroup()
+    {
+        await _harness.Hub.OnConnectedAsync();
+        await _harness.Hub.JoinGroup(_groupName);
+
+        await _harness.Hub.OnDisconnectedAsync(null);
+
+        Assert.Equal(0, VolumeHub.Connections.Count(_groupName));
+    }
+
+    [Fact]
+    public void RegisterVolumeManager_ListsTheGroupInConnections()
+    {
+        Assert.Contains(new GroupConnections(_groupName, true, 0), VolumeHub.Connections.GetSnapshot().Groups);
+    }
+
+    [Fact]
+    public async Task JoinGroup_UnknownGroup_IsReported()
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+        await _harness.Hub.OnConnectedAsync();
+
+        await _harness.Hub.JoinGroup(unknown);
+
+        var request = Assert.Single(VolumeHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown);
+        Assert.Equal(("VolumeHub", "JoinGroup", _harness.ContextMock.Object.ConnectionId), (request.Hub, request.Method, request.ConnectionId));
+        var issue = Assert.Single(VolumeHub.Connections.GetOngoingIssues(), i => i.Key == HubConnections.UnknownGroupIssuePrefix + unknown);
+        Assert.StartsWith($"JoinGroup from connection {request.ConnectionId} asked for group '{unknown}', which has nothing registered.", issue.Message);
+        Assert.Equal(1, VolumeHub.Connections.Count(unknown));
+    }
+
+    [Theory]
+    [MemberData(nameof(Commands))]
+    public void Command_UnknownGroup_IsReportedUnderItsName(string command, Action<VolumeHub, string> send, Func<TestVolumeControl, TestVolumeControl, bool> _)
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+
+        send(_harness.Hub, unknown);
+
+        Assert.Equal(command.Split(' ')[0], Assert.Single(VolumeHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
     }
 }
