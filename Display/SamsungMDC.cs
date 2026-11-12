@@ -594,5 +594,5 @@ public class SamsungMdc : Display
         _polls = 0;
     }
 
-    private record MdcRead(string Name, byte Command, string IssueKey, string[] Labels);
+    private sealed record MdcRead(string Name, byte Command, string IssueKey, string[] Labels);
 }

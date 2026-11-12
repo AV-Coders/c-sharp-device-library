@@ -18,6 +18,7 @@ public class ExtronSharelinkPro : DeviceBase, IDisposable
     private readonly object _spacedSendsLock = new();
     private Task _spacedSends = Task.CompletedTask;
     private readonly CancellationTokenSource _disposeCancellation = new();
+    private readonly CancellationToken _disposeToken;
     private const string EscapeHeader = "\x1b";
     private const int UserFieldCount = 12;
     public readonly List<ExtronSharelinkUser> ConnectedUsers = [];
@@ -32,6 +33,7 @@ public class ExtronSharelinkPro : DeviceBase, IDisposable
         : base(name, client)
     {
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _disposeToken = _disposeCancellation.Token;
         _client = client;
         _connectedUserNotifier = new ThreadWorker(NotifyOfConnectedUsers, ConnectedUsersNotifyDelay, true, _timeProvider);
         _client.ConnectionStateHandlers += HandleConnectionState;
@@ -126,11 +128,11 @@ public class ExtronSharelinkPro : DeviceBase, IDisposable
         try
         {
             WrapAndSendCommand("3CV");
-            await Task.Delay(ConnectStepGap, _timeProvider, _disposeCancellation.Token);
+            await Task.Delay(ConnectStepGap, _timeProvider, _disposeToken);
             WrapAndSendCommand("0ECHO");
-            await Task.Delay(ConnectStepGap, _timeProvider, _disposeCancellation.Token);
+            await Task.Delay(ConnectStepGap, _timeProvider, _disposeToken);
             WrapAndSendCommand("QSHAR");
-            await Task.Delay(ConnectStepGap, _timeProvider, _disposeCancellation.Token);
+            await Task.Delay(ConnectStepGap, _timeProvider, _disposeToken);
             WrapAndSendCommand("KSHAR");
         }
         catch (OperationCanceledException) when (_disposeCancellation.IsCancellationRequested)
@@ -200,8 +202,9 @@ public class ExtronSharelinkPro : DeviceBase, IDisposable
         _client.ResponseHandlers -= HandleResponse;
         _client.ConnectionStateHandlers -= HandleConnectionState;
         _client.ConnectionStateHandlers -= HandleRequestedDisconnect;
-        Task.Run(_pollWorker.Stop).GetAwaiter().GetResult();
-        Task.Run(_connectedUserNotifier.Stop).GetAwaiter().GetResult();
+        Task.Run(_pollWorker.Stop, CancellationToken.None).GetAwaiter().GetResult();
+        Task.Run(_connectedUserNotifier.Stop, CancellationToken.None).GetAwaiter().GetResult();
+        _disposeCancellation.Dispose();
         LogBaseRegistry.Deregister(_pollWorker);
         LogBaseRegistry.Deregister(_connectedUserNotifier);
         LogBaseRegistry.Deregister(this);

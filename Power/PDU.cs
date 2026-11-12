@@ -18,9 +18,6 @@ public abstract class Pdu : DeviceBase
 
     protected void SetOutlets(List<Outlet> outlets) => _outlets = outlets;
 
-    [Obsolete("This method is deprecated in favor of SetOutlets")]
-    protected void ClearOutlets() => SetOutlets([]);
-
     protected void AddOutlet(Outlet outlet) => _outlets.Add(outlet);
     
     

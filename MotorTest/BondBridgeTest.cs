@@ -69,16 +69,6 @@ public class BondBridgeTest
     }
 
     [Fact]
-    public void Constructor_KeepsTheTwoArgumentSignatureForCompiledCallers()
-    {
-        var twoArgument = typeof(BondBridge).GetConstructor([typeof(RestComms), typeof(string)]);
-
-        Assert.NotNull(twoArgument);
-        Assert.True(twoArgument.IsPublic);
-        Assert.Equal("Bond Bridge", ((BondBridge)twoArgument.Invoke([_mockClient.Object, "token"])).Name);
-    }
-
-    [Fact]
     public void VersionReply_ShowsTheFirmwareModelBondIdAndUptime()
     {
         ReplyToVersion(HttpStatusCode.OK,

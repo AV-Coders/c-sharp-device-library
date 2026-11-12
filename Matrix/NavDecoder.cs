@@ -54,7 +54,7 @@ public class NavDecoder : NavDeviceBase
     {
     }
 
-    internal NavDecoder(string name, string ipAddress, Navigator navigator, TimeProvider? timeProvider = null)
+    internal NavDecoder(string name, string ipAddress, Navigator navigator, TimeProvider? timeProvider)
         : base(name, AVEndpointType.Decoder, ipAddress, navigator, timeProvider)
     {
     }

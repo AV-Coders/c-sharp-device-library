@@ -342,7 +342,7 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         if (DesiredConnectionState == ConnectionState.Disconnected)
         {
-            using (PushProperties("Reconnect"))
+            using (PushProperties(nameof(Reconnect)))
                 LogDebug("Not reconnecting, the client was disconnected on request");
             return;
         }
@@ -350,7 +350,7 @@ public class AvCodersTcpClient : Core_TcpClient
         _reconnectBackoffMs = InitialBackoffMs;
         if (ConnectionState == ConnectionState.Connecting)
         {
-            using (PushProperties("Reconnect"))
+            using (PushProperties(nameof(Reconnect)))
                 LogDebug("Not restarting the connection attempt that is already running");
             return;
         }
@@ -364,14 +364,14 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         if (DesiredConnectionState == ConnectionState.Disconnected)
         {
-            using (PushProperties("Reconnect"))
+            using (PushProperties(nameof(Reconnect)))
                 LogDebug("Not reconnecting, the client was disconnected on request");
             return;
         }
 
         if (!TryTakeConnection(failed, out var failedStream))
         {
-            using (PushProperties("Reconnect"))
+            using (PushProperties(nameof(Reconnect)))
                 LogDebug("Not reconnecting, the connection was already closed");
             return;
         }

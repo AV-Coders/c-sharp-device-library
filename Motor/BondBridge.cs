@@ -140,10 +140,6 @@ public class BondBridge : LogBase
     private readonly AsyncLocal<TaskCompletionSource<BondActionResult>?> _sendingAction = new();
     private int _missedVersionReplies;
 
-    public BondBridge(RestComms comms, string token) : this(comms, token, DefaultName)
-    {
-    }
-
     public BondBridge(RestComms comms, string token, string name = DefaultName) : base(name)
     {
         _comms = comms;

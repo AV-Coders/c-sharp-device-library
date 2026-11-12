@@ -185,9 +185,6 @@ public class MagewellDirectorPlus : Recorder
     public event EventHandler<TimeSpan>? RecordingTimeRemainingChanged;
 
     private readonly RestComms _restClient;
-    private readonly ThreadWorker _stateWorker;
-    private readonly ThreadWorker _mixerWorker;
-    private readonly ThreadWorker _deviceWorker;
     private IReadOnlyList<MagewellScene> _scenes = [];
     private string _programSceneUuid = string.Empty;
     private string _previewSceneUuid = string.Empty;
@@ -217,12 +214,12 @@ public class MagewellDirectorPlus : Recorder
         _restClient.HttpResponseHandlers += HandleResponse;
         _restClient.ConnectionStateHandlers += HandleConnectionState;
 
-        _stateWorker = new ThreadWorker(PollState, StatePollInterval);
-        _mixerWorker = new ThreadWorker(PollMixer, MixerPollInterval);
-        _deviceWorker = new ThreadWorker(PollDevice, DevicePollInterval);
-        _ = _stateWorker.Restart();
-        _ = _mixerWorker.Restart();
-        _ = _deviceWorker.Restart();
+        var stateWorker = new ThreadWorker(PollState, StatePollInterval);
+        var mixerWorker = new ThreadWorker(PollMixer, MixerPollInterval);
+        var deviceWorker = new ThreadWorker(PollDevice, DevicePollInterval);
+        _ = stateWorker.Restart();
+        _ = mixerWorker.Restart();
+        _ = deviceWorker.Restart();
     }
 
     public IReadOnlyList<MagewellScene> Scenes

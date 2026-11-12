@@ -680,11 +680,11 @@ public class ExtronSmp351 : Recorder
         if (_counter > UsbStatusPolls)
         {
             _counter = 0;
-            await Task.Delay(UsbStatusQuerySpacing, _timeProvider);
+            await Task.Delay(UsbStatusQuerySpacing, _timeProvider, token);
             Send(FrontUsbQuery);
-            await Task.Delay(UsbStatusQuerySpacing, _timeProvider);
+            await Task.Delay(UsbStatusQuerySpacing, _timeProvider, token);
             Send(RearUsbQuery);
-            await Task.Delay(UsbStatusQuerySpacing, _timeProvider);
+            await Task.Delay(UsbStatusQuerySpacing, _timeProvider, token);
             Send(RcpUsbQuery);
         }
         else
@@ -701,5 +701,5 @@ public class ExtronSmp351 : Recorder
 
     private sealed record SmpRead(string Text, string ReplyTag, string IssueKey, string Label) : SmpCommand(Text, ReplyTag);
 
-    private record ExtronAlarm(string Name, string Level);
+    private sealed record ExtronAlarm(string Name, string Level);
 }

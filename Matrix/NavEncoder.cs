@@ -9,7 +9,7 @@ public class NavEncoder : NavDeviceBase
     {
     }
 
-    internal NavEncoder(string name, string ipAddress, Navigator navigator, TimeProvider? timeProvider = null)
+    internal NavEncoder(string name, string ipAddress, Navigator navigator, TimeProvider? timeProvider)
         : base(name, AVEndpointType.Encoder, ipAddress, navigator, timeProvider)
     {
     }

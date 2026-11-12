@@ -587,6 +587,20 @@ public class CrestronIvCamI12MultiCamTest
         Assert.Contains(ActiveCameraInquiry, sent);
     }
 
+    [Fact]
+    public void Dispose_StopsTheLiveCameraWorkerAndDeregistersIt()
+    {
+        var liveCameraWorker = (ThreadWorker)typeof(CrestronIvCamI12)
+            .GetField("_liveCameraWorker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(_camera)!;
+        TurnIntelligentSwitchingOn();
+        Assert.True(liveCameraWorker.IsRunning);
+
+        _camera.Dispose();
+
+        Assert.False(liveCameraWorker.IsRunning);
+        Assert.DoesNotContain(liveCameraWorker, LogBaseRegistry.GetAll());
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(2)]

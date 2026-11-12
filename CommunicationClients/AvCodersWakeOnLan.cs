@@ -34,8 +34,8 @@ public class AvCodersWakeOnLan : IWakeOnLan
             using var client = new UdpClient();
             for (int i = 0; i < Rounds; i++)
             {
-                client.Send(wolPacket, new IPEndPoint(IPAddress.Broadcast, EchoPort));
-                client.Send(wolPacket, new IPEndPoint(IPAddress.Broadcast, DiscardPort));
+                await client.SendAsync(wolPacket, new IPEndPoint(IPAddress.Broadcast, EchoPort));
+                await client.SendAsync(wolPacket, new IPEndPoint(IPAddress.Broadcast, DiscardPort));
                 await Task.Delay(RoundGap);
             }
         }

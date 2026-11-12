@@ -117,10 +117,11 @@ public class BiampTtp : Dsp
     private const string ReplyValueGroup = "value";
     private const char TtpStringQuote = '"';
     private const string EmptyTtpString = "\"\"";
-    private static readonly Query FirmwareQuery = new("DEVICE", BiampQuery.Firmware, $"{FirmwareCommand}\n");
-    private static readonly Query SerialQuery = new("DEVICE", BiampQuery.Serial, $"{SerialCommand}\n");
-    private static readonly Query DeviceInfoQuery = new("DEVICE", BiampQuery.DeviceInfo, $"{DeviceInfoCommand}\n");
-    private static readonly Query NetworkStatusQuery = new("DEVICE", BiampQuery.NetworkStatus, $"{NetworkStatusCommand}\n");
+    private const string DeviceInstanceTag = "DEVICE";
+    private static readonly Query FirmwareQuery = new(DeviceInstanceTag, BiampQuery.Firmware, $"{FirmwareCommand}\n");
+    private static readonly Query SerialQuery = new(DeviceInstanceTag, BiampQuery.Serial, $"{SerialCommand}\n");
+    private static readonly Query DeviceInfoQuery = new(DeviceInstanceTag, BiampQuery.DeviceInfo, $"{DeviceInfoCommand}\n");
+    private static readonly Query NetworkStatusQuery = new(DeviceInstanceTag, BiampQuery.NetworkStatus, $"{NetworkStatusCommand}\n");
     private static readonly Query AliasesQuery = new("SESSION", BiampQuery.Aliases, $"{AliasesCommand}\n");
     private static readonly Regex QueryReplyParser = new($"^\\+OK \"\\w+\":(?<{ReplyValueGroup}>.*)$", RegexOptions.None, TimeSpan.FromMilliseconds(200));
     private static readonly TimeSpan InterruptedReplyTimeout = TimeSpan.FromSeconds(1);
@@ -1006,14 +1007,14 @@ public class BiampTtp : Dsp
     private static string? StringProperty(JsonElement? element, string name) =>
         Property(element, name, JsonValueKind.String)?.GetString();
 
-    private record TesiraFault(string IssueKey, string Message, IssueSeverity Severity);
+    private sealed record TesiraFault(string IssueKey, string Message, IssueSeverity Severity);
 
-    private record KeepAlive(long SentAt, string? TriggerId)
+    private sealed record KeepAlive(long SentAt, string? TriggerId)
     {
         public bool Missed { get; set; }
     }
 
-    private record OutstandingCommand(string Command, string? TriggerId);
+    private sealed record OutstandingCommand(string Command, string? TriggerId);
 
     private void DropValueWithNoCurrentQuery(string value)
     {

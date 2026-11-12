@@ -582,5 +582,5 @@ public class LGCommercial : Display, ISetTopBox
         SendIRCode(RemoteButton.Back);
     }
 
-    private record LgRead(string Name, string Header, string Argument, char Reply, string IssueKey, string Label);
+    private sealed record LgRead(string Name, string Header, string Argument, char Reply, string IssueKey, string Label);
 }

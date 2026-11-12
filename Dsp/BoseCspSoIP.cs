@@ -100,7 +100,7 @@ public class BoseCspSoIP : Dsp
     private readonly List<SentCommand> _awaitingReply = [];
     private readonly object _awaitingReplyLock = new();
 
-    private record SentCommand(string Module, string Command);
+    private sealed record SentCommand(string Module, string Command);
 
     public BoseCspSoIP(TcpClient tcpClient, string name = "Bose", int pollIntervalInMilliseconds = 50000)
         : this(tcpClient, name, pollIntervalInMilliseconds, null)

@@ -39,6 +39,8 @@ public class SonyVisca : CameraBase, IDisposable
     private const byte MaxZoomSpeed = 7;
     private const int MaxPresetNumber = 0xFE;
     private const string CameraIdIssueKey = "camera-id";
+    private const string VersionInquiryName = "version";
+    private const string PanTiltStatusInquiryName = "pan/tilt status";
     private const string VersionIssueKey = "version-read";
     private const string PanTiltStatusIssueKey = "pan-tilt-status-read";
     private const string PanMechanismIssueKey = "pan-mechanism";
@@ -274,7 +276,7 @@ public class SonyVisca : CameraBase, IDisposable
         if (_versionInquiry == InquiryState.Done)
             return;
         if (_versionInquiry == InquiryState.Asked)
-            MissedReply("version", VersionIssueKey, NoReply);
+            MissedReply(VersionInquiryName, VersionIssueKey, NoReply);
         _versionInquiry = InquiryState.Asked;
         SendInquiry([_header, 0x09, 0x00, 0x02, CommandFooter], VersionReplyLength, "query the version", HandleVersionReply, HandleVersionError);
     }
@@ -284,7 +286,7 @@ public class SonyVisca : CameraBase, IDisposable
         if (payload.Length != VersionReplyLength)
         {
             _versionInquiry = InquiryState.Owed;
-            MissedReply("version", VersionIssueKey, $"{BitConverter.ToString(payload)}, which is not a version reply");
+            MissedReply(VersionInquiryName, VersionIssueKey, $"{BitConverter.ToString(payload)}, which is not a version reply");
             return;
         }
         _versionInquiry = InquiryState.Done;
@@ -299,11 +301,11 @@ public class SonyVisca : CameraBase, IDisposable
         if (IsRejection(payload))
         {
             _versionInquiry = InquiryState.Done;
-            ShowNotSupported("version", VersionIssueKey, payload, VendorIdLabel, ModelIdLabel, RomRevisionLabel);
+            ShowNotSupported(VersionInquiryName, VersionIssueKey, payload, VendorIdLabel, ModelIdLabel, RomRevisionLabel);
             return;
         }
         _versionInquiry = InquiryState.Owed;
-        MissedReply("version", VersionIssueKey, $"{BitConverter.ToString(payload)} ({ErrorText(payload)})");
+        MissedReply(VersionInquiryName, VersionIssueKey, $"{BitConverter.ToString(payload)} ({ErrorText(payload)})");
     }
 
     private static bool IsRejection(byte[] payload) => payload[ErrorCodeIndex] == SyntaxError;
@@ -355,7 +357,7 @@ public class SonyVisca : CameraBase, IDisposable
         if (PowerState != PowerState.On || _panTiltStatusInquiry == InquiryState.Done)
             return;
         if (_panTiltStatusInquiry == InquiryState.Asked)
-            MissedReply("pan/tilt status", PanTiltStatusIssueKey, NoReply);
+            MissedReply(PanTiltStatusInquiryName, PanTiltStatusIssueKey, NoReply);
         _panTiltStatusInquiry = InquiryState.Asked;
         SendInquiry([_header, 0x09, 0x06, 0x10, CommandFooter], PanTiltStatusReplyLength, "query the pan/tilt status",
             HandlePanTiltStatusReply, HandlePanTiltStatusError);
@@ -366,7 +368,7 @@ public class SonyVisca : CameraBase, IDisposable
         _panTiltStatusInquiry = InquiryState.Owed;
         if (payload.Length != PanTiltStatusReplyLength)
         {
-            MissedReply("pan/tilt status", PanTiltStatusIssueKey, $"{BitConverter.ToString(payload)}, which is not a status reply");
+            MissedReply(PanTiltStatusInquiryName, PanTiltStatusIssueKey, $"{BitConverter.ToString(payload)}, which is not a status reply");
             return;
         }
         ReadAnswered(PanTiltStatusIssueKey);
@@ -396,11 +398,11 @@ public class SonyVisca : CameraBase, IDisposable
         if (IsRejection(payload))
         {
             _panTiltStatusInquiry = InquiryState.Done;
-            ShowNotSupported("pan/tilt status", PanTiltStatusIssueKey, payload, PanTiltStatusLabel);
+            ShowNotSupported(PanTiltStatusInquiryName, PanTiltStatusIssueKey, payload, PanTiltStatusLabel);
             return;
         }
         _panTiltStatusInquiry = InquiryState.Owed;
-        MissedReply("pan/tilt status", PanTiltStatusIssueKey, $"{BitConverter.ToString(payload)} ({ErrorText(payload)})");
+        MissedReply(PanTiltStatusInquiryName, PanTiltStatusIssueKey, $"{BitConverter.ToString(payload)} ({ErrorText(payload)})");
     }
 
     private void SetFault(string key, bool active, string message)
@@ -986,6 +988,12 @@ public class SonyVisca : CameraBase, IDisposable
 
     public void Dispose()
     {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
         if (_disposed)
             return;
         _disposed = true;
@@ -997,6 +1005,5 @@ public class SonyVisca : CameraBase, IDisposable
         Task.Run(_pollWorker.Stop).GetAwaiter().GetResult();
         LogBaseRegistry.Deregister(_pollWorker);
         LogBaseRegistry.Deregister(this);
-        GC.SuppressFinalize(this);
     }
 }

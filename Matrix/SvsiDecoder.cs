@@ -99,9 +99,9 @@ public class SvsiDecoder : SvsiBase
 
     public void SetInput(uint streamId) => Send(($"set:{streamId}\r", SetInputLiveGap), ("live\r", TimeSpan.Zero));
 
-    public void SetPlaylist(uint playlistId) => Send(($"local:{playlistId}\r", TimeSpan.Zero));
-
     public void SetInput(SvsiEncoder encoder) => SetInput(encoder.StreamId);
+
+    public void SetPlaylist(uint playlistId) => Send(($"local:{playlistId}\r", TimeSpan.Zero));
     
     public void SetAudioInput(SvsiEncoder encoder) => SetAudioInput(encoder.StreamId);
     

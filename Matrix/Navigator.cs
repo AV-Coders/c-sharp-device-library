@@ -61,7 +61,7 @@ public class Navigator : VideoMatrix
     {
     }
 
-    internal Navigator(string name, SshClient sshClient, TimeProvider? timeProvider = null) : base(0, sshClient, name)
+    internal Navigator(string name, SshClient sshClient, TimeProvider? timeProvider) : base(0, sshClient, name)
     {
         SshClient = sshClient;
         _timeProvider = timeProvider ?? TimeProvider.System;

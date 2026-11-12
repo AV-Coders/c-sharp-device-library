@@ -26,9 +26,9 @@ public sealed class CiscoRoomOsPhonebookParser : PhonebookParserBase
     private readonly string _phonebookType;
     private readonly object _searchLock = new();
 
-    private record PhonebookSearch(string Command, string? TriggerId);
+    private sealed record PhonebookSearch(string Command, string? TriggerId);
 
-    private record PhonebookRequest(string? TriggerId);
+    private sealed record PhonebookRequest(string? TriggerId);
 
     // Phonebook parsing variables
     private readonly Dictionary<int, Dictionary<string, string>> _injestFolders = new();
@@ -224,26 +224,7 @@ public sealed class CiscoRoomOsPhonebookParser : PhonebookParserBase
         {
             if (response.StartsWith("** end"))
             {
-                if (_inPhonebookSearchError)
-                {
-                    _inPhonebookSearchError = false;
-                    EndFailedSearch();
-                    return;
-                }
-                if (!_inPhonebookSearchResult)
-                    return;
-                _inPhonebookSearchResult = false;
-                PhonebookSearch? heldSearch;
-                lock (_searchLock)
-                    heldSearch = ReleaseHeldRequest();
-                if (heldSearch != null)
-                {
-                    StartPhonebookLoad(heldSearch);
-                    return;
-                }
-                LogDebug("Phonebook search chunk ended. Total processed so far: {Count}", _loadedRows.Count);
-                ProcessInjestData();
-                CheckForCompletion();
+                HandleSearchReplyEnd();
                 return;
             }
 
@@ -326,6 +307,30 @@ public sealed class CiscoRoomOsPhonebookParser : PhonebookParserBase
                     break;
             }
         }
+    }
+
+    private void HandleSearchReplyEnd()
+    {
+        if (_inPhonebookSearchError)
+        {
+            _inPhonebookSearchError = false;
+            EndFailedSearch();
+            return;
+        }
+        if (!_inPhonebookSearchResult)
+            return;
+        _inPhonebookSearchResult = false;
+        PhonebookSearch? heldSearch;
+        lock (_searchLock)
+            heldSearch = ReleaseHeldRequest();
+        if (heldSearch != null)
+        {
+            StartPhonebookLoad(heldSearch);
+            return;
+        }
+        LogDebug("Phonebook search chunk ended. Total processed so far: {Count}", _loadedRows.Count);
+        ProcessInjestData();
+        CheckForCompletion();
     }
 
     private void RequestNextPhoneBookFolder()

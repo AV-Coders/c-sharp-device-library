@@ -10,7 +10,7 @@ public class NavigatorTunnel : CommunicationClient
     {
     }
 
-    internal NavigatorTunnel(string name, string host, TimeProvider? timeProvider = null)
+    internal NavigatorTunnel(string name, string host, TimeProvider? timeProvider)
         : base(name, host, 0, CommandStringFormat.Ascii, timeProvider ?? TimeProvider.System)
     {
         ConnectionState = ConnectionState.Disconnected;
@@ -103,12 +103,12 @@ public abstract class NavDeviceBase : AVoIPEndpoint
         protected set => _hostname = value;
     }
 
-    public NavDeviceBase(string name, AVEndpointType deviceType, string ipAddress, Navigator navigator)
+    protected NavDeviceBase(string name, AVEndpointType deviceType, string ipAddress, Navigator navigator)
         : this(name, deviceType, ipAddress, navigator, null)
     {
     }
 
-    internal NavDeviceBase(string name, AVEndpointType deviceType, string ipAddress, Navigator navigator, TimeProvider? timeProvider = null) :
+    internal NavDeviceBase(string name, AVEndpointType deviceType, string ipAddress, Navigator navigator, TimeProvider? timeProvider) :
         base(name, deviceType, new NavigatorTunnel(GetCommunicationClientName(deviceType, name), ipAddress, navigator.SshClient, timeProvider))
     {
         _timeProvider = timeProvider ?? TimeProvider.System;

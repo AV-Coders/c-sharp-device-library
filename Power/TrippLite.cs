@@ -112,9 +112,10 @@ public class TrippLitePdu : Pdu
     private static readonly SnmpRead[] IdentityReads = [FirmwareRead, SerialRead, MacRead];
     private static readonly SnmpRead AlarmCountRead = new("alarm count", AlarmsPresentOid, AlarmsLabel, AlarmCountIssueKey);
 
-    private static readonly Regex LoadOffAlarm = new(@"\bLoad(?: \d+)? Off\b", RegexOptions.IgnoreCase);
-    private static readonly Regex InputAAlarm = new(@"\b(?:Input|Source) (?:A|1)\b", RegexOptions.IgnoreCase);
-    private static readonly Regex InputBAlarm = new(@"\b(?:Input|Source) (?:B|2)\b", RegexOptions.IgnoreCase);
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
+    private static readonly Regex LoadOffAlarm = new(@"\bLoad(?: \d+)? Off\b", RegexOptions.IgnoreCase, RegexTimeout);
+    private static readonly Regex InputAAlarm = new(@"\b(?:Input|Source) (?:A|1)\b", RegexOptions.IgnoreCase, RegexTimeout);
+    private static readonly Regex InputBAlarm = new(@"\b(?:Input|Source) (?:B|2)\b", RegexOptions.IgnoreCase, RegexTimeout);
 
     private readonly AvCodersSnmpV3Client _client;
     private readonly HashSet<SnmpRead> _unreadIdentity = [];
@@ -138,7 +139,7 @@ public class TrippLitePdu : Pdu
 
     private record DiscoveredSensor(int Index, string Name, string Model, bool HasTemperature, bool HasHumidity);
 
-    private record SnmpRead(string Name, string Oid, string Label, string IssueKey);
+    private sealed record SnmpRead(string Name, string Oid, string Label, string IssueKey);
 
     private enum ReplyKind
     {

@@ -239,7 +239,7 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
                 LogDebug("Not polling, the CEC stream is {ConnectionState}", connectionState);
             return Task.CompletedTask;
         }
-        return Task.Run(SendPoll);
+        return Task.Run(SendPoll, token);
     }
 
     /// <summary>One poll cycle: discovery if not yet done, then Give Audio Status.</summary>
@@ -416,7 +416,7 @@ public class CecAudioSystem : VolumeControl, IDevice, IDisposable
         await RequestAudioStatus();
         using var replyTimeout = new CancellationTokenSource();
         var first = await Task.WhenAny(reported, Task.Delay(ReplyTimeout, _timeProvider, replyTimeout.Token));
-        replyTimeout.Cancel();
+        await replyTimeout.CancelAsync();
         return first == reported;
     }
 

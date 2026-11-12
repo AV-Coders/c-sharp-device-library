@@ -454,7 +454,7 @@ public class PhilipsSICP : Display
         Send([0x47, (byte)(state == MuteState.On ? 0x01 : 0x00)]);
     }
 
-    private record PhilipsRead(string Name, byte[] Data, string IssueKey, string Label);
+    private sealed record PhilipsRead(string Name, byte[] Data, string IssueKey, string Label);
 
     private sealed record PhilipsCommand(byte[] Data, bool IsSet, PhilipsRead? Read);
 }

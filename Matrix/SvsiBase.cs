@@ -40,7 +40,7 @@ public abstract class SvsiBase : AVoIPEndpoint
         }
     }
 
-    public SvsiBase(string name, TcpClient tcpClient, AVEndpointType deviceType)
+    protected SvsiBase(string name, TcpClient tcpClient, AVEndpointType deviceType)
         : this(name, tcpClient, deviceType, null)
     {
     }

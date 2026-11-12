@@ -725,7 +725,7 @@ public class NecUhdExternalControl : Display
         PrepareAndSendCommand(GetCommandHeaderWithoutSoh(MessageTypeSetParameter), payload, MessageTypeSetParameterReply, AudioMuteOpCode);
     }
 
-    private record NecRead(string Name, string Command, string ReplyCode, string IssueKey, string[] Labels);
+    private sealed record NecRead(string Name, string Command, string ReplyCode, string IssueKey, string[] Labels);
 
     private sealed record NecCommand(string Message, byte ReplyType, string ReplyCode, NecRead? Read);
 }

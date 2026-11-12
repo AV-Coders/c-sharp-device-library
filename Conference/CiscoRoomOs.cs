@@ -970,9 +970,9 @@ public class CiscoRoomOs : Conference
       DoNotDisturbState = state;
     }
 
-    private record DiagnosticsMessage(string? Level, string? Type, string? Description, string? References);
+    private sealed record DiagnosticsMessage(string? Level, string? Type, string? Description, string? References);
 
-    private record SipRegistration(string? Status, string? Reason);
+    private sealed record SipRegistration(string? Status, string? Reason);
 
-    private record ConnectedDevice(string? Id, string? Name, string? Type, string? Status, string? SoftwareInfo, string? SerialNumber);
+    private sealed record ConnectedDevice(string? Id, string? Name, string? Type, string? Status, string? SoftwareInfo, string? SerialNumber);
   }

@@ -38,6 +38,7 @@ public class CrestronIvCamI12 : CrestronIvCam, ITrackingCamera
     ];
 
     private readonly Dictionary<int, string?> _companionIps = CompanionCameras.ToDictionary(camera => camera, _ => (string?)null);
+    private readonly ThreadWorker _liveCameraWorker;
 
     private CameraTrackingMode _trackingMode = CameraTrackingMode.Unknown;
     private int _activeCamera = UnknownCamera;
@@ -99,8 +100,8 @@ public class CrestronIvCamI12 : CrestronIvCam, ITrackingCamera
     public CrestronIvCamI12(CommunicationClient client, string name, Dictionary<int, string> presetNames, byte cameraId = 1, int pollTime = 30, ushort rtspPort = DefaultRtspPort)
         : base(client, name, presetNames, cameraId, pollTime, rtspPort)
     {
-        var liveCameraWorker = new ThreadWorker(CheckLiveCamera, TimeSpan.FromSeconds(LiveCameraCheckSeconds), waitFirst: true);
-        liveCameraWorker.Restart();
+        _liveCameraWorker = new ThreadWorker(CheckLiveCamera, TimeSpan.FromSeconds(LiveCameraCheckSeconds), waitFirst: true);
+        _liveCameraWorker.Restart();
     }
 
     public void SetTracking(CameraTrackingMode mode)
@@ -276,5 +277,12 @@ public class CrestronIvCamI12 : CrestronIvCam, ITrackingCamera
             _companionIps[camera] = ipAddress;
         }
         OnCompanionIpChange?.Invoke(camera, ipAddress);
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        Task.Run(_liveCameraWorker.Stop).GetAwaiter().GetResult();
+        LogBaseRegistry.Deregister(_liveCameraWorker);
+        base.Dispose(disposing);
     }
 }

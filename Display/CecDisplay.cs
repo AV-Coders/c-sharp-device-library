@@ -447,7 +447,7 @@ public class CecDisplay : Display, ISetTopBox
             foreach (var (frame, spacingAfter) in frames)
             {
                 _cecStream.Send(frame);
-                await Task.Delay(spacingAfter, TimeProvider);
+                await Task.Delay(spacingAfter, TimeProvider, CancellationToken.None);
             }
         }
         catch (Exception e)
@@ -554,5 +554,5 @@ public class CecDisplay : Display, ISetTopBox
         AddEvent(EventType.Error, "ToggleSubtitles is not supported");
     }
 
-    private record DiscoveryRequest(char Opcode, string Name, string IssueKey, string Label, bool BroadcastReply);
+    private sealed record DiscoveryRequest(char Opcode, string Name, string IssueKey, string Label, bool BroadcastReply);
 }
