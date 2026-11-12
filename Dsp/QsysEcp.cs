@@ -28,9 +28,9 @@ public class QsysVolumeControl : VolumeControl
 {
     private readonly string _levelNamedControl;
     private readonly string _muteNamedControl;
-    private readonly QsysEcp _dsp;
+    private readonly Dsp _dsp;
 
-    public QsysVolumeControl(QscAudioBlockInfo audioBlockInfo, VolumeType type, QsysEcp dsp) : base(audioBlockInfo.Name, type)
+    public QsysVolumeControl(QscAudioBlockInfo audioBlockInfo, VolumeType type, Dsp dsp) : base(audioBlockInfo.Name, type)
     {
         _dsp = dsp;
         _levelNamedControl = audioBlockInfo.LevelInstanceTag;
@@ -53,9 +53,9 @@ public class QsysVolumeControl : VolumeControl
 public class QsysVolumeOnlyControl : VolumeControl
 {
     private readonly string _levelNamedControl;
-    private readonly QsysEcp _dsp;
+    private readonly Dsp _dsp;
 
-    public QsysVolumeOnlyControl(string name, string levelInstanceTag, VolumeType type, QsysEcp dsp) : base(name, type)
+    public QsysVolumeOnlyControl(string name, string levelInstanceTag, VolumeType type, Dsp dsp) : base(name, type)
     {
         _dsp = dsp;
         _levelNamedControl = levelInstanceTag;
@@ -78,9 +78,9 @@ public class QsysVolumeOnlyControl : VolumeControl
 public class QsysMuteOnlyControl : VolumeControl
 {
     private readonly string _muteNamedControl;
-    private readonly QsysEcp _dsp;
+    private readonly Dsp _dsp;
 
-    public QsysMuteOnlyControl(string name, string muteInstanceTag, VolumeType type, QsysEcp dsp) : base(name, type)
+    public QsysMuteOnlyControl(string name, string muteInstanceTag, VolumeType type, Dsp dsp) : base(name, type)
     {
         _dsp = dsp;
         _muteNamedControl = muteInstanceTag;
@@ -100,18 +100,13 @@ public class QsysMuteOnlyControl : VolumeControl
     public override void SetAudioMute(MuteState state) => _dsp.SetAudioMute(_muteNamedControl, state);
 }
 
-public class QsysEcp : Dsp
+public class QsysEcp : QsysDsp
 {
     public static readonly ushort DefaultPort = 1702;
     public const ushort CoreManagerPort = 443;
     public const string CoreManagerProtocol = "https";
     public const int DefaultPollIntervalInMilliseconds = 20000;
-    public const int MaxUnansweredStatusRequests = 3;
-    public const string BadControlIssuePrefix = "bad-control:";
-    public const string UnansweredStatusIssueKey = "unanswered-status";
     public const string StatusParseIssueKey = "status-parse";
-    public const string CoreStandbyIssueKey = "core-standby";
-    public const string LoginIssueKey = "login";
     public const string ChangeGroupsIssueKey = "change-groups";
     public const string BadChangeGroupIssueKey = "bad-change-group";
     public const string BadCommandIssueKey = "bad-command";
@@ -119,7 +114,6 @@ public class QsysEcp : Dsp
     public const string ConnectionClosedIssueKey = "connection-closed";
     public const string CoreManagerIssueKey = "core-manager";
 
-    private const int EscalateAfterRepeats = 3;
     private static readonly TimeSpan ChangeGroupSetupStep = TimeSpan.FromMilliseconds(500);
     private const uint ChangeGroupPollPeriodMs = 100;
     private const uint MeterPollPeriodMs = 1000;
@@ -148,7 +142,6 @@ public class QsysEcp : Dsp
     private const string DesignLabel = "Design";
     private const string DesignIdLabel = "Design ID";
     private const string CoreLabel = "Core";
-    private const string MissingControlsLabel = "Missing Controls";
     private const string FirmwareLabel = "Firmware";
     private const string SerialLabel = "Serial";
     private const string HardwareIdLabel = "Hardware ID";
@@ -162,16 +155,10 @@ public class QsysEcp : Dsp
     private static readonly Uri CoreInfoUri = new(CoreInfoPath, UriKind.Relative);
     private static readonly Uri LogonUri = new(LogonPath, UriKind.Relative);
 
-    private readonly TcpClient _tcpClient;
     private readonly RestComms? _coreManager;
     private readonly string? _coreManagerUsername;
     private readonly string _coreManagerPassword;
-    private readonly Dictionary<string, QscGain> _gains = new();
-    private readonly Dictionary<string, QscMute> _mutes = new();
-    private readonly Dictionary<string, QscInt> _strings = new();
     private readonly Dictionary<string, QscGain> _meters = new();
-    private readonly HashSet<string> _missingControls = new();
-    private readonly object _controlsLock = new();
     private readonly Regex _responseParser;
     private readonly Regex _badIdParser;
     private readonly Regex _statusParser = new("^sr \"(?<design>[^\"]*)\" \"(?<id>[^\"]*)\" (?<primary>[01]) (?<active>[01])$");
@@ -187,7 +174,6 @@ public class QsysEcp : Dsp
 
     private enum CoreManagerToken { None, FromLogon, Accepted }
 
-    private int _unansweredStatusRequests;
     private int _blankControlNames;
     private CoreManagerToken _coreManagerToken = CoreManagerToken.None;
     private string? _designId;
@@ -206,7 +192,6 @@ public class QsysEcp : Dsp
         RestComms? coreManager, string? coreManagerUsername, string coreManagerPassword, TimeProvider? timeProvider)
         : base(name, tcpClient, pollIntervalInMilliseconds, timeProvider)
     {
-        _tcpClient = tcpClient;
         _coreManager = coreManager;
         _coreManagerUsername = coreManagerUsername;
         _coreManagerPassword = coreManagerPassword;
@@ -291,8 +276,7 @@ public class QsysEcp : Dsp
 
     private void HandleStatus(string line)
     {
-        Interlocked.Exchange(ref _unansweredStatusRequests, 0);
-        ResolveIssue(UnansweredStatusIssueKey);
+        StatusAnswered();
         ResolveIssue(BadCommandIssueKey);
         ResolveIssue(LoginIssueKey);
         if (!_changeGroupsRefused)
@@ -358,30 +342,6 @@ public class QsysEcp : Dsp
                 $"The {controlType} control name \"{controlName}\" is blank, so it is not sent to the Core (blank control {order})");
     }
 
-    private void ShowBadControl(string controlName, string issueKey, string message)
-    {
-        RaiseOngoingIssue(issueKey, message);
-        bool added;
-        lock (_controlsLock)
-            added = _missingControls.Add(controlName);
-        if (added)
-            ShowMissingControls();
-    }
-
-    private void ShowMissingControls()
-    {
-        string missingControls;
-        lock (_controlsLock)
-            missingControls = string.Join(", ", _missingControls.Order().Select(ShownControlName));
-        if (missingControls.Length == 0)
-            RemoveDetail(MissingControlsLabel);
-        else
-            SetDetail(MissingControlsLabel, missingControls, DetailTone.Warning);
-    }
-
-    private static string ShownControlName(string controlName) =>
-        string.IsNullOrWhiteSpace(controlName) ? $"\"{controlName}\"" : controlName;
-
     private void HandleBadChangeGroup(string line)
     {
         RaiseMomentaryIssue($"The Core does not recognise a change group: {line}", BadChangeGroupIssueKey);
@@ -396,7 +356,7 @@ public class QsysEcp : Dsp
 
     private void HandleLoginRequired(string line)
     {
-        Interlocked.Exchange(ref _unansweredStatusRequests, 0);
+        ResetUnansweredStatus();
         RaiseOngoingIssue(LoginIssueKey, $"The Core needs an ECP login, which this driver does not support: {line}",
             IssueSeverity.Critical);
         CommunicationState = CommunicationState.Error;
@@ -438,20 +398,16 @@ public class QsysEcp : Dsp
             }
 
             var controlName = match.Groups[1].Value;
-            ResolveIssue($"{BadControlIssuePrefix}{controlName}");
-            bool wasMissing;
+            ControlReported(controlName);
             QscGain? gain;
             QscMute? mute;
             QscInt? text;
-            lock (_controlsLock)
+            lock (ControlsLock)
             {
-                wasMissing = _missingControls.Remove(controlName);
-                gain = _gains.GetValueOrDefault(controlName);
-                mute = _mutes.GetValueOrDefault(controlName);
-                text = _strings.GetValueOrDefault(controlName);
+                gain = Gains.GetValueOrDefault(controlName);
+                mute = Mutes.GetValueOrDefault(controlName);
+                text = Strings.GetValueOrDefault(controlName);
             }
-            if (wasMissing)
-                ShowMissingControls();
             ResolveIssue(BadCommandIssueKey);
             ResolveIssue(ReadOnlyIssueKey);
 
@@ -482,7 +438,7 @@ public class QsysEcp : Dsp
         using (PushProperties("HandleConnectionState"))
         {
             AddEvent(EventType.Connection, connectionState.ToString());
-            Interlocked.Exchange(ref _unansweredStatusRequests, 0);
+            ResetUnansweredStatus();
             _designId = null;
             if (connectionState == ConnectionState.Connected)
             {
@@ -492,9 +448,7 @@ public class QsysEcp : Dsp
             }
             else
             {
-                CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
-                    ? CommunicationState.NotAttempted
-                    : CommunicationState.Unknown;
+                ShowNotConnected();
             }
         }
     }
@@ -717,11 +671,11 @@ public class QsysEcp : Dsp
             CreateEmptyChangeGroup(ChangeGroupMeters);
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
 
-            AddControlsToChangeGroup(ChangeGroupGains, ControlNames(_gains));
+            AddControlsToChangeGroup(ChangeGroupGains, ControlNames(Gains));
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
-            AddControlsToChangeGroup(ChangeGroupMutes, ControlNames(_mutes));
+            AddControlsToChangeGroup(ChangeGroupMutes, ControlNames(Mutes));
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
-            AddControlsToChangeGroup(ChangeGroupStrings, ControlNames(_strings));
+            AddControlsToChangeGroup(ChangeGroupStrings, ControlNames(Strings));
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
             AddControlsToChangeGroup(ChangeGroupMeters, ControlNames(_meters));
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
@@ -763,33 +717,12 @@ public class QsysEcp : Dsp
                 return Task.CompletedTask;
 
             _changeGroupsBuiltThisPoll = false;
-            int unanswered = _unansweredStatusRequests;
-            if (unanswered > 0)
-                RaiseMomentaryIssue("The Core did not answer the status request", UnansweredStatusIssueKey,
-                    IssueSeverity.Minor, EscalateAfterRepeats);
-
-            if (unanswered >= MaxUnansweredStatusRequests)
-            {
-                ReconnectAfterUnansweredStatus();
-                return Task.CompletedTask;
-            }
-
-            Interlocked.Increment(ref _unansweredStatusRequests);
-            CommunicationClient.Send(StatusRequest);
+            RequestStatus();
         }
         return Task.CompletedTask;
     }
 
-    private void ReconnectAfterUnansweredStatus()
-    {
-        using (PushProperties("ReconnectAfterUnansweredStatus"))
-        {
-            LogWarning("The Core has not answered {Count} status requests, reconnecting", MaxUnansweredStatusRequests);
-            CommunicationState = CommunicationState.Error;
-            Interlocked.Exchange(ref _unansweredStatusRequests, 0);
-            _tcpClient.Reconnect();
-        }
-    }
+    private protected override void SendStatusRequest() => CommunicationClient.Send(StatusRequest);
 
     public void GetAllControlStates()
     {
@@ -824,8 +757,8 @@ public class QsysEcp : Dsp
     private async Task GetEachControlState()
     {
         List<string> controlNames;
-        lock (_controlsLock)
-            controlNames = [.._gains.Keys, .._mutes.Keys, .._strings.Keys, .._meters.Keys];
+        lock (ControlsLock)
+            controlNames = [..Gains.Keys, ..Mutes.Keys, ..Strings.Keys, .._meters.Keys];
 
         foreach (string controlName in controlNames)
         {
@@ -836,14 +769,8 @@ public class QsysEcp : Dsp
 
     private List<string> ControlNames<T>(Dictionary<string, T> controls)
     {
-        lock (_controlsLock)
+        lock (ControlsLock)
             return controls.Keys.ToList();
-    }
-
-    private T? FindControl<T>(Dictionary<string, T> controls, string controlName) where T : class
-    {
-        lock (_controlsLock)
-            return controls.GetValueOrDefault(controlName);
     }
 
     private void GetControl(string controlName)
@@ -851,86 +778,30 @@ public class QsysEcp : Dsp
         CommunicationClient.Send($"cg \"{controlName}\"\n");
     }
 
-    public override void AddControl(VolumeLevelHandler volumeLevelHandler, string levelName)
+    private protected override bool AcceptsControlName(string controlName, string controlType)
     {
-        if (string.IsNullOrWhiteSpace(levelName))
-        {
-            ShowBlankControlName(levelName, "level");
-            return;
-        }
-
-        QscGain? gain;
-        lock (_controlsLock)
-        {
-            if (_gains.TryGetValue(levelName, out gain))
-                gain.VolumeLevelHandlers += volumeLevelHandler;
-            else
-                _gains.Add(levelName, new QscGain(volumeLevelHandler));
-        }
-        if (gain != null)
-            volumeLevelHandler.Invoke(gain.Volume);
-
-        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
-            return;
-
-        if (gain == null)
-            AddControlsToChangeGroup(ChangeGroupGains, [levelName]);
-        GetControl(levelName);
+        if (!string.IsNullOrWhiteSpace(controlName))
+            return true;
+        ShowBlankControlName(controlName, controlType);
+        return false;
     }
 
-    public override void AddControl(MuteStateHandler muteStateHandler, string muteName)
+    private protected override void ControlAdded(string controlName, ControlKind kind, bool isNew)
     {
-        if (string.IsNullOrWhiteSpace(muteName))
-        {
-            ShowBlankControlName(muteName, "mute");
-            return;
-        }
-
-        QscMute? mute;
-        lock (_controlsLock)
-        {
-            if (_mutes.TryGetValue(muteName, out mute))
-                mute.MuteStateHandlers += muteStateHandler;
-            else
-                _mutes.Add(muteName, new QscMute(muteStateHandler));
-        }
-        if (mute != null)
-            muteStateHandler.Invoke(mute.MuteState);
-
         if (CommunicationClient.ConnectionState != ConnectionState.Connected)
             return;
 
-        if (mute == null)
-            AddControlsToChangeGroup(ChangeGroupMutes, [muteName]);
-        GetControl(muteName);
-    }
-
-    public override void AddControl(StringValueHandler stringValueHandler, string controlName)
-    {
-        if (string.IsNullOrWhiteSpace(controlName))
-        {
-            ShowBlankControlName(controlName, "string");
-            return;
-        }
-
-        QscInt? block;
-        lock (_controlsLock)
-        {
-            if (_strings.TryGetValue(controlName, out block))
-                block.StringValueHandlers += stringValueHandler;
-            else
-                _strings.Add(controlName, new QscInt(stringValueHandler));
-        }
-        if (block != null)
-            stringValueHandler.Invoke(block.Value);
-
-        if (CommunicationClient.ConnectionState != ConnectionState.Connected)
-            return;
-
-        if (block == null)
-            AddControlsToChangeGroup(ChangeGroupStrings, [controlName]);
+        if (isNew)
+            AddControlsToChangeGroup(ChangeGroupFor(kind), [controlName]);
         GetControl(controlName);
     }
+
+    private static int ChangeGroupFor(ControlKind kind) => kind switch
+    {
+        ControlKind.Level => ChangeGroupGains,
+        ControlKind.Mute => ChangeGroupMutes,
+        _ => ChangeGroupStrings
+    };
 
     public void AddMonitor(VolumeLevelHandler volumeLevelHandler, string levelName)
     {
@@ -941,7 +812,7 @@ public class QsysEcp : Dsp
         }
 
         QscGain? meter;
-        lock (_controlsLock)
+        lock (ControlsLock)
         {
             if (_meters.TryGetValue(levelName, out meter))
                 meter.VolumeLevelHandlers += volumeLevelHandler;
@@ -974,42 +845,6 @@ public class QsysEcp : Dsp
         CommunicationClient.Send($"csp \"{gainName}\" {Math.Round((double)percentage / 100, 2)}\n");
     }
 
-    public override void LevelUp(string controlName, int amount = 1)
-    {
-        var gain = FindControl(_gains, controlName);
-        if (gain == null)
-        {
-            using (PushProperties("LevelUp"))
-                LogWarning("Unknown level {ControlName}, not raising it by {Amount}", controlName, amount);
-            return;
-        }
-        SetLevel(controlName, gain.Volume + amount);
-    }
-
-    public override void LevelDown(string controlName, int amount = 1)
-    {
-        var gain = FindControl(_gains, controlName);
-        if (gain == null)
-        {
-            using (PushProperties("LevelDown"))
-                LogWarning("Unknown level {ControlName}, not lowering it by {Amount}", controlName, amount);
-            return;
-        }
-        SetLevel(controlName, gain.Volume - amount);
-    }
-
-    public override int GetLevel(string gainName)
-    {
-        var gain = FindControl(_gains, gainName);
-        if (gain == null)
-        {
-            using (PushProperties("GetLevel"))
-                LogWarning("Unknown level {ControlName}, returning 0", gainName);
-            return 0;
-        }
-        return gain.Volume;
-    }
-
     public override void SetAudioMute(string muteName, MuteState state)
     {
         if (string.IsNullOrWhiteSpace(muteName))
@@ -1021,39 +856,6 @@ public class QsysEcp : Dsp
         CommunicationClient.Send($"css \"{muteName}\" {_muteStateDictionary[state]}\n");
     }
 
-    public override void ToggleAudioMute(string muteName)
-    {
-        var mute = FindControl(_mutes, muteName);
-        if (mute == null)
-        {
-            using (PushProperties("ToggleAudioMute"))
-                LogWarning("Unknown mute {ControlName}, not toggling it", muteName);
-            return;
-        }
-        switch (mute.MuteState)
-        {
-            case MuteState.On:
-                SetAudioMute(muteName, MuteState.Off);
-                break;
-            case MuteState.Off:
-            default:
-                SetAudioMute(muteName, MuteState.On);
-                break;
-        }
-    }
-
-    public override MuteState GetAudioMute(string muteName)
-    {
-        var mute = FindControl(_mutes, muteName);
-        if (mute == null)
-        {
-            using (PushProperties("GetAudioMute"))
-                LogWarning("Unknown mute {ControlName}, returning Unknown", muteName);
-            return MuteState.Unknown;
-        }
-        return mute.MuteState;
-    }
-
     public override void SetValue(string stringName, string value)
     {
         if (string.IsNullOrWhiteSpace(stringName))
@@ -1063,18 +865,6 @@ public class QsysEcp : Dsp
             return;
         }
         CommunicationClient.Send($"css \"{stringName}\" {value}\n");
-    }
-
-    public override string GetValue(string intName)
-    {
-        var block = FindControl(_strings, intName);
-        if (block == null)
-        {
-            using (PushProperties("GetValue"))
-                LogWarning("Unknown string {ControlName}, returning an empty value", intName);
-            return "";
-        }
-        return block.Value;
     }
 
     public override Task Reinitialise(CancellationToken token = default)
