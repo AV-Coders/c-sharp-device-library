@@ -60,6 +60,28 @@ public class AvCodersTcpClientResilienceTest : IDisposable
 
     private TimeSpan[] RetryWaits() => _time.ArmedTimers.Where(due => due >= MinimumBackoff && due < ConnectTimeout).ToArray();
 
+    private async Task<TcpListener> ListenAndRetryAtOnce(ushort port)
+    {
+        var connectionWorker = TestNetwork.Workers(_client!)[1];
+        await connectionWorker.Stop();
+        var listener = TestNetwork.ListenOn(_time, port);
+        await connectionWorker.Restart();
+        return listener;
+    }
+
+    private async Task<System.Net.Sockets.TcpClient> AcceptWithoutTheClock(TcpListener listener)
+    {
+        var connection = await TestNetwork.AcceptAsync(listener, AcceptWithinSeconds);
+        await Wait.UntilAsync(() => _client!.ConnectionState == ConnectionState.Connected, "the client never connected");
+        return connection;
+    }
+
+    private async Task SendTheQueue(ThreadWorker sendQueueWorker)
+    {
+        await sendQueueWorker.Restart();
+        await Wait.UntilAsync(() => TestNetwork.SendQueueCount(_client!) == 0, "the queued sends were never taken off the queue");
+    }
+
     private static SemaphoreSlim GetWriteLock(AvCodersTcpClient client)
     {
         var field = typeof(AvCodersTcpClient).GetField("_writeLock", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -919,19 +941,14 @@ public class AvCodersTcpClientResilienceTest : IDisposable
 
         _client.Connect();
 
-        var connectionWorker = TestNetwork.Workers(_client)[1];
         var sendQueueWorker = TestNetwork.SendQueueWorker(_client);
-        await connectionWorker.Stop();
         await sendQueueWorker.Stop();
-        var listener = TestNetwork.ListenOn(_time, port);
+        var listener = await ListenAndRetryAtOnce(port);
         try
         {
-            await connectionWorker.Restart();
-            using var connection = await TestNetwork.AcceptAsync(listener, AcceptWithinSeconds);
-            await Wait.UntilAsync(() => _client.ConnectionState == ConnectionState.Connected, "the client never connected");
+            using var connection = await AcceptWithoutTheClock(listener);
             _client.Send(Sentinel);
-            await sendQueueWorker.Restart();
-            await Wait.UntilAsync(() => TestNetwork.SendQueueCount(_client) == 0, "the queued sends were never taken off the queue");
+            await SendTheQueue(sendQueueWorker);
             Assert.Equal("power on|" + Sentinel, await TestNetwork.ReadUntilAsync(connection, _time, Sentinel));
         }
         finally
@@ -985,14 +1002,13 @@ public class AvCodersTcpClientResilienceTest : IDisposable
         await sendQueueWorker.Stop();
         var queuedAt = _time.GetUtcNow();
 
-        var listener = TestNetwork.ListenOn(_time, _client!.Port);
+        var listener = await ListenAndRetryAtOnce(_client!.Port);
         try
         {
-            using var connection = await TestNetwork.AcceptAsync(listener, _time);
-            await UntilConnected("the client never connected");
+            using var connection = await AcceptWithoutTheClock(listener);
             await TestNetwork.Advance(_time, queuedAt + wait - _time.GetUtcNow());
             _client.Send(Sentinel);
-            await sendQueueWorker.Restart();
+            await SendTheQueue(sendQueueWorker);
             return await TestNetwork.ReadUntilAsync(connection, _time, Sentinel);
         }
         finally
