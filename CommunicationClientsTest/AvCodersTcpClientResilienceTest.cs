@@ -14,6 +14,8 @@ public class AvCodersTcpClientResilienceTest : IDisposable
     private static readonly TimeSpan AgeMargin = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan WriteTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan InitialBackoffLimit = TimeSpan.FromMilliseconds(1500);
+    private static readonly TimeSpan MinimumBackoff = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ReconnectLimit = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan EstablishedFor = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan RefusalStep = TimeSpan.FromSeconds(1);
@@ -55,6 +57,8 @@ public class AvCodersTcpClientResilienceTest : IDisposable
 
     private Task UntilTheFirstAttemptFailed() =>
         Wait.UntilAsync(() => _client!.ConnectionState == ConnectionState.Disconnected, "the first connection attempt never failed");
+
+    private TimeSpan[] RetryWaits() => _time.ArmedTimers.Where(due => due >= MinimumBackoff && due < ConnectTimeout).ToArray();
 
     private static SemaphoreSlim GetWriteLock(AvCodersTcpClient client)
     {
@@ -141,10 +145,10 @@ public class AvCodersTcpClientResilienceTest : IDisposable
             var firstConnection = await TestNetwork.AcceptAsync(listener, _time);
             await UntilConnected("client never connected the first time");
             await TestNetwork.Advance(_time, EstablishedFor);
+            await Wait.UntilAsync(() => _time.ArmedTimers.Contains(ConnectedCheckInterval), "the client never armed its connection check");
 
             firstConnection.Close();
             var droppedAt = _time.GetUtcNow();
-            await Wait.UntilAsync(() => _client!.ConnectionState != ConnectionState.Connected, "the client never noticed the drop");
 
             await Task.Run(() => _time.Advance(ReconnectLimit - TestNetwork.ClockStep));
             using var secondConnection = await TestNetwork.AcceptAsync(listener, AcceptWithinSeconds);
@@ -162,31 +166,28 @@ public class AvCodersTcpClientResilienceTest : IDisposable
     {
         var listener = StartListener(out var port);
         CreateClient(port, "BackoffTestClient");
-        var transitions = new ConcurrentQueue<(ConnectionState State, DateTimeOffset At)>();
+        var retries = 0;
 
         try
         {
             var firstConnection = await TestNetwork.AcceptAsync(listener, _time);
             await UntilConnected("client never connected");
-            _client!.ConnectionStateHandlers += state => transitions.Enqueue((state, _time.GetUtcNow()));
+            await TestNetwork.SendQueueWorker(_client!).Stop();
+            _client!.ConnectionStateHandlers += state =>
+            {
+                if (state == ConnectionState.Connecting)
+                    Interlocked.Increment(ref retries);
+            };
 
             listener.Stop();
             _time.ConnectTimeouts = ConnectTimeouts.AtOnce;
             firstConnection.Close();
-            await Wait.UntilAsync(() => _client.ConnectionState != ConnectionState.Connected, "the client never noticed the drop");
+            await TestNetwork.UntilAsync(_time, () => Volatile.Read(ref retries) == 1, "the client never retried after the drop");
+            await Wait.UntilAsync(() => RetryWaits().Length == 1, "the first retry never waited to retry");
+            var wait = RetryWaits()[0];
 
-            await Task.Run(() => _time.Advance(ConnectedCheckInterval));
-            await Wait.UntilAsync(() => transitions.Count(t => t.State == ConnectionState.Connecting) == 1
-                                        && transitions.Last().State == ConnectionState.Disconnected,
-                "the client never retried after the drop");
-            await Task.Run(() => _time.Advance(InitialBackoffLimit - TestNetwork.ClockStep));
-            await Wait.UntilAsync(() => transitions.Count(t => t.State == ConnectionState.Connecting) >= 2,
-                "the client never retried twice after the drop");
-            var recorded = transitions.ToList();
-            var firstAttempt = recorded.FindIndex(t => t.State == ConnectionState.Connecting);
-            var firstFailure = recorded.FindIndex(firstAttempt, t => t.State == ConnectionState.Disconnected);
-            var secondAttempt = recorded.FindIndex(firstFailure, t => t.State == ConnectionState.Connecting);
-            var wait = recorded[secondAttempt].At - recorded[firstFailure].At;
+            await Task.Run(() => _time.Advance(wait));
+            await Wait.UntilAsync(() => Volatile.Read(ref retries) == 2, "the client never retried twice after the drop");
             Assert.True(wait < InitialBackoffLimit, $"the first retry after the drop waited {wait}, not the initial 1 s backoff");
         }
         finally
@@ -918,12 +919,19 @@ public class AvCodersTcpClientResilienceTest : IDisposable
 
         _client.Connect();
 
+        var connectionWorker = TestNetwork.Workers(_client)[1];
+        var sendQueueWorker = TestNetwork.SendQueueWorker(_client);
+        await connectionWorker.Stop();
+        await sendQueueWorker.Stop();
         var listener = TestNetwork.ListenOn(_time, port);
         try
         {
-            using var connection = await TestNetwork.AcceptAsync(listener, _time);
-            await UntilConnected("the client never connected");
+            await connectionWorker.Restart();
+            using var connection = await TestNetwork.AcceptAsync(listener, AcceptWithinSeconds);
+            await Wait.UntilAsync(() => _client.ConnectionState == ConnectionState.Connected, "the client never connected");
             _client.Send(Sentinel);
+            await sendQueueWorker.Restart();
+            await Wait.UntilAsync(() => TestNetwork.SendQueueCount(_client) == 0, "the queued sends were never taken off the queue");
             Assert.Equal("power on|" + Sentinel, await TestNetwork.ReadUntilAsync(connection, _time, Sentinel));
         }
         finally

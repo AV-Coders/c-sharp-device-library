@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
@@ -13,7 +14,43 @@ public enum ConnectTimeouts
     Never
 }
 
-public sealed class ConnectTimeoutClock : FakeTimeProvider
+public class TimerTrackingClock : FakeTimeProvider
+{
+    private readonly ConcurrentDictionary<object, TimeSpan> _armed = new();
+
+    public ICollection<TimeSpan> ArmedTimers => _armed.Values;
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var key = new object();
+        _armed[key] = dueTime;
+        var timer = base.CreateTimer(firing =>
+        {
+            _armed.TryRemove(key, out _);
+            callback(firing);
+        }, state, dueTime, period);
+        return new ArmedTimer(timer, () => _armed.TryRemove(key, out _));
+    }
+
+    private sealed class ArmedTimer(ITimer timer, Action disarm) : ITimer
+    {
+        public bool Change(TimeSpan dueTime, TimeSpan period) => timer.Change(dueTime, period);
+
+        public void Dispose()
+        {
+            disarm();
+            timer.Dispose();
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            disarm();
+            return timer.DisposeAsync();
+        }
+    }
+}
+
+public sealed class ConnectTimeoutClock : TimerTrackingClock
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
 

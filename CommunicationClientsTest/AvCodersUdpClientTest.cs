@@ -13,6 +13,7 @@ public class AvCodersUdpClientTest : IDisposable
     private const int QueueTimeoutSeconds = 5;
     private static readonly TimeSpan AgeMargin = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan SocketRetryInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan ReconnectingSendQueueTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(10);
     // Windows refuses a UDP connect to 0.0.0.0, Linux one to a broadcast address without SO_BROADCAST.
     // UdpClient turns SO_BROADCAST on itself for 255.255.255.255, so Linux uses the loopback broadcast.
@@ -20,7 +21,7 @@ public class AvCodersUdpClientTest : IDisposable
     private static readonly FieldInfo SocketField = typeof(AvCodersUdpClient).GetField("_client", BindingFlags.Instance | BindingFlags.NonPublic)!;
     private static readonly MethodInfo ReceiveMethod = typeof(AvCodersUdpClient).GetMethod("Receive", BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-    private readonly FakeTimeProvider _time = new();
+    private readonly TimerTrackingClock _time = new();
     private readonly UdpClient _server;
     private readonly ushort _port;
     private IPAddress[]? _resolvesTo;
@@ -440,9 +441,15 @@ public class AvCodersUdpClientTest : IDisposable
         AsAPerson.Run(() => client.Send("power on"));
         client.Send("poll");
         Assert.Equal(2, TestNetwork.SendQueueCount(client));
-        await TestNetwork.Advance(_time, SocketRetryInterval + AgeMargin);
+        var sendQueueWorker = TestNetwork.SendQueueWorker(client);
+        await sendQueueWorker.Stop();
         _resolvesTo = [IPAddress.Loopback];
+        await Wait.UntilAsync(() => _time.ArmedTimers.Contains(SocketRetryInterval), "the client never armed its retry");
+        await Task.Run(() => _time.Advance(ReconnectingSendQueueTimeout - AgeMargin));
+        await Wait.UntilAsync(() => client.ConnectionState == ConnectionState.Connected, "the retry never opened the socket");
 
+        await sendQueueWorker.Restart();
+        await Wait.UntilAsync(() => TestNetwork.SendQueueCount(client) == 0, "the queued sends were never taken off the queue");
         Assert.Equal("power on", await ReceiveTextAsync());
         client.Send("end");
         Assert.Equal("end", await ReceiveTextAsync());
