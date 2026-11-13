@@ -12,6 +12,8 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     private string _host = host;
     private ushort _port = port;
     private readonly object _connectionIssueLock = new();
+    private readonly object _requestMasksLock = new();
+    private readonly Dictionary<string, string> _requestMasks = new();
     private (long Timestamp, DateTimeOffset At)? _connectionFailingSince;
     public StringHandler? RequestHandlers;
     public ByteHandler? RequestByteHandlers;
@@ -223,8 +225,39 @@ public abstract class CommunicationClient(string name, string host, ushort port,
     public abstract void Send(string message);
     public abstract void Send(byte[] bytes);
 
+    public void MaskInRequests(string text, string shownAs)
+    {
+        if (text.Length == 0)
+            return;
+        lock (_requestMasksLock)
+            _requestMasks[text] = shownAs;
+    }
+
+    private string Masked(string request)
+    {
+        lock (_requestMasksLock)
+        {
+            if (_requestMasks.Count == 0)
+                return request;
+            return _requestMasks.Aggregate(request, (masked, mask) => masked.Replace(mask.Key, mask.Value, StringComparison.Ordinal));
+        }
+    }
+
+    private byte[] Masked(byte[] request)
+    {
+        lock (_requestMasksLock)
+        {
+            if (_requestMasks.Count == 0)
+                return request;
+        }
+        var text = Encoding.Latin1.GetString(request);
+        var masked = Masked(text);
+        return masked == text ? request : Encoding.Latin1.GetBytes(masked);
+    }
+
     protected void InvokeRequestHandlers(string request)
     {
+        request = Masked(request);
         using (PushProperties("InvokeRequestHandlers"))
         {
             LogVerbose("Sending: {Request}", request);
@@ -241,6 +274,7 @@ public abstract class CommunicationClient(string name, string host, ushort port,
 
     protected void InvokeRequestHandlers(byte[] request)
     {
+        request = Masked(request);
         using (PushProperties("InvokeRequestHandlers"))
         {
             LogVerbose("Sending bytes: {Request}", BitConverter.ToString(request));
@@ -406,7 +440,7 @@ public abstract class IpComms : CommunicationClient
 
     public void SetQueueTimeout(int seconds) => QueueTimeout = seconds;
 
-    protected int QueueTimeoutFor(bool waitsForTheReconnect) =>
+    public int QueueTimeoutFor(bool waitsForTheReconnect) =>
         waitsForTheReconnect ? Math.Max(QueueTimeout, ReconnectingSendQueueTimeout) : QueueTimeout;
 
     protected bool WaitsForTheReconnect() => ReconnectingForSend && Actor.Current != null;

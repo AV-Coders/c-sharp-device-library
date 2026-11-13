@@ -1225,6 +1225,28 @@ public class QsysEcpTest
         Assert.Empty(dsp.Errors);
     }
 
+    [Fact]
+    public void RecallSnapshot_ThroughQsysDsp_LoadsTheSnapshotWithNoRamp()
+    {
+        var client = new TestTcpClient();
+        QsysDsp dsp = Create(client);
+
+        dsp.RecallSnapshot("RoomModes", 3);
+
+        Assert.Equal(["ssl \"RoomModes\" 3 0\n"], client.Sent);
+    }
+
+    [Fact]
+    public void RecallSnapshot_WithARampTime_LoadsTheSnapshotOverThatRamp()
+    {
+        var client = new TestTcpClient();
+        var dsp = Create(client);
+
+        dsp.RecallSnapshot("RoomModes", 3, 2);
+
+        Assert.Equal(["ssl \"RoomModes\" 3 2\n"], client.Sent);
+    }
+
     private QsysEcp Create(TcpClient client) => new(client, "Test", NeverPollMs, null, null, "", _time);
 
     private static QsysEcp ConnectWithCoreManager(TimeProvider time, TestRestClient coreManager, string? username = null, string password = "")

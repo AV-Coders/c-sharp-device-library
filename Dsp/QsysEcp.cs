@@ -118,6 +118,7 @@ public class QsysEcp : QsysDsp
     private const uint ChangeGroupPollPeriodMs = 100;
     private const uint MeterPollPeriodMs = 1000;
     private static readonly TimeSpan ControlGetGap = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
     private const int MaxControlStateAttempts = 3;
     private const int MeterNameToken = 1;
     private const string StatusRequest = "sg\n";
@@ -159,10 +160,11 @@ public class QsysEcp : QsysDsp
     private readonly string? _coreManagerUsername;
     private readonly string _coreManagerPassword;
     private readonly Dictionary<string, QscGain> _meters = new();
+    private readonly object _metersLock = new();
     private readonly Regex _responseParser;
     private readonly Regex _badIdParser;
-    private readonly Regex _statusParser = new("^sr \"(?<design>[^\"]*)\" \"(?<id>[^\"]*)\" (?<primary>[01]) (?<active>[01])$");
-    private readonly Regex _meterTokenParser = new("\"(?<quoted>[^\"]*)\"|(?<bare>[^ ]+)");
+    private readonly Regex _statusParser = new("^sr \"(?<design>[^\"]*)\" \"(?<id>[^\"]*)\" (?<primary>[01]) (?<active>[01])$", RegexOptions.None, RegexTimeout);
+    private readonly Regex _meterTokenParser = new("\"(?<quoted>[^\"]*)\"|(?<bare>[^ ]+)", RegexOptions.None, RegexTimeout);
 
     // There is a limit of 4 change groups.
     private const int ChangeGroupGains = 1;
@@ -174,7 +176,6 @@ public class QsysEcp : QsysDsp
 
     private enum CoreManagerToken { None, FromLogon, Accepted }
 
-    private int _blankControlNames;
     private CoreManagerToken _coreManagerToken = CoreManagerToken.None;
     private string? _designId;
     private bool _changeGroupsBuiltThisPoll;
@@ -201,8 +202,8 @@ public class QsysEcp : QsysDsp
             coreManager.HttpResponseHandlers += HandleCoreManagerResponse;
 
         string responsePattern = "cv\\s\"([^\"]+)\"\\s\"([^\"]*)\"\\s(-?\\d+(\\.\\d+)?)\\s(-?\\d+(\\.\\d+)?)";
-        _responseParser = new Regex(responsePattern);
-        _badIdParser = new Regex("bad_id\\s\"([^\"]*)\"");
+        _responseParser = new Regex(responsePattern, RegexOptions.None, RegexTimeout);
+        _badIdParser = new Regex("bad_id\\s\"([^\"]*)\"", RegexOptions.None, RegexTimeout);
 
         _muteStateDictionary = new Dictionary<MuteState, string>
         {
@@ -331,15 +332,7 @@ public class QsysEcp : QsysDsp
         }
 
         string controlName = badId.Groups[1].Value;
-        ShowBadControl(controlName, $"{BadControlIssuePrefix}{controlName}", $"Invalid named control {controlName}: {line}");
-    }
-
-    private void ShowBlankControlName(string controlName, string controlType)
-    {
-        int order = Interlocked.Increment(ref _blankControlNames);
-        using (PushProperties("ShowBlankControlName"))
-            ShowBadControl(controlName, $"{BadControlIssuePrefix}\"{controlName}\" {controlType} {order}",
-                $"The {controlType} control name \"{controlName}\" is blank, so it is not sent to the Core (blank control {order})");
+        Controls.ShowBadControl(controlName, $"{BadControlIssuePrefix}{controlName}", $"Invalid named control {controlName}: {line}");
     }
 
     private void HandleBadChangeGroup(string line)
@@ -373,7 +366,9 @@ public class QsysEcp : QsysDsp
         var tokens = _meterTokenParser.Matches(line)
             .Select(token => token.Groups["quoted"].Success ? token.Groups["quoted"].Value : token.Groups["bare"].Value)
             .ToArray();
-        var meter = FindControl(_meters, tokens[MeterNameToken]);
+        QscGain? meter;
+        lock (_metersLock)
+            meter = _meters.GetValueOrDefault(tokens[MeterNameToken]);
         if (meter == null)
             return;
 
@@ -398,16 +393,10 @@ public class QsysEcp : QsysDsp
             }
 
             var controlName = match.Groups[1].Value;
-            ControlReported(controlName);
-            QscGain? gain;
-            QscMute? mute;
-            QscInt? text;
-            lock (ControlsLock)
-            {
-                gain = Gains.GetValueOrDefault(controlName);
-                mute = Mutes.GetValueOrDefault(controlName);
-                text = Strings.GetValueOrDefault(controlName);
-            }
+            Controls.ControlReported(controlName);
+            var gain = Controls.FindLevel(controlName);
+            var mute = Controls.FindMute(controlName);
+            var text = Controls.FindString(controlName);
             ResolveIssue(BadCommandIssueKey);
             ResolveIssue(ReadOnlyIssueKey);
 
@@ -671,13 +660,13 @@ public class QsysEcp : QsysDsp
             CreateEmptyChangeGroup(ChangeGroupMeters);
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
 
-            AddControlsToChangeGroup(ChangeGroupGains, ControlNames(Gains));
+            AddControlsToChangeGroup(ChangeGroupGains, Controls.LevelNames());
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
-            AddControlsToChangeGroup(ChangeGroupMutes, ControlNames(Mutes));
+            AddControlsToChangeGroup(ChangeGroupMutes, Controls.MuteNames());
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
-            AddControlsToChangeGroup(ChangeGroupStrings, ControlNames(Strings));
+            AddControlsToChangeGroup(ChangeGroupStrings, Controls.StringNames());
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
-            AddControlsToChangeGroup(ChangeGroupMeters, ControlNames(_meters));
+            AddControlsToChangeGroup(ChangeGroupMeters, MeterNames());
             await Task.Delay(ChangeGroupSetupStep, TimeProvider);
 
             ScheduleChangeGroupPoll(ChangeGroupGains);
@@ -756,9 +745,7 @@ public class QsysEcp : QsysDsp
 
     private async Task GetEachControlState()
     {
-        List<string> controlNames;
-        lock (ControlsLock)
-            controlNames = [..Gains.Keys, ..Mutes.Keys, ..Strings.Keys, .._meters.Keys];
+        List<string> controlNames = [..Controls.Names(), ..MeterNames()];
 
         foreach (string controlName in controlNames)
         {
@@ -767,10 +754,10 @@ public class QsysEcp : QsysDsp
         }
     }
 
-    private List<string> ControlNames<T>(Dictionary<string, T> controls)
+    private List<string> MeterNames()
     {
-        lock (ControlsLock)
-            return controls.Keys.ToList();
+        lock (_metersLock)
+            return _meters.Keys.ToList();
     }
 
     private void GetControl(string controlName)
@@ -812,7 +799,7 @@ public class QsysEcp : QsysDsp
         }
 
         QscGain? meter;
-        lock (ControlsLock)
+        lock (_metersLock)
         {
             if (_meters.TryGetValue(levelName, out meter))
                 meter.VolumeLevelHandlers += volumeLevelHandler;
@@ -881,5 +868,7 @@ public class QsysEcp : QsysDsp
     public void RecallPreset(string controlName, int value, double rampTime = 0) 
         => CommunicationClient.Send($"ssl \"{controlName}\" {value} {rampTime}\n");
     
-    public void RecallSnapshot(string controlName, int value, double rampTime = 0) => RecallPreset(controlName, value, rampTime);
+    public override void RecallSnapshot(string name, int snapshot) => RecallPreset(name, snapshot);
+
+    public void RecallSnapshot(string controlName, int value, double rampTime) => RecallPreset(controlName, value, rampTime);
 }

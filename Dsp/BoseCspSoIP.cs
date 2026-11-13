@@ -126,9 +126,7 @@ public class BoseCspSoIP : Dsp
             }
             lock (_awaitingReplyLock)
                 _awaitingReply.Clear();
-            CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
-                ? CommunicationState.NotAttempted
-                : CommunicationState.Unknown;
+            ShowNotConnected();
         }
     }
 

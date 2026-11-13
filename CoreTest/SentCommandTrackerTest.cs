@@ -193,6 +193,45 @@ public class SentCommandTrackerTest
     }
 
     [Fact]
+    public void TimeUntilNextMiss_IsTheTimeLeftForTheOldestCommandAwaitingAReply()
+    {
+        Send(Model, "84c08518");
+        _time.Advance(TimeSpan.FromSeconds(2));
+        Send(Firmware, "84c08518");
+
+        Assert.Equal(TimeSpan.FromSeconds(3), _sis.TimeUntilNextMiss());
+    }
+
+    [Fact]
+    public void TimeUntilNextMiss_SkipsAnsweredCommands()
+    {
+        Send(Model, "84c08518");
+        _time.Advance(TimeSpan.FromSeconds(2));
+        Send(Firmware, "84c08518");
+
+        Reply("Inf01*SW2 HD 4K PLUS");
+
+        Assert.Equal(ReplyTimeout, _sis.TimeUntilNextMiss());
+    }
+
+    [Fact]
+    public void TimeUntilNextMiss_IsZero_WhileAMissedCommandWaitsToBeTaken()
+    {
+        Send(Model, "84c08518");
+        _time.Advance(ReplyTimeout);
+
+        Assert.Equal(TimeSpan.Zero, _sis.TimeUntilNextMiss());
+        _sis.TakeMissed();
+        Assert.Null(_sis.TimeUntilNextMiss());
+    }
+
+    [Fact]
+    public void TimeUntilNextMiss_IsNull_WhenNoCommandAwaitsAReply()
+    {
+        Assert.Null(_sis.TimeUntilNextMiss());
+    }
+
+    [Fact]
     public void MissedCommand_TakesNoReplyOrError()
     {
         Send(Firmware, "03bde479");

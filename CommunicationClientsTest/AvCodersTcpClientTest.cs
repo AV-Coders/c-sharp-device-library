@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AVCoders.CommunicationClients.Tests;
 
@@ -137,5 +138,58 @@ public class AvCodersTcpClientTest : IDisposable
         var read = serverSide.GetStream().ReadAsync(buffer, 0, buffer.Length);
         Assert.Same(read, await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(15))));
         Assert.Equal(new byte[] { 0xE9, 0x4F, 0x4B, 0x0D }, buffer[..await read]);
+    }
+}
+
+[Collection(LoggerFactoryCollection.Name)]
+public class AvCodersTcpClientMaskTest : IDisposable
+{
+    private const string ClientName = "MaskTestClient";
+    private const string Password = "s3cret-pw";
+    private const string Secret = "\"Password\":\"s3cret-pw\"";
+    private const string Shown = "\"Password\":\"***\"";
+    private const string Logon = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Logon\",\"params\":{\"User\":\"tech\",\"Password\":\"s3cret-pw\"}}\0";
+    private const string ShownLogon = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Logon\",\"params\":{\"User\":\"tech\",\"Password\":\"***\"}}\0";
+    private readonly ScopeCapturingLoggerFactory _logs = new();
+    private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
+    private AvCodersTcpClient? _client;
+
+    public AvCodersTcpClientMaskTest()
+    {
+        LogBase.LoggerFactory = _logs;
+        _listener.Start();
+    }
+
+    public void Dispose()
+    {
+        try { _client?.Disconnect(); } catch { }
+        _listener.Stop();
+        LogBase.LoggerFactory = NullLoggerFactory.Instance;
+        _logs.Dispose();
+    }
+
+    [Theory]
+    [InlineData(CommandStringFormat.Ascii)]
+    [InlineData(CommandStringFormat.Hex)]
+    public async Task AMaskedText_GoesToTheDevice_ButTheVerboseLogAndTheRequestHandlersShowItsMask(CommandStringFormat format)
+    {
+        _client = new AvCodersTcpClient("127.0.0.1", (ushort)((IPEndPoint)_listener.LocalEndpoint).Port, ClientName, format);
+        _client.MaskInRequests(Secret, Shown);
+        var requests = new ConcurrentQueue<string>();
+        var requestBytes = new ConcurrentQueue<byte[]>();
+        _client.RequestHandlers += requests.Enqueue;
+        _client.RequestByteHandlers += requestBytes.Enqueue;
+        using var serverSide = await TestNetwork.AcceptAsync(_listener, 15);
+        await Wait.UntilAsync(() => _client.ConnectionState == ConnectionState.Connected, "client never connected");
+
+        _client.Send(Logon);
+
+        Assert.Equal(Logon, await TestNetwork.ReadStringAsync(serverSide, 15));
+        await Wait.UntilAsync(() => !requests.IsEmpty && !requestBytes.IsEmpty, "the request handlers never ran");
+        Assert.Equal(ShownLogon, Assert.Single(requests));
+        Assert.Equal(Encoding.Latin1.GetBytes(ShownLogon), Assert.Single(requestBytes));
+        Assert.Equal(2, _logs.Logs.Count(log => Equals(log.Scope.GetValueOrDefault("InstanceName"), ClientName) && log.Message.StartsWith("Sending")));
+        var passwordHex = BitConverter.ToString(Encoding.ASCII.GetBytes(Password));
+        Assert.DoesNotContain(_logs.Logs, log => log.Message.Contains(Password) || log.Message.Contains(passwordHex));
     }
 }

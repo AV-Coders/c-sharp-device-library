@@ -90,14 +90,12 @@ public class BiampTtp : Dsp
     private const string AliasesIssueKey = "aliases-read";
     private const string FaultsIssueKey = "fault-list-read";
     private const string FaultIssuePrefix = "fault:";
-    private const string BadControlIssuePrefix = "bad-control:";
     private const string FirmwareLabel = "Firmware";
     private const string SerialLabel = "Serial";
     private const string ModelLabel = "Model";
     private const string RevisionLabel = "Revision";
     private const string HostnameLabel = "Hostname";
     private const string DnsLabel = "DNS";
-    private const string MissingControlsLabel = "Missing Controls";
     private const string ReplyTimeLabel = "Reply Time";
     private const string ActiveFaultsLabel = "Active Faults";
     private const string AttributeNotSupportedError = "ATTRIBUTE_NOT_SUPPORTED";
@@ -204,9 +202,7 @@ public class BiampTtp : Dsp
                 PollWorker.Restart();
             }
             else
-                CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
-                    ? CommunicationState.NotAttempted
-                    : CommunicationState.Unknown;
+                ShowNotConnected();
         }
     }
 

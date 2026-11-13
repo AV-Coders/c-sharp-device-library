@@ -6,6 +6,11 @@ public delegate void StringValueHandler(string value);
 
 public abstract class Dsp : DeviceBase
 {
+    public const string BadControlIssuePrefix = "bad-control:";
+    internal const string MissingControlsLabel = "Missing Controls";
+    private protected const string LevelControlType = "level";
+    private protected const string MuteControlType = "mute";
+    private protected const string StringControlType = "string";
     private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(1);
 
     protected readonly ThreadWorker PollWorker;
@@ -45,6 +50,11 @@ public abstract class Dsp : DeviceBase
     public abstract string GetValue(string controlName);
 
     public abstract Task Reinitialise(CancellationToken token = default);
+
+    private protected void ShowNotConnected() =>
+        CommunicationState = CommunicationClient.DesiredConnectionState == ConnectionState.Disconnected
+            ? CommunicationState.NotAttempted
+            : CommunicationState.Unknown;
 }
 
 public abstract class AudioBlock

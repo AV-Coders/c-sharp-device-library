@@ -84,6 +84,19 @@ public sealed class SentCommandTracker<TCommand>
         }
     }
 
+    public TimeSpan? TimeUntilNextMiss()
+    {
+        lock (_lock)
+        {
+            var now = _timeProvider.GetTimestamp();
+            MoveMissed(now);
+            if (_missed.Count > 0)
+                return TimeSpan.Zero;
+            var oldest = _sent.Find(entry => AwaitsReply(entry, now));
+            return oldest == null ? null : _replyTimeout - _timeProvider.GetElapsedTime(oldest.SentAt, now);
+        }
+    }
+
     public void Clear()
     {
         lock (_lock)

@@ -3,6 +3,30 @@
 public class BytesTest
 {
     [Fact]
+    public void Escaped_ShowsPrintableAsciiAsItIs_AndEveryOtherByteAsHex()
+    {
+        var actual = Bytes.Escaped([0x41, 0x0D, 0x7E, 0x7F, 0x20, 0x1F, 0xFF], 10);
+
+        Assert.Equal(@"A\x0D~\x7F \x1F\xFF", actual);
+    }
+
+    [Fact]
+    public void Escaped_ShowsAtMostMaxShownBytes_AndMarksTheCut()
+    {
+        var actual = Bytes.Escaped("ABC"u8.ToArray(), 2);
+
+        Assert.Equal("AB...", actual);
+    }
+
+    [Fact]
+    public void Escaped_HasNoCutMark_WhenEveryByteIsShown()
+    {
+        var actual = Bytes.Escaped("AB"u8.ToArray(), 2);
+
+        Assert.Equal("AB", actual);
+    }
+
+    [Fact]
     public void FromString_ReturnsBytes()
     {
         var actual = Bytes.FromString("01");

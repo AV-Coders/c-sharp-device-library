@@ -48,14 +48,14 @@ display.PowerOn();
 | `AVCoders.Matrix` | Matrix switchers / AV-over-IP | `ExtronIn16Xx`/`ExtronIn18Xx`/`ExtronSw`/`ExtronDtpCpxx`/`ExtronDtp2Cp82`, `ExtronAnnotator401VideoMatrix` (annotator HDMI sync), `CiscoRoomOsVideoMatrix` (codec video connectors), `SvsiEncoder`/`SvsiDecoder`, `AntricaEncoder` (ANT-35000 HDMI input status), `BlustreamAmf41W`, `Navigator`/`NavEncoder`/`NavDecoder`, `AVoIPEndpoint` |
 | `AVCoders.Camera` | PTZ cameras & auto-tracking | `SonyVisca`, `AverVisca` (`ITrackingCamera`), `LumensCL510`, `LumensCL511`, `AutomateVX` (1Beyond) |
 | `AVCoders.Conference` | Conferencing codecs & phonebooks | `CiscoRoomOs` (+ output/mic faders), `CiscoRoomOsPhonebookParser` |
-| `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `BoseCspSoIP`, `CecAudioSystem` (CEC soundbar as a `VolumeControl`) |
+| `AVCoders.Dsp` | Audio DSPs | `BiampTtp` (Tesira), `QsysEcp` (Q-SYS), `QsysQrc` (Q-SYS over QRC), `BoseCspSoIP`, `YamahaXmv` (Yamaha XMV power amplifiers), `CecAudioSystem` (CEC soundbar as a `VolumeControl`) |
 | `AVCoders.Power` | PDUs / outlets | `TrippLitePdu`/`TrippLiteOutlet` (SNMPv3, Tripp Lite / Eaton PowerAlert incl. ATS models), `ServerEdgePdu`/`ServerEdgeOutlet` (REST), `ThorRf11IqPdu`/`ThorRf11IqOutlet` (HTTP) |
 | `AVCoders.MediaPlayer` | Media players / recorders / IPTV | `LumensLc300`, `ExtronSmp351`, `TriplePlay`, `VitecHttp`/`VitecServer`, `ExterityTci`, `AppleTvCec` |
 | `AVCoders.Motor` | Screens / blinds / shades | `ScreenTechnicsConnect`, `Grandview`, `MotoluxBlindTransmitter`, `BondDevice`/`BondGroup` |
 | `AVCoders.Lighting` | Lighting & dimmers | `CBusLight`, `DyNet` (Dynalite), `Zigbee2MqttLight` |
 | `AVCoders.Alarm` | Alarm panels | Base classes only: `AlarmPanel`, `Area`, `Zone`, `Relay` |
 | `AVCoders.Annotator` | Annotation devices | `ExtronAnnotator401` |
-| `AVCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2` |
+| `AVCoders.Interface` | Touch panels / smart-home interfaces | `TybaTurn2`, `GlobalCacheContactClosure` (Global Cache iTach relays) |
 | `AVCoders.WirelessPresenter` | Wireless presentation | `ExtronSharelinkPro` |
 | `AVCoders.SignalR.*` (Camera, Destination, Display, Room, SetTopBox, Source, Volume, Audit, Connections) | SignalR hubs bridging room state to web / touch-panel UIs; `Audit` is a global hub filter that records each state-changing hub call; `Connections` tracks each hub's open connections per group and reports unknown groups | `<X>Hub`, `<X>Manager`, `<X>UiSignalR`; `HubAuditFilter`; `HubConnections`, `GroupHub<T>` |
 
@@ -213,8 +213,7 @@ dotnet build
 dotnet test
 ```
 
-Most domains have a matching `*Test` xUnit project (tests use Moq); `Interface` and
-`Climate` are the current exceptions. `CommunicationClientsTest` exercises the real
+Every package has a matching `*Test` xUnit project (tests use Moq). `CommunicationClientsTest` exercises the real
 transports against loopback sockets and an in-process HTTP listener (no Moq).
 
 Tests tagged `[Trait("Category", "Network")]` (the multicast tests, which join groups on the

@@ -26,6 +26,7 @@
       <InternalsVisibleTo Include="AVCoders.Matrix" />
       <InternalsVisibleTo Include="AVCoders.MediaPlayer" />
       <InternalsVisibleTo Include="AVCoders.Power" />
+      <InternalsVisibleTo Include="AvCoders.Interface" />
       <InternalsVisibleTo Include="WirelessPresenter" />
     </ItemGroup>
 
