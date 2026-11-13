@@ -7,4 +7,5 @@ public interface IRoomHub
     Task OnPowerStateChanged(PowerState state);
     Task OnPropertiesSnapshot(Dictionary<string, string> properties);
     Task OnPropertyChanged(string key, string value);
+    Task OnRoomLinkChanged(RoomLinkStatus link);
 }

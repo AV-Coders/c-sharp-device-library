@@ -83,4 +83,14 @@ public class RoomUiSignalRTest
 
         _groupClient.Verify(c => c.OnPropertiesSnapshot(It.IsAny<Dictionary<string, string>>()), Times.Never);
     }
+
+    [Fact]
+    public void ManagerLinkChange_NotifiesHubGroupWithTheLinkStatus()
+    {
+        _manager.SetLinkPartner("Room B");
+        _manager.SetLinkState(RoomLinkState.Following);
+
+        _hubClients.Verify(c => c.Group(_groupName), Times.AtLeastOnce);
+        _groupClient.Verify(c => c.OnRoomLinkChanged(new RoomLinkStatus(false, RoomLinkState.Following, "Room B")), Times.Once);
+    }
 }

@@ -109,6 +109,21 @@ public class HubAuditFilterTest
         Assert.Equal("args=[presenter, mode]", entry.Detail);
     }
 
+    [Theory]
+    [InlineData(nameof(RoomHub.LinkRooms))]
+    [InlineData(nameof(RoomHub.UnlinkRooms))]
+    public async Task RoomLinkCall_IsRecordedAgainstTheRoom(string method)
+    {
+        ConnectFromPanel();
+
+        await _filter.InvokeMethodAsync(Invocation(new RoomHub(), method, _groupName), Next);
+
+        var entry = Assert.Single(Recorded());
+        Assert.Equal(_groupName, entry.Target);
+        Assert.Equal($"Room.{method}", entry.Action);
+        Assert.Equal(string.Empty, entry.Detail);
+    }
+
     [Fact]
     public async Task NoHttpContext_RecordsEmptyIdentity()
     {

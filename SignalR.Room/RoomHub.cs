@@ -36,6 +36,7 @@ public class RoomHub() : GroupHub<IRoomHub>(Connections)
         }
         await Clients.Caller.OnPowerStateChanged(roomManager.PowerState);
         await Clients.Caller.OnPropertiesSnapshot(roomManager.GetProperties());
+        await Clients.Caller.OnRoomLinkChanged(roomManager.Link);
     }
 
     public void PowerOn(string groupName)
@@ -91,6 +92,34 @@ public class RoomHub() : GroupHub<IRoomHub>(Connections)
         {
             Logger.LogInformation("Powering off {Group} with {@Args}", groupName, args);
             roomManager.PowerOffWithArgs(args ?? new Dictionary<string, string>());
+        });
+    }
+
+    public void LinkRooms(string groupName)
+    {
+        if (!RoomManagers.TryGetValue(groupName, out var roomManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, nameof(LinkRooms), () =>
+        {
+            Logger.LogInformation("Linking {Group} with its partner", groupName);
+            roomManager.LinkRooms();
+        });
+    }
+
+    public void UnlinkRooms(string groupName)
+    {
+        if (!RoomManagers.TryGetValue(groupName, out var roomManager))
+        {
+            ReportUnknownGroup(groupName);
+            return;
+        }
+        Dispatch(groupName, nameof(UnlinkRooms), () =>
+        {
+            Logger.LogInformation("Unlinking {Group} from its partner", groupName);
+            roomManager.UnlinkRooms();
         });
     }
 

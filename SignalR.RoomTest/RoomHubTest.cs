@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AVCoders.SignalR.Room.Tests;
 
+[Collection(LoggerFactoryCollection.Name)]
 public class RoomHubTest
 {
     private const int WaitTimeoutMs = 2000;
@@ -210,22 +211,58 @@ public class RoomHubTest
         }
     }
 
-    private sealed record CapturedLog(LogLevel Level, Exception? Exception, string Message);
-
-    private sealed class CapturingLoggerFactory(ConcurrentQueue<CapturedLog> events) : ILoggerFactory
+    [Fact]
+    public async Task JoinGroup_SendsTheLinkStatus()
     {
-        public ILogger CreateLogger(string categoryName) => new CapturingLogger(events);
-        public void AddProvider(ILoggerProvider provider) { }
-        public void Dispose() { }
+        _manager.SetLinkSupported(true);
+        _manager.SetLinkPartner("Room B");
 
-        private sealed class CapturingLogger(ConcurrentQueue<CapturedLog> events) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-            public bool IsEnabled(LogLevel logLevel) => true;
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-                Func<TState, Exception?, string> formatter) =>
-                events.Enqueue(new CapturedLog(logLevel, exception, formatter(state, exception)));
-        }
+        await _harness.Hub.JoinGroup(_groupName);
+
+        _harness.CallerMock.Verify(c => c.OnRoomLinkChanged(
+            new RoomLinkStatus(true, RoomLinkState.Unlinked, "Room B")), Times.Once);
+    }
+
+    [Fact]
+    public void LinkRooms_ReachesTheManager()
+    {
+        var raised = new ManualResetEventSlim();
+        _manager.OnLinkRoomsRequested += raised.Set;
+        _manager.SetLinkSupported(true);
+        _device.SetPowerStateForTest(PowerState.On);
+
+        _harness.Hub.LinkRooms(_groupName);
+
+        Assert.True(raised.Wait(WaitTimeoutMs), "OnLinkRoomsRequested was not raised");
+    }
+
+    [Fact]
+    public void UnlinkRooms_ReachesTheManager()
+    {
+        var raised = new ManualResetEventSlim();
+        _manager.OnUnlinkRoomsRequested += raised.Set;
+        _manager.SetLinkState(RoomLinkState.Following);
+
+        _harness.Hub.UnlinkRooms(_groupName);
+
+        Assert.True(raised.Wait(WaitTimeoutMs), "OnUnlinkRoomsRequested was not raised");
+    }
+
+    public static TheoryData<string, Action<RoomHub, string>> LinkCommands => new()
+    {
+        { nameof(RoomHub.LinkRooms), (hub, group) => hub.LinkRooms(group) },
+        { nameof(RoomHub.UnlinkRooms), (hub, group) => hub.UnlinkRooms(group) },
+    };
+
+    [Theory]
+    [MemberData(nameof(LinkCommands))]
+    public void LinkCommand_UnknownGroup_IsReportedUnderItsName(string command, Action<RoomHub, string> send)
+    {
+        var unknown = $"missing-{Guid.NewGuid()}";
+
+        send(_harness.Hub, unknown);
+
+        Assert.Equal(command, Assert.Single(RoomHub.Connections.GetSnapshot().UnknownGroupRequests, r => r.Group == unknown).Method);
     }
 
     private static void WaitFor(Func<bool> condition, string failureMessage)

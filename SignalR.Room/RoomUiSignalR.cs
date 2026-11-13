@@ -17,6 +17,7 @@ public class RoomUiSignalR : DeviceBase
 
         _roomManager.PowerStateHandlers += OnRoomPowerStateChanged;
         _roomManager.OnPropertyChanged += OnRoomPropertyChanged;
+        _roomManager.OnLinkChanged += OnRoomLinkChanged;
     }
 
     private async void OnRoomPowerStateChanged(PowerState state)
@@ -27,6 +28,11 @@ public class RoomUiSignalR : DeviceBase
     private async void OnRoomPropertyChanged(string key, string value)
     {
         await _hubContext.Clients.Group(Name).OnPropertyChanged(key, value);
+    }
+
+    private async void OnRoomLinkChanged(RoomLinkStatus link)
+    {
+        await _hubContext.Clients.Group(Name).OnRoomLinkChanged(link);
     }
 
     public override void PowerOn()
