@@ -157,6 +157,7 @@ public class ThreadWorker(Func<CancellationToken, Task> action, TimeSpan sleepTi
 
     private async Task RunActionOnce(CancellationToken token)
     {
+        Actor.Current = Actor.System(Name);
         Trigger.Start();
         try
         {

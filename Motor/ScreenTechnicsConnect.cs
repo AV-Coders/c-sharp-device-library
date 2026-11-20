@@ -94,7 +94,7 @@ public class ScreenTechnicsConnect : Motor
     {
         if (_currentConnectionKeepAlive != thisConnectionKeepAlive)
             return;
-        Actor.Current = null;
+        Actor.Current = Actor.System(Name);
         _client.Disconnect();
     }
 

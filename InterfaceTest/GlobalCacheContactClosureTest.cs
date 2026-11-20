@@ -277,6 +277,36 @@ public class GlobalCacheContactClosureTest
     }
 
     [Fact]
+    public void ARejection_IsWrittenOntoTheAuditEntryOfThePressThatMadeIt()
+    {
+        var target = $"Closure-{Guid.NewGuid()}";
+        Trigger.Start();
+        Audit.Record(target, "Close", "Relay 4");
+        _closure.Close(4);
+        Trigger.Start();
+
+        _client.Receive(BadConnector);
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal((AuditOutcomeKind.Rejected, "Closure", "setstate,1:4,1 answered ERR_1:4,003"), (outcome.Kind, outcome.Source, outcome.Detail));
+    }
+
+    [Fact]
+    public void ACommandLeftUnanswered_IsWrittenOntoTheAuditEntryOfThePressThatMadeIt()
+    {
+        var target = $"Closure-{Guid.NewGuid()}";
+        Trigger.Start();
+        Audit.Record(target, "Close", "Relay 1");
+        _closure.Close(1);
+        Trigger.Start();
+
+        _time.Advance(GlobalCacheContactClosure.ReplyTimeout);
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal((AuditOutcomeKind.NoReply, "Closure", "No reply to setstate,1:1,1 within 5 s"), (outcome.Kind, outcome.Source, outcome.Detail));
+    }
+
+    [Fact]
     public void AnUnknownCommandReply_IsARejection_NamingTheCommand()
     {
         _closure.Open(1);

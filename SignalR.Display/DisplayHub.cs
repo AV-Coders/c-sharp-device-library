@@ -64,6 +64,7 @@ public class DisplayHub() : GroupHub<IDisplayHub>(Connections)
             return;
         }
 
+        ReportInvocation(methodName);
         _ = Task.Run(() =>
         {
             using (Logger.BeginScope(new Dictionary<string, object?>

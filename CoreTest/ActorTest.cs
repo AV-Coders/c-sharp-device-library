@@ -60,6 +60,55 @@ public class ActorTest : IDisposable
     }
 
     [Fact]
+    public void ToString_ForASchedule_ShowsKindAndName()
+    {
+        Assert.Equal("Schedule DailyShutdown", Actor.Schedule("DailyShutdown").ToString());
+    }
+
+    [Fact]
+    public void ToString_ForTheSystem_ShowsKindAndName()
+    {
+        Assert.Equal("System AvCodersTcpClient.Receive (Projector)", Actor.System("AvCodersTcpClient.Receive (Projector)").ToString());
+    }
+
+    [Fact]
+    public void ToString_ForAConsoleCommand_ShowsKindAndCommand()
+    {
+        Assert.Equal("Console dumpheap", Actor.Console("dumpheap").ToString());
+    }
+
+    [Fact]
+    public void ToString_ForAPeer_ShowsKindIpAndHostName()
+    {
+        Assert.Equal("Peer 10.1.2.6 (RWR-CP4)", Actor.Peer("10.1.2.6", "RWR-CP4", "client-1").ToString());
+    }
+
+    [Theory]
+    [InlineData(ActorKind.Browser, true)]
+    [InlineData(ActorKind.Mcp, true)]
+    [InlineData(ActorKind.Panel, true)]
+    [InlineData(ActorKind.Console, true)]
+    [InlineData(ActorKind.Peer, true)]
+    [InlineData(ActorKind.Schedule, false)]
+    [InlineData(ActorKind.System, false)]
+    public void IsPerson_IsTrueForPeopleAndWhatTheyRelay(ActorKind kind, bool isPerson)
+    {
+        Assert.Equal(isPerson, new Actor(kind, string.Empty, string.Empty, null, string.Empty).IsPerson);
+    }
+
+    [Fact]
+    public void Begin_SetsTheActorUntilDisposed()
+    {
+        Actor.Current = Browser;
+        var schedule = Actor.Schedule("DailyShutdown");
+
+        using (Actor.Begin(schedule))
+            Assert.Equal(schedule, Actor.Current);
+
+        Assert.Equal(Browser, Actor.Current);
+    }
+
+    [Fact]
     public void AddEvent_UnderAnActor_RecordsTheActor()
     {
         Actor.Current = Browser;

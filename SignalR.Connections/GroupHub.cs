@@ -17,12 +17,19 @@ public abstract class GroupHub<T>(HubConnections connections) : Hub<T> where T :
         await base.OnDisconnectedAsync(exception);
     }
 
-    protected async Task AddToGroup(string groupName)
+    protected async Task AddToGroup(string groupName, [CallerMemberName] string methodName = "")
     {
+        ReportInvocation(methodName);
         await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
         connections.Join(Context.ConnectionId, groupName);
     }
 
-    protected void ReportUnknownGroup(string groupName, [CallerMemberName] string methodName = "") =>
+    protected void ReportUnknownGroup(string groupName, [CallerMemberName] string methodName = "")
+    {
+        ReportInvocation(methodName);
         connections.ReportUnknownGroup(Context.ConnectionId, methodName, groupName);
+    }
+
+    protected void ReportInvocation([CallerMemberName] string methodName = "") =>
+        connections.ReportInvocation(Context.ConnectionId, methodName, Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString());
 }

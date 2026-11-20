@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 
 namespace AVCoders.SignalR.Volume.Tests;
@@ -14,6 +15,7 @@ public class VolumeHubTestHarness
     {
         ClientsMock.Setup(c => c.Caller).Returns(CallerMock.Object);
         ContextMock.Setup(c => c.ConnectionId).Returns($"conn-{Guid.NewGuid()}");
+        ContextMock.Setup(c => c.Features).Returns(new FeatureCollection());
         Hub = new VolumeHub
         {
             Clients = ClientsMock.Object,

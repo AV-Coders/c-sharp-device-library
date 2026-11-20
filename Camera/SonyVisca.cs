@@ -223,11 +223,17 @@ public class SonyVisca : CameraBase, IDisposable
     private void ForgetMissedReplies()
     {
         foreach (var missed in _sent.TakeMissed())
+        {
             using (Trigger.Resume(missed.Command.TriggerId))
                 LogDebug("No reply to {Request}", BitConverter.ToString(missed.Command.Bytes));
+            Audit.RecordOutcome(missed.Command.TriggerId, AuditOutcomeKind.NoReply, Name, $"No reply to {BitConverter.ToString(missed.Command.Bytes)}");
+        }
         foreach (var missed in _executing.TakeMissed())
+        {
             using (Trigger.Resume(missed.Command.Command.TriggerId))
                 LogDebug("No completion for {Command}", BitConverter.ToString(missed.Command.Command.Bytes));
+            Audit.RecordOutcome(missed.Command.Command.TriggerId, AuditOutcomeKind.NoReply, Name, $"No completion for {BitConverter.ToString(missed.Command.Command.Bytes)}");
+        }
     }
 
     private void CountSilentPoll()
@@ -841,6 +847,7 @@ public class SonyVisca : CameraBase, IDisposable
                 var failed = ConsumeFailedRequest(socket, sequenceNumber);
                 if (failed?.Description is { } description)
                     errorMessage = $"Unable to {description}: {errorMessage}";
+                Audit.RecordOutcome(failed?.TriggerId, AuditOutcomeKind.Rejected, Name, $"{errorMessage} ({BitConverter.ToString(payload)})");
                 using (Trigger.Resume(failed?.TriggerId))
                 using (PushProperties("ProcessViscaPayload"))
                 {

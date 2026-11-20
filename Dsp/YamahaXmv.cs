@@ -528,6 +528,7 @@ public class YamahaXmv : Dsp
             using (PushProperties("ReportMissedReplies"))
             {
                 var command = missed.Command;
+                Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.NoReply, Name, $"No reply to {command.Text} within {ReplyTimeout.TotalSeconds} s");
                 if (command.Key == RunModeQuery)
                     continue;
                 if (command.Key == AlertStatusQuery)
@@ -666,6 +667,7 @@ public class YamahaXmv : Dsp
             }
 
             var command = sent.Command;
+            Audit.RecordOutcome(sent.TriggerId, AuditOutcomeKind.Rejected, Name, $"{command.Text} answered {line}");
             if (ReadFor(command.Key) is { } read)
             {
                 if (RejectionCodes.Contains(code))

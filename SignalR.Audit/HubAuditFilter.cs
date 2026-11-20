@@ -23,6 +23,20 @@ public class HubAuditFilter : IHubFilter
         return await next(invocationContext);
     }
 
+    public async Task OnConnectedAsync(HubLifetimeContext context, Func<HubLifetimeContext, Task> next)
+    {
+        Actor.Current = CreateActor(context.Context);
+        Trigger.Start();
+        await next(context);
+    }
+
+    public async Task OnDisconnectedAsync(HubLifetimeContext context, Exception? exception, Func<HubLifetimeContext, Exception?, Task> next)
+    {
+        Actor.Current = CreateActor(context.Context);
+        Trigger.Start();
+        await next(context, exception);
+    }
+
     private static Actor CreateActor(HubCallerContext context)
     {
         var httpContext = context.GetHttpContext();

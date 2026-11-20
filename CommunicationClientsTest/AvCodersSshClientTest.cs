@@ -323,6 +323,51 @@ public class AvCodersSshClientTest : IDisposable
     }
 
     [Fact]
+    public async Task WhileOffline_ASendIsDroppedAtItsTimeout_AndAPersonsReconnectSendWaitsFifteenSeconds()
+    {
+        await DisconnectByAPersonAfterTheFirstFailedAttempt();
+        var states = new ConcurrentQueue<ConnectionState>();
+        _client.ConnectionStateHandlers += states.Enqueue;
+        var sent = new ConcurrentQueue<string>();
+        _client.RequestHandlers += sent.Enqueue;
+        var target = $"SshOfflineExpiry-{Guid.NewGuid()}";
+        AsAPerson.Run(() => _client.Send("power on"));
+        Trigger.Start();
+        Audit.Record(target, "Poll");
+        _client.Send("poll");
+        await Wait.UntilAsync(() => states.Contains(ConnectionState.Connecting), "the send never started a connection attempt");
+
+        await TestNetwork.Advance(_time, TimeSpan.FromSeconds(QueueTimeoutSeconds) + AgeMargin);
+
+        await Wait.UntilAsync(() => Audit.GetEntries().Single(entry => entry.Target == target).Outcomes.Count > 0,
+            "the expired poll was never written onto its audit entry while offline");
+        Assert.StartsWith("Expired in the send queue after ", Assert.Single(Audit.GetEntries().Single(entry => entry.Target == target).Outcomes).Detail);
+        Assert.Equal(1, TestNetwork.SendQueueCount(_client));
+        await StopWorkers();
+        UseSession(ShellStreamWithoutAServer());
+        await ProcessSendQueue();
+        Assert.Equal(["power on"], sent);
+    }
+
+    [Fact]
+    public async Task Send_BytesNotSentWhileDisconnected_ShowTheBytesOnTheirAuditEntry()
+    {
+        await DisconnectByAPersonAfterTheFirstFailedAttempt();
+        _client.SetReconnectOnSend(false);
+        var target = $"SshBytesOutcome-{Guid.NewGuid()}";
+
+        AsAPerson.Run(() =>
+        {
+            Trigger.Start();
+            Audit.Record(target, "Power on");
+            _client.Send([0x50, 0xFF, 0x0D]);
+        });
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal(@"Not sent, the client was disconnected on request: P\xFF\x0D", outcome.Detail);
+    }
+
+    [Fact]
     public async Task Send_ByAPersonDuringTheReconnect_IsDroppedAfterFifteenSeconds()
     {
         var written = await WrittenAfterAPressOfTwoCommandsAndAPollWaited(ReconnectingSendQueueTimeout + AgeMargin);

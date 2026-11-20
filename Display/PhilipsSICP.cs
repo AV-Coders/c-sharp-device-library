@@ -208,6 +208,7 @@ public class PhilipsSICP : Display
 
         using (Trigger.Resume(sent.TriggerId))
         {
+            Audit.RecordOutcome(sent.TriggerId, AuditOutcomeKind.Rejected, Name, $"{Convert.ToHexString(sent.Command.Data)} answered {Convert.ToHexString(response)}");
             if (sent.Command.Read is not { } read)
             {
                 RaiseMomentaryIssue($"The display rejected the command {Convert.ToHexString(sent.Command.Data)} with {Convert.ToHexString(response)}",
@@ -299,6 +300,7 @@ public class PhilipsSICP : Display
             {
                 using (Trigger.Resume(missed.TriggerId))
                 {
+                    Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.NoReply, Name, $"No reply to {Convert.ToHexString(missed.Command.Data)} within {CommandSpacing.TotalSeconds} s");
                     if (missed.Command.Read is { } read)
                         CountMiss(read, $"no reply within {CommandSpacing.TotalSeconds} s");
                     else

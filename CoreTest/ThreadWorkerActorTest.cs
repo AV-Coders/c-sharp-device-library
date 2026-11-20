@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace AVCoders.Core.Tests;
 
 public class ThreadWorkerActorTest
@@ -6,14 +8,13 @@ public class ThreadWorkerActorTest
     private static readonly TimeSpan SleepTime = TimeSpan.FromMilliseconds(50);
 
     [Fact]
-    public async Task StartedAndRestartedUnderAnActor_TheLoopDoesNotSeeIt()
+    public async Task StartedAndRestartedUnderAnActor_TheLoopRunsAsTheWorker()
     {
         var invocations = 0;
-        var sawAnActor = false;
+        var seen = new ConcurrentQueue<Actor?>();
         var worker = new ThreadWorker(_ =>
         {
-            if (Actor.Current != null)
-                sawAnActor = true;
+            seen.Enqueue(Actor.Current);
             invocations++;
             return Task.CompletedTask;
         }, SleepTime);
@@ -26,14 +27,14 @@ public class ThreadWorkerActorTest
         await Wait.UntilAsync(() => invocations > afterRestart, "The worker never ran after the restart");
         await worker.Stop();
 
-        Assert.False(sawAnActor);
+        Assert.All(seen, actor => Assert.Equal(Actor.System(worker.Name), actor));
     }
 
     [Fact]
-    public async Task RestartedFromInsideTheActionUnderAnActor_TheNewLoopDoesNotSeeIt()
+    public async Task RestartedFromInsideTheActionUnderAnActor_TheNewLoopRunsAsTheWorker()
     {
         var invocations = 0;
-        var sawAnActor = false;
+        var sawAnotherActor = false;
         ThreadWorker? worker = null;
         worker = new ThreadWorker(async _ =>
         {
@@ -44,14 +45,14 @@ public class ThreadWorkerActorTest
                 await worker!.Restart();
                 return;
             }
-            if (Actor.Current != null)
-                sawAnActor = true;
+            if (Actor.Current != Actor.System(worker!.Name))
+                sawAnotherActor = true;
         }, SleepTime);
 
         await worker.Restart();
         await Wait.UntilAsync(() => invocations >= 3, "The worker never ran after restarting itself");
         await worker.Stop();
 
-        Assert.False(sawAnActor);
+        Assert.False(sawAnotherActor);
     }
 }

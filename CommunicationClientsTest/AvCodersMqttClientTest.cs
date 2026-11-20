@@ -188,7 +188,7 @@ public class AvCodersMqttClientTest : IDisposable
             "The subscribed message never arrived");
         listener.Stop();
 
-        Assert.Null(_receivedActor);
+        Assert.Equal(Actor.System(client.Name), _receivedActor);
         Assert.NotNull(_receivedTriggerId);
         Assert.NotEqual(senderTriggerId, _receivedTriggerId);
     }

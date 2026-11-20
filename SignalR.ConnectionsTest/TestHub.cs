@@ -34,6 +34,10 @@ public class TestHub() : GroupHub<ITestHub>(Connections)
     public void PowerOn(string groupName)
     {
         if (!RegisteredGroups.ContainsKey(groupName))
+        {
             ReportUnknownGroup(groupName);
+            return;
+        }
+        ReportInvocation();
     }
 }

@@ -628,6 +628,56 @@ public class QsysQrcTest
     }
 
     [Fact]
+    public void ASetDroppedWhileHeldForTheLogon_IsWrittenOntoItsAuditEntry()
+    {
+        var target = $"QrcHeldSet-{Guid.NewGuid()}";
+        Trigger.Start();
+        Audit.Record(target, "Set level", "Room.gain 10");
+        _dsp.SetLevel(RoomGain, 10);
+        _time.Advance(QueueTimeout);
+
+        LogOn();
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal((AuditOutcomeKind.Dropped, _dsp.Name, "Expired while held for the logon after 5 s, timeout 5 s: Room.gain {\"Position\":0.1}"),
+            (outcome.Kind, outcome.Source, outcome.Detail));
+    }
+
+    [Fact]
+    public async Task ASetDroppedWhileHeldForTheComponentList_SaysSoOnItsAuditEntry()
+    {
+        LogOn();
+        var target = $"QrcComponentListHold-{Guid.NewGuid()}";
+        Trigger.Start();
+        Audit.Record(target, "Set level", "Lobby.Zone 1.gain 42");
+        _dsp.SetLevel(LobbyZoneGain, 42);
+        _time.Advance(ReplyTimeout);
+
+        await _dsp.PollNow();
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes,
+            outcome => outcome.Kind == AuditOutcomeKind.Dropped);
+        Assert.Equal("Expired while held for the Core's component list after 5 s, timeout 5 s: Lobby.Zone 1.gain {\"Position\":0.42}",
+            outcome.Detail);
+    }
+
+    [Fact]
+    public void AnErrorReplyEndingInALineBreak_IsWrittenOntoItsAuditEntryWithTheBreakVisible()
+    {
+        LogOn();
+        var target = $"QrcEscapedRejection-{Guid.NewGuid()}";
+        Trigger.Start();
+        Audit.Record(target, "Set level", "Room.gain 42");
+        _dsp.SetLevel(RoomGain, 42);
+        var error = ErrorReply(IdOf("Component.Set"), 8, "Unknown control");
+
+        Receive(error + "\r\n");
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal((AuditOutcomeKind.Rejected, error + @"\x0D\x0A"), (outcome.Kind, outcome.Detail));
+    }
+
+    [Fact]
     public void ASetRejectedForALogon_IsDropped_WhenTheLogonEndsAfterTheClientsQueueTimeout()
     {
         LogOn();
@@ -732,6 +782,35 @@ public class QsysQrcTest
         client.Reply(ResultReply(IdIn(client, "Logon"), "true") + Delimiter);
 
         Assert.Equal(["Logon", "ChangeGroup.AutoPoll", "Component.Set", "Logon", "ChangeGroup.AutoPoll", "Component.Set"], MethodsOf(client));
+    }
+
+    [Theory]
+    [InlineData(ActorKind.Schedule)]
+    [InlineData(ActorKind.System)]
+    public void ASetByTheProgramDuringAPersonsReconnect_KeepsTheQueueTimeout_AndIsDroppedAfterTheLogon(ActorKind kind)
+    {
+        var client = new OnRequestTcpClient();
+        client.SetConnectionState(ConnectionState.Connected);
+        var dsp = new TestableQsysQrc(client, Username, Password, _time);
+        client.Reply(EngineStatus + Delimiter);
+        client.Reply(ResultReply(IdIn(client, "Logon"), "true") + Delimiter);
+        AsAPerson.Run(client.Disconnect);
+        AsAPerson.Run(() => dsp.SetLevel(RoomGain, 42));
+        using (Actor.Begin(new Actor(kind, string.Empty, string.Empty, null, string.Empty) { Name = "DailyShutdown" }))
+            dsp.SetLevel(MicGain, 20);
+
+        _time.Advance(TimeSpan.FromSeconds(12));
+        client.SetConnectionState(ConnectionState.Connected);
+        client.WriteQueued();
+        _time.Advance(TimeSpan.FromSeconds(1));
+        foreach (var id in RequestsOf(client).Where(request => request["method"]!.ToString() == "Component.Set").Select(request => (int)request["id"]!).ToList())
+            client.Reply(ErrorReply(id, QsysQrc.LogonRequiredErrorCode, "Logon required") + Delimiter);
+        client.Reply(ResultReply(IdIn(client, "Logon"), "true") + Delimiter);
+
+        Assert.Equal(
+            ["""{"Name":"Room","Controls":[{"Name":"gain","Position":0.42}]}""", """{"Name":"Mic 1","Controls":[{"Name":"gain","Position":0.2}]}""",
+             """{"Name":"Room","Controls":[{"Name":"gain","Position":0.42}]}"""],
+            ParamsOf(client, "Component.Set"));
     }
 
     [Fact]

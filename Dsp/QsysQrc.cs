@@ -26,6 +26,9 @@ public class QsysQrc : QsysDsp
     private const int MaxUnframedBytes = 8 * 1024 * 1024;
     private const int ShownUnframedBytes = 200;
     private const string MaskedPassword = "***";
+    private const string ExpiredWhileHeld = "Expired while held for";
+    private const string HeldForTheLogon = "the logon";
+    private const string HeldForTheComponentList = "the Core's component list";
     private const string JsonRpcVersion = "2.0";
 
     private const string LogonMethod = "Logon";
@@ -97,7 +100,10 @@ public class QsysQrc : QsysDsp
     private readonly record struct Resolution(ComponentControl? Split, bool AwaitsComponentList);
 
     private sealed record QrcSet(string ControlName, ComponentControl? Split, JsonObject Fields, string Subject, long Sequence,
-        long MadeAt, TimeSpan Lifetime, string? TriggerId);
+        long MadeAt, TimeSpan Lifetime, string? TriggerId)
+    {
+        public string HeldFor { get; init; } = string.Empty;
+    }
 
     private sealed record QrcRequest(int Id, string Method, JsonNode? Params, string Subject, IReadOnlyList<string> Controls,
         string? TriggerId, ComponentControl? Split = null, QrcSet? Set = null);
@@ -376,6 +382,7 @@ public class QsysQrc : QsysDsp
         {
             if (reply[ErrorField] is JsonObject error)
             {
+                Audit.RecordOutcome(request?.TriggerId, AuditOutcomeKind.Rejected, Name, message);
                 HandleError(request, error, message);
                 return;
             }
@@ -574,7 +581,7 @@ public class QsysQrc : QsysDsp
             return;
         }
         if (request.Set != null)
-            Hold(request.Set);
+            Hold(request.Set, HeldForTheLogon);
         bool logonInFlight;
         bool capped;
         lock (_lock)
@@ -670,6 +677,8 @@ public class QsysQrc : QsysDsp
             using (Trigger.Resume(missed.TriggerId))
             using (PushProperties("ReportMissedReplies"))
             {
+                Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.NoReply, Name,
+                    $"No reply to {missed.Command.Method} on {missed.Command.Subject} within {ReplyTimeout.TotalSeconds} s");
                 switch (missed.Command.Method)
                 {
                     case LogonMethod:
@@ -869,7 +878,7 @@ public class QsysQrc : QsysDsp
             TimeSpan.FromSeconds(CoreClient.QueueTimeoutFor(WaitsForAReconnect())), Trigger.Id);
 
     private bool WaitsForAReconnect() =>
-        Actor.Current != null && (CoreClient.ReconnectingForSend || CoreClient.DesiredConnectionState == ConnectionState.Disconnected);
+        Actor.Current is { IsPerson: true } && (CoreClient.ReconnectingForSend || CoreClient.DesiredConnectionState == ConnectionState.Disconnected);
 
     private void SendSet(QrcSet set)
     {
@@ -882,7 +891,7 @@ public class QsysQrc : QsysDsp
                 waitsForTheLogon = !_loggedIn && CommunicationClient.ConnectionState == ConnectionState.Connected;
             }
             if (waitsForTheLogon)
-                Hold(set);
+                Hold(set, HeldForTheLogon);
             else
                 TransmitSet(set);
         }
@@ -901,7 +910,7 @@ public class QsysQrc : QsysDsp
             ShowUnsplit(set.ControlName);
             return;
         }
-        Hold(set);
+        Hold(set, HeldForTheComponentList);
         RequestComponentList();
     }
 
@@ -914,14 +923,14 @@ public class QsysQrc : QsysDsp
         return new QrcRequest(NextId(), ComponentSetMethod, parameters, set.Subject, [set.ControlName], set.TriggerId, split, set);
     }
 
-    private void Hold(QrcSet set)
+    private void Hold(QrcSet set, string heldFor)
     {
         lock (_lock)
         {
             if (_held.Exists(held => held.ControlName == set.ControlName && held.Sequence > set.Sequence))
                 return;
             _held.RemoveAll(held => held.ControlName == set.ControlName);
-            _held.Add(set);
+            _held.Add(set with { HeldFor = heldFor });
         }
     }
 
@@ -943,6 +952,8 @@ public class QsysQrc : QsysDsp
                 {
                     LogWarning("Dropping the set of {Subject} made {Age} s ago: it is older than the client keeps a queued send ({Timeout} s)",
                         set.Subject, Math.Round(age.TotalSeconds, 1), set.Lifetime.TotalSeconds);
+                    Audit.RecordOutcome(set.TriggerId, AuditOutcomeKind.Dropped, Name,
+                        $"{ExpiredWhileHeld} {set.HeldFor} after {age.TotalSeconds:0} s, timeout {set.Lifetime.TotalSeconds:0} s: {set.Subject} {set.Fields.ToJsonString()}");
                     continue;
                 }
                 TransmitSet(set);

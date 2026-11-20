@@ -69,8 +69,9 @@ public class VolumeHub() : GroupHub<IVolumeHub>(Connections)
     // gets a fast ack, the device work runs off the SignalR dispatch thread, and the
     // resulting state is pushed back via the IVolumeHub callbacks. Any exception is
     // logged here rather than lost on an unobserved Task.
-    private static void Dispatch(string groupName, string methodName, Action work)
+    private void Dispatch(string groupName, string methodName, Action work)
     {
+        ReportInvocation(methodName);
         _ = Task.Run(() =>
         {
             using (Logger.BeginScope(new Dictionary<string, object?>

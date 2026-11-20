@@ -109,7 +109,10 @@ public class Navigator : VideoMatrix
 
     private void CountUnansweredForwards()
     {
-        var missed = _forwarded.TakeMissed().Where(sent => sent.Command.WasAnswering).ToList();
+        var taken = _forwarded.TakeMissed();
+        foreach (var sent in taken)
+            Audit.RecordOutcome(sent.TriggerId, AuditOutcomeKind.NoReply, Name, $"No reply relayed for {Printable(sent.Command)}");
+        var missed = taken.Where(sent => sent.Command.WasAnswering).ToList();
         int unanswered;
         lock (_relayLock)
         {
@@ -168,6 +171,7 @@ public class Navigator : VideoMatrix
         var offline = OfflineEndpoints();
         if (error == ExtronSis.InvalidParameter && _forwarded.TakeError(command => offline.ContainsKey(command.DeviceId)) is { } missed)
         {
+            Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.Rejected, Name, $"{Printable(missed.Command)} answered {error}");
             using (Trigger.Resume(missed.TriggerId))
                 offline[missed.Command.DeviceId].HandleMissedReply(missed.Command.Command, error);
             return;

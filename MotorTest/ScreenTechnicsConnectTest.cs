@@ -108,7 +108,7 @@ public class ScreenTechnicsConnectTest
         await Wait.UntilAsync(_time, TimeSpan.FromSeconds(MoveSeconds), () => disconnectedBy.Count == 1,
             "The client was never disconnected after the move");
         Assert.Equal([Presser], connectedBy);
-        Assert.Equal([null], disconnectedBy);
+        Assert.Equal([Actor.System(_motor.Name)], disconnectedBy);
     }
 
     [Fact]

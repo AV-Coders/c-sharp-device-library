@@ -126,6 +126,7 @@ public abstract partial class ExtronSisMatrix : VideoMatrix
         using (Trigger.Resume(rejected.TriggerId))
         using (PushProperties())
         {
+            Audit.RecordOutcome(rejected.TriggerId, AuditOutcomeKind.Rejected, Name, $"{rejected.Command.Name} answered {error}");
             if (rejected.Command.Query is not { } query)
                 ReportRejected(rejected.Command, error);
             else if (ExtronSis.MeansNotSupported(error))
@@ -157,6 +158,7 @@ public abstract partial class ExtronSisMatrix : VideoMatrix
             using (Trigger.Resume(missed.TriggerId))
             using (PushProperties())
             {
+                Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.NoReply, Name, $"No reply to {missed.Command.Name} within {ReplyTimeout.TotalSeconds} s");
                 if (missed.Command.Query is { } query)
                     CountMissedReply(query, $"no {query.ReplyTag.Trim()} reply within {ReplyTimeout.TotalSeconds} s");
                 else

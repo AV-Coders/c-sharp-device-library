@@ -456,6 +456,29 @@ public class AvCodersUdpClientTest : IDisposable
     }
 
     [Fact]
+    public async Task WhileTheSocketCannotOpen_ASendIsDroppedAtItsTimeout_AndAPersonsReconnectSendWaitsFifteenSeconds()
+    {
+        var client = CreateFakeResolvedClient(_port);
+        AsAPerson.Run(client.Disconnect);
+        var target = $"UdpOfflineExpiry-{Guid.NewGuid()}";
+        AsAPerson.Run(() => client.Send("power on"));
+        Trigger.Start();
+        Audit.Record(target, "Poll");
+        client.Send("poll");
+
+        await Task.Run(() => _time.Advance(TimeSpan.FromSeconds(client.QueueTimeoutFor(false)) + AgeMargin));
+
+        await Wait.UntilAsync(() => Audit.GetEntries().Single(entry => entry.Target == target).Outcomes.Count > 0,
+            "the expired poll was never written onto its audit entry while the socket couldn't open");
+        Assert.StartsWith("Expired in the send queue after ", Assert.Single(Audit.GetEntries().Single(entry => entry.Target == target).Outcomes).Detail);
+        Assert.Equal(1, TestNetwork.SendQueueCount(client));
+        _resolvesTo = [IPAddress.Loopback];
+        await Wait.UntilAsync(() => _time.ArmedTimers.Contains(SocketRetryInterval), "the client never armed its retry");
+        await Task.Run(() => _time.Advance(SocketRetryInterval));
+        Assert.Equal("power on", await ReceiveTextAsync());
+    }
+
+    [Fact]
     public void Send_WithNoPersonAfterAPersonDisconnected_IsDropped()
     {
         var client = CreateClientDisconnectedByAPerson();

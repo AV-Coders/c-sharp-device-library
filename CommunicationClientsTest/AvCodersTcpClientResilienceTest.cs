@@ -724,6 +724,119 @@ public class AvCodersTcpClientResilienceTest : IDisposable
     }
 
     [Fact]
+    public void Disconnect_ByTheSystem_LeavesReconnectOnSendOffAndNamesNoPerson()
+    {
+        CreateClientThatCannotConnect(out _, "SystemDisconnectTestClient");
+
+        using (Actor.Begin(Actor.Schedule("DailyShutdown")))
+            _client!.Disconnect();
+
+        Assert.False(_client.ReconnectOnSend);
+        Assert.Null(_client.DisconnectedBy);
+    }
+
+    [Fact]
+    public void Disconnect_ByAConsoleCommand_TurnsReconnectOnSendOn()
+    {
+        CreateClientThatCannotConnect(out _, "ConsoleDisconnectTestClient");
+        var console = Actor.Console("disconnect");
+
+        AsAPerson.Run(console, _client!.Disconnect);
+
+        Assert.True(_client.ReconnectOnSend);
+        Assert.Equal(console, _client.DisconnectedBy);
+    }
+
+    [Fact]
+    public async Task Disconnect_WithASendQueued_WritesTheDropOntoItsAuditEntry()
+    {
+        CreateClientThatCannotConnect(out _, "ClearedOutcomeTestClient");
+        await UntilTheFirstAttemptFailed();
+        var target = $"ClearedOutcome-{Guid.NewGuid()}";
+        Trigger.Start();
+        Audit.Record(target, "Power on");
+        _client!.Send("power on");
+
+        _client.Disconnect();
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal((AuditOutcomeKind.Dropped, "ClearedOutcomeTestClient", "Cleared from the send queue by a disconnect request: power on"),
+            (outcome.Kind, outcome.Source, outcome.Detail));
+    }
+
+    [Fact]
+    public void Send_ByAPersonWithReconnectOnSendOff_WritesTheMaskedDropOntoItsAuditEntry()
+    {
+        CreateClientThatCannotConnect(out _, "NotSentOutcomeTestClient");
+        _client!.MaskInRequests("hunter2", "****");
+        AsAPerson.Run(_client.Disconnect);
+        _client.SetReconnectOnSend(false);
+        var target = $"NotSentOutcome-{Guid.NewGuid()}";
+
+        AsAPerson.Run(() =>
+        {
+            Trigger.Start();
+            Audit.Record(target, "Log in");
+            _client.Send("login hunter2");
+        });
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal((AuditOutcomeKind.Dropped, "NotSentOutcomeTestClient", "Not sent, the client was disconnected on request: login ****"),
+            (outcome.Kind, outcome.Source, outcome.Detail));
+    }
+
+    [Fact]
+    public void Send_ADroppedMessage_ShowsItsTerminatorEscapedOnItsAuditEntry()
+    {
+        CreateClientThatCannotConnect(out _, "EscapedOutcomeTestClient");
+        AsAPerson.Run(_client!.Disconnect);
+        _client.SetReconnectOnSend(false);
+        var target = $"EscapedOutcome-{Guid.NewGuid()}";
+
+        AsAPerson.Run(() =>
+        {
+            Trigger.Start();
+            Audit.Record(target, "Power on");
+            _client.Send("PWR ON\r\n");
+        });
+
+        var outcome = Assert.Single(Assert.Single(Audit.GetEntries(), entry => entry.Target == target).Outcomes);
+        Assert.Equal(@"Not sent, the client was disconnected on request: PWR ON\x0D\x0A", outcome.Detail);
+    }
+
+    [Fact]
+    public async Task Send_ExpiringInTheQueue_WritesTheDropOntoItsAuditEntry()
+    {
+        CreateClientThatCannotConnect(out var port, "ExpiredOutcomeTestClient");
+        var sendQueueWorker = TestNetwork.SendQueueWorker(_client!);
+        await sendQueueWorker.Stop();
+        await UntilTheFirstAttemptFailed();
+        var target = $"ExpiredOutcome-{Guid.NewGuid()}";
+        Trigger.Start();
+        Audit.Record(target, "Power on");
+        _client!.Send("power on");
+        await TestNetwork.Advance(_time, DefaultQueueTimeout + AgeMargin);
+
+        var listener = TestNetwork.ListenOn(_time, port);
+        try
+        {
+            using var connection = await TestNetwork.AcceptAsync(listener, _time);
+            await UntilConnected("client never connected");
+            await sendQueueWorker.Restart();
+
+            await Wait.UntilAsync(() => Audit.GetEntries().Single(entry => entry.Target == target).Outcomes.Count > 0,
+                "the expired send was never written onto its audit entry");
+            var outcome = Assert.Single(Audit.GetEntries().Single(entry => entry.Target == target).Outcomes);
+            Assert.Equal((AuditOutcomeKind.Dropped, "ExpiredOutcomeTestClient"), (outcome.Kind, outcome.Source));
+            Assert.Matches(@"^Expired in the send queue after \d+ s, timeout 5 s: power on$", outcome.Detail);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
     public void Disconnect_ByTheProgramAfterAPerson_KeepsWhoDisconnectedItAndReconnectOnSend()
     {
         CreateClientThatCannotConnect(out _, "ProgramAfterPersonTestClient");
@@ -1036,6 +1149,62 @@ public class AvCodersTcpClientResilienceTest : IDisposable
         var received = await ReceivedAfterWaiting(ReconnectingSendQueueTimeout - AgeMargin, APressOfTwoCommandsAndAPollDuringTheReconnect);
 
         Assert.Equal("power on|input 2|" + Sentinel, received);
+    }
+
+    [Theory]
+    [InlineData(ActorKind.Schedule)]
+    [InlineData(ActorKind.System)]
+    public async Task Send_ByTheProgramDuringAPersonsReconnect_KeepsTheQueueTimeout(ActorKind kind)
+    {
+        CreateClientThatCannotConnect(out _, $"ProgramDuringReconnect{kind}TestClient");
+
+        var received = await ReceivedAfterWaiting(ReconnectingSendQueueTimeout - AgeMargin, () =>
+        {
+            AsAPerson.Run(() =>
+            {
+                _client!.Disconnect();
+                _client.Send("power on|");
+            });
+            using (Actor.Begin(new Actor(kind, string.Empty, string.Empty, null, string.Empty) { Name = "DailyShutdown" }))
+                _client!.Send("input 2|");
+        });
+
+        Assert.Equal("power on|" + Sentinel, received);
+    }
+
+    [Fact]
+    public async Task WhileOffline_ASendIsDroppedAtItsTimeout_AndAPersonsReconnectSendWaitsFifteenSeconds()
+    {
+        CreateClientThatCannotConnect(out var port, "OfflineExpiryTestClient");
+        await UntilTheFirstAttemptFailed();
+        var target = $"OfflineExpiry-{Guid.NewGuid()}";
+        AsAPerson.Run(() =>
+        {
+            _client!.Disconnect();
+            _client.Send("power on|");
+        });
+        Trigger.Start();
+        Audit.Record(target, "Poll");
+        _client!.Send("poll|");
+
+        await TestNetwork.Advance(_time, DefaultQueueTimeout + AgeMargin);
+
+        await Wait.UntilAsync(() => Audit.GetEntries().Single(entry => entry.Target == target).Outcomes.Count > 0,
+            "the expired poll was never written onto its audit entry while offline");
+        var outcome = Assert.Single(Audit.GetEntries().Single(entry => entry.Target == target).Outcomes);
+        Assert.StartsWith("Expired in the send queue after ", outcome.Detail);
+        Assert.Equal(1, TestNetwork.SendQueueCount(_client));
+        var listener = await ListenAndRetryAtOnce(port);
+        try
+        {
+            using var connection = await AcceptWithoutTheClock(listener);
+            _client.Send(Sentinel);
+            Assert.Equal("power on|" + Sentinel, await TestNetwork.ReadUntilAsync(connection, _time, Sentinel));
+        }
+        finally
+        {
+            listener.Stop();
+        }
     }
 
     [Fact]

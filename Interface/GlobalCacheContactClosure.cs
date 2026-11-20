@@ -210,6 +210,7 @@ public class GlobalCacheContactClosure : DeviceBase
         }
         using (Trigger.Resume(rejected.TriggerId))
             RaiseMomentaryIssue($"The Global Cache rejected {rejected.Command} with {Escaped(line)}", RejectedIssueKey);
+        Audit.RecordOutcome(rejected.TriggerId, AuditOutcomeKind.Rejected, Name, $"{rejected.Command} answered {Escaped(line)}");
     }
 
     private void ScheduleUnansweredCheck()
@@ -226,6 +227,8 @@ public class GlobalCacheContactClosure : DeviceBase
             using (PushProperties())
                 RaiseMomentaryIssue($"The Global Cache did not answer {missed.Command} within {ReplyTimeout.TotalSeconds} s{UnterminatedText()}",
                     UnansweredIssueKey);
+            Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.NoReply, Name,
+                $"No reply to {missed.Command} within {ReplyTimeout.TotalSeconds} s{UnterminatedText()}");
         }
         ScheduleUnansweredCheck();
     }

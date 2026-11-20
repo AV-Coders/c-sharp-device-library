@@ -196,6 +196,7 @@ public class AvCodersTcpClient : Core_TcpClient
     {
         if (!IsConnected())
         {
+            DropExpiredSends();
             await Task.Delay(NotConnectedSendWait, TimeProvider, token);
             return;
         }
@@ -204,15 +205,9 @@ public class AvCodersTcpClient : Core_TcpClient
         {
             using (Trigger.Resume(item.TriggerId))
             {
-                // Drop stale items
-                var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
-                var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
-                if (Math.Abs(age) >= timeout)
+                if (IsExpired(item))
                 {
-                    using (PushProperties("ProcessSendQueue"))
-                        LogWarning(
-                            "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
-                            age, timeout);
+                    ReportExpired(item);
                     continue;
                 }
 
@@ -262,6 +257,55 @@ public class AvCodersTcpClient : Core_TcpClient
             return _sendQueue.Count > 0;
     }
 
+    private bool IsExpired(QueuedPayload<(byte[] Bytes, string? Message)> item) =>
+        Math.Abs((TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds) >= QueueTimeoutFor(item.WaitsForTheReconnect);
+
+    private void ReportExpired(QueuedPayload<(byte[] Bytes, string? Message)> item)
+    {
+        var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
+        var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
+        using (Trigger.Resume(item.TriggerId))
+        using (PushProperties("ProcessSendQueue"))
+            LogWarning("Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s", age, timeout);
+        RecordDroppedSend(item.TriggerId, $"{ExpiredInTheQueue} after {age:0} s, timeout {timeout} s", item.Payload.Bytes, item.Payload.Message);
+    }
+
+    private void DropExpiredSends()
+    {
+        List<QueuedPayload<(byte[] Bytes, string? Message)>> expired = [];
+        lock (_sendQueue)
+        {
+            for (var node = _sendQueue.First; node != null;)
+            {
+                var next = node.Next;
+                if (IsExpired(node.Value))
+                {
+                    expired.Add(node.Value);
+                    _sendQueue.Remove(node);
+                }
+                node = next;
+            }
+        }
+        foreach (var item in expired)
+            ReportExpired(item);
+    }
+
+    private List<QueuedPayload<(byte[] Bytes, string? Message)>> ClearQueue()
+    {
+        lock (_sendQueue)
+        {
+            var cleared = _sendQueue.ToList();
+            _sendQueue.Clear();
+            return cleared;
+        }
+    }
+
+    private void RecordCleared(List<QueuedPayload<(byte[] Bytes, string? Message)>> cleared, string reason)
+    {
+        foreach (var item in cleared)
+            RecordDroppedSend(item.TriggerId, reason, item.Payload.Bytes, item.Payload.Message);
+    }
+
     public override void Send(string message) => Send(Bytes.FromString(message), message);
 
     public override void Send(byte[] bytes) => Send(bytes, null);
@@ -273,7 +317,10 @@ public class AvCodersTcpClient : Core_TcpClient
             if (DesiredConnectionState == ConnectionState.Disconnected)
             {
                 if (!ReconnectForSend(() => EnqueueWithCap(bytes, message)))
+                {
                     LogDebug("Not sending, the client was disconnected on request");
+                    RecordDroppedSend(Trigger.Id, NotSentWhileDisconnected, bytes, message);
+                }
                 return;
             }
 
@@ -319,16 +366,17 @@ public class AvCodersTcpClient : Core_TcpClient
         using (Trigger.Resume(dropped.TriggerId))
         using (PushProperties("EnqueueWithCap"))
             LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+        RecordDroppedSend(dropped.TriggerId, $"{DroppedFromAFullQueue} of {MaxQueueSize}", dropped.Payload.Bytes, dropped.Payload.Message);
     }
 
     public override void Connect()
     {
+        List<QueuedPayload<(byte[] Bytes, string? Message)>> cleared = [];
         lock (ConnectionRequestLock)
         {
             RecordRequestedConnect();
             if (!ReconnectingForSend)
-                lock (_sendQueue)
-                    _sendQueue.Clear();
+                cleared = ClearQueue();
             DesiredConnectionState = ConnectionState.Connected;
             AddEvent(EventType.Connection, "Connect requested");
             _reconnectBackoffMs = InitialBackoffMs;
@@ -336,6 +384,7 @@ public class AvCodersTcpClient : Core_TcpClient
             ReceiveThreadWorker.Restart();
             SendQueueWorker.Restart();
         }
+        RecordCleared(cleared, ClearedByConnect);
     }
 
     public override void Reconnect()
@@ -396,6 +445,7 @@ public class AvCodersTcpClient : Core_TcpClient
 
     public override void Disconnect()
     {
+        List<QueuedPayload<(byte[] Bytes, string? Message)>> cleared;
         lock (ConnectionRequestLock)
         {
             RecordRequestedDisconnect();
@@ -406,11 +456,11 @@ public class AvCodersTcpClient : Core_TcpClient
             SendQueueWorker.Stop();
             ConnectionState = ConnectionState.Disconnecting;
             DestroyClientSafely();
-            lock (_sendQueue)
-                _sendQueue.Clear();
+            cleared = ClearQueue();
             ClearConnectionFailures();
             ConnectionState = ConnectionState.Disconnected;
         }
+        RecordCleared(cleared, ClearedByDisconnect);
     }
 
     private void ConfigureKeepAlive(TcpClient client)

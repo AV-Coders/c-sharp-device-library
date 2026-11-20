@@ -287,9 +287,13 @@ public class ExtronSmp351 : Recorder
     private void ReportTheMissedReplies()
     {
         foreach (var missed in _sent.TakeMissed())
+        {
             using (Trigger.Resume(missed.TriggerId))
             using (PushProperties())
                 ReportMissedReply(missed.Command);
+            Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.NoReply, Name,
+                $"No reply to {ExtronSis.Printable(missed.Command.Text)} within {ReplyTimeout.TotalSeconds} s");
+        }
     }
 
     private void ReportMissedReply(SmpCommand command)
@@ -622,6 +626,8 @@ public class ExtronSmp351 : Recorder
     {
         var description = ErrorMessages.TryGetValue(error, out var message) ? $"{error} ({message})" : error;
         var sent = _sent.TakeError();
+        if (sent != null)
+            Audit.RecordOutcome(sent.TriggerId, AuditOutcomeKind.Rejected, Name, $"{ExtronSis.Printable(sent.Command.Text)} answered {description}");
         using (Trigger.Resume(sent?.TriggerId))
         using (PushProperties())
         {

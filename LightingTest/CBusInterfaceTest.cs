@@ -169,7 +169,7 @@ public class CBusInterfaceTest
 
         var send = sends.Single(x => x.Wire == SecondWire);
         Assert.Equal(second, send.TriggerId);
-        Assert.Null(send.Actor);
+        Assert.Equal(Actor.System(cbus.Name), send.Actor);
     }
 
     [Fact]

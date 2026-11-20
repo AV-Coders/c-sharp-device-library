@@ -181,6 +181,7 @@ public sealed class CiscoRoomOsPhonebookParser : PhonebookParserBase
 
     private void HandleSearchTimeout(object? state)
     {
+        using var actor = Actor.Begin(Actor.System(Name));
         try
         {
             var search = (PhonebookSearch)state!;

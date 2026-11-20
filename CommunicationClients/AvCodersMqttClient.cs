@@ -84,6 +84,7 @@ public class AvCodersMqttClient : MqttClient
     private Task HandleMqttMessage(MqttApplicationMessageReceivedEventArgs arg)
     {
         using var trigger = Trigger.Begin();
+        using var actor = Actor.Begin(Actor.System(Name));
         string topic = arg.ApplicationMessage.Topic;
         var rawPayload = Encoding.UTF8.GetString(arg.ApplicationMessage.Payload);
         List<Action<string>> matching;

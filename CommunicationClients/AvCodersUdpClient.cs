@@ -130,6 +130,7 @@ public class AvCodersUdpClient : Core_UdpClient
         var client = _client;
         if (client == null)
         {
+            DropExpiredSends();
             await Task.Delay(NoSocketSendWait, TimeProvider, token);
         }
         else
@@ -138,14 +139,9 @@ public class AvCodersUdpClient : Core_UdpClient
             {
                 using (Trigger.Resume(item.TriggerId))
                 {
-                    var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
-                    var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
-                    if (Math.Abs(age) >= timeout)
+                    if (IsExpired(item))
                     {
-                        using (PushProperties("ProcessSendQueue"))
-                            LogWarning(
-                                "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s",
-                                age, timeout);
+                        ReportExpired(item);
                         continue;
                     }
                     try
@@ -191,6 +187,55 @@ public class AvCodersUdpClient : Core_UdpClient
             return _sendQueue.Count > 0;
     }
 
+    private bool IsExpired(QueuedPayload<(byte[] Bytes, string? Message)> item) =>
+        Math.Abs((TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds) >= QueueTimeoutFor(item.WaitsForTheReconnect);
+
+    private void ReportExpired(QueuedPayload<(byte[] Bytes, string? Message)> item)
+    {
+        var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
+        var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
+        using (Trigger.Resume(item.TriggerId))
+        using (PushProperties("ProcessSendQueue"))
+            LogWarning("Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s", age, timeout);
+        RecordDroppedSend(item.TriggerId, $"{ExpiredInTheQueue} after {age:0} s, timeout {timeout} s", item.Payload.Bytes, item.Payload.Message);
+    }
+
+    private void DropExpiredSends()
+    {
+        List<QueuedPayload<(byte[] Bytes, string? Message)>> expired = [];
+        lock (_sendQueue)
+        {
+            for (var node = _sendQueue.First; node != null;)
+            {
+                var next = node.Next;
+                if (IsExpired(node.Value))
+                {
+                    expired.Add(node.Value);
+                    _sendQueue.Remove(node);
+                }
+                node = next;
+            }
+        }
+        foreach (var item in expired)
+            ReportExpired(item);
+    }
+
+    private List<QueuedPayload<(byte[] Bytes, string? Message)>> ClearQueue()
+    {
+        lock (_sendQueue)
+        {
+            var cleared = _sendQueue.ToList();
+            _sendQueue.Clear();
+            return cleared;
+        }
+    }
+
+    private void RecordCleared(List<QueuedPayload<(byte[] Bytes, string? Message)>> cleared, string reason)
+    {
+        foreach (var item in cleared)
+            RecordDroppedSend(item.TriggerId, reason, item.Payload.Bytes, item.Payload.Message);
+    }
+
     protected override async Task CheckConnectionState(CancellationToken token)
     {
         using (PushProperties("CheckConnectionState"))
@@ -203,12 +248,12 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Connect()
     {
+        List<QueuedPayload<(byte[] Bytes, string? Message)>> cleared = [];
         lock (ConnectionRequestLock)
         {
             RecordRequestedConnect();
             if (!ReconnectingForSend)
-                lock (_sendQueue)
-                    _sendQueue.Clear();
+                cleared = ClearQueue();
             DesiredConnectionState = ConnectionState.Connected;
             AddEvent(EventType.Connection, "Connect requested");
             Reconnect();
@@ -216,6 +261,7 @@ public class AvCodersUdpClient : Core_UdpClient
             ReceiveThreadWorker.Restart();
             SendQueueWorker.Restart();
         }
+        RecordCleared(cleared, ClearedByConnect);
     }
 
     public override void Reconnect()
@@ -255,6 +301,7 @@ public class AvCodersUdpClient : Core_UdpClient
 
     public override void Disconnect()
     {
+        List<QueuedPayload<(byte[] Bytes, string? Message)>> cleared;
         lock (ConnectionRequestLock)
         {
             RecordRequestedDisconnect();
@@ -265,11 +312,11 @@ public class AvCodersUdpClient : Core_UdpClient
             SendQueueWorker.Stop();
             ConnectionState = ConnectionState.Disconnecting;
             ReplaceClient(null);
-            lock (_sendQueue)
-                _sendQueue.Clear();
+            cleared = ClearQueue();
             ClearConnectionFailures();
             ConnectionState = ConnectionState.Disconnected;
         }
+        RecordCleared(cleared, ClearedByDisconnect);
     }
 
     public override void Send(byte[] bytes) => Send(bytes, null);
@@ -283,7 +330,10 @@ public class AvCodersUdpClient : Core_UdpClient
             if (DesiredConnectionState == ConnectionState.Disconnected)
             {
                 if (!ReconnectForSend(() => SendOrQueue(bytes, message)))
+                {
                     LogDebug("Not sending, the client was disconnected on request");
+                    RecordDroppedSend(Trigger.Id, NotSentWhileDisconnected, bytes, message);
+                }
                 return;
             }
 
@@ -334,5 +384,6 @@ public class AvCodersUdpClient : Core_UdpClient
         using (Trigger.Resume(dropped.TriggerId))
         using (PushProperties("EnqueueWithCap"))
             LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+        RecordDroppedSend(dropped.TriggerId, $"{DroppedFromAFullQueue} of {MaxQueueSize}", dropped.Payload.Bytes, dropped.Payload.Message);
     }
 }

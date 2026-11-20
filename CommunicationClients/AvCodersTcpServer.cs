@@ -137,6 +137,7 @@ public class AvCodersTcpServer : Core_TcpClient
             try
             {
                 await using NetworkStream stream = client.GetStream();
+                var peerAddress = (client.Client.RemoteEndPoint as IPEndPoint)?.Address;
                 byte[] buffer = new byte[1024];
                 int bytesRead;
                 while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length, token)) != 0)
@@ -149,6 +150,7 @@ public class AvCodersTcpServer : Core_TcpClient
                         ? Encoding.Latin1.GetString(received)
                         : ConvertByteArrayToString(received);
                     using (Trigger.Begin())
+                    using (Actor.Begin(PeerActor(peerAddress, clientId)))
                         InvokeResponseHandlers(response, received);
                 }
             }
@@ -170,6 +172,9 @@ public class AvCodersTcpServer : Core_TcpClient
             }
         }
     }
+
+    private static Actor PeerActor(IPAddress? address, Guid clientId) =>
+        Actor.Peer(address?.ToString() ?? string.Empty, address == null ? null : HostNames.Get(address), clientId.ToString());
 
     protected override Task ProcessSendQueue(CancellationToken token) => SendQueueWorker.Stop();
 

@@ -29,6 +29,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\CoreTest\CoreTest.csproj" />
+        <ProjectReference Include="..\SignalR.Audit\SignalR.Audit.csproj" />
         <ProjectReference Include="..\SignalR.Connections\SignalR.Connections.csproj" />
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>

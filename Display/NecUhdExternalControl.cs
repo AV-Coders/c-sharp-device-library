@@ -217,6 +217,7 @@ public class NecUhdExternalControl : Display
             {
                 using (Trigger.Resume(missed.TriggerId))
                 {
+                    Audit.RecordOutcome(missed.TriggerId, AuditOutcomeKind.NoReply, Name, $"No reply to {missed.Command.Message} within {ReplyWait.TotalMilliseconds} ms");
                     if (missed.Command.Read is { } read)
                         CountMiss(read, $"no reply within {ReplyWait.TotalMilliseconds} ms");
                     else
@@ -509,6 +510,7 @@ public class NecUhdExternalControl : Display
 
         using (Trigger.Resume(sent.TriggerId))
         {
+            Audit.RecordOutcome(sent.TriggerId, AuditOutcomeKind.Rejected, Name, $"{sent.Command.Message} answered with the NULL message {Convert.ToHexString(response)}");
             if (sent.Command.Read is { } read)
                 CountNullMessage(read, Convert.ToHexString(response));
             else

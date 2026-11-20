@@ -1,3 +1,4 @@
+using AVCoders.Core;
 using AVCoders.Core.Tests;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -71,6 +72,20 @@ public class GroupHubOverSignalRTest : IAsyncLifetime
         await Wait.UntilAsync(
             () => TestHub.Connections.GetOngoingIssues().All(issue => issue.Key != HubConnections.UnknownGroupIssuePrefix + _groupName),
             "The unknown-group issue stayed ongoing after the client disconnected");
+    }
+
+    [Fact]
+    public async Task JoinGroup_OnAHostWithoutHubAuditFilter_RaisesTheNoActorIssueWithTheClientsAddress()
+    {
+        TestHub.RegisterGroup(_groupName);
+        using (Actor.Begin(new Actor(ActorKind.Panel, "10.0.0.21", "TSW-1070", null, "earlier-connection")))
+            TestHub.Connections.ReportInvocation("earlier-connection", "PowerOn", null);
+
+        await _client.InvokeAsync("JoinGroup", _groupName);
+
+        var issue = Assert.Single(TestHub.Connections.GetOngoingIssues(), issue => issue.Key == HubConnections.NoActorIssueKey);
+        Assert.Contains("the host hasn't registered HubAuditFilter", issue.Message);
+        Assert.EndsWith("remote address 127.0.0.1", issue.Message);
     }
 
     [Theory]

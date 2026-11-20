@@ -112,6 +112,52 @@ public class AvCodersTcpServerTest : IDisposable
     }
 
     [Fact]
+    public async Task ClientData_RunsAsAPeerWithTheClientsAddress()
+    {
+        Actor? actor = null;
+        _server.ResponseHandlers += _ => actor = Actor.Current;
+        var client = await ConnectClientAsync();
+        await UntilConnected();
+
+        await client.GetStream().WriteAsync(Encoding.UTF8.GetBytes("power on"));
+
+        await Wait.UntilAsync(() => actor != null, "response handler never invoked");
+        Assert.Equal((ActorKind.Peer, "127.0.0.1", true), (actor!.Kind, actor.Ip, actor.IsPerson));
+        Assert.True(Guid.TryParse(actor.ConnectionId, out _));
+    }
+
+    [Fact]
+    public async Task ASendRelayedThroughTheServer_ReconnectsAClientAPersonDisconnected()
+    {
+        var clientTime = new ConnectTimeoutClock();
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var projector = new AvCodersTcpClient("127.0.0.1", (ushort)((IPEndPoint)listener.LocalEndpoint).Port, "RelayedTestClient",
+            CommandStringFormat.Ascii, clientTime);
+        try
+        {
+            using (await TestNetwork.AcceptAsync(listener, clientTime))
+            {
+                await TestNetwork.UntilAsync(clientTime, () => projector.ConnectionState == ConnectionState.Connected, "the projector client never connected");
+                AsAPerson.Run(projector.Disconnect);
+            }
+            _server.ResponseHandlers += projector.Send;
+            var peer = await ConnectClientAsync();
+            await UntilConnected();
+
+            await peer.GetStream().WriteAsync(Encoding.UTF8.GetBytes("power on"));
+
+            using var reconnected = await TestNetwork.AcceptAsync(listener, clientTime);
+            Assert.Equal("power on", await TestNetwork.ReadStringAsync(reconnected, clientTime));
+        }
+        finally
+        {
+            projector.Disconnect();
+            listener.Stop();
+        }
+    }
+
+    [Fact]
     public async Task SingleNullProbeByte_IsIgnored()
     {
         var responses = new ConcurrentQueue<string>();

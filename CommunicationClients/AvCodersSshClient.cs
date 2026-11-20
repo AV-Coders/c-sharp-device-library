@@ -184,6 +184,7 @@ public class AvCodersSshClient : SshClientBase
         var stream = _stream;
         if (!IsClientConnected() || stream is not { CanWrite: true } || ConnectionState == ConnectionState.Error)
         {
+            DropExpiredSends();
             await Task.Delay(NoSessionSendWait, TimeProvider, token);
             return;
         }
@@ -193,13 +194,9 @@ public class AvCodersSshClient : SshClientBase
             using (Trigger.Resume(item.TriggerId))
             using (PushProperties("ProcessSendQueue"))
             {
-                var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
-                var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
-                if (age >= timeout)
+                if (IsExpired(item))
                 {
-                    LogWarning(
-                        "Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
-                        age, timeout, item.Payload.Text);
+                    ReportExpired(item);
                     continue;
                 }
 
@@ -316,6 +313,7 @@ public class AvCodersSshClient : SshClientBase
     private void ClientOnErrorOccurred(object? sender, ExceptionEventArgs e)
     {
         using (Trigger.Begin())
+        using (Actor.Begin(Actor.System(Name)))
         using (PushProperties("ClientOnErrorOccurred"))
         {
             LogException(e.Exception, "SSH.Net has logged an error");
@@ -336,7 +334,10 @@ public class AvCodersSshClient : SshClientBase
             if (DesiredConnectionState == ConnectionState.Disconnected)
             {
                 if (!ReconnectForSend(() => EnqueueWithCap(message, bytes)))
+                {
                     LogDebug("Not sending, the client was disconnected on request");
+                    RecordDropped(Trigger.Id, NotSentWhileDisconnected, message, bytes);
+                }
                 return;
             }
 
@@ -411,29 +412,93 @@ public class AvCodersSshClient : SshClientBase
         }
     }
 
-    private void EnqueueWithCap(string message, byte[]? bytes)
+    private bool IsExpired(QueuedPayload<(string Text, byte[]? Bytes)> item) =>
+        (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds >= QueueTimeoutFor(item.WaitsForTheReconnect);
+
+    private void ReportExpired(QueuedPayload<(string Text, byte[]? Bytes)> item)
     {
+        var age = (TimeProvider.GetUtcNow() - item.Timestamp).TotalSeconds;
+        var timeout = QueueTimeoutFor(item.WaitsForTheReconnect);
+        using (Trigger.Resume(item.TriggerId))
+        using (PushProperties("ProcessSendQueue"))
+            LogWarning("Dropping queued message due to timeout. Age: {Age}s, Timeout: {Timeout}s, Message: {Message}",
+                age, timeout, item.Payload.Text);
+        RecordDropped(item.TriggerId, $"{ExpiredInTheQueue} after {age:0} s, timeout {timeout} s", item.Payload.Text, item.Payload.Bytes);
+    }
+
+    private void DropExpiredSends()
+    {
+        List<QueuedPayload<(string Text, byte[]? Bytes)>> expired = [];
         lock (_sendQueue)
         {
-            if (_sendQueue.Count >= MaxQueueSize && _sendQueue.First is { } dropped)
+            for (var node = _sendQueue.First; node != null;)
             {
+                var next = node.Next;
+                if (IsExpired(node.Value))
+                {
+                    expired.Add(node.Value);
+                    _sendQueue.Remove(node);
+                }
+                node = next;
+            }
+        }
+        foreach (var item in expired)
+            ReportExpired(item);
+    }
+
+    private void RecordDropped(string? triggerId, string reason, string text, byte[]? bytes)
+    {
+        if (bytes == null)
+            RecordDroppedSend(triggerId, reason, text);
+        else
+            RecordDroppedSend(triggerId, reason, bytes, text);
+    }
+
+    private void EnqueueWithCap(string message, byte[]? bytes)
+    {
+        QueuedPayload<(string Text, byte[]? Bytes)>? dropped = null;
+        lock (_sendQueue)
+        {
+            if (_sendQueue.Count >= MaxQueueSize && _sendQueue.First is { } oldest)
+            {
+                dropped = oldest.Value;
                 _sendQueue.RemoveFirst();
-                using (Trigger.Resume(dropped.Value.TriggerId))
-                using (PushProperties("EnqueueWithCap"))
-                    LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
             }
             _sendQueue.AddLast(new QueuedPayload<(string Text, byte[]? Bytes)>(TimeProvider.GetUtcNow(), (message, bytes), Trigger.Id, WaitsForTheReconnect()));
         }
+
+        if (dropped == null)
+            return;
+        using (Trigger.Resume(dropped.TriggerId))
+        using (PushProperties("EnqueueWithCap"))
+            LogWarning("Send queue full, dropping oldest message. MaxQueueSize: {MaxQueueSize}", MaxQueueSize);
+        RecordDropped(dropped.TriggerId, $"{DroppedFromAFullQueue} of {MaxQueueSize}", dropped.Payload.Text, dropped.Payload.Bytes);
+    }
+
+    private List<QueuedPayload<(string Text, byte[]? Bytes)>> ClearQueue()
+    {
+        lock (_sendQueue)
+        {
+            var cleared = _sendQueue.ToList();
+            _sendQueue.Clear();
+            return cleared;
+        }
+    }
+
+    private void RecordCleared(List<QueuedPayload<(string Text, byte[]? Bytes)>> cleared, string reason)
+    {
+        foreach (var item in cleared)
+            RecordDropped(item.TriggerId, reason, item.Payload.Text, item.Payload.Bytes);
     }
 
     public override void Connect()
     {
+        List<QueuedPayload<(string Text, byte[]? Bytes)>> cleared = [];
         lock (ConnectionRequestLock)
         {
             RecordRequestedConnect();
             if (!ReconnectingForSend)
-                lock (_sendQueue)
-                    _sendQueue.Clear();
+                cleared = ClearQueue();
             DesiredConnectionState = ConnectionState.Connected;
             AddEvent(EventType.Connection, "Connect requested");
             _consecutiveShortSessions = 0;
@@ -441,6 +506,7 @@ public class AvCodersSshClient : SshClientBase
             ReceiveThreadWorker.Restart();
             SendQueueWorker.Restart();
         }
+        RecordCleared(cleared, ClearedByConnect);
     }
 
     public override void Reconnect()
@@ -491,6 +557,7 @@ public class AvCodersSshClient : SshClientBase
 
     public override void Disconnect()
     {
+        List<QueuedPayload<(string Text, byte[]? Bytes)>> cleared;
         lock (ConnectionRequestLock)
         {
             RecordRequestedDisconnect();
@@ -515,10 +582,10 @@ public class AvCodersSshClient : SshClientBase
 
             if (IsClientConnected())
                 _client.Disconnect();
-            lock (_sendQueue)
-                _sendQueue.Clear();
+            cleared = ClearQueue();
             ClearConnectionFailures();
             ConnectionState = ConnectionState.Disconnected;
         }
+        RecordCleared(cleared, ClearedByDisconnect);
     }
 }

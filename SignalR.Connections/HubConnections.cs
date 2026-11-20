@@ -6,6 +6,7 @@ namespace AVCoders.SignalR.Connections;
 public class HubConnections(string hubName) : LogBase(hubName)
 {
     public const string UnknownGroupIssuePrefix = "unknown-group:";
+    public const string NoActorIssueKey = "no-actor";
     public const int UnknownGroupRequestLimit = 50;
 
     private readonly object _lock = new();
@@ -100,6 +101,19 @@ public class HubConnections(string hubName) : LogBase(hubName)
         if (raisesIssue)
             ReconcileIssue(group);
         RaiseChanged();
+    }
+
+    public void ReportInvocation(string connectionId, string method, string? remoteAddress)
+    {
+        if (Actor.Current != null)
+        {
+            ResolveIssue(NoActorIssueKey);
+            return;
+        }
+        if (GetOngoingIssues().Any(issue => issue.Key == NoActorIssueKey))
+            return;
+        RaiseOngoingIssue(NoActorIssueKey,
+            $"{method} on {Name} arrived with no actor: the host hasn't registered HubAuditFilter, so this hub's calls aren't attributed or audited. Connection {connectionId}, remote address {remoteAddress ?? "none"}");
     }
 
     public int Count(string group)

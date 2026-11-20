@@ -211,6 +211,7 @@ public class CBusSerialInterface : LogBase
     private void HandleHealthTimer(object? state)
     {
         using (Trigger.Begin())
+        using (Actor.Begin(Actor.System(Name)))
         using (PushProperties("HandleHealthTimer"))
         {
             try
@@ -369,6 +370,7 @@ public class CBusSerialInterface : LogBase
         {
             if (!ReferenceEquals(command, _inFlight))
                 return;
+            using var actor = Actor.Begin(Actor.System(Name));
             try
             {
                 using (Trigger.Resume(_inFlight!.TriggerId))

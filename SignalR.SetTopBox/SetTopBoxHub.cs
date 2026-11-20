@@ -113,8 +113,9 @@ public class SetTopBoxHub() : GroupHub<ISetTopBoxHub>(Connections)
     // SignalR dispatch thread, and the resulting state is pushed back via the
     // ISetTopBoxHub callbacks. Any exception is logged here rather than lost on an
     // unobserved Task.
-    private static void Dispatch(string groupName, string methodName, Action work)
+    private void Dispatch(string groupName, string methodName, Action work)
     {
+        ReportInvocation(methodName);
         _ = Task.Run(() =>
         {
             using (BeginLogScope(methodName))

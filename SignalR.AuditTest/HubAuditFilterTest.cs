@@ -3,6 +3,7 @@ using System.Net;
 using AVCoders.Core;
 using AVCoders.Display;
 using AVCoders.SignalR.Display;
+using AVCoders.SignalR.Connections;
 using AVCoders.SignalR.Room;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Connections.Features;
@@ -61,6 +62,47 @@ public class HubAuditFilterTest
         Assert.Equal(PanelIp, actorInNext.Ip);
         Assert.Equal(PanelUserAgent, actorInNext.UserAgent);
         Assert.Equal(_connectionId, actorInNext.ConnectionId);
+        Assert.Null(Actor.Current);
+    }
+
+    [Fact]
+    public async Task OnConnected_SetsThePanelActorAndATriggerIdInsideNext_AndRecordsNothing()
+    {
+        ConnectFromPanel();
+        Actor? actorInNext = null;
+        string? triggerIdInNext = null;
+
+        await _filter.OnConnectedAsync(Lifetime(new DisplayHub()), _ =>
+        {
+            actorInNext = Actor.Current;
+            triggerIdInNext = Trigger.Id;
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(new Actor(ActorKind.Panel, PanelIp, PanelUserAgent, actorInNext!.HostName, _connectionId), actorInNext);
+        Assert.Matches(TriggerIdPattern, triggerIdInNext);
+        Assert.Null(Actor.Current);
+        Assert.Empty(Recorded());
+    }
+
+    [Fact]
+    public async Task OnDisconnected_SetsThePanelActorInsideNext_AndPassesTheException()
+    {
+        ConnectFromPanel();
+        var closed = new IOException("Connection reset");
+        Actor? actorInNext = null;
+        Exception? exceptionInNext = null;
+
+        await _filter.OnDisconnectedAsync(Lifetime(new DisplayHub()), closed, (_, exception) =>
+        {
+            actorInNext = Actor.Current;
+            exceptionInNext = exception;
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(ActorKind.Panel, actorInNext!.Kind);
+        Assert.Equal(_connectionId, actorInNext.ConnectionId);
+        Assert.Same(closed, exceptionInNext);
         Assert.Null(Actor.Current);
     }
 
@@ -227,7 +269,7 @@ public class HubAuditFilterTest
             manager.OnPowerOnRequested += _ => handled.TrySetResult((Actor.Current, Trigger.Id));
 
             await _filter.InvokeMethodAsync(
-                Invocation(new RoomHub(), nameof(RoomHub.PowerOnWithArgs), _groupName, new Dictionary<string, string>()),
+                Invocation(new RoomHub { Context = _context.Object }, nameof(RoomHub.PowerOnWithArgs), _groupName, new Dictionary<string, string>()),
                 InvokeHubMethod);
 
             var (actor, triggerId) = await handled.Task.WaitAsync(DispatchTimeout);
@@ -238,6 +280,7 @@ public class HubAuditFilterTest
             var log = Assert.Single(logs, l => l.Message.StartsWith($"Powering on {_groupName}"));
             Assert.Equal(actor!.ToString(), log.Scope[LogBase.ActorProperty]);
             Assert.Equal(triggerId, log.Scope[LogBase.TriggerIdProperty]);
+            Assert.DoesNotContain(RoomHub.Connections.GetOngoingIssues(), issue => issue.Key == HubConnections.NoActorIssueKey);
         }
         finally
         {
@@ -255,6 +298,8 @@ public class HubAuditFilterTest
 
     private HubInvocationContext Invocation(Hub hub, string methodName, params object?[] arguments) =>
         new(_context.Object, Mock.Of<IServiceProvider>(), hub, hub.GetType().GetMethod(methodName)!, arguments);
+
+    private HubLifetimeContext Lifetime(Hub hub) => new(_context.Object, Mock.Of<IServiceProvider>(), hub);
 
     private static ValueTask<object?> Next(HubInvocationContext invocationContext) => ValueTask.FromResult<object?>(null);
 

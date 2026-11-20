@@ -13,7 +13,7 @@ The `AVCoders.SignalR.*` hub packages depend on it, so a program that uses one o
 ## What's inside
 
 - `HubConnections`: one per hub, a `LogBase` named after the hub. It holds the open connections, the groups each one has joined, the registered groups and the recent unknown-group requests.
-- `GroupHub<T>`: the base of every library hub. It opens a connection in `HubConnections` on connect and closes it on disconnect. `AddToGroup(group)` joins the SignalR group and counts the connection in it. `ReportUnknownGroup(group)` reports a request for a group nothing is registered for, under the calling method's name.
+- `GroupHub<T>`: the base of every library hub. It opens a connection in `HubConnections` on connect and closes it on disconnect. `AddToGroup(group)` joins the SignalR group and counts the connection in it. `ReportUnknownGroup(group)` reports a request for a group nothing is registered for, under the calling method's name. `ReportInvocation()` reports whether the call carries an actor; `AddToGroup` and `ReportUnknownGroup` call it too. See [Calls with no actor](#calls-with-no-actor).
 - `HubConnectionsSnapshot`, `GroupConnections` and `UnknownGroupRequest`: the state for a health page.
 
 ## Reading connections
@@ -43,6 +43,10 @@ When `JoinGroup` or a command names a group nothing is registered for, the calle
 - While the asking connection is open, the hub raises an ongoing Major issue under the key `unknown-group:<group>`: "{Method} from connection {id} asked for group '{group}', which has nothing registered. Registered groups: {groups}". The registry carries it to health pages and the management interface's Issues page. It resolves when every open connection that asked for the group has closed, or when the group is registered. A request from a connection that has already closed is logged and recorded but raises no issue.
 - The request is added to the snapshot's `UnknownGroupRequests`, and a connection that joined the group counts in it with `Registered` false.
 
+## Calls with no actor
+
+`HubAuditFilter` (`AVCoders.SignalR.Audit`) sets `Actor.Current` on every hub call, connect and disconnect, so a call with no actor means the host hasn't registered it. That holds for an `AddToGroup` in a hub's `OnConnectedAsync` too. `ReportInvocation` then raises an ongoing Major issue under the key `HubConnections.NoActorIssueKey` (`no-actor`): "{Method} on {Hub} arrived with no actor: the host hasn't registered HubAuditFilter, so this hub's calls aren't attributed or audited. Connection {id}, remote address {address}". The values are the first such call's, as received, with `none` for a connection that has no HTTP context. There is one per hub, it isn't updated by later calls, and it resolves at the next call to that hub that carries an actor. The library hubs report on `JoinGroup`, on every command they dispatch and on every call for an unknown group.
+
 ## A program's own hub
 
 A hub in a program can use the same tracking:
@@ -60,7 +64,7 @@ public class KeypadHub() : GroupHub<IKeypadHub>(Connections)
 }
 ```
 
-Register the groups it serves with `Connections.Register(group)` and call `ReportUnknownGroup(group)` for any other.
+Register the groups it serves with `Connections.Register(group)` and call `ReportUnknownGroup(group)` for any other. Call `ReportInvocation()` at the start of each command for a registered group, so a host without `HubAuditFilter` is reported.
 
 ## Logging
 

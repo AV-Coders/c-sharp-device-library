@@ -255,6 +255,19 @@ public abstract class CommunicationClient(string name, string host, ushort port,
         return masked == text ? request : Encoding.Latin1.GetBytes(masked);
     }
 
+    protected void RecordDroppedSend(string? triggerId, string reason, string message)
+    {
+        var sent = Encoding.UTF8.GetBytes(Masked(message));
+        Audit.RecordOutcome(triggerId, AuditOutcomeKind.Dropped, Name, $"{reason}: {Bytes.Escaped(sent, sent.Length)}");
+    }
+
+    protected void RecordDroppedSend(string? triggerId, string reason, byte[] bytes, string? message)
+    {
+        var sent = Masked(bytes);
+        Audit.RecordOutcome(triggerId, AuditOutcomeKind.Dropped, Name,
+            $"{reason}: {(message == null ? BitConverter.ToString(sent) : Bytes.Escaped(sent, sent.Length))}");
+    }
+
     protected void InvokeRequestHandlers(string request)
     {
         request = Masked(request);
@@ -400,6 +413,11 @@ public abstract class IpComms : CommunicationClient
     protected int QueueTimeout = 5;
     protected const int ReconnectingSendQueueTimeout = 15;
     protected int MaxQueueSize = 100;
+    protected const string ExpiredInTheQueue = "Expired in the send queue";
+    protected const string DroppedFromAFullQueue = "Dropped as the oldest in a full send queue";
+    protected const string ClearedByConnect = "Cleared from the send queue by a connect request";
+    protected const string ClearedByDisconnect = "Cleared from the send queue by a disconnect request";
+    protected const string NotSentWhileDisconnected = "Not sent, the client was disconnected on request";
 
     protected readonly ThreadWorker ReceiveThreadWorker;
     protected readonly ThreadWorker ConnectionStateWorker;
@@ -443,7 +461,7 @@ public abstract class IpComms : CommunicationClient
     public int QueueTimeoutFor(bool waitsForTheReconnect) =>
         waitsForTheReconnect ? Math.Max(QueueTimeout, ReconnectingSendQueueTimeout) : QueueTimeout;
 
-    protected bool WaitsForTheReconnect() => ReconnectingForSend && Actor.Current != null;
+    protected bool WaitsForTheReconnect() => ReconnectingForSend && Actor.Current is { IsPerson: true };
 
     public abstract void Connect();
 
@@ -462,7 +480,7 @@ public abstract class IpComms : CommunicationClient
         ReconnectingForSend = false;
         if (DesiredConnectionState == ConnectionState.Disconnected)
             return;
-        var person = Actor.Current;
+        var person = Actor.Current is { IsPerson: true } actor ? actor : null;
         SetDisconnectedBy(person, person != null);
     }
 
@@ -496,7 +514,7 @@ public abstract class IpComms : CommunicationClient
 
     protected bool ReconnectForSend(Action send)
     {
-        if (Actor.Current is not { } sender)
+        if (Actor.Current is not { IsPerson: true } sender)
             return false;
         lock (ConnectionRequestLock)
         {
